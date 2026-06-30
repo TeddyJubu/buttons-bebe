@@ -1,0 +1,12 @@
+# kb/learned/ — intentionally empty at setup.
+#
+# This folder is filled AUTOMATICALLY later by the feedback loop (Stages 3–4),
+# NOT by hand:
+#   - validated agent replies      -> ticket-<id>.md      (similarity >= 0.7)
+#   - owner Q&A answers            -> owner-qa-<ts>.md
+#
+# Kept as a separate folder so the owner can review/prune machine-grown
+# knowledge. Files here may carry extra front-matter (ticket_id, source_type,
+# review_pending, created_at) per kb/CONVENTIONS.md §2.
+#
+# This .gitkeep keeps the empty folder in Git until the first learned file lands.

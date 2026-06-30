@@ -1,0 +1,18 @@
+# Buttons Bebe AI support agent — Stage 5 / Task 17
+# Daily timer that triggers gorgias-backup.service at 03:30.
+# Install: see install-backup-timer.sh.
+[Unit]
+Description=Daily Buttons Bebe backups (pgvector + feedback.db + KB bundle)
+Documentation=file:///root/gorgias-webhook/backup.sh
+
+[Timer]
+# Daily at 03:30 local time.
+OnCalendar=*-*-* 03:30:00
+# If the box was off at 03:30, run as soon as it comes back up.
+Persistent=true
+# Spread load a little so it never collides exactly with other timers.
+RandomizedDelaySec=120
+Unit=gorgias-backup.service
+
+[Install]
+WantedBy=timers.target

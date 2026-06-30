@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Dashboard — Gorgias + Telegram</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+    }
+    .banner {
+      background: linear-gradient(90deg, #7c2d12, #b45309);
+      color: #fff7ed;
+      text-align: center;
+      padding: 0.5rem 1rem;
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+    }
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 0.75rem; padding: 0.75rem 1rem; border-bottom: 1px solid #334155;
+      background: #1e293b;
+    }
+    .topbar h1 { font-size: 1.1rem; font-weight: 700; }
+    .topbar .sub { color: #94a3b8; font-size: 0.75rem; }
+    .stats { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .stat {
+      background: #0f172a; border: 1px solid #334155; border-radius: 0.4rem;
+      padding: 0.35rem 0.65rem; font-size: 0.72rem; font-family: 'JetBrains Mono', monospace;
+    }
+    .stat b { color: #f8fafc; }
+    .actions-top { display: flex; gap: 0.5rem; }
+    .btn {
+      background: #334155; border: 1px solid #475569; color: #f8fafc;
+      padding: 0.4rem 0.85rem; border-radius: 0.5rem; font-size: 0.8rem;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn:hover { background: #475569; }
+    .btn.danger { background: #7f1d1d; border-color: #b91c1c; }
+    .btn.primary { background: #164e63; border-color: #22d3ee; color: #ecfeff; }
+    .layout {
+      display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0;
+    }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .panel {
+      display: flex; flex-direction: column; border-right: 1px solid #334155;
+      min-height: 0; overflow: hidden;
+    }
+    .panel:last-child { border-right: none; }
+    .panel-head {
+      padding: 0.65rem 1rem; background: #1e293b; border-bottom: 1px solid #334155;
+      font-weight: 600; font-size: 0.85rem;
+    }
+    .panel-body { flex: 1; overflow-y: auto; padding: 0.75rem 1rem; }
+    .ticket-list { list-style: none; }
+    .ticket-item {
+      background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
+      padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; cursor: pointer;
+    }
+    .ticket-item:hover, .ticket-item.active { border-color: #22d3ee; }
+    .ticket-item .subj { font-weight: 600; font-size: 0.85rem; }
+    .ticket-item .meta { font-size: 0.7rem; color: #94a3b8; margin-top: 0.25rem; }
+    .badge {
+      display: inline-block; background: #0f172a; border: 1px solid #475569;
+      border-radius: 0.25rem; padding: 0.1rem 0.35rem; font-size: 0.65rem;
+      margin-right: 0.25rem; font-family: 'JetBrains Mono', monospace;
+    }
+    .badge.urgent { border-color: #b91c1c; color: #fca5a5; }
+    .badge.high { border-color: #b45309; color: #fcd34d; }
+    .badge.note { border-color: #b45309; color: #fbbf24; background: #422006; }
+    .thread { margin-top: 0.75rem; }
+    .msg {
+      max-width: 85%; margin-bottom: 0.65rem; padding: 0.55rem 0.75rem;
+      border-radius: 0.65rem; font-size: 0.85rem;
+    }
+    .msg.customer { background: #1e3a5f; margin-right: auto; border: 1px solid #2563eb; }
+    .msg.agent { background: #14532d; margin-left: auto; border: 1px solid #22c55e; }
+    .msg.note {
+      background: #422006; border: 1px solid #f59e0b; margin: 0 auto 0.65rem;
+      max-width: 95%; font-size: 0.8rem;
+    }
+    .msg .label { font-size: 0.65rem; color: #94a3b8; margin-bottom: 0.2rem; font-weight: 600; }
+    .form-block {
+      background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
+      padding: 0.75rem; margin-bottom: 0.75rem;
+    }
+    .form-block h3 { font-size: 0.8rem; margin-bottom: 0.5rem; color: #cbd5e1; }
+    label { display: block; font-size: 0.72rem; color: #64748b; margin-bottom: 0.2rem; }
+    input, select, textarea {
+      width: 100%; background: #0f172a; border: 1px solid #475569;
+      border-radius: 0.4rem; color: #e2e8f0; padding: 0.45rem 0.6rem;
+      font-family: inherit; font-size: 0.82rem; margin-bottom: 0.5rem;
+    }
+    textarea { min-height: 4rem; resize: vertical; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .row .btn { flex: 1; min-width: 6rem; }
+    .tabs { display: flex; gap: 0.35rem; padding: 0.5rem 1rem 0; background: #1e293b; }
+    .tab {
+      background: transparent; border: 1px solid #334155; color: #94a3b8;
+      padding: 0.35rem 0.75rem; border-radius: 0.4rem 0.4rem 0 0;
+      cursor: pointer; font-size: 0.78rem; font-family: inherit;
+    }
+    .tab.active { background: #0f172a; border-bottom-color: #0f172a; color: #22d3ee; }
+    .tg-msg {
+      background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
+      padding: 0.65rem; margin-bottom: 0.5rem; font-size: 0.82rem;
+      white-space: pre-wrap;
+    }
+    .tg-msg .ts { font-size: 0.65rem; color: #64748b; font-family: 'JetBrains Mono', monospace; }
+    .reply-bar {
+      padding: 0.75rem 1rem; border-top: 1px solid #334155; background: #1e293b;
+      display: flex; gap: 0.5rem;
+    }
+    .reply-bar input { flex: 1; margin-bottom: 0; }
+    .toast {
+      position: fixed; bottom: 1rem; right: 1rem; background: #164e63;
+      border: 1px solid #22d3ee; color: #ecfeff; padding: 0.55rem 0.9rem;
+      border-radius: 0.5rem; font-size: 0.82rem; opacity: 0; transition: opacity 0.25s;
+      pointer-events: none; z-index: 100; max-width: 20rem;
+    }
+    .toast.show { opacity: 1; }
+    .empty { color: #64748b; font-size: 0.85rem; text-align: center; padding: 2rem 1rem; }
+    .run-status {
+      font-size: 0.72rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace;
+      margin-top: 0.5rem; padding: 0.5rem; background: #0f172a; border-radius: 0.4rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">⚠ DEMO MODE — No production Gorgias or Telegram traffic</div>
+
+  <div class="topbar">
+    <div>
+      <h1>Gorgias Webhook Demo</h1>
+      <div class="sub">Full pipeline: classify → draft → internal note → Telegram</div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="actions-top">
+      <button class="btn danger" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- Left: Gorgias -->
+    <div class="panel">
+      <div class="panel-head">Demo Gorgias — Tickets</div>
+      <div class="panel-body">
+        <div class="form-block">
+          <h3>New ticket</h3>
+          <label>Customer email</label>
+          <select id="newEmail">
+            <option value="shipped@example.com">shipped@example.com (fulfilled + tracking)</option>
+            <option value="cancelme@example.com">cancelme@example.com (unfulfilled)</option>
+            <option value="customer@example.com">customer@example.com (no order)</option>
+            <option value="wheresit@example.com">wheresit@example.com (unfulfilled)</option>
+          </select>
+          <label>Subject</label>
+          <input id="newSubject" placeholder="Subject" value="Support request">
+          <label>Message</label>
+          <textarea id="newMessage" placeholder="Customer message..."></textarea>
+          <button class="btn primary" id="createTicketBtn">Create &amp; Run Workflow A</button>
+        </div>
+
+        <div class="form-block">
+          <h3>Load scenario</h3>
+          <div class="row">
+            <select id="scenarioSelect"></select>
+            <button class="btn" id="loadScenarioBtn">Load</button>
+          </div>
+        </div>
+
+        <ul class="ticket-list" id="ticketList"></ul>
+
+        <div id="ticketDetail" style="display:none">
+          <div class="thread" id="thread"></div>
+          <div class="form-block">
+            <h3>Customer reply</h3>
+            <textarea id="customerReply" placeholder="Add customer message..."></textarea>
+            <button class="btn primary" id="customerReplyBtn">Send &amp; Run Workflow A</button>
+          </div>
+          <div class="form-block">
+            <h3>Agent public reply</h3>
+            <textarea id="agentReply" placeholder="Human agent reply (triggers Workflow B)..."></textarea>
+            <button class="btn" id="agentReplyBtn">Send &amp; Run Workflow B</button>
+          </div>
+          <div class="run-status" id="runStatus"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Telegram -->
+    <div class="panel">
+      <div class="panel-head">Demo Telegram</div>
+      <div class="tabs">
+        <button class="tab active" data-bot="notify">Testing bot (notify)</button>
+        <button class="tab" data-bot="priority">Priority bot</button>
+      </div>
+      <div class="panel-body" id="telegramFeed"></div>
+      <div class="reply-bar">
+        <input id="ownerReply" placeholder="Reply as owner (KB gap Q&A)...">
+        <button class="btn primary" id="ownerReplyBtn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = '';
+    let selectedTicketId = null;
+    let activeBot = 'notify';
+
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3500);
+    }
+
+    async function api(method, path, body) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(API + path, opts);
+      return res.json();
+    }
+
+    function priorityBadge(p) {
+      if (!p) return '';
+      const cls = (p === 'urgent' || p === 'critical') ? 'urgent' : (p === 'high' ? 'high' : '');
+      return `<span class="badge ${cls}">${p}</span>`;
+    }
+
+    async function refreshStats() {
+      const s = await api('GET', '/api/demo/state');
+      document.getElementById('stats').innerHTML = `
+        <span class="stat">Tickets: <b>${s.ticket_count || 0}</b></span>
+        <span class="stat">Notify: <b>${s.telegram_notify_count || 0}</b></span>
+        <span class="stat">Priority: <b>${s.telegram_priority_count || 0}</b></span>
+        <span class="stat">Drafts: <b>${s.feedback_draft_count || 0}</b></span>
+        ${s.last_similarity != null ? `<span class="stat">Similarity: <b>${(s.last_similarity * 100).toFixed(0)}%</b></span>` : ''}
+      `;
+      const sel = document.getElementById('scenarioSelect');
+      if (sel.options.length === 0 && s.scenarios) {
+        Object.entries(s.scenarios).forEach(([k, v]) => {
+          const o = document.createElement('option');
+          o.value = k; o.textContent = v;
+          sel.appendChild(o);
+        });
+      }
+    }
+
+    async function refreshTickets() {
+      const data = await api('GET', '/api/demo/tickets');
+      const list = document.getElementById('ticketList');
+      const tickets = data.tickets || [];
+      if (!tickets.length) {
+        list.innerHTML = '<div class="empty">No tickets yet — create one or load a scenario.</div>';
+        return;
+      }
+      list.innerHTML = tickets.map(t => `
+        <li class="ticket-item ${t.id === selectedTicketId ? 'active' : ''}" data-id="${t.id}">
+          <div class="subj">#${t.id} ${escapeHtml(t.subject || '')}</div>
+          <div class="meta">
+            ${priorityBadge(t.priority)}
+            ${(t.tags || []).map(tag => `<span class="badge">${escapeHtml(tag)}</span>`).join('')}
+            ${escapeHtml(t.customer_email || '')} · ${t.message_count} msgs
+          </div>
+        </li>
+      `).join('');
+      list.querySelectorAll('.ticket-item').forEach(el => {
+        el.addEventListener('click', () => selectTicket(parseInt(el.dataset.id)));
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function selectTicket(id) {
+      selectedTicketId = id;
+      await refreshTickets();
+      const data = await api('GET', `/api/demo/tickets/${id}`);
+      document.getElementById('ticketDetail').style.display = 'block';
+      const thread = document.getElementById('thread');
+      const msgs = data.messages || [];
+      thread.innerHTML = msgs.map(m => {
+        if (m.channel === 'internal-note') {
+          return `<div class="msg note"><div class="label">AI Draft (internal note)</div>${escapeHtml(m.body_text || '')}</div>`;
+        }
+        if (m.from_agent) {
+          return `<div class="msg agent"><div class="label">Agent</div>${escapeHtml(m.body_text || '')}</div>`;
+        }
+        return `<div class="msg customer"><div class="label">Customer</div>${escapeHtml(m.body_text || '')}</div>`;
+      }).join('') || '<div class="empty">No messages</div>';
+
+      const run = data.last_run;
+      document.getElementById('runStatus').textContent = run
+        ? `Last run: WF-${run.workflow || '?'} · ${run.elapsed_ms}ms · ${run.summary || ''}`
+        : '';
+    }
+
+    async function refreshTelegram() {
+      const data = await api('GET', `/api/demo/telegram?bot=${activeBot}`);
+      const feed = document.getElementById('telegramFeed');
+      const msgs = data.messages || [];
+      feed.innerHTML = msgs.length ? msgs.map(m => `
+        <div class="tg-msg">
+          <div class="ts">${m.timestamp || ''}${m.ticket_id ? ' · ticket #' + m.ticket_id : ''}</div>
+          ${escapeHtml(m.text || '')}
+        </div>
+      `).join('') : '<div class="empty">No messages yet</div>';
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeBot = tab.dataset.bot;
+        refreshTelegram();
+      });
+    });
+
+    document.getElementById('createTicketBtn').addEventListener('click', async () => {
+      toast('Running pipeline…');
+      const result = await api('POST', '/api/demo/tickets', {
+        email: document.getElementById('newEmail').value,
+        subject: document.getElementById('newSubject').value,
+        message: document.getElementById('newMessage').value,
+      });
+      toast(`Workflow ${result.workflow || '?'} done (${result.elapsed_ms}ms)`);
+      selectedTicketId = result.ticket_id;
+      await refreshAll();
+      selectTicket(selectedTicketId);
+    });
+
+    document.getElementById('loadScenarioBtn').addEventListener('click', async () => {
+      const name = document.getElementById('scenarioSelect').value;
+      toast(`Loading scenario ${name}…`);
+      const result = await api('POST', `/api/demo/scenarios/${name}`);
+      toast(`Scenario loaded — WF-${result.workflow} (${result.elapsed_ms}ms)`);
+      selectedTicketId = result.ticket_id;
+      await refreshAll();
+      selectTicket(selectedTicketId);
+    });
+
+    document.getElementById('customerReplyBtn').addEventListener('click', async () => {
+      if (!selectedTicketId) return;
+      toast('Running Workflow A…');
+      const result = await api('POST', `/api/demo/tickets/${selectedTicketId}/customer-message`, {
+        message: document.getElementById('customerReply').value,
+      });
+      toast(`WF-${result.workflow} done (${result.elapsed_ms}ms)`);
+      document.getElementById('customerReply').value = '';
+      await refreshAll();
+      selectTicket(selectedTicketId);
+    });
+
+    document.getElementById('agentReplyBtn').addEventListener('click', async () => {
+      if (!selectedTicketId) return;
+      toast('Running Workflow B…');
+      const result = await api('POST', `/api/demo/tickets/${selectedTicketId}/agent-reply`, {
+        message: document.getElementById('agentReply').value,
+      });
+      toast(`WF-${result.workflow} done (${result.elapsed_ms}ms)`);
+      document.getElementById('agentReply').value = '';
+      await refreshAll();
+      selectTicket(selectedTicketId);
+    });
+
+    document.getElementById('ownerReplyBtn').addEventListener('click', async () => {
+      const text = document.getElementById('ownerReply').value.trim();
+      if (!text) return;
+      await api('POST', '/api/demo/telegram/reply', { text });
+      document.getElementById('ownerReply').value = '';
+      toast('Owner reply queued');
+      refreshTelegram();
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', async () => {
+      if (!confirm('Reset all demo state?')) return;
+      await api('POST', '/api/demo/reset');
+      selectedTicketId = null;
+      document.getElementById('ticketDetail').style.display = 'none';
+      toast('Demo reset');
+      refreshAll();
+    });
+
+    async function refreshAll() {
+      await Promise.all([refreshStats(), refreshTickets(), refreshTelegram()]);
+    }
+
+    refreshAll();
+    setInterval(refreshTelegram, 2000);
+    setInterval(refreshStats, 5000);
+  </script>
+</body>
+</html>

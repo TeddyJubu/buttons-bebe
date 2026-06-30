@@ -1,0 +1,18 @@
+# Buttons Bebe AI support agent — Stage 5 / Task 16
+# Weekly timer that triggers gorgias-weekly-review.service every Monday 09:00.
+# Install: see install-weekly-review-timer.sh.
+[Unit]
+Description=Weekly Buttons Bebe metrics report (Mondays 09:00)
+Documentation=file:///root/gorgias-webhook/weekly_review.py
+
+[Timer]
+# Every Monday at 09:00 local time.
+OnCalendar=Mon *-*-* 09:00:00
+# If the box was off at 09:00 Monday, run as soon as it comes back up.
+Persistent=true
+# Spread load a little so it never collides exactly with other timers.
+RandomizedDelaySec=120
+Unit=gorgias-weekly-review.service
+
+[Install]
+WantedBy=timers.target

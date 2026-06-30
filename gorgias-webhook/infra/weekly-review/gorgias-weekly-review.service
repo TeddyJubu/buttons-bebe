@@ -1,0 +1,18 @@
+# Buttons Bebe AI support agent — Stage 5 / Task 16
+# Oneshot service run by gorgias-weekly-review.timer. Computes weekly metrics
+# from feedback.db (read-only) and sends the summary to the owner via Telegram.
+# Install: see install-weekly-review-timer.sh (copies this to /etc/systemd/system/).
+[Unit]
+Description=Buttons Bebe — weekly operational metrics report (feedback.db -> Telegram)
+Documentation=file:///root/gorgias-webhook/weekly_review.py
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/gorgias-webhook
+# --send delivers the report to the owner chat(s) via telegram_notify.
+# weekly_review.py is read-only on feedback.db and never raises into the run.
+ExecStart=/root/gorgias-webhook/.venv/bin/python /root/gorgias-webhook/weekly_review.py --send
+Nice=10
+IOSchedulingClass=idle
+# Don't hang the timer forever if something wedges (e.g. Telegram network).
+TimeoutStartSec=300
