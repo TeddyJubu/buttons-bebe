@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+config.json
+config.local.json
+secrets.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime data
+*.db
+*.sqlite*
+exports/
+ticket_contexts/
+backups/
+webhook_events.jsonl
+*.jsonl
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

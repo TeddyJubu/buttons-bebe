@@ -1,0 +1,25 @@
+<details>
+<summary>Q12: Ordered wrong item, swap (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Wrong size ordered
+- **Email:** wrongsize@example.com
+- **Message:** I ordered the tutu dress in 2T but meant 3T. Can you swap it before shipping?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out — i see your order hasn't shipped yet, so we can definitely look into swapping the tutu dress to 3T. let me check if that size is available and i'll get right back to you!
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** RETURN · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! I'd be happy to help switch your Tutu Dress from size 2T to 3T. Since your order hasn't shipped yet, this is possible if the 3T is available. I need to check stock on that size first — let me transfer your request to our team so they can confirm availability and make the update. We'll get back to you shortly!
+>
+> ESCALATE: Need to verify availability of Tutu Dress size 3T before changing the order.
+
+</details>

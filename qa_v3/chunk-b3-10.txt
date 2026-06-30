@@ -1,0 +1,25 @@
+<details>
+<summary>Q30: First-time customer discount (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** New customer discount?
+- **Email:** firstq@example.com
+- **Message:** I'm a first-time customer — do you have a welcome or first-order discount code?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! welcome to buttons bebe 💕 we don't have a first-time customer discount, but we do run sales and promos from time to time — best way to catch them is through our emails/texts or on the site. let us know if you need any help with your order!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Thank you so much for reaching out and welcome to Buttons Bebe. At this time, we do not offer a first-time customer discount. However, we do run sales and promotions from time to time, so the best way to stay updated is through our emails/texts and website. Please let us know if you need help with anything while placing your order!
+>
+> The Buttons Bebe Team
+
+</details>

@@ -1,0 +1,25 @@
+<details>
+<summary>Q27: Promo code stacking (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Two codes?
+- **Email:** promoq@example.com
+- **Message:** Can I use two discount codes on the same order?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! great question — i don't have a clear answer on stacking two codes handy, so let me check with the team and get back to you asap. thanks for your patience!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Unfortunately, only one discount code can be applied per order — codes cannot be combined. We recommend choosing the code that gives you the best savings! Please let us know if you have any other questions.
+>
+> — The Buttons Bebe Team
+
+</details>

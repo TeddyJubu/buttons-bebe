@@ -1,0 +1,25 @@
+<details>
+<summary>Q28: Warehouse pickup hours (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Pickup hours
+- **Email:** pickupq@example.com
+- **Message:** Can I pick up my order in person, and what are your warehouse hours?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> yes, you can pick up at our Toms River warehouse! our regular hours are mon–thu 9–3 and fri 9–2, but they can vary so it's best to confirm before heading over. there are also outdoor pickup bins available 24/7 if you need to grab your order outside those hours.
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Yes, you can pick up your order in person at our Toms River warehouse. Orders placed with the pickup option are placed in our outdoor pickup bin at 2133 Lakewood Road, Unit 104, which is accessible 24/7. Our warehouse hours for visits are Monday–Thursday 9am–3pm and Friday 9am–2pm. If you have an order waiting, feel free to stop by anytime! Let us know if you need further details.
+>
+> The Buttons Bebe Team
+
+</details>

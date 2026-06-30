@@ -1,0 +1,25 @@
+<details>
+<summary>Q10: Delivered but not received (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Says delivered but nothing here
+- **Email:** notgot@example.com
+- **Message:** My tracking says delivered but I never got the package. What do I do?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> oh no, that's so frustrating! could you check with neighbors, your building office, or any alternate drop spots (porch, garage, back door) first? also see if anyone else in the household grabbed it. if it still hasn't turned up after that, just let me know and we'll figure out next steps together.
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! We're sorry to hear that — the tracking shows it as delivered. Could you please check with any neighbors or your building office, and look in alternate spots like the front door, back door, porch, or garage? Carriers sometimes mark packages delivered a little early, so it may also turn up within a day. If it still hasn't shown up, let us know and we'll look into next steps with you.
+>
+> The Buttons Bebe Team
+
+</details>

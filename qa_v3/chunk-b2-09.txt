@@ -1,0 +1,27 @@
+<details>
+<summary>Q19: Did my exchange ship (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Exchange shipped?
+- **Email:** exchship@example.com
+- **Message:** I did an exchange for the corduroy overalls — has the replacement shipped yet?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! looks like your replacement corduroy overalls have already shipped 🎉 here's the tracking: https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200887654321098 — should update soon if it hasn't already!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Thank you for reaching out! Checking Order #1014, I can see that the original order for the Corduroy Overalls (18m) has been fulfilled and shipped via USPS. However, I don't have any verified information about an exchange being processed or a replacement shipment in our system.
+>
+> To look into this further and check if an exchange was initiated on your account, I'll need to escalate this to our team. They can review the order history and provide you with an update. We'll get back to you as soon as possible!
+>
+> The Buttons Bebe Team
+
+</details>

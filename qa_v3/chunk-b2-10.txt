@@ -1,0 +1,25 @@
+<details>
+<summary>Q20: Cancel one item from order (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Remove one item
+- **Email:** cancelitem@example.com
+- **Message:** Can you remove just the matching booties from my order and keep the cardigan? It hasn't shipped yet.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! we can definitely remove the booties from order #1012 and keep the cardigan for you — i'll take care of that now since it hasn't shipped yet. we'll let you know once it's done!
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> I'm sorry, but I'm unable to process a partial item removal from your order, as this isn't covered in our available policies or procedures. For Order #1012 (Knit Cardigan and Matching Booties, still unfulfilled), I'll need to escalate your request to a team member who can help with order modifications.
+>
+> **ESCALATE:** Policy for removing individual items from an unfulfilled order is not available in the Knowledge Base.
+
+</details>

@@ -1,0 +1,25 @@
+<details>
+<summary>Q13: Add item to existing order (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Add to my order
+- **Email:** additem@example.com
+- **Message:** Can I add a matching pair of booties to my order so it ships together and I don't pay shipping twice?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out — i'd love to help with that. adding items to an existing order isn't something we can do directly on our end, but let me check with the team to see if there's a way to combine it or cancel and reorder so everything ships together. i'll get back to you as soon as i hear back!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! Unfortunately, we're not able to add new items to an existing order. I'd recommend placing a separate order for the booties. If your combined total would be over $75, you'll qualify for free standard shipping on your new order. Sorry I can't combine them — if you have any other questions, I'm happy to help!
+>
+> The Buttons Bebe Team
+
+</details>

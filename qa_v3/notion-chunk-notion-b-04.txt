@@ -1,0 +1,25 @@
+<details>
+<summary>Q24: Restocking fee (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Is there a restocking fee?
+- **Email:** feeq@example.com
+- **Message:** If I return something, is there a restocking fee, and how much?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! yes, there's a small restocking fee on cash refunds — $1.69 per item for standard returns. it covers the processing fee our card provider charges us. if you'd rather avoid it, we can do store credit for the full amount instead. just let us know what works best for you!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** RETURN · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, a small restocking fee does apply to returns refunded to your original payment method — it's **$1.69 per item** for standard returns (or $1.99 per item if you’re cancelling). That fee covers the processing charge we receive from the credit card company on every refund. If you'd prefer to avoid the fee, we'd be happy to issue your refund as store credit instead — that’s the full amount with no deduction. Just let us know which works best for you!
+>
+> The Buttons Bebe Team
+
+</details>

@@ -1,0 +1,25 @@
+<details>
+<summary>Q26: Care / machine washable (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Washing instructions
+- **Email:** careq@example.com
+- **Message:** Are your onesies machine washable or do they need hand washing?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! most of our onesies are machine washable — we'd recommend washing cold on a gentle cycle and drying low or laying flat to avoid shrinkage. but care can vary by brand, so definitely check the tag on the garment too. if you have a specific onesie in mind, send us the name and we can look into it for you!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Great question — our onesies are absolutely machine washable. We recommend washing them on a gentle/delicate cycle in cold water and then tumbling on low heat or laying flat to dry. This helps keep them soft and colorful while preventing shrinkage. Avoid bleach and high heat for the best results. 😊
+>
+> The
+
+</details>

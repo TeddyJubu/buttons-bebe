@@ -1,0 +1,28 @@
+<details>
+<summary>Q07: Return eligibility (shipped order) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Can I return this?
+- **Email:** delivered@example.com
+- **Message:** I'd like to return the swaddle set from my last order. Is it still within the return window and how do I start?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> thanks for reaching out! i'll check the delivery date on your swaddle set order to see if it's within the 7-day window. once i have that, i'll send you the steps to start the return. hang tight!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** RETURN · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! We'd be happy to help with your return. To check whether the swaddle set is still within the return window, we need to confirm the delivery date of your order (Order #1004). Unfortunately, that information isn't available to us right now.
+>
+> Could you let us know the date you received the package? Once we have that, we can calculate your refund deadline and provide instructions for starting the return. 
+>
+> Warmly,
+> The Buttons Bebe Team
+
+</details>

@@ -1,0 +1,21 @@
+<details>
+<summary>Q15: Partial shipment — missing item (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Only got part of my order
+- **Email:** partial@example.com
+- **Message:** My order arrived but the sun hat wasn't in the box — only the romper. Where's the rest?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> oh no, i'm so sorry the sun hat was missing from your order — that's definitely our mistake. let me check our inventory for a spare hat; if we have one, we'll ship it out to you separately. i'll follow up as soon as i know more. thanks for your patience!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>

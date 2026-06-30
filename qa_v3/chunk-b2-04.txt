@@ -1,0 +1,21 @@
+<details>
+<summary>Q14: Order seems stuck (older unfulfilled) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Is my order on hold?
+- **Email:** onhold@example.com
+- **Message:** I ordered the linen bloomers about a week ago and it still hasn't shipped. Is something wrong / is it on hold?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! sorry about the delay — orders usually ship within 24-48 hours, so yours should have gone out by now. let me check with the team and get back to you asap!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>

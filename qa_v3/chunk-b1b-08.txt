@@ -1,0 +1,21 @@
+<details>
+<summary>Q09: Did both my orders ship (multi-order) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Status of my two orders
+- **Email:** twoorders@example.com
+- **Message:** I have two recent orders with you. Did they both ship? I only got one tracking email.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! looks like order #1018 (ruffle leggings) shipped — here's the tracking: https://www.ups.com/track?tracknum=1Z999AA10144455566. order #1019 (bow headbands) is still processing, so it hasn't shipped yet. let us know if you need anything else!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>

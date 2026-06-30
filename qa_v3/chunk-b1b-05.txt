@@ -1,0 +1,25 @@
+<details>
+<summary>Q06: Change size before ship (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Can I change the size?
+- **Email:** sizechange@example.com
+- **Message:** I ordered the ribbed romper in 6-12m but I need 12-18m instead. Can you change it before it goes out?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! i can see your order hasn't shipped yet, so let me check if the 12-18m is available for the ribbed romper. i'll get back to you as soon as i know!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** PRODUCT · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Thank you for reaching out! Your order hasn't shipped yet, so we can look into switching the size for you. However, I need to confirm availability of the 12-18m Ribbed Romper before I can make the change. Could you hold on a moment while I check on that for you? I'll be right back with an update.
+>
+> **The Buttons Bebe Team**
+
+</details>

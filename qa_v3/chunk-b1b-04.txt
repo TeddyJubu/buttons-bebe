@@ -1,0 +1,24 @@
+<details>
+<summary>Q05: Cancel before ship (unfulfilled) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Please cancel my order
+- **Email:** cancelme@example.com
+- **Message:** I just placed an order this morning but changed my mind — can you cancel it before it ships?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** immediate · **KB:** none (escalated) · **Order used:** Yes · **Escalation:** Yes · **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: cancellation | Urgency: immediate
+> Why: Cancellation request — order/subscription cancel language present
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+#### Teddy
+- **Priority:** IMMEDIATE · **KB:** HIGH · **Intent:** RETURN · **Order used:** Yes · **Posted:** No
+
+**Response:** *(no draft — escalated)*
+
+</details>

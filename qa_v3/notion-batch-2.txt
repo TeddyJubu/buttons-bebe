@@ -1,0 +1,244 @@
+<details>
+<summary>Q11: Change shipping address (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Need to fix my address
+- **Email:** addr@example.com
+- **Message:** I just realised I used my old address on my order. Can you update it before it ships?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! since your order hasn't shipped yet, we can definitely update the address. just reply with the correct one and we'll get that changed for you 🙂
+
+#### Teddy
+- **Priority:** IMMEDIATE · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** Yes · **Posted:** No
+
+**Response:** *(no draft — escalated)*
+
+</details>
+
+<details>
+<summary>Q12: Ordered wrong item, swap (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Wrong size ordered
+- **Email:** wrongsize@example.com
+- **Message:** I ordered the tutu dress in 2T but meant 3T. Can you swap it before shipping?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out — i see your order hasn't shipped yet, so we can definitely look into swapping the tutu dress to 3T. let me check if that size is available and i'll get right back to you!
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** RETURN · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! I'd be happy to help switch your Tutu Dress from size 2T to 3T. Since your order hasn't shipped yet, this is possible if the 3T is available. I need to check stock on that size first — let me transfer your request to our team so they can confirm availability and make the update. We'll get back to you shortly!
+>
+> ESCALATE: Need to verify availability of Tutu Dress size 3T before changing the order.
+
+</details>
+
+<details>
+<summary>Q13: Add item to existing order (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Add to my order
+- **Email:** additem@example.com
+- **Message:** Can I add a matching pair of booties to my order so it ships together and I don't pay shipping twice?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out — i'd love to help with that. adding items to an existing order isn't something we can do directly on our end, but let me check with the team to see if there's a way to combine it or cancel and reorder so everything ships together. i'll get back to you as soon as i hear back!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! Unfortunately, we're not able to add new items to an existing order. I'd recommend placing a separate order for the booties. If your combined total would be over $75, you'll qualify for free standard shipping on your new order. Sorry I can't combine them — if you have any other questions, I'm happy to help!
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q14: Order seems stuck (older unfulfilled) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Is my order on hold?
+- **Email:** onhold@example.com
+- **Message:** I ordered the linen bloomers about a week ago and it still hasn't shipped. Is something wrong / is it on hold?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! sorry about the delay — orders usually ship within 24-48 hours, so yours should have gone out by now. let me check with the team and get back to you asap!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>
+
+<details>
+<summary>Q15: Partial shipment — missing item (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Only got part of my order
+- **Email:** partial@example.com
+- **Message:** My order arrived but the sun hat wasn't in the box — only the romper. Where's the rest?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> oh no, i'm so sorry the sun hat was missing from your order — that's definitely our mistake. let me check our inventory for a spare hat; if we have one, we'll ship it out to you separately. i'll follow up as soon as i know more. thanks for your patience!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>
+
+<details>
+<summary>Q16: What did I order again (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** What was in my order?
+- **Email:** whatdidiorder@example.com
+- **Message:** I forgot what I ordered — can you remind me what's in my most recent order?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> no worries! your most recent order (#1020) has a gingham dress in 4t, two pairs of lace socks, and a cardigan. it hasn't shipped yet, so you're all set if you need to make any changes!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! Of course — your most recent order (#1020) includes a Gingham Dress in size 4T, two pairs of Lace Socks, and a Cardigan. It's currently paid and being prepared to ship. Let us know if there's anything else we can help with!
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q17: Refund status (returned item) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Where is my refund?
+- **Email:** refundstatus@example.com
+- **Message:** I sent back an item — has my refund gone through yet? I see the order but want to confirm the money.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** immediate · **KB:** none (escalated) · **Order used:** Yes · **Escalation:** Yes · **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: refund | Urgency: immediate
+> Why: Refund request — money-back / refund language present
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>
+
+<details>
+<summary>Q18: Expedite — need by Friday (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Need it by Friday
+- **Email:** expedite@example.com
+- **Message:** I just ordered the smocked dress — is there any way to rush it so it arrives by Friday?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! we'll send a note to the warehouse to see if they can prioritize your order. just keep in mind that delivery timing still depends on the shipping method you picked at checkout — if you want, we can check if a faster option is available to help get it there by Friday.
+
+#### Teddy
+- **Priority:** LOW · **KB:** MEDIUM · **Intent:** SHIPPING · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>
+
+<details>
+<summary>Q19: Did my exchange ship (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Exchange shipped?
+- **Email:** exchship@example.com
+- **Message:** I did an exchange for the corduroy overalls — has the replacement shipped yet?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! looks like your replacement corduroy overalls have already shipped 🎉 here's the tracking: https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200887654321098 — should update soon if it hasn't already!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Thank you for reaching out! Checking Order #1014, I can see that the original order for the Corduroy Overalls (18m) has been fulfilled and shipped via USPS. However, I don't have any verified information about an exchange being processed or a replacement shipment in our system.
+>
+> To look into this further and check if an exchange was initiated on your account, I'll need to escalate this to our team. They can review the order history and provide you with an update. We'll get back to you as soon as possible!
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q20: Cancel one item from order (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Remove one item
+- **Email:** cancelitem@example.com
+- **Message:** Can you remove just the matching booties from my order and keep the cardigan? It hasn't shipped yet.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! we can definitely remove the booties from order #1012 and keep the cardigan for you — i'll take care of that now since it hasn't shipped yet. we'll let you know once it's done!
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> I'm sorry, but I'm unable to process a partial item removal from your order, as this isn't covered in our available policies or procedures. For Order #1012 (Knit Cardigan and Matching Booties, still unfulfilled), I'll need to escalate your request to a team member who can help with order modifications.
+>
+> **ESCALATE:** Policy for removing individual items from an unfulfilled order is not available in the Knowledge Base.
+
+</details>

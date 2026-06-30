@@ -1,0 +1,25 @@
+<details>
+<summary>Q23: International shipping to Israel (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Ship to Israel?
+- **Email:** intlq@example.com
+- **Message:** Do you ship internationally? I'm in Israel and would love to order.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! yes, we ship to Israel — the international shipping option shows up at checkout and costs about $35 USD. just keep in mind that any customs or import duties would be your responsibility. let us know if you have any other questions!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, we ship internationally, including to Israel. You'll see the shipping option at checkout — international shipping is approximately $35 USD, and delivery times vary depending on your location. We can't wait to have you shop with us!
+>
+> The Buttons Bebe Team
+
+</details>

@@ -1,0 +1,25 @@
+<details>
+<summary>Q22: Gift wrapping cost/eligibility (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Gift wrapping?
+- **Email:** giftq@example.com
+- **Message:** Do you offer gift wrapping, and is there a charge for it?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! gift wrapping is free on full-price items $35 and up — sale items aren't eligible, unfortunately. we're just double-checking the exact threshold with the owner, so feel free to ask again if you need a firm answer before you order 😊
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, we offer complimentary gift wrapping on full-price items valued at $35 or more. Sale items are not eligible, but you're welcome to purchase a gift box separately. Just be sure to select the gift wrap option at checkout so our packing team sees it! Let us know if you have any other questions.
+>
+> The Buttons Bebe Team
+
+</details>
