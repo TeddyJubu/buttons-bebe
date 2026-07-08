@@ -1,0 +1,9 @@
+# Known macro / template signatures — one distinctive substring per line.
+# Any human reply containing one of these is treated as a saved macro (a template
+# the team already has) and is NOT captured as new learning. Lower-case; matched
+# case-insensitively as a substring. Add your real Gorgias macro phrases here.
+#
+# Examples (replace with Buttons Bebe's actual macro openers/closers):
+# thank you for reaching out to buttons bebe
+# our standard return policy is 30 days
+# please allow 3-5 business days for your refund to process

@@ -1,0 +1,15 @@
+[Unit]
+Description=Buttons Bebe KB admin (editable knowledge base API for the console)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=KB_ADMIN_PORT=8087
+Environment="KB_DIR=/root/Buttonsbebe Agent/KB"
+ExecStart=/bin/bash -c 'exec __NODE__ "/root/Buttonsbebe Agent/kb-admin/server.js"'
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

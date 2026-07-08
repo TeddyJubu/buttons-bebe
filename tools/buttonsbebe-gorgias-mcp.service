@@ -1,0 +1,16 @@
+[Unit]
+Description=Buttons Bebe Gorgias helpdesk MCP tool (for Hermes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=GORGIAS_MCP_TRANSPORT=streamable-http
+Environment=GORGIAS_MCP_HOST=127.0.0.1
+Environment=GORGIAS_MCP_PORT=8079
+ExecStart=/root/gorgias-mcp-run.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

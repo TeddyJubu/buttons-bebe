@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buttons Bebe — Support Console</title>
+<style>
+*{box-sizing:border-box;margin:0}
+:root{--acc:#6d5efc;--acc-soft:#efeaff;--ink:#14161c;--ink2:#5b6472;--ink3:#8a93a3;--bg:#f6f7fb;--card:#fff;--line:#e9ebf1;--green:#12b76a;--green-s:#e7f7ee;--amber:#dc9309;--amber-s:#fdf3e0;--red:#e5484d;--red-s:#fdecec;--radius:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif}
+body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+#app{display:flex;min-height:100vh}
+.side{width:230px;background:var(--card);border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;flex:0 0 230px}
+.logo{display:flex;align-items:center;gap:9px;padding:6px 8px 16px;flex-wrap:wrap}
+.logo .mark{width:30px;height:30px;border-radius:9px;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px}
+.logo b{font-size:16px;font-weight:600}.logo .tag{font-size:10px;color:var(--acc);background:var(--acc-soft);padding:2px 6px;border-radius:20px;font-weight:600}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.nav a{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;color:var(--ink2);font-size:14px;cursor:pointer;font-weight:500}
+.nav a:hover{background:#f4f5f9}.nav a.on{background:var(--acc-soft);color:var(--acc)}
+.nav a svg{width:18px;height:18px;flex:0 0 18px}
+.side .store{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;display:flex;align-items:center;gap:10px}
+.side .store .av{width:32px;height:32px;border-radius:8px;background:#eef0f6;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--ink2)}
+.side .store .nm{font-size:13px;font-weight:600}.side .store .pl{font-size:11px;color:var(--ink3)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;justify-content:space-between;padding:18px 26px;border-bottom:1px solid var(--line);background:var(--card)}
+.top h1{font-size:19px;font-weight:600}.top .sub{font-size:13px;color:var(--ink3);margin-top:2px}
+.live{display:flex;align-items:center;gap:7px;font-size:13px;background:var(--green-s);color:#0a7a48;padding:6px 11px;border-radius:20px;font-weight:500;cursor:pointer}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+.wrap{padding:22px 26px;overflow:auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.kpi .l{font-size:12px;color:var(--ink3);font-weight:500;text-transform:uppercase;letter-spacing:.3px}
+.kpi .v{font-size:28px;font-weight:600;margin:8px 0 4px}
+.kpi .s{font-size:12.5px;color:var(--ink2)}.kpi .s.up{color:#0a7a48}.kpi .s.dn{color:var(--red)}
+.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:16px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}.side{display:none}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px}
+.panel h3{font-size:15px;font-weight:600;margin-bottom:2px}.panel .ph{font-size:12.5px;color:var(--ink3);margin-bottom:14px}
+.hb{display:flex;flex-direction:column;gap:11px;padding-top:4px}
+.hb .r{display:flex;align-items:center;gap:12px;font-size:13px}
+.hb .r .lab{width:78px;flex:0 0 78px;color:var(--ink2)}
+.hb .r .track{flex:1;height:10px;background:#f1f2f7;border-radius:6px;overflow:hidden}
+.hb .r .fill{height:100%;border-radius:6px}
+.hb .r .n{width:26px;text-align:right;color:var(--ink2);font-weight:600}
+.act{display:flex;flex-direction:column;gap:12px}
+.act .r{display:flex;gap:11px;align-items:flex-start;font-size:13.5px}
+.act .r .ic{width:26px;height:26px;border-radius:7px;flex:0 0 26px;display:flex;align-items:center;justify-content:center}
+.act .r .ic.g{background:var(--green-s);color:#0a7a48}.act .r .ic.a{background:var(--amber-s);color:var(--amber);font-weight:700}
+.act .r .ic svg{width:15px;height:15px}
+.act .r .tm{color:var(--ink3);font-size:12px;margin-left:auto;white-space:nowrap}
+.filters{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.chip{font-size:13px;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink2);cursor:pointer;font-weight:500}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.tk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.tk .row{display:flex;align-items:center;gap:14px;padding:14px 18px;border-top:1px solid var(--line);cursor:pointer}
+.tk .row:first-child{border-top:none}.tk .row:hover{background:#fafbfd}
+.tk .who{width:170px;flex:0 0 170px;min-width:0}
+.tk .who b{font-size:13.5px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tk .who small{font-size:12px;color:var(--ink3)}
+.tk .subj{flex:1;min-width:0;font-size:13.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.badge.low{background:var(--green-s);color:#0a7a48}.badge.sens{background:var(--amber-s);color:var(--amber)}
+.st{font-size:12px;color:var(--ink3);width:100px;text-align:right;flex:0 0 100px}
+.st b{color:var(--ink2);font-weight:600}
+.detail{padding:0 18px 18px 202px;border-top:1px solid var(--line);background:#fafbfd}
+.detail .lab{font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--ink3);font-weight:600;margin:16px 0 6px}
+.detail .msg{font-size:13.5px;color:var(--ink);line-height:1.6;white-space:pre-wrap;max-height:220px;overflow:auto}
+.detail .draft{font-size:13.5px;color:var(--ink);line-height:1.65;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 15px;white-space:pre-wrap}
+.detail .draft.esc{background:var(--amber-s);border-color:#f3dfb0;color:#7a5406}
+.warn{background:var(--amber-s);color:#7a5406;border:1px solid #f3dfb0;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:8px;font-weight:500}
+.dedit{width:100%;min-height:160px;font-family:inherit;font-size:13.5px;line-height:1.6;border:1px solid var(--line);border-radius:9px;padding:12px;color:var(--ink);background:#fff;resize:vertical}
+.actbar{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.actbar .toast{margin-right:auto;color:var(--ink2)}
+.editbox{margin-top:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:12px}
+.editact{display:flex;gap:8px;margin-top:8px}
+.btn.send{background:var(--green);border-color:var(--green);color:#fff}.btn.send:hover{background:#0ea25c}
+.conns{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.conn{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.conn .h{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.conn .ic{width:38px;height:38px;border-radius:10px;background:#f1f2f7;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--ink2);font-size:14px;flex:0 0 38px}
+.conn .h b{font-size:14.5px;font-weight:600;display:block}.conn .h small{font-size:12px;color:var(--ink3)}
+.conn .stt{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#0a7a48;background:var(--green-s);padding:5px 10px;border-radius:20px;font-weight:600;margin-top:2px}
+.conn .dt{font-size:13px;color:var(--ink2);margin-top:10px}
+.steps{display:flex;flex-direction:column;gap:0}
+.step{display:flex;align-items:center;gap:13px;padding:13px 0;border-top:1px solid var(--line);font-size:14px}
+.step:first-child{border-top:none}
+.step .ck{width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;flex:0 0 24px}
+.step .ck svg{width:14px;height:14px}.step b{font-weight:600}.step small{color:var(--ink3);font-size:12.5px;display:block}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;max-width:520px}
+.sw{width:42px;height:24px;border-radius:20px;background:#d6dae4;position:relative;cursor:pointer;flex:0 0 42px}
+.sw.on{background:var(--acc)}.sw i{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}.sw.on i{left:21px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{font-size:12.5px;background:#f1f2f7;color:var(--ink2);padding:5px 11px;border-radius:20px;font-weight:500}
+.sec-title{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);font-weight:600;margin:26px 0 12px}
+.hint{font-size:12px;color:var(--ink3)}
+.empty{padding:26px;color:var(--ink3);font-size:14px;text-align:center}
+.rixbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.kbwrap{display:grid;grid-template-columns:250px 1fr;gap:16px}
+@media(max-width:820px){.kbwrap{grid-template-columns:1fr}}
+.kblist{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:8px;max-height:72vh;overflow:auto}
+.kbgroup{margin-bottom:4px}
+.kbgroup .gh{font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--ink3);font-weight:600;padding:9px 8px 4px;display:flex;justify-content:space-between;align-items:center}
+.kbgroup .gh button{font-size:11px;color:var(--acc);background:none;border:none;cursor:pointer;font-weight:600;padding:0}
+.kbitem{display:block;width:100%;text-align:left;padding:7px 9px;border-radius:7px;font-size:13px;color:var(--ink2);cursor:pointer;border:none;background:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kbitem:hover{background:#f4f5f9}.kbitem.on{background:var(--acc-soft);color:var(--acc);font-weight:500}
+.kbed{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;min-height:60vh}
+.kbed .eh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.kbed .eh b{font-size:13px;color:var(--ink2);font-family:ui-monospace,Menlo,monospace}
+.kbed .ef{display:flex;align-items:center;gap:12px}
+.kbed textarea{width:100%;flex:1;min-height:50vh;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55;border:1px solid var(--line);border-radius:9px;padding:12px;color:var(--ink);resize:vertical;background:#fcfcfe}
+.toast{font-size:12.5px;color:#0a7a48}
+.ph2{color:var(--ink3);font-size:14px;padding:34px;text-align:center}
+.acctstrip{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.acct{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:7px 14px;font-size:13px;font-weight:500;color:var(--ink2)}
+.acct small{color:var(--ink3);font-size:11px;font-weight:400}
+.dot.off{background:var(--amber)}
+.grid2b{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:820px){.grid2b{grid-template-columns:1fr}}
+.wc-ok{display:flex;align-items:center;gap:12px}
+.wc-ok .ic{width:30px;height:30px;border-radius:8px;flex:0 0 30px;display:flex;align-items:center;justify-content:center}
+.wc-ok .ic.g{background:var(--green-s);color:#0a7a48}.wc-ok .ic svg{width:16px;height:16px}
+.wc-ok b{font-size:14px}.wc-ok button{margin-left:auto}
+.wc-qr{text-align:center;padding:6px 0}
+.wc-qr img{width:230px;height:230px;background:#fff;border-radius:10px;padding:8px;border:1px solid var(--line)}
+.steps2{text-align:left;max-width:250px;margin:12px auto 0;font-size:12.5px;color:var(--ink2);padding-left:18px}
+.steps2 li{margin:4px 0}
+.destbox{display:flex;flex-direction:column;gap:10px}
+.dopt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer}
+.dopt.on{border-color:var(--acc);background:var(--acc-soft)}
+.dopt input{margin-top:3px}
+.dopt b{font-size:13.5px;display:block}.dopt small{font-size:12px;color:var(--ink3)}
+.numin{border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13.5px;color:var(--ink);width:100%}
+.numin:disabled{background:#f4f5f9;color:var(--ink3)}
+.destact{display:flex;align-items:center;gap:10px;margin-top:4px;flex-wrap:wrap}
+.destact .toast{margin-right:auto}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.btn{font-size:13px;font-weight:600;padding:8px 15px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.btn.p{background:var(--acc);border-color:var(--acc);color:#fff}.btn:hover{border-color:#cfd3de}.btn.p:hover{background:#5b4de0}.btn:disabled{opacity:.6;cursor:default}
+</style>
+</head>
+<body>
+<div id="app"><div class="empty">Loading your support console…</div></div>
+<script>
+const API="/console/api", KBAPI="/console/kbapi";
+let stats={},tickets=[],settings={},tab="overview",openTk=null,filter="all";
+let kbData=null,kbSel=null,kbBuf="",kbMsg="",kbReindexing=false;
+let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
+const WAAPI="/console/waapi";
+let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false;
+
+const IC={
+ overview:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+ tickets:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v10H7l-3 3V5z" stroke-linejoin="round"/></svg>',
+ conns:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 7V4m6 3V4M8 7h8v4a4 4 0 01-8 0V7zM12 15v5"/></svg>',
+ kb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2V5z"/><path d="M4 19a2 2 0 012-2h13"/></svg>',
+ notif:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8a6 6 0 1112 0c0 6 2 7 2 7H4s2-1 2-7z" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0"/></svg>',
+ settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 00-1.7-1L14.5 3h-4l-.4 2.6a7 7 0 00-1.7 1l-2.3-1-2 3.4L4.1 11a7 7 0 000 2l-2 1.5 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.6h4l.4-2.6a7 7 0 001.7-1l2.3 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"/></svg>',
+ check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+const esc=s=>(s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const nameOf=t=>{const e=t.customer_email||"";return e?e.split("@")[0].replace(/[._]/g," ").replace(/\b\w/g,c=>c.toUpperCase()):"Customer";};
+const isEsc=t=>{const a=(t.action||"").toLowerCase(),p=(t.priority||"").toUpperCase();return a.includes("escal")||p==="IMMEDIATE"||p==="CRITICAL"||p==="HIGH";};
+const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.now()-new Date(d).getTime())/1000;if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";};
+async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
+
+async function boot(){
+ const [s,t,st]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings")]);
+ stats=s||{};tickets=Array.isArray(t)?t:[];settings=st||{};
+ render();
+}
+
+function render(){
+ const pages={overview:"Overview",tickets:"Ticket feed",conns:"Connections",kb:"Knowledge base",notif:"Notifications",settings:"Settings"};
+ const subs={overview:"How your AI support agent is performing",tickets:"Every ticket, its AI draft, and what needs you",conns:"Your connected tools and their health",kb:"Edit what your agent knows — policies, FAQs, intents, tickets",notif:"Link WhatsApp and choose where alerts go",settings:"Configure your agent"};
+ document.getElementById("app").innerHTML=`
+  <aside class="side">
+    <div class="logo"><div class="mark">B</div><b>Buttons Bebe</b><span class="tag">support AI</span></div>
+    <nav class="nav">${Object.keys(pages).map(k=>`<a data-tab="${k}" class="${tab===k?'on':''}">${IC[k]}<span>${pages[k]}</span></a>`).join("")}</nav>
+    <div class="store"><div class="av">B</div><div><div class="nm">Buttons Bebe</div><div class="pl">Hermes agent</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="top"><div><h1>${pages[tab]}</h1><div class="sub">${subs[tab]}</div></div>
+      <div class="live" title="Refresh" id="refresh"><span class="dot"></span> Agent live</div></div>
+    <div class="wrap">${view()}</div>
+  </div>`;
+ document.querySelectorAll(".nav a").forEach(a=>a.onclick=()=>{tab=a.dataset.tab;openTk=null;stopWaPoll();if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"){loadWa();}else{render();}});
+ const rf=document.getElementById("refresh");if(rf)rf.onclick=()=>{if(tab==="kb"){kbData=null;loadKb();}else if(tab==="notif"){loadWa();}else{document.getElementById("app").innerHTML='<div class="empty">Refreshing…</div>';boot();}};
+ bind();
+}
+function view(){return tab==="overview"?overview():tab==="tickets"?ticketsView():tab==="conns"?conns():tab==="kb"?kbView():tab==="notif"?waView():settingsView();}
+
+function overview(){
+ const drafted=stats.drafted||0,escalated=stats.escalated||0,done=stats.done||0,failed=stats.failed||0;
+ const handled=drafted+escalated,autor=handled?Math.round(drafted/handled*100):0;
+ const kpis=[
+  {l:"Tickets processed",v:done,s:"all-time",up:true},
+  {l:"AI drafts written",v:drafted,s:"ready for review",up:true},
+  {l:"Escalated to you",v:escalated,s:"sensitive only",up:false},
+  {l:"Automation rate",v:autor+"%",s:"drafted vs escalated",up:true},
+  {l:"Failed jobs",v:failed,s:failed?"needs a look":"all clear",up:!failed,dn:!!failed},
+  {l:"In queue",v:(stats.pending||0)+(stats.processing||0),s:"waiting / running",up:true}
+ ];
+ const pr=[["Critical",stats.critical||0,"#e5484d"],["High",stats.high||0,"#dc9309"],["Normal",stats.normal||0,"#6d5efc"],["Low",stats.low||0,"#12b76a"]];
+ const mx=Math.max(1,...pr.map(x=>x[1]));const recent=tickets.slice(0,5);
+ return `<div class="kpis">${kpis.map(k=>`<div class="kpi"><div class="l">${esc(k.l)}</div><div class="v">${esc(k.v)}</div><div class="s ${k.dn?'dn':(k.up?'up':'')}">${esc(k.s)}</div></div>`).join("")}</div>
+ <div class="grid2">
+  <div class="panel"><h3>Risk breakdown</h3><div class="ph">How your agent classified processed tickets</div>
+   <div class="hb">${pr.map(p=>`<div class="r"><div class="lab">${p[0]}</div><div class="track"><div class="fill" style="width:${Math.round(p[1]/mx*100)}%;background:${p[2]}"></div></div><div class="n">${p[1]}</div></div>`).join("")}</div></div>
+  <div class="panel"><h3>Recent activity</h3><div class="ph">Latest tickets your agent touched</div>
+   <div class="act">${recent.length?recent.map(t=>`<div class="r"><div class="ic ${isEsc(t)?'a':'g'}">${isEsc(t)?'!':IC.check}</div><div><b>${esc(nameOf(t))}</b> - ${esc(t.ticket_subject||"(no subject)")}<br><small style="color:var(--ink3)">${isEsc(t)?'Escalated to you':'AI drafted a reply'}</small></div><div class="tm">${ago(t)}</div></div>`).join(""):'<div class="hint">No tickets processed yet.</div>'}</div></div>
+ </div>`;
+}
+
+function ticketsView(){
+ const fl=[["all","All"],["draft","AI drafts"],["escalated","Escalated"]];
+ const list=tickets.filter(t=>filter==="all"?true:filter==="escalated"?isEsc(t):!isEsc(t));
+ return `<div class="filters">${fl.map(f=>`<button class="chip ${filter===f[0]?'on':''}" data-f="${f[0]}">${f[1]}</button>`).join("")}</div>
+ <div class="tk">${list.length?list.map(row).join(""):'<div class="empty">No tickets here yet.</div>'}</div>`;
+}
+function cleanDraft(s){return (s||"").replace(/^\s*\[SENSITIVE[^\]]*\]\s*/i,"").trim();}
+function row(t){
+ const e=isEsc(t),open=openTk===String(t.message_id);
+ const posted=t.note_posted?'<b>Note posted</b>':(t.job_status==='done'?'Processed':esc(t.job_status||''));
+ const draft=cleanDraft(t.draft_text||"");
+ let detail="";
+ if(open){
+   detail=`<div class="detail"><div class="lab">Customer message</div><div class="msg">${esc((t.message_text||"").trim())||"(empty)"}</div>`;
+   if(draft){
+     detail+=`<div class="lab">AI-drafted reply${t.priority?' · '+esc(t.priority):''}</div>`;
+     if(e)detail+=`<div class="warn">⚠ Flagged sensitive — read carefully before sending to the customer.</div>`;
+     detail+=`<textarea class="dedit" id="act-draft" spellcheck="true">${esc(actDraft)}</textarea>`;
+     if(actEditOpen){
+       detail+=`<div class="editbox"><div class="lab">Tell the AI how to change it</div><input id="act-instr" class="numin" placeholder="e.g. make it warmer and offer to reship free" value="${esc(actInstr)}"><div class="editact"><button class="btn p" id="act-rewrite" ${actBusy?'disabled':''}>${actBusy?'Rewriting…':'Rewrite draft'}</button><button class="btn" id="act-canceledit">Cancel</button></div></div>`;
+     }
+     detail+=`<div class="actbar"><span class="toast">${esc(actMsg)}</span>`+
+       `<button class="btn" id="act-edit" ${actBusy?'disabled':''}>Request edit</button>`+
+       `<button class="btn" id="act-note" ${actBusy?'disabled':''}>Draft as internal note</button>`+
+       `<button class="btn send" id="act-send" ${actBusy?'disabled':''}>Send reply</button></div>`;
+   }else{
+     detail+=`<div class="lab">Why this needs you</div><div class="draft esc">${esc(t.reason||"Escalated — handled by a human.")}</div>`;
+   }
+   detail+=`</div>`;
+ }
+ return `<div class="row" data-tk="${esc(t.message_id)}"><div class="who"><b>${esc(nameOf(t))}</b><small>${esc(t.customer_email||"")}</small></div>
+  <div class="subj">${esc(t.ticket_subject||"(no subject)")}</div>
+  <span class="badge ${e?'sens':'low'}">${e?'Sensitive':'AI draft'}</span>
+  <div class="st">${posted}<br><small>${ago(t)}</small></div></div>${detail}`;
+}
+function captureAct(){const d=document.getElementById("act-draft");if(d)actDraft=d.value;const i=document.getElementById("act-instr");if(i)actInstr=i.value;}
+function openTicket(mid){const t=tickets.find(x=>String(x.message_id)===String(mid));openTk=String(mid);actDraft=cleanDraft(t&&t.draft_text||"");actInstr="";actEditOpen=false;actMsg="";actBusy=false;render();}
+function curTk(){return tickets.find(x=>String(x.message_id)===openTk);}
+async function sendReply(){
+ captureAct();const t=curTk();if(!t)return;
+ if(!actDraft.trim()){actMsg="Nothing to send.";render();return;}
+ const warn=isEsc(t)?"This ticket is flagged SENSITIVE.\n\n":"";
+ if(!confirm(warn+"Send this reply directly to "+(t.customer_email||"the customer")+"?"))return;
+ actBusy=true;actMsg="Sending…";render();
+ try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:actDraft})});const j=await r.json();actMsg=r.ok?"✅ Sent to the customer":("Send failed: "+(j.error||r.status));}catch(e){actMsg="Send failed.";}
+ actBusy=false;render();
+}
+async function noteReply(){
+ captureAct();const t=curTk();if(!t)return;
+ if(!actDraft.trim()){actMsg="Nothing to post.";render();return;}
+ actBusy=true;actMsg="Posting internal note…";render();
+ try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:actDraft})});const j=await r.json();actMsg=r.ok?"✅ Posted as an internal note in Gorgias":("Failed: "+(j.error||r.status));}catch(e){actMsg="Failed.";}
+ actBusy=false;render();
+}
+async function rewriteDraft(){
+ captureAct();const t=curTk();if(!t)return;
+ if(!actInstr.trim()){actMsg="Type an instruction first.";render();return;}
+ actBusy=true;actMsg="AI is rewriting… (can take up to a minute)";render();
+ try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({draft:actDraft,instruction:actInstr,message_text:t.message_text||""})});const j=await r.json();if(r.ok&&j.draft){actDraft=j.draft;actEditOpen=false;actInstr="";actMsg="✅ Rewritten — review it, then send.";}else{actMsg="Rewrite failed: "+(j.error||r.status);}}catch(e){actMsg="Rewrite failed.";}
+ actBusy=false;render();
+}
+
+function conns(){
+ const cs=[["G","Gorgias","buttonsbebe.gorgias.com","Help desk - tickets in & drafts out"],["S","Shopify","buttons-bebe.myshopify.com","Orders & 4,246 products"],["R","Redo","Returns & refunds","Live return status"],["W","WhatsApp alerts","Owner escalations","Linked device"],["KB","Knowledge base","22 intents - 17 policies - 5 FAQs","Auto-refreshes every 3 days"]];
+ return `<div class="conns">${cs.map(c=>`<div class="conn"><div class="h"><div class="ic">${c[0]}</div><div><b>${c[1]}</b><small>${esc(c[2])}</small></div></div><span class="stt"><span class="dot"></span> Connected</span><div class="dt">${esc(c[3])}</div></div>`).join("")}</div>
+ <div class="sec-title">Health</div>
+ <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div>All services responding<br><small style="color:var(--ink3)">Gorgias, Shopify, Redo, WhatsApp and the knowledge base are healthy</small></div><div class="tm">live</div></div></div></div>`;
+}
+
+function kbView(){
+ if(!kbData)return '<div class="ph2">Loading knowledge base…</div>';
+ const left=(kbData.folders||[]).map(g=>`<div class="kbgroup"><div class="gh"><span>${esc(g.folder)}</span><button data-new="${esc(g.folder)}">+ new</button></div>${(g.files||[]).map(f=>`<button class="kbitem ${kbSel===f.path?'on':''}" data-open="${esc(f.path)}" title="${esc(f.path)}">${esc(f.title)}</button>`).join("")||'<div style="padding:6px 9px;color:var(--ink3);font-size:12px">empty</div>'}</div>`).join("");
+ const right=kbSel
+  ?`<div class="kbed"><div class="eh"><b>${esc(kbSel)}</b><div class="ef"><span class="toast">${esc(kbMsg)}</span><button class="btn p" id="kb-save">Save</button></div></div><textarea id="kb-text" spellcheck="false">${esc(kbBuf)}</textarea><div class="hint" style="margin-top:8px">Saved to the file instantly. Click <b>Re-index</b> (top right) to apply your edits to the agent's search.</div></div>`
+  :`<div class="kbed"><div class="ph2">Pick a policy, FAQ, intent, or ticket on the left to edit — or use <b>+ new</b> to add one.</div></div>`;
+ return `<div class="rixbar"><div class="hint">This is what your agent knows. Edits here change how it answers.</div><button class="btn" id="kb-reindex" ${kbReindexing?'disabled':''}>${kbReindexing?'Re-indexing…':'Re-index to apply'}</button></div>
+ <div class="kbwrap"><div class="kblist">${left}</div>${right}</div>`;
+}
+
+function settingsView(){
+ const writes=(settings.gorgias_writes_enabled||"false")==="true";
+ const steps=[["Connect Gorgias","Read tickets & post reply drafts"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets"]];
+ return `<div class="sec-title">Onboarding - you're all set</div>
+ <div class="panel"><div class="steps">${steps.map(x=>`<div class="step"><div class="ck">${IC.check}</div><div><b>${x[0]}</b><small>${x[1]}</small></div></div>`).join("")}</div></div>
+ <div class="sec-title">Agent settings</div>
+ <div class="toggle"><div><b style="font-size:13.5px">Post drafts to Gorgias</b><div class="hint">On = agent posts drafts as internal notes on tickets. Off = draft-only (safe review mode).</div></div><div class="sw ${writes?'on':''}" id="f-writes"><i></i></div></div>
+ <div class="sec-title">Always escalate (never auto-reply)</div>
+ <div class="panel"><div class="chips"><span>Refunds</span><span>Chargebacks</span><span>Damaged items</span><span>Wrong items</span><span>Cancellations</span><span>Angry customers</span></div></div>`;
+}
+
+async function loadKb(){
+ kbData=await jget(KBAPI+"/list")||{folders:[]};
+ if(kbData.reindex&&kbData.reindex.running){kbReindexing=true;pollReindex();}
+ render();
+}
+async function openKbFile(p){
+ kbSel=p;kbMsg="";kbBuf="Loading…";render();
+ const d=await jget(KBAPI+"/file?path="+encodeURIComponent(p));
+ kbBuf=d&&d.content!=null?d.content:"(failed to load)";render();
+}
+async function saveKb(){
+ const ta=document.getElementById("kb-text");if(!ta||!kbSel)return;
+ kbBuf=ta.value;kbMsg="Saving…";render();
+ try{const r=await fetch(KBAPI+"/save",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:kbSel,content:kbBuf})});kbMsg=r.ok?"Saved — re-index to apply":"Save failed";}catch(e){kbMsg="Save failed";}
+ render();
+}
+async function newKbFile(folder){
+ const name=prompt("New "+folder.slice(0,-1)+" file name (e.g. warranty):");if(!name)return;
+ const tmpl="---\ntitle: "+name+"\ncategory: "+folder+"\nstatus: confirmed\ntags: []\n---\n\n## Overview\n\n";
+ try{const r=await fetch(KBAPI+"/new",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({folder:folder,filename:name,content:tmpl})});const d=await r.json();if(r.ok){await loadKb();openKbFile(d.path);}else{alert(d.error||"could not create file");}}catch(e){alert("could not create file");}
+}
+async function reindexKb(){
+ if(kbReindexing)return;kbReindexing=true;kbMsg="";render();
+ try{await fetch(KBAPI+"/reindex",{method:"POST"});}catch(e){}
+ pollReindex();
+}
+function pollReindex(){
+ setTimeout(async()=>{
+  const s=await jget(KBAPI+"/reindex-status");
+  if(s&&s.running){pollReindex();}
+  else{kbReindexing=false;if(tab==="kb"){kbMsg=s&&s.ok?"Re-indexed — changes are live":"Re-index finished";render();}}
+ },3000);
+}
+
+function waNum(jid){return jid?("+"+String(jid).split("@")[0]):"";}
+let waSig="";
+function waView(){
+ if(!waData)return '<div class="ph2">Loading notification settings…</div>';
+ const st=waData.state,conn=st==="connected";
+ const n=waData.notify||{mode:"linked",number:""};
+ if(waMode===null){waMode=n.mode||"linked";waNumber=n.number||"";}
+ const accts=[["Gorgias",true],["Shopify",true],["Redo",true],["WhatsApp",conn],["Knowledge base",true]];
+ const strip=accts.map(a=>`<div class="acct"><span class="dot ${a[1]?'':'off'}"></span>${esc(a[0])} <small>${a[1]?'Connected':'Not linked'}</small></div>`).join("");
+ let wcard;
+ if(conn){
+   wcard=`<div class="wc-ok"><div class="ic g">${IC.check}</div><div><b>WhatsApp linked</b><div class="hint">Alerts arrive on ${esc(waNum(waData.owner))}</div></div><button class="btn" id="wa-unlink">Unlink</button></div>`;
+ }else if(st==="qr"&&waData.qr){
+   wcard=`<div class="wc-qr"><img src="${waData.qr}" alt="WhatsApp QR"><ol class="steps2"><li>Open <b>WhatsApp</b> on your phone</li><li>Tap <b>Settings → Linked devices</b></li><li>Tap <b>Link a device</b> and scan this code</li></ol></div>`;
+ }else{
+   wcard=`<div class="hint" style="padding:18px 0">Preparing your QR code… <span class="spin"></span></div>`;
+ }
+ const dest=`<div class="destbox">
+   <label class="dopt ${waMode==='linked'?'on':''}"><input type="radio" name="wamode" value="linked" ${waMode==='linked'?'checked':''}> <span><b>My linked WhatsApp</b><small>Alerts go to the account linked here (most secure)</small></span></label>
+   <label class="dopt ${waMode==='number'?'on':''}"><input type="radio" name="wamode" value="number" ${waMode==='number'?'checked':''}> <span><b>A specific number</b><small>Any WhatsApp number, with country code</small></span></label>
+   <input class="numin" id="wa-number" placeholder="e.g. +1 555 123 4567" value="${esc(waNumber)}" ${waMode==='number'?'':'disabled'}>
+   <div class="destact"><span class="toast">${esc(waMsg)}</span><button class="btn" id="wa-test" ${conn?'':'disabled'}>Send test alert</button><button class="btn p" id="wa-save">Save destination</button></div>
+ </div>`;
+ return `<div class="acctstrip">${strip}</div>
+  <div class="grid2b">
+   <div class="panel"><h3>WhatsApp alerts</h3><div class="ph">Scan once to receive escalation alerts on your phone</div>${wcard}</div>
+   <div class="panel"><h3>Where alerts go</h3><div class="ph">Choose the destination for escalation notifications</div>${dest}</div>
+  </div>`;
+}
+function stopWaPoll(){if(waPoll){clearTimeout(waPoll);waPoll=null;}}
+function captureWaForm(){const mi=document.querySelector('input[name=wamode]:checked');const ni=document.getElementById("wa-number");if(mi)waMode=mi.value;if(ni)waNumber=ni.value;}
+let waTick=0;
+async function loadWa(){
+ waData=await jget(WAAPI+"/status")||{state:"starting",notify:{mode:"linked",number:""}};
+ waSig=waData.state+"|"+(waData.owner||"")+"|"+(waData.qr||"");
+ waTick=0;
+ render();
+ stopWaPoll();
+ if(tab==="notif")waPoll=setTimeout(loadWaSilent,3000);
+}
+async function loadWaSilent(){
+ if(tab!=="notif"){stopWaPoll();return;}
+ const d=await jget(WAAPI+"/status");
+ if(d){
+   const sig=d.state+"|"+(d.owner||"")+"|"+(d.qr||"");
+   waTick++;
+   // re-render whenever anything changed, and force a full refresh every 30s (10 x 3s)
+   if(sig!==waSig||waTick>=10){captureWaForm();waData=d;waSig=sig;waTick=0;render();}
+ }
+ if(tab==="notif")waPoll=setTimeout(loadWaSilent,3000);
+}
+async function saveWa(){
+ captureWaForm();waMsg="Saving…";render();
+ try{const r=await fetch(WAAPI+"/notify",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({mode:waMode,number:waNumber})});const j=await r.json();waMsg=r.ok?"Saved ✓":(j.error||"Save failed");}catch(e){waMsg="Save failed";}
+ render();
+}
+async function testWa(){
+ captureWaForm();waMsg="Sending test…";render();
+ try{const r=await fetch(WAAPI+"/test",{method:"POST"});const j=await r.json();waMsg=r.ok?("Test sent to "+waNum(j.to)):(j.error||"Could not send");}catch(e){waMsg="Could not send";}
+ render();
+}
+async function unlinkWa(){
+ if(!confirm("Unlink this WhatsApp? You'll need to scan a new QR to receive alerts again."))return;
+ waMsg="Unlinking…";render();
+ try{await fetch(WAAPI+"/logout",{method:"POST"});}catch(e){}
+ waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadWa,1500);render();
+}
+function bind(){
+ document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{filter=c.dataset.f;openTk=null;render();});
+ document.querySelectorAll(".row[data-tk]").forEach(r=>r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}});
+ const as=document.getElementById("act-send");if(as)as.onclick=sendReply;
+ const an=document.getElementById("act-note");if(an)an.onclick=noteReply;
+ const ae=document.getElementById("act-edit");if(ae)ae.onclick=()=>{captureAct();actEditOpen=!actEditOpen;render();};
+ const ar=document.getElementById("act-rewrite");if(ar)ar.onclick=rewriteDraft;
+ const acx=document.getElementById("act-canceledit");if(acx)acx.onclick=()=>{captureAct();actEditOpen=false;render();};
+ const w=document.getElementById("f-writes");if(w)w.onclick=async()=>{const nv=!((settings.gorgias_writes_enabled||"false")==="true");settings.gorgias_writes_enabled=nv?"true":"false";render();try{await fetch(API+"/settings",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({gorgias_writes_enabled:settings.gorgias_writes_enabled})});}catch(e){}};
+ document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openKbFile(b.dataset.open));
+ document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));
+ const ks=document.getElementById("kb-save");if(ks)ks.onclick=saveKb;
+ const kr=document.getElementById("kb-reindex");if(kr)kr.onclick=reindexKb;
+ const ws=document.getElementById("wa-save");if(ws)ws.onclick=saveWa;
+ const wt=document.getElementById("wa-test");if(wt)wt.onclick=testWa;
+ const wu=document.getElementById("wa-unlink");if(wu)wu.onclick=unlinkWa;
+ document.querySelectorAll('input[name=wamode]').forEach(r=>r.onchange=()=>{captureWaForm();render();});
+}
+boot();
+</script>
+</body>
+</html>

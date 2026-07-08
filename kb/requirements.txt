@@ -1,0 +1,6 @@
+# The knowledge base's search engine. Everything runs locally on the server --
+# no API keys, no ongoing cost. Installed into KB/.venv by setup.sh.
+# Versions are pinned to the ones we tested, so a reinstall never surprises you.
+lancedb==0.34.0
+fastembed==0.8.0
+python-frontmatter>=1.3

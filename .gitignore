@@ -1,0 +1,29 @@
+# secrets
+.env
+
+# Ticket exports — contain customer PII, never commit
+data/
+
+# KB vault exemplars — derived from real tickets (PII-redacted but confidential)
+build/hermes/kb-rag/vault/exemplars/
+
+# Hermes runtime secrets / local env files
+**/.env
+*.env.local
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Full VPS backup — contains plaintext secrets, never commit
+_VPS-FULL-BACKUP-*/
+
+# local .env backups (contain secrets)
+.env.bak-*
+
+# OS cruft
+.DS_Store
+
+# node/venv if ever present locally
+**/node_modules/
+**/.venv/
