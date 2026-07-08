@@ -61,18 +61,28 @@ body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 .badge.low{background:var(--green-s);color:#0a7a48}.badge.sens{background:var(--amber-s);color:var(--amber)}
 .st{font-size:12px;color:var(--ink3);width:100px;text-align:right;flex:0 0 100px}
 .st b{color:var(--ink2);font-weight:600}
-.detail{padding:0 18px 18px 202px;border-top:1px solid var(--line);background:#fafbfd}
-.detail .lab{font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--ink3);font-weight:600;margin:16px 0 6px}
-.detail .msg{font-size:13.5px;color:var(--ink);line-height:1.6;white-space:pre-wrap;max-height:220px;overflow:auto}
+.detail{padding:8px 26px 24px;border-top:1px solid var(--line);background:#fafbfd}
+.detail .dwrap{max-width:840px}
+.detail .lab{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#667085;font-weight:700;margin:0 0 7px}
+.detail .lab.lab2{margin-top:18px}
+.detail .msg{font-size:13.5px;color:var(--ink);line-height:1.62;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+.linkbtn{background:none;border:none;color:var(--acc);font-size:12.5px;font-weight:600;cursor:pointer;padding:8px 0 0}
+.pill{font-size:10px;font-weight:700;letter-spacing:.4px;background:#eef0f6;color:var(--ink2);padding:2px 7px;border-radius:20px;margin-left:4px;vertical-align:1px}
+.sendhint{font-size:11.5px;color:var(--ink3);text-align:right;margin-top:7px}
 .detail .draft{font-size:13.5px;color:var(--ink);line-height:1.65;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 15px;white-space:pre-wrap}
 .detail .draft.esc{background:var(--amber-s);border-color:#f3dfb0;color:#7a5406}
 .warn{background:var(--amber-s);color:#7a5406;border:1px solid #f3dfb0;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:8px;font-weight:500}
 .dedit{width:100%;min-height:160px;font-family:inherit;font-size:13.5px;line-height:1.6;border:1px solid var(--line);border-radius:9px;padding:12px;color:var(--ink);background:#fff;resize:vertical}
-.actbar{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.actbar{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);flex-wrap:wrap}
 .actbar .toast{margin-right:auto;color:var(--ink2)}
 .editbox{margin-top:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:12px}
 .editact{display:flex;gap:8px;margin-top:8px}
 .btn.send{background:var(--green);border-color:var(--green);color:#fff}.btn.send:hover{background:#0ea25c}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink2)}.btn.ghost:hover{background:#eef0f6;border-color:transparent}
+.tk .row.open{background:#fafbfd}
+.lrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:6px}
+.lstat{background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.lstat .v{font-size:24px;font-weight:600}.lstat .l{font-size:12px;color:var(--ink3);margin-top:2px}
 .conns{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 .conn{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
 .conn .h{display:flex;align-items:center;gap:12px;margin-bottom:10px}
@@ -141,11 +151,11 @@ body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 <div id="app"><div class="empty">Loading your support console…</div></div>
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
-let stats={},tickets=[],settings={},tab="overview",openTk=null,filter="all";
+let stats={},tickets=[],settings={},learn={},tab="overview",openTk=null,filter="all";
 let kbData=null,kbSel=null,kbBuf="",kbMsg="",kbReindexing=false;
 let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
-let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false;
+let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false;
 
 const IC={
  overview:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
@@ -163,8 +173,8 @@ const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.
 async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 async function boot(){
- const [s,t,st]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings")]);
- stats=s||{};tickets=Array.isArray(t)?t:[];settings=st||{};
+ const [s,t,st,lg]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings"),jget(API+"/learning")]);
+ stats=s||{};tickets=Array.isArray(t)?t:[];settings=st||{};learn=lg||{};
  render();
 }
 
@@ -207,7 +217,18 @@ function overview(){
    <div class="hb">${pr.map(p=>`<div class="r"><div class="lab">${p[0]}</div><div class="track"><div class="fill" style="width:${Math.round(p[1]/mx*100)}%;background:${p[2]}"></div></div><div class="n">${p[1]}</div></div>`).join("")}</div></div>
   <div class="panel"><h3>Recent activity</h3><div class="ph">Latest tickets your agent touched</div>
    <div class="act">${recent.length?recent.map(t=>`<div class="r"><div class="ic ${isEsc(t)?'a':'g'}">${isEsc(t)?'!':IC.check}</div><div><b>${esc(nameOf(t))}</b> - ${esc(t.ticket_subject||"(no subject)")}<br><small style="color:var(--ink3)">${isEsc(t)?'Escalated to you':'AI drafted a reply'}</small></div><div class="tm">${ago(t)}</div></div>`).join(""):'<div class="hint">No tickets processed yet.</div>'}</div></div>
- </div>`;
+ </div>${learnPanel()}`;
+}
+function learnPanel(){
+ const lt=learn.total||0,un=learn.unchanged||0,ed=learn.edited||0,base=un+ed;
+ const acc=base?Math.round(un/base*100):null;
+ return `<div class="sec-title">Learning over time</div>
+  <div class="panel"><h3>What the agent is learning</h3><div class="ph">Every reply you approve becomes an example the agent reuses — folded in automatically each night</div>
+  <div class="lrow"><div class="lstat"><div class="v">${lt}</div><div class="l">Lessons captured</div></div>
+   <div class="lstat"><div class="v">${learn.sent||0}</div><div class="l">Replies sent</div></div>
+   <div class="lstat"><div class="v">${acc==null?'—':acc+'%'}</div><div class="l">Sent unchanged</div></div>
+   <div class="lstat"><div class="v">${ed}</div><div class="l">Edited before send</div></div></div>
+  <div class="hint" style="margin-top:12px">A rising “sent unchanged” means the AI's drafts increasingly match how you reply. Personal details are stripped before anything is saved.</div></div>`;
 }
 
 function ticketsView(){
@@ -217,36 +238,57 @@ function ticketsView(){
  <div class="tk">${list.length?list.map(row).join(""):'<div class="empty">No tickets here yet.</div>'}</div>`;
 }
 function cleanDraft(s){return (s||"").replace(/^\s*\[SENSITIVE[^\]]*\]\s*/i,"").trim();}
+function cleanMessage(raw){
+ const full=(raw||"").replace(/\r/g,"").trim();
+ const lines=full.split("\n");const keep=[];let quoted=false,cut=0;
+ for(const ln of lines){
+   const s=ln.trim();
+   if(/^>+/.test(s)||/^On\b.+\bwrote:?$/.test(s)||/^-{2,}\s*original message/i.test(s)||/^_{5,}$/.test(s)||/^From:\s.+/i.test(s)&&quoted){quoted=true;}
+   if(quoted){cut++;continue;}
+   keep.push(ln);
+ }
+ let main=keep.join("\n");
+ main=main.replace(/https?:\/\/\S*list-manage\.com\S*/gi,"[email-preferences link]");
+ main=main.replace(/https?:\/\/\S{45,}/gi,m=>m.slice(0,42)+"…");
+ main=main.replace(/\n{3,}/g,"\n\n").trim();
+ return {main, hasMore: cut>0 || main.length < full.length};
+}
 function row(t){
  const e=isEsc(t),open=openTk===String(t.message_id);
  const posted=t.note_posted?'<b>Note posted</b>':(t.job_status==='done'?'Processed':esc(t.job_status||''));
  const draft=cleanDraft(t.draft_text||"");
  let detail="";
  if(open){
-   detail=`<div class="detail"><div class="lab">Customer message</div><div class="msg">${esc((t.message_text||"").trim())||"(empty)"}</div>`;
+   const cm=cleanMessage(t.message_text||"");
+   const shown=actShowRaw?((t.message_text||"").trim()||"(empty)"):(cm.main||"(No new text — this looks like an automated or marketing email, nothing to reply to.)");
+   detail=`<div class="detail"><div class="dwrap">`
+    +`<div class="lab">Customer message</div>`
+    +`<div class="msg">${esc(shown)}</div>`
+    +(cm.hasMore?`<button class="linkbtn" id="act-raw">${actShowRaw?"Hide quoted text ▲":"Show full email & quoted text ▾"}</button>`:"");
    if(draft){
-     detail+=`<div class="lab">AI-drafted reply${t.priority?' · '+esc(t.priority):''}</div>`;
-     if(e)detail+=`<div class="warn">⚠ Flagged sensitive — read carefully before sending to the customer.</div>`;
+     detail+=`<div class="lab lab2">Reply to customer${t.priority?' <span class="pill">'+esc((t.priority||'').toUpperCase())+'</span>':''}</div>`;
+     if(e)detail+=`<div class="warn">⚠ Flagged sensitive — read carefully before sending.</div>`;
      detail+=`<textarea class="dedit" id="act-draft" spellcheck="true">${esc(actDraft)}</textarea>`;
      if(actEditOpen){
        detail+=`<div class="editbox"><div class="lab">Tell the AI how to change it</div><input id="act-instr" class="numin" placeholder="e.g. make it warmer and offer to reship free" value="${esc(actInstr)}"><div class="editact"><button class="btn p" id="act-rewrite" ${actBusy?'disabled':''}>${actBusy?'Rewriting…':'Rewrite draft'}</button><button class="btn" id="act-canceledit">Cancel</button></div></div>`;
      }
      detail+=`<div class="actbar"><span class="toast">${esc(actMsg)}</span>`+
-       `<button class="btn" id="act-edit" ${actBusy?'disabled':''}>Request edit</button>`+
+       `<button class="btn ghost" id="act-edit" ${actBusy?'disabled':''}>Request edit</button>`+
        `<button class="btn" id="act-note" ${actBusy?'disabled':''}>Draft as internal note</button>`+
-       `<button class="btn send" id="act-send" ${actBusy?'disabled':''}>Send reply</button></div>`;
+       `<button class="btn send" id="act-send" ${actBusy?'disabled':''}>Send reply →</button></div>`+
+       `<div class="sendhint">“Send reply” emails the customer directly — you'll be asked to confirm.</div>`;
    }else{
-     detail+=`<div class="lab">Why this needs you</div><div class="draft esc">${esc(t.reason||"Escalated — handled by a human.")}</div>`;
+     detail+=`<div class="lab lab2">Why this needs you</div><div class="draft esc">${esc(t.reason||"Escalated — handled by a human.")}</div>`;
    }
-   detail+=`</div>`;
+   detail+=`</div></div>`;
  }
- return `<div class="row" data-tk="${esc(t.message_id)}"><div class="who"><b>${esc(nameOf(t))}</b><small>${esc(t.customer_email||"")}</small></div>
+ return `<div class="row ${open?'open':''}" data-tk="${esc(t.message_id)}"><div class="who"><b>${esc(nameOf(t))}</b><small>${esc(t.customer_email||"")}</small></div>
   <div class="subj">${esc(t.ticket_subject||"(no subject)")}</div>
   <span class="badge ${e?'sens':'low'}">${e?'Sensitive':'AI draft'}</span>
   <div class="st">${posted}<br><small>${ago(t)}</small></div></div>${detail}`;
 }
 function captureAct(){const d=document.getElementById("act-draft");if(d)actDraft=d.value;const i=document.getElementById("act-instr");if(i)actInstr=i.value;}
-function openTicket(mid){const t=tickets.find(x=>String(x.message_id)===String(mid));openTk=String(mid);actDraft=cleanDraft(t&&t.draft_text||"");actInstr="";actEditOpen=false;actMsg="";actBusy=false;render();}
+function openTicket(mid){const t=tickets.find(x=>String(x.message_id)===String(mid));openTk=String(mid);actDraft=cleanDraft(t&&t.draft_text||"");actInstr="";actEditOpen=false;actMsg="";actBusy=false;actShowRaw=false;render();}
 function curTk(){return tickets.find(x=>String(x.message_id)===openTk);}
 async function sendReply(){
  captureAct();const t=curTk();if(!t)return;
@@ -254,14 +296,16 @@ async function sendReply(){
  const warn=isEsc(t)?"This ticket is flagged SENSITIVE.\n\n":"";
  if(!confirm(warn+"Send this reply directly to "+(t.customer_email||"the customer")+"?"))return;
  actBusy=true;actMsg="Sending…";render();
- try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:actDraft})});const j=await r.json();actMsg=r.ok?"✅ Sent to the customer":("Send failed: "+(j.error||r.status));}catch(e){actMsg="Send failed.";}
+ const meta={text:actDraft,message_text:t.message_text||"",ai_draft:cleanDraft(t.draft_text||""),customer_name:nameOf(t)};
+ try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(meta)});const j=await r.json();actMsg=r.ok?"✅ Sent to the customer":("Send failed: "+(j.error||r.status));}catch(e){actMsg="Send failed.";}
  actBusy=false;render();
 }
 async function noteReply(){
  captureAct();const t=curTk();if(!t)return;
  if(!actDraft.trim()){actMsg="Nothing to post.";render();return;}
  actBusy=true;actMsg="Posting internal note…";render();
- try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:actDraft})});const j=await r.json();actMsg=r.ok?"✅ Posted as an internal note in Gorgias":("Failed: "+(j.error||r.status));}catch(e){actMsg="Failed.";}
+ const meta={text:actDraft,message_text:t.message_text||"",ai_draft:cleanDraft(t.draft_text||""),customer_name:nameOf(t)};
+ try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(meta)});const j=await r.json();actMsg=r.ok?"✅ Posted as an internal note in Gorgias":("Failed: "+(j.error||r.status));}catch(e){actMsg="Failed.";}
  actBusy=false;render();
 }
 async function rewriteDraft(){
@@ -409,6 +453,7 @@ function bind(){
  const ae=document.getElementById("act-edit");if(ae)ae.onclick=()=>{captureAct();actEditOpen=!actEditOpen;render();};
  const ar=document.getElementById("act-rewrite");if(ar)ar.onclick=rewriteDraft;
  const acx=document.getElementById("act-canceledit");if(acx)acx.onclick=()=>{captureAct();actEditOpen=false;render();};
+ const arw=document.getElementById("act-raw");if(arw)arw.onclick=()=>{captureAct();actShowRaw=!actShowRaw;render();};
  const w=document.getElementById("f-writes");if(w)w.onclick=async()=>{const nv=!((settings.gorgias_writes_enabled||"false")==="true");settings.gorgias_writes_enabled=nv?"true":"false";render();try{await fetch(API+"/settings",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({gorgias_writes_enabled:settings.gorgias_writes_enabled})});}catch(e){}};
  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openKbFile(b.dataset.open));
  document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));

@@ -156,11 +156,22 @@ Gorgias auth = **Basic** (email + API key). Redo auth = **Bearer** token.
 - WhatsApp escalation channel — `whatsapp-connect` (port 8085) + the rewritten
   `twilio_notifier.py` POST to it. Owner links WhatsApp via the QR page; alerts then deliver.
 
+**LIVE (added 2026-07-09) — learning loop:**
+- Every console action (Send / internal Note / Request-edit) records a *lesson* to
+  `KB/learned/lesson-*.md` via `webhook/src/bb_webhook/learning.py` (situation + AI draft +
+  human's final text + kind + edited flag; a `_ledger.json` tracks totals). Endpoint:
+  `GET /dashboard/api/learning` (shown as the console "Learning" card).
+- Nightly (`buttonsbebe-kb-learn.timer`, 03:30) `KB/scripts/auto_promote_learned.py` masks
+  PII (emails/phones/orders/addresses via `feedback/pii.py`, plus the known customer name) and
+  promotes each lesson into an indexed `KB/tickets/exemplar-learned-*.md` (`status: confirmed`,
+  `source: learned-auto`), then `learn-nightly.sh` rebuilds the index. SOUL tells Hermes to
+  mirror these "Approved reply" exemplars while grounding facts in policy/faq/products.
+
 **STUB / not yet implemented (planned):**
 - `classifier.py` — returns NORMAL for everything. Risk classification is currently done by
   **Hermes (the LLM)**, not the deterministic code gate.
-- `feedback_collector.py` — **logs only**; the "learn from the human's edit → `KB/learned/`"
-  loop is not storing yet.
+- `processor/feedback_collector.py` (the old poll-based capture) is superseded by the
+  console-action capture above (`learning.py` + `auto_promote_learned.py`).
 
 ## 9. Key locations
 
