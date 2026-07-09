@@ -1,0 +1,52 @@
+2026-07-10 03:35:53,856 INFO fable.main serving console from /sessions/lucid-fervent-mendel/mnt/Shopify help desk/fable/console
+INFO:     Started server process [37]
+INFO:     Waiting for application startup.
+2026-07-10 03:35:53,875 INFO fable.main Fable server ready (brain=mock, db=/tmp/fable_e2e.db)
+INFO:     Application startup complete.
+2026-07-10 03:35:53,875 INFO fable.pipeline pipeline worker started
+INFO:     Uvicorn running on http://127.0.0.1:9600 (Press CTRL+C to quit)
+INFO:     127.0.0.1:50758 - "GET /fable/api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50768 - "GET /fable/api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50786 - "POST /fable/api/intake/email HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/1 HTTP/1.1" 200 OK
+2026-07-10 03:35:54,930 INFO httpx HTTP Request: POST http://127.0.0.1:9601/admin/oauth/access_token "HTTP/1.1 200 OK"
+2026-07-10 03:35:54,951 INFO httpx HTTP Request: GET http://127.0.0.1:9601/admin/api/2026-07/orders.json?email=emma.wilson%40example.com&status=any&limit=50 "HTTP/1.1 200 OK"
+2026-07-10 03:35:54,970 INFO httpx HTTP Request: GET http://127.0.0.1:9602/v2.2/stores/bb-store-1/returns?order_name=%23BB1015 "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/intake/chat HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/2 HTTP/1.1" 200 OK
+2026-07-10 03:35:56,014 INFO httpx HTTP Request: GET http://127.0.0.1:9602/v2.2/stores/bb-store-1/returns?limit=50 "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/intake/whatsapp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/3 HTTP/1.1" 200 OK
+2026-07-10 03:35:57,060 INFO httpx HTTP Request: GET http://127.0.0.1:9602/v2.2/stores/bb-store-1/returns?limit=50 "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/3 HTTP/1.1" 200 OK
+2026-07-10 03:35:57,160 INFO httpx HTTP Request: POST http://127.0.0.1:9603/send "HTTP/1.1 201 Created"
+INFO:     127.0.0.1:50772 - "POST /fable/api/tickets/1/send HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/tickets/2/note HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/tickets/3/rewrite HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /api/tickets HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/intake/email HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/4 HTTP/1.1" 200 OK
+2026-07-10 03:35:58,109 WARNING fable.context shopify orders error: ConnectError('[Errno 111] Connection refused')
+2026-07-10 03:35:58,135 INFO httpx HTTP Request: GET http://127.0.0.1:9602/v2.2/stores/bb-store-1/returns?limit=50 "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/intake/email HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "POST /fable/api/intake/email HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/5 HTTP/1.1" 200 OK
+2026-07-10 03:36:00,183 INFO httpx HTTP Request: GET http://127.0.0.1:9601/admin/api/2026-07/orders.json?email=emma.wilson%40example.com&status=any&limit=50 "HTTP/1.1 401 Unauthorized"
+2026-07-10 03:36:00,207 INFO httpx HTTP Request: POST http://127.0.0.1:9601/admin/oauth/access_token "HTTP/1.1 200 OK"
+2026-07-10 03:36:00,226 INFO httpx HTTP Request: GET http://127.0.0.1:9601/admin/api/2026-07/orders.json?email=emma.wilson%40example.com&status=any&limit=50 "HTTP/1.1 200 OK"
+2026-07-10 03:36:00,246 INFO httpx HTTP Request: GET http://127.0.0.1:9602/v2.2/stores/bb-store-1/returns?order_name=%23BB1015 "HTTP/1.1 200 OK"
+2026-07-10 03:36:00,266 INFO httpx HTTP Request: GET http://127.0.0.1:9601/admin/api/2026-07/orders.json?email=storm%40example.com&status=any&limit=50 "HTTP/1.1 200 OK"
+2026-07-10 03:36:00,282 INFO httpx HTTP Request: GET http://127.0.0.1:9602/v2.2/stores/bb-store-1/returns?limit=50 "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:50772 - "GET /fable/api/tickets/5 HTTP/1.1" 200 OK

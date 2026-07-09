@@ -27,3 +27,9 @@ _VPS-FULL-BACKUP-*/
 # node/venv if ever present locally
 **/node_modules/
 **/.venv/
+
+# Fable local runtime
+fable/server/data/*.db*
+fable/**/__pycache__/
+fable/.coverage
+.coverage*

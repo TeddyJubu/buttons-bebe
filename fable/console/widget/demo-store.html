@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buttons Bebe — Sweet things for little ones</title>
+<!--
+  Demo storefront for the Fable chat widget.
+  Serve it (don't open as a file) so the widget's fetches are same-origin:
+    the Fable server mounts fable/console/ at /, so a COPY of this page and
+    widget.js lives at fable/console/widget/ and is reachable at
+    http://127.0.0.1:9600/widget/demo-store.html
+  The widget talks to the server at http://127.0.0.1:9600 by default.
+-->
+<style>
+*{box-sizing:border-box;margin:0}
+:root{
+  --acc:#6d5efc;--acc-strong:#5b4de0;--acc-hover:#4d40cf;--acc-ink:#5546d6;--acc-soft:#f1eefe;
+  --ink:#14161c;--ink2:#4a5262;--ink3:#6b7382;--bg:#fffdf9;--card:#fff;--line:#eee7f7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,"Helvetica Neue",Arial,sans-serif;
+}
+body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.5}
+a{color:inherit;text-decoration:none}
+.nav{display:flex;align-items:center;gap:14px;padding:18px 32px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:10}
+.nav .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.02em}
+.nav .brand .m{width:34px;height:34px;border-radius:11px;background:linear-gradient(150deg,var(--acc),var(--acc-hover));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}
+.nav .links{margin-left:auto;display:flex;gap:22px;font-size:14px;font-weight:600;color:var(--ink2)}
+.nav .links a:hover{color:var(--acc-ink)}
+.nav .cart{font-size:14px;font-weight:700;color:var(--acc-ink);background:var(--acc-soft);padding:8px 14px;border-radius:999px}
+
+.hero{padding:70px 32px;text-align:center;background:radial-gradient(120% 120% at 50% 0%,var(--acc-soft),transparent 60%)}
+.hero .pill{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--acc-ink);background:#fff;border:1px solid var(--line);padding:6px 14px;border-radius:999px;margin-bottom:20px}
+.hero h1{font-size:44px;font-weight:800;letter-spacing:-.03em;max-width:640px;margin:0 auto 14px;line-height:1.1}
+.hero p{font-size:17px;color:var(--ink2);max-width:520px;margin:0 auto 26px}
+.hero .cta{display:inline-flex;gap:12px}
+.btn{font-size:15px;font-weight:700;padding:13px 24px;border-radius:12px;border:none;cursor:pointer}
+.btn.p{background:var(--acc-strong);color:#fff}
+.btn.p:hover{background:var(--acc-hover)}
+.btn.o{background:#fff;color:var(--ink);border:1px solid var(--line)}
+
+.section{max-width:1080px;margin:0 auto;padding:48px 32px}
+.section h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+.section .lead{color:var(--ink3);margin-bottom:28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;transition:transform .18s ease,box-shadow .18s ease}
+.card:hover{transform:translateY(-3px);box-shadow:0 14px 30px -12px rgba(93,77,224,.28)}
+.card .ph{height:180px;display:flex;align-items:center;justify-content:center;font-size:56px}
+.card .info{padding:15px 16px}
+.card .nm{font-size:15px;font-weight:700}
+.card .dz{font-size:12.5px;color:var(--ink3);margin-top:2px}
+.card .row{display:flex;align-items:center;justify-content:space-between;margin-top:12px}
+.card .pr{font-size:16px;font-weight:800;color:var(--acc-ink)}
+.card .add{font-size:13px;font-weight:700;color:#fff;background:var(--acc-strong);border:none;border-radius:9px;padding:8px 14px;cursor:pointer}
+.card .add:hover{background:var(--acc-hover)}
+
+.strip{background:var(--acc-soft);padding:44px 32px;text-align:center;margin-top:20px}
+.strip h3{font-size:22px;font-weight:800;margin-bottom:8px}
+.strip p{color:var(--ink2)}
+footer{padding:40px 32px;border-top:1px solid var(--line);background:#fff;color:var(--ink3);font-size:13.5px;text-align:center;margin-top:40px}
+footer .fl{display:flex;gap:20px;justify-content:center;margin-bottom:12px;font-weight:600;color:var(--ink2)}
+@media(max-width:640px){.hero h1{font-size:32px}.nav .links{display:none}}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="brand"><div class="m">B</div> Buttons Bebe</div>
+  <div class="links"><a href="#new">New in</a><a href="#best">Bestsellers</a><a href="#">Gifts</a><a href="#">Sale</a></div>
+  <div class="cart">🛍 Cart · 0</div>
+</nav>
+
+<header class="hero">
+  <span class="pill">Free shipping over $50</span>
+  <h1>Soft, sweet & made to be loved</h1>
+  <p>Organic-cotton basics and tiny outfits for the littlest members of the family — gentle on skin, easy on parents.</p>
+  <div class="cta"><button class="btn p">Shop the collection</button><button class="btn o">Our story</button></div>
+</header>
+
+<section class="section" id="new">
+  <h2>New in</h2>
+  <div class="lead">Fresh little arrivals this week.</div>
+  <div class="grid">
+    <div class="card"><div class="ph" style="background:#fdeef3">🧸</div><div class="info"><div class="nm">Cloud Nine Onesie</div><div class="dz">0–3m · organic cotton</div><div class="row"><span class="pr">$24.00</span><button class="add">Add</button></div></div></div>
+    <div class="card"><div class="ph" style="background:#eef4fd">🌙</div><div class="info"><div class="nm">Starry Night Sleep Sack</div><div class="dz">3–6m · 1.0 TOG</div><div class="row"><span class="pr">$38.00</span><button class="add">Add</button></div></div></div>
+    <div class="card"><div class="ph" style="background:#eefdf3">🐰</div><div class="info"><div class="nm">Bunny Ears Beanie</div><div class="dz">Newborn · ribbed knit</div><div class="row"><span class="pr">$16.00</span><button class="add">Add</button></div></div></div>
+    <div class="card"><div class="ph" style="background:#fdf6ee">🧦</div><div class="info"><div class="nm">Tiny Toes Sock Set (3-pack)</div><div class="dz">0–6m · grip soles</div><div class="row"><span class="pr">$14.00</span><button class="add">Add</button></div></div></div>
+  </div>
+</section>
+
+<section class="section" id="best">
+  <h2>Bestsellers</h2>
+  <div class="lead">The pieces parents keep coming back for.</div>
+  <div class="grid">
+    <div class="card"><div class="ph" style="background:#f3eefd">👶</div><div class="info"><div class="nm">Everyday Kimono Bodysuit</div><div class="dz">0–12m · snap front</div><div class="row"><span class="pr">$22.00</span><button class="add">Add</button></div></div></div>
+    <div class="card"><div class="ph" style="background:#fdeeee">🎀</div><div class="info"><div class="nm">Ruffle Romper</div><div class="dz">6–12m · pima cotton</div><div class="row"><span class="pr">$32.00</span><button class="add">Add</button></div></div></div>
+    <div class="card"><div class="ph" style="background:#eefdfb">🍼</div><div class="info"><div class="nm">Muslin Swaddle Duo</div><div class="dz">Bamboo blend</div><div class="row"><span class="pr">$28.00</span><button class="add">Add</button></div></div></div>
+    <div class="card"><div class="ph" style="background:#fbeefd">🌼</div><div class="info"><div class="nm">Daisy Footed Pajamas</div><div class="dz">6–9m · zip closure</div><div class="row"><span class="pr">$30.00</span><button class="add">Add</button></div></div></div>
+  </div>
+</section>
+
+<section class="strip">
+  <h3>Questions about sizing or your order?</h3>
+  <p>Tap the purple chat bubble in the corner — our team (and our helpful AI) will sort you out.</p>
+</section>
+
+<footer>
+  <div class="fl"><a href="#">Shipping</a><a href="#">Returns</a><a href="#">Sizing guide</a><a href="#">Contact</a></div>
+  © 2026 Buttons Bebe · A cozy little demo storefront · care@buttonsbebe.com
+</footer>
+
+<!-- Fable chat widget -->
+<script src="widget.js"></script>
+</body>
+</html>
