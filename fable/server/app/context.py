@@ -189,20 +189,20 @@ def fetch_returns_for_orders(order_names: List[str]) -> Optional[List[dict]]:
             return None
         return list(collected.values())
 
-    # No order names known — try a plain list so returns can still surface.
-    payload = _redo_get("/returns", {"limit": 50})
-    if payload is None:
-        return None
-    return [_trim_return(rt) for rt in _extract_returns(payload)]
+    # No order names known — show no returns rather than other customers' returns.
+    return []
 
 
 # --- Combined --------------------------------------------------------------
 def fetch_context(email: str) -> Optional[dict]:
     """Return {"orders":[...],"returns":[...]} or None if nothing was reachable."""
     orders = fetch_orders_by_email(email)          # None on failure, [] on empty
-    order_names = [o.get("name") for o in orders] if orders else []
-    returns = fetch_returns_for_orders(order_names)  # None on failure
-
-    if orders is None and returns is None:
+    if orders is None:
+        # Couldn't reach Shopify — we don't know the customer's orders, so we
+        # can't look up their returns either. Degrade to "unknown".
         return None
-    return {"orders": orders or [], "returns": returns or []}
+    order_names = [o.get("name") for o in orders]
+    # Only look up returns for THIS customer's orders; no orders → no returns
+    # (never fall back to listing other customers' returns).
+    returns = fetch_returns_for_orders(order_names) if order_names else []
+    return {"orders": orders, "returns": returns or []}

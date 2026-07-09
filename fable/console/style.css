@@ -164,6 +164,7 @@ a:hover{text-decoration:underline}
 /* draft hero card */
 .draftcard{background:linear-gradient(158deg,var(--acc-soft),#fff 78%);border:1px solid var(--acc-100);border-radius:var(--r-lg);padding:18px 20px;box-shadow:var(--sh-sm)}
 .draftcard h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.draftcard h3 svg{width:16px;height:16px;flex:0 0 16px;color:var(--acc-ink)}
 .draftcard .kb{font-size:12px;color:var(--ink3);margin-bottom:12px}
 .warnbanner{background:var(--amber-s);color:var(--amber-ink);border:1px solid #f3dfb0;border-radius:var(--r-sm);padding:11px 14px;font-size:13.5px;margin-bottom:12px;font-weight:600;display:flex;gap:9px;align-items:flex-start}
 .warnbanner svg{width:17px;height:17px;flex:0 0 17px;margin-top:1px}

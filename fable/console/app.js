@@ -117,7 +117,7 @@ function startPoll(){ stopPoll(); poll=setInterval(function(){ if(S.view==="inbo
 /* ============================================================================
    SHELL
    ========================================================================= */
-function shell(title, sub, body){
+function shell(title, body){
   var nav=[["inbox","Inbox"],["customers","Customers"],["stats","Stats"],["settings","Settings"]];
   var live = S.health && S.health.ok;
   return ''
