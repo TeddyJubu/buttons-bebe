@@ -147,13 +147,17 @@ def test_get_brain_defaults_to_mock(brains):
     assert brains.get_brain("something-unknown").name == "mock"
 
 
-def test_get_brain_stub_adapters_raise(brains):
-    a = brains.get_brain("anthropic")
+def test_get_brain_hermes_stub_raises(brains):
+    # hermes is still a stub → raises NotImplementedError on use.
     h = brains.get_brain("hermes")
-    assert a.name == "anthropic"
     assert h.name == "hermes"
     ctx = _ctx(brains, last_text="hi")
     with pytest.raises(NotImplementedError):
-        a.draft(ctx)
-    with pytest.raises(NotImplementedError):
         h.draft(ctx)
+
+
+def test_get_brain_anthropic_without_key_falls_back_to_mock(brains):
+    # anthropic is now implemented; with no FABLE_ANTHROPIC_API_KEY configured the
+    # factory logs a warning and returns the safe MockBrain so the app never crashes.
+    a = brains.get_brain("anthropic")
+    assert a.name == "mock"

@@ -34,11 +34,22 @@ function ago(iso){
 function money(v,cur){ if(v==null||v==="") return ""; var n=Number(v); var s=isNaN(n)?v:n.toFixed(2); return (cur==="USD"?"$":(cur?cur+" ":"$"))+s; }
 
 var CHAN = {
-  email:    {icon:"✉", label:"Email"},
-  chat:     {icon:"💬", label:"Chat"},
-  whatsapp: {icon:"🟢", label:"WhatsApp"}
+  email:    {label:"Email"},
+  chat:     {label:"Chat"},
+  whatsapp: {label:"WhatsApp"}
 };
-function chanChip(ch){ var c=CHAN[ch]||{icon:"•",label:ch||"Message"}; return '<span class="cc '+esc(ch)+'">'+c.icon+" "+esc(c.label)+"</span>"; }
+/* Inline SVG line icons per channel (replaces the old emoji channel glyphs). They
+   use currentColor so they inherit the channel-ink color of whatever chip holds them. */
+var CHAN_SVG = {
+  email:'<svg class="chi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>',
+  chat:'<svg class="chi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg>',
+  whatsapp:'<svg class="chi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.83 16.57a1 1 0 0 0 1.21-.3l.36-.47A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.47.35a1 1 0 0 0-.29 1.23 14 14 0 0 0 6.39 6.39"/></svg>'
+};
+var CHAN_INK = { email:"var(--chan-email-ink)", chat:"var(--chan-chat-ink)", whatsapp:"var(--chan-wa-ink)" };
+function chanSvg(ch){ return CHAN_SVG[ch] || '<svg class="chi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>'; }
+function chanChip(ch){ var c=CHAN[ch]||{label:ch||"Message"}; return '<span class="cc '+esc(ch)+'">'+chanSvg(ch)+esc(c.label)+"</span>"; }
+/* Channel icon tinted with its own ink color — for neutral surfaces (stats rows). */
+function chanIconInk(ch){ var col=CHAN_INK[ch]||"var(--ink3)"; return '<span class="chi-ink" style="color:'+col+'">'+chanSvg(ch)+'</span>'; }
 
 /* Plain-language order status (contract order_context.orders[]) */
 function orderStatus(o){
@@ -100,19 +111,28 @@ var S = {
   // ticket
   ticket:null,
   draftText:"",
+  draftOriginal:"",        // the AI's original draft text (for the "Edited" flag)
+  draftEdited:false,       // true once the human's text diverges from the AI original
   confirmSend:false,
   rewriteOpen:false,
   snoozeOpen:false,
+  tagInputOpen:false,      // inline "add tag" input is showing
+  showAllMsgs:false,       // older messages expanded
+  sendPending:false,       // inside the 5s undo window
+  staleWarning:false,      // customer wrote again while this ticket was open
+  staleTicket:null,
   busy:false,
   // customers
   customers:[],
   custQuery:"",
   custDetail:null
 };
-var poll=null, searchTimer=null;
+var poll=null, tpoll=null, searchTimer=null;
+var pendingSend=null;      // {ticketId, text, edited, timer, bar} for the undo-send window
 
 function stopPoll(){ if(poll){ clearInterval(poll); poll=null; } }
 function startPoll(){ stopPoll(); poll=setInterval(function(){ if(S.view==="inbox") refreshInbox(true); }, 5000); }
+function stopTicketPoll(){ if(tpoll){ clearInterval(tpoll); tpoll=null; } }
 
 /* ============================================================================
    SHELL
@@ -160,8 +180,9 @@ function bindShell(){
 }
 
 function go(view){
+  flushPendingSend();       // leaving the ticket? finish any send already in its undo window
   S.view=view; S.custDetail=null;
-  stopPoll();
+  stopPoll(); stopTicketPoll();
   render();
   if(view==="inbox"){ refreshInbox(false); startPoll(); }
   else if(view==="customers"){ loadCustomers(""); }
@@ -171,7 +192,7 @@ function go(view){
 
 function reloadView(){
   if(S.view==="inbox") return refreshInbox(false);
-  if(S.view==="ticket") return openTicket(S.ticket.id, true);
+  if(S.view==="ticket") return openTicket(S.ticket.id, {});
   if(S.view==="customers") return loadCustomers(S.custQuery);
   if(S.view==="stats") return loadStats();
   if(S.view==="settings") return loadHealth().then(render);
@@ -183,11 +204,11 @@ function reloadView(){
    ========================================================================= */
 function inboxBody(){
   var segs=[["open","Waiting for you"],["snoozed","Snoozed"],["closed","Done"],["all","All"]];
-  var chans=[["all","All channels"],["email","✉ Email"],["chat","💬 Chat"],["whatsapp","🟢 WhatsApp"]];
+  var chans=[["all","All channels"],["email","Email"],["chat","Chat"],["whatsapp","WhatsApp"]];
   return ''
     +'<div class="filterbar">'
     +  '<div class="segs">'+segs.map(function(s){ return '<button class="seg '+(S.filters.status===s[0]?"on":"")+'" data-status="'+s[0]+'">'+esc(s[1])+'</button>'; }).join("")+'</div>'
-    +  '<div class="chipset">'+chans.map(function(c){ return '<button class="chip '+(S.filters.channel===c[0]?"on":"")+'" data-chan="'+c[0]+'">'+esc(c[1])+'</button>'; }).join("")+'</div>'
+    +  '<div class="chipset">'+chans.map(function(c){ var ico=(c[0]==="all"?"":chanSvg(c[0])); return '<button class="chip '+(S.filters.channel===c[0]?"on":"")+'" data-chan="'+c[0]+'">'+ico+esc(c[1])+'</button>'; }).join("")+'</div>'
     +  '<div class="search">'+IC.search+'<input id="q" type="search" placeholder="Search name, email, message…" value="'+esc(S.filters.q)+'"></div>'
     +'</div>'
     +'<div id="tklist">'+ticketListHtml()+'</div>';
@@ -247,6 +268,7 @@ function inboxQuery(){
   return API+"/tickets?"+p.join("&");
 }
 function refreshInbox(quiet){
+  var prevIds = (quiet && S.tickets) ? S.tickets.map(function(t){ return t.id; }) : null;
   return jfetch(inboxQuery()).then(function(r){
     if(!r.ok||!r.data){ if(!quiet) toast("Couldn't load the inbox.","err"); return; }
     S.tickets=r.data.tickets||[];
@@ -254,26 +276,109 @@ function refreshInbox(quiet){
     if(S.view==="inbox"){
       var list=el("tklist"); if(list){ list.innerHTML=ticketListHtml(); bindTicketCards(); }
       // keep the sidebar Inbox badge current
-      var badge=$(".nav a.on .cnt"); // no-op if absent
       var inboxLink=$('[data-nav="inbox"] .cnt');
       if(inboxLink) inboxLink.textContent=S.counts.open;
+      // A background poll that surfaced a brand-new ticket → gently flag it.
+      if(prevIds){
+        var seen={}; prevIds.forEach(function(id){ seen[id]=1; });
+        var fresh=S.tickets.filter(function(t){ return !seen[t.id]; });
+        if(fresh.length){
+          fresh.forEach(function(t){
+            var row=$('[data-tk="'+t.id+'"]');
+            if(row){ row.classList.add("justin"); setTimeout((function(el){ return function(){ if(el) el.classList.remove("justin"); }; })(row), 4000); }
+          });
+          pulseInboxBadge();
+        }
+      }
     }
   });
+}
+function pulseInboxBadge(){
+  var b=$('[data-nav="inbox"] .cnt');
+  if(!b) return;
+  b.classList.remove("pulse");
+  void b.offsetWidth;            // restart the animation
+  b.classList.add("pulse");
+  setTimeout(function(){ if(b) b.classList.remove("pulse"); }, 900);
 }
 
 /* ============================================================================
    TICKET
    ========================================================================= */
-function openTicket(id, keepScroll){
-  stopPoll();
+function openTicket(id, opts){
+  opts = (opts && typeof opts==="object") ? opts : {};
+  flushPendingSend();          // if a send was mid-undo on the last ticket, finish it
+  stopPoll(); stopTicketPoll();
   return jfetch(API+"/tickets/"+id).then(function(r){
     if(!r.ok||!r.data||!r.data.ticket){ toast("Couldn't open that ticket.","err"); return; }
     S.ticket=r.data.ticket;
     S.view="ticket";
-    S.draftText=(S.ticket.draft&&S.ticket.draft.body_text)||"";
-    S.confirmSend=false; S.rewriteOpen=false; S.snoozeOpen=false; S.busy=false;
+    var aiOriginal=(S.ticket.draft&&S.ticket.draft.body_text)||"";
+    S.draftOriginal=aiOriginal;
+    if(typeof opts.preserveText==="string"){
+      // Refresh that keeps the human's edited text (see the stale-ticket banner).
+      S.draftText=opts.preserveText;
+      S.draftEdited=(S.draftText!==aiOriginal);
+    } else {
+      S.draftText=aiOriginal;
+      S.draftEdited=false;
+    }
+    S.confirmSend=false; S.rewriteOpen=false; S.snoozeOpen=false;
+    S.tagInputOpen=false; S.showAllMsgs=false; S.sendPending=false;
+    S.staleWarning=false; S.staleTicket=null; S.busy=false;
     render();
+    startTicketPoll(id);
   });
+}
+
+/* Poll the OPEN ticket every 5s. If a new customer message lands while the human
+   is reading/editing, we DON'T touch their draft — we show a quiet banner. */
+function startTicketPoll(id){
+  stopTicketPoll();
+  tpoll=setInterval(function(){
+    if(S.view!=="ticket"||!S.ticket||S.ticket.id!==id){ stopTicketPoll(); return; }
+    if(S.staleWarning) return;                 // already flagged; stop nagging
+    jfetch(API+"/tickets/"+id).then(function(r){
+      if(!r.ok||!r.data||!r.data.ticket) return;
+      if(S.view!=="ticket"||!S.ticket||S.ticket.id!==id) return;
+      if(hasNewCustomerMessage(S.ticket, r.data.ticket)){
+        S.staleWarning=true;
+        S.staleTicket=r.data.ticket;
+        showStaleBanner();
+      }
+    });
+  }, 5000);
+}
+function lastCustMsgId(t){
+  var id=0;
+  (t.messages||[]).forEach(function(m){ if(m.public && !m.from_agent && m.id>id) id=m.id; });
+  return id;
+}
+function hasNewCustomerMessage(oldT, freshT){
+  return lastCustMsgId(freshT) > lastCustMsgId(oldT);
+}
+/* Inject the banner via the DOM (not a full render) so the textarea — and the
+   cursor/selection inside it — are never disturbed. */
+function showStaleBanner(){
+  if(el("stalebanner")) return;
+  var thread=$(".thread"); if(!thread) return;
+  var b=document.createElement("div");
+  b.id="stalebanner"; b.className="stalebanner"; b.setAttribute("role","status");
+  var ico=document.createElement("span"); ico.className="sbico"; ico.innerHTML=IC.alert;
+  var span=document.createElement("span"); span.className="sbmsg";
+  span.textContent="This customer just wrote again — refresh before sending.";
+  var btn=document.createElement("button"); btn.className="btn"; btn.id="stale-refresh";
+  btn.textContent="Refresh"; btn.onclick=refreshOpenTicketPreservingDraft;
+  b.appendChild(ico); b.appendChild(span); b.appendChild(btn);
+  var head=$(".tkhead", thread);
+  if(head && head.nextSibling) thread.insertBefore(b, head.nextSibling);
+  else thread.insertBefore(b, thread.firstChild);
+}
+function refreshOpenTicketPreservingDraft(){
+  captureDraft();
+  var keep = S.draftEdited ? S.draftText : null;   // keep the human's edits, drop untouched drafts
+  S.staleWarning=false; S.staleTicket=null;
+  openTicket(S.ticket.id, keep===null ? {} : {preserveText:keep});
 }
 
 function ticketBody(){
@@ -289,7 +394,13 @@ function ticketHead(t){
   if(t.sensitive) hmeta.push('<span class="badge sens">Needs a careful look</span>');
   if(closed) hmeta.push('<span class="badge done">Done</span>');
   else if(t.status==="snoozed") hmeta.push('<span class="badge snoozed">Snoozed</span>');
-  var tags=(t.tags||[]).map(function(x){ return '<span class="tag">'+esc(x)+'</span>'; }).join("");
+  var tags=(t.tags||[]).map(function(x){
+    return '<span class="tag">'+esc(x)
+      +'<button class="tagx" data-rmtag="'+esc(x)+'" title="Remove label" aria-label="Remove label '+esc(x)+'">&times;</button></span>';
+  }).join("");
+  var tagInput = S.tagInputOpen
+    ? '<input class="taginput" id="tagin" type="text" placeholder="Label, then Enter" aria-label="Add a label">'
+    : '<button class="btn ghost" id="addtag">+ Tag</button>';
   return ''
     +'<div class="tkhead">'
     +  '<h2>'+esc(t.subject||"(no subject)")+'</h2>'
@@ -299,7 +410,7 @@ function ticketHead(t){
         ? '<button class="btn" id="reopen">Reopen ticket</button>'
         : '<button class="btn" id="close">Mark as done</button>'
           +'<div class="snoozemenu"><button class="btn" id="snoozebtn">Snooze</button>'+(S.snoozeOpen?snoozePop():'')+'</div>')
-    +    '<div class="tags">'+tags+'<button class="btn ghost" id="addtag">+ Tag</button></div>'
+    +    '<div class="tags">'+tags+tagInput+'</div>'
     +  '</div>'
     +'</div>';
 }
@@ -310,18 +421,28 @@ function snoozePop(){
     +'</div>';
 }
 
+function msgBub(m, t){
+  if(!m.public){ // internal note
+    return '<div class="bub note"><div class="bmeta">'+IC.note+' Private note · '+esc(m.sender_name||"Team")+'<span class="bt">'+esc(ago(m.created_at))+'</span></div>'+esc(m.body_text)+'</div>';
+  }
+  if(m.from_agent){
+    return '<div class="bub agent"><div class="bmeta">'+esc(m.sender_name||"Buttons Bebe")+'<span class="bt">'+esc(ago(m.created_at))+'</span></div>'+esc(m.body_text)+'</div>';
+  }
+  return '<div class="bub cust"><div class="bmeta">'+esc(m.sender_name||(t.customer&&t.customer.name)||"Customer")+'<span class="bt">'+esc(ago(m.created_at))+'</span></div>'+esc(m.body_text)+'</div>';
+}
 function convoHtml(t){
   var msgs=(t.messages||[]);
   if(!msgs.length) return '';
-  return '<div class="convo">'+msgs.map(function(m){
-    if(!m.public){ // internal note
-      return '<div class="bub note"><div class="bmeta">'+IC.note+' Private note · '+esc(m.sender_name||"Team")+'<span class="bt">'+esc(ago(m.created_at))+'</span></div>'+esc(m.body_text)+'</div>';
-    }
-    if(m.from_agent){
-      return '<div class="bub agent"><div class="bmeta">'+esc(m.sender_name||"Buttons Bebe")+'<span class="bt">'+esc(ago(m.created_at))+'</span></div>'+esc(m.body_text)+'</div>';
-    }
-    return '<div class="bub cust"><div class="bmeta">'+esc(m.sender_name||(t.customer&&t.customer.name)||"Customer")+'<span class="bt">'+esc(ago(m.created_at))+'</span></div>'+esc(m.body_text)+'</div>';
-  }).join("")+'</div>';
+  // Long threads: show the newest 3 with a "Show N earlier messages" expander.
+  var hidden=0, shown=msgs;
+  if(msgs.length>4 && !S.showAllMsgs){
+    hidden=msgs.length-3;
+    shown=msgs.slice(msgs.length-3);
+  }
+  var more = hidden>0
+    ? '<button class="showmore" id="showmore">'+IC.chev+' Show '+hidden+' earlier message'+(hidden===1?'':'s')+'</button>'
+    : '';
+  return '<div class="convo">'+more+shown.map(function(m){ return msgBub(m, t); }).join("")+'</div>';
 }
 
 function draftCard(t){
@@ -336,18 +457,22 @@ function draftCard(t){
   }
   var sensitive = t.sensitive || d.risk==="sensitive";
   var name=firstName(t.customer&&t.customer.name);
+  var disabled = closed || S.sendPending;
   var body=''
     +'<div class="draftcard">'
-    +  '<h3>'+IC.spark+' Suggested reply</h3>'
+    +  orderChipHtml(t)
+    +  '<h3>'+IC.spark+' Suggested reply <span class="editedtag" id="edited-tag"'+(S.draftEdited?'':' hidden')+'>Edited</span></h3>'
     +  '<div class="kb">Fable wrote this draft for you. Read it, edit anything, then choose what to do.</div>'
     +  (sensitive?'<div class="warnbanner">'+IC.alert+'<span>'+esc(sensitiveNote(t,d))+'</span></div>':'')
-    +  '<textarea class="dedit" id="draft-text" spellcheck="true" '+(closed?'disabled':'')+'>'+esc(S.draftText)+'</textarea>';
+    +  '<textarea class="dedit" id="draft-text" spellcheck="true" '+(disabled?'disabled':'')+'>'+esc(S.draftText)+'</textarea>';
   if(closed){
     body+='<div class="hint" style="margin-top:10px">This ticket is done. Reopen it to reply.</div>';
+  } else if(S.sendPending){
+    body+='<div class="sendingnote">'+IC.send+'<span>Sending your reply in a few seconds — use <b>Undo</b> on the bar to stop it.</span></div>';
   } else if(S.confirmSend){
     body+='<div class="confirm '+(sensitive?"sens":"")+'"><b>Really send this to '+esc(name)+'?</b>'
-      +'<button class="btn send" id="do-send" '+(S.busy?"disabled":"")+'>'+(S.busy?"Sending…":"Yes, send")+'</button>'
-      +'<button class="btn" id="cancel-send" '+(S.busy?"disabled":"")+'>Cancel</button></div>';
+      +'<button class="btn send" id="do-send">Yes, send</button>'
+      +'<button class="btn" id="cancel-send">Cancel</button></div>';
   } else {
     body+='<div class="draftact">'
       +'<button class="btn send big" id="send" '+(S.busy?"disabled":"")+'>'+IC.send+' Send to customer</button>'
@@ -375,64 +500,138 @@ function sensitiveNote(t,d){
   return "This one mentions "+word+" — please read carefully before sending.";
 }
 
+function orderCardHtml(o){
+  var st=orderStatus(o);
+  var li=(o.line_items||[]).map(function(x){ return esc((x.quantity||1)+"× "+(x.title||"item")); }).join("<br>");
+  var track = (o.tracking_url||o.tracking_number)
+    ? '<div class="track">📦 <a href="'+esc(o.tracking_url||"#")+'" target="_blank" rel="noopener">Track parcel</a></div>' : '';
+  return '<div class="order"><div class="otop"><span class="onm">'+esc(o.name||"Order")+'</span><span class="ost '+st.cls+'">'+esc(st.label)+'</span></div>'
+    +(li?'<div class="oli">'+li+'</div>':'')
+    +track
+    +(o.total_price?'<div class="oprice">'+esc(money(o.total_price,o.currency))+' · '+esc(ago(o.created_at))+'</div>':'')
+    +'</div>';
+}
+function returnCardHtml(r){
+  var items=(r.items||[]).map(function(x){ return esc((x.qty||x.quantity||1)+"× "+(x.title||"item")+(x.reason?(" — "+x.reason):"")); }).join("<br>");
+  return '<div class="ret"><div class="rtop"><span>'+esc(r.order_name||"Return")+'</span><span>'+esc((r.status||"").replace(/_/g," "))+'</span></div>'
+    +(items?'<div class="rli">'+items+'</div>':'')
+    +(r.refund_amount?'<div class="rli">Refund: '+esc(money(r.refund_amount,"USD"))+'</div>':'')
+    +'</div>';
+}
+function orderCtx(t){
+  var oc=t.order_context||{orders:[],returns:[]};
+  return {orders:oc.orders||[], returns:oc.returns||[]};
+}
+/* One-line summary like "2 orders · 1 on its way" for the mobile chip. */
+function orderSummaryText(orders){
+  if(!orders.length) return "No orders on file";
+  var onWay=0;
+  orders.forEach(function(o){ if(orderStatus(o).cls==="ontheway") onWay++; });
+  var s=orders.length+" order"+(orders.length===1?"":"s");
+  if(onWay) s+=" · "+onWay+" on its way";
+  return s;
+}
+/* Mobile-only chip inside the draft card: shows the order summary above the draft
+   (on phones the sidebar stacks below, so orders would otherwise be out of sight),
+   expands the order/return detail on tap. Hidden on wide screens via CSS. */
+function orderChipHtml(t){
+  var oc=orderCtx(t);
+  var inner = (oc.orders.length ? oc.orders.map(orderCardHtml).join("") : '<div class="hint">No orders found for this customer.</div>')
+    + (oc.returns.length ? '<div class="sec-title" style="margin:14px 0 10px">Returns &amp; refunds</div>'+oc.returns.map(returnCardHtml).join("") : '');
+  return '<div class="ordchip-wrap">'
+    +'<button class="ordchip" id="ordchip" aria-expanded="false">'
+    +  '<span class="ocleft">📦 '+esc(orderSummaryText(oc.orders))+'</span>'
+    +  '<span class="occhev">'+IC.chev+'</span>'
+    +'</button>'
+    +'<div class="ordchip-panel" id="ordchip-panel">'+inner+'</div>'
+    +'</div>';
+}
 function asideHtml(t){
   var c=t.customer||{};
-  var oc=t.order_context||{orders:[],returns:[]};
-  var orders=oc.orders||[], returns=oc.returns||[];
+  var oc=orderCtx(t);
+  var orders=oc.orders, returns=oc.returns;
   var custPanel=''
     +'<div class="panel"><h3>Customer</h3>'
     +  '<div class="custrow"><div class="avt">'+esc(initials(c.name))+'</div><div><b>'+esc(c.name||"Customer")+'</b><small>'+esc(c.email||"")+'</small></div></div>'
     +'</div>';
-  var ordPanel;
-  if(orders.length){
-    ordPanel='<div class="panel"><h3>Their orders</h3>'+orders.map(function(o){
-      var st=orderStatus(o);
-      var li=(o.line_items||[]).map(function(x){ return esc((x.quantity||1)+"× "+(x.title||"item")); }).join("<br>");
-      var track = (o.tracking_url||o.tracking_number)
-        ? '<div class="track">📦 <a href="'+esc(o.tracking_url||"#")+'" target="_blank" rel="noopener">Track parcel</a></div>' : '';
-      return '<div class="order"><div class="otop"><span class="onm">'+esc(o.name||"Order")+'</span><span class="ost '+st.cls+'">'+esc(st.label)+'</span></div>'
-        +(li?'<div class="oli">'+li+'</div>':'')
-        +track
-        +(o.total_price?'<div class="oprice">'+esc(money(o.total_price,o.currency))+' · '+esc(ago(o.created_at))+'</div>':'')
-        +'</div>';
-    }).join("")+'</div>';
-  } else {
-    ordPanel='<div class="panel"><h3>Their orders</h3><div class="hint">No orders found for this customer.</div></div>';
-  }
-  var retPanel='';
-  if(returns.length){
-    retPanel='<div class="panel"><h3>Returns &amp; refunds</h3>'+returns.map(function(r){
-      var items=(r.items||[]).map(function(x){ return esc((x.qty||x.quantity||1)+"× "+(x.title||"item")+(x.reason?(" — "+x.reason):"")); }).join("<br>");
-      return '<div class="ret"><div class="rtop"><span>'+esc(r.order_name||"Return")+'</span><span>'+esc((r.status||"").replace(/_/g," "))+'</span></div>'
-        +(items?'<div class="rli">'+items+'</div>':'')
-        +(r.refund_amount?'<div class="rli">Refund: '+esc(money(r.refund_amount,"USD"))+'</div>':'')
-        +'</div>';
-    }).join("")+'</div>';
-  }
+  // On narrow screens these are replaced by the in-draft order chip (item 6).
+  var ordPanel = orders.length
+    ? '<div class="panel hide-narrow"><h3>Their orders</h3>'+orders.map(orderCardHtml).join("")+'</div>'
+    : '<div class="panel hide-narrow"><h3>Their orders</h3><div class="hint">No orders found for this customer.</div></div>';
+  var retPanel = returns.length
+    ? '<div class="panel hide-narrow"><h3>Returns &amp; refunds</h3>'+returns.map(returnCardHtml).join("")+'</div>'
+    : '';
   return '<div class="aside">'+custPanel+ordPanel+retPanel+'</div>';
 }
 
-function captureDraft(){ var d=el("draft-text"); if(d) S.draftText=d.value; }
+function captureDraft(){
+  var d=el("draft-text");
+  if(d){ S.draftText=d.value; S.draftEdited=(d.value!==(S.draftOriginal||"")); }
+}
 
 function bindTicket(){
   var b;
-  b=el("close"); if(b) b.onclick=function(){ patchTicket({status:"closed"}, "Marked as done."); };
-  b=el("reopen"); if(b) b.onclick=function(){ patchTicket({status:"open"}, "Reopened."); };
-  b=el("snoozebtn"); if(b) b.onclick=function(){ S.snoozeOpen=!S.snoozeOpen; render(); };
+  // These handlers all re-render — capture the human's in-progress edits FIRST so
+  // they're never clobbered by the AI's original draft (P0 bug B1).
+  b=el("close"); if(b) b.onclick=function(){ captureDraft(); patchTicket({status:"closed"}, "Marked as done."); };
+  b=el("reopen"); if(b) b.onclick=function(){ captureDraft(); patchTicket({status:"open"}, "Reopened."); };
+  b=el("snoozebtn"); if(b) b.onclick=function(){ captureDraft(); S.snoozeOpen=!S.snoozeOpen; render(); };
   $all("[data-snooze]").forEach(function(x){ x.onclick=function(){
+    captureDraft();
     var days=parseInt(x.getAttribute("data-snooze"),10);
     var until=new Date(Date.now()+days*86400000).toISOString();
     S.snoozeOpen=false;
     patchTicket({status:"snoozed", snooze_until:until}, days===1?"Snoozed until tomorrow.":"Snoozed for 3 days.");
   }; });
-  b=el("addtag"); if(b) b.onclick=function(){
-    var name=window.prompt("Add a tag (a short label):");
-    if(name && name.trim()){ var tags=(S.ticket.tags||[]).slice(); tags.push(name.trim()); patchTicket({tags:tags}, "Tag added."); }
+
+  // Tags: inline input (no more native prompt) + per-tag removal.
+  b=el("addtag"); if(b) b.onclick=function(){ captureDraft(); S.tagInputOpen=true; render(); setTimeout(function(){ var i=el("tagin"); if(i) i.focus(); },0); };
+  b=el("tagin"); if(b){
+    b.onkeydown=function(e){
+      if(e.key==="Enter"){
+        e.preventDefault();
+        var v=b.value.trim();
+        captureDraft();
+        if(v){
+          var tags=(S.ticket.tags||[]).slice();
+          if(tags.indexOf(v)<0) tags.push(v);
+          S.tagInputOpen=false;
+          patchTicket({tags:tags}, "Tag added.");
+        } else { S.tagInputOpen=false; render(); }
+      } else if(e.key==="Escape"){ e.preventDefault(); captureDraft(); S.tagInputOpen=false; render(); }
+    };
+    b.onblur=function(){ if(S.tagInputOpen){ captureDraft(); S.tagInputOpen=false; render(); } };
+  }
+  $all("[data-rmtag]").forEach(function(x){ x.onclick=function(){
+    captureDraft();
+    var name=x.getAttribute("data-rmtag");
+    var tags=(S.ticket.tags||[]).filter(function(tg){ return tg!==name; });
+    patchTicket({tags:tags}, "Label removed.");
+  }; });
+
+  // Collapse/expand older messages.
+  b=el("showmore"); if(b) b.onclick=function(){ captureDraft(); S.showAllMsgs=true; render(); };
+
+  // Mobile order chip: toggle in place (DOM only) so a re-render never collapses it.
+  b=el("ordchip"); if(b) b.onclick=function(){
+    var p=el("ordchip-panel"); if(!p) return;
+    var open=p.classList.toggle("open");
+    b.setAttribute("aria-expanded", open?"true":"false");
+    b.classList.toggle("open", open);
   };
-  // draft actions
+
+  // Live "Edited" flag as the human types (no full re-render).
+  var dt=el("draft-text");
+  if(dt) dt.oninput=function(){
+    S.draftText=dt.value; S.draftEdited=(dt.value!==(S.draftOriginal||""));
+    var et=el("edited-tag");
+    if(et){ if(S.draftEdited) et.removeAttribute("hidden"); else et.setAttribute("hidden",""); }
+  };
+
+  // Draft actions.
   b=el("send"); if(b) b.onclick=function(){ captureDraft(); if(!S.draftText.trim()){ toast("Nothing to send — the reply is empty.","err"); return; } S.confirmSend=true; render(); };
   b=el("cancel-send"); if(b) b.onclick=function(){ captureDraft(); S.confirmSend=false; render(); };
-  b=el("do-send"); if(b) b.onclick=doSend;
+  b=el("do-send"); if(b) b.onclick=scheduleSend;
   b=el("savenote"); if(b) b.onclick=doNote;
   b=el("rewrite"); if(b) b.onclick=function(){ captureDraft(); S.rewriteOpen=!S.rewriteOpen; render(); setTimeout(function(){ var i=el("rw-instr"); if(i) i.focus(); },0); };
   b=el("cancel-rewrite"); if(b) b.onclick=function(){ captureDraft(); S.rewriteOpen=false; render(); };
@@ -448,23 +647,74 @@ function patchTicket(body, okMsg){
       else toast("That didn't work — please try again.","err");
     });
 }
-function doSend(){
+/* ---- undo-send: confirm → 5s "Undo" window → actual POST -------------------
+   The confirm step still gates every send. After "Yes, send" we do NOT post
+   right away: a 5-second "Sending — Undo" bar appears. Undo returns to the
+   editable draft; letting it run — or navigating away — actually sends. */
+function scheduleSend(){
   captureDraft();
-  S.busy=true; render();
-  jfetch(API+"/tickets/"+S.ticket.id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:S.draftText})})
+  if(!S.draftText.trim()){ toast("Nothing to send — the reply is empty.","err"); return; }
+  if(pendingSend) flushPendingSend();
+  var rec={ ticketId:S.ticket.id, text:S.draftText, edited:S.draftEdited, timer:null, bar:null };
+  S.confirmSend=false; S.sendPending=true; render();
+  rec.bar=showUndoBar(cancelSend);
+  rec.timer=setTimeout(commitSend, 5000);
+  pendingSend=rec;
+}
+function cancelSend(){
+  if(!pendingSend) return;
+  clearTimeout(pendingSend.timer);
+  removeUndoBar(pendingSend.bar);
+  var here = S.view==="ticket" && S.ticket && pendingSend.ticketId===S.ticket.id;
+  pendingSend=null; S.sendPending=false;
+  if(here) render();
+  toast("Okay — nothing sent. Keep editing.");
+}
+function commitSend(){
+  if(!pendingSend) return;
+  var ps=pendingSend; pendingSend=null;
+  if(ps.timer) clearTimeout(ps.timer);
+  removeUndoBar(ps.bar);
+  var body={text:ps.text}; if(ps.edited) body.edited=true;   // server ignores unknown fields (Pydantic extra=ignore)
+  return jfetch(API+"/tickets/"+ps.ticketId+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)})
     .then(function(r){
-      S.busy=false; S.confirmSend=false;
-      if(r.ok&&r.data&&r.data.ok){ toast("Sent to the customer."); openTicket(S.ticket.id); }
-      else if(r.status===502){ toast("The message couldn't leave — the mailbox is unavailable. Nothing was sent.","err"); render(); }
-      else if(r.status===409){ toast("This ticket is closed — reopen it to reply.","err"); render(); }
-      else { toast("Send failed — please try again.","err"); render(); }
+      var here = S.view==="ticket" && S.ticket && S.ticket.id===ps.ticketId;
+      if(r.ok&&r.data&&r.data.ok){
+        toast("Sent to the customer.");
+        if(here){ S.sendPending=false; openTicket(ps.ticketId); }
+      } else {
+        var msg = r.status===502 ? "The message couldn't leave — the mailbox is unavailable. Nothing was sent."
+                : r.status===409 ? "That ticket is closed — reopen it to reply. Nothing was sent."
+                : "Send failed — nothing was sent. Please try again.";
+        toast(msg,"err");
+        if(here){ S.sendPending=false; render(); }
+      }
     });
 }
+// Finish a still-pending send immediately (called when the user navigates away).
+function flushPendingSend(){ if(pendingSend) commitSend(); }
+
+function showUndoBar(onUndo){
+  var wrap=el("toasts"); if(!wrap) return null;
+  var t=document.createElement("div");
+  t.className="toast undo"; t.setAttribute("role","status");
+  var secs=5;
+  var span=document.createElement("span"); span.className="undomsg"; span.textContent="Sending in "+secs+"s…";
+  var btn=document.createElement("button"); btn.className="undobtn"; btn.type="button"; btn.textContent="Undo";
+  btn.onclick=function(){ if(typeof onUndo==="function") onUndo(); };
+  t.appendChild(span); t.appendChild(btn);
+  wrap.appendChild(t);
+  t._iv=setInterval(function(){ secs--; if(secs<=0){ clearInterval(t._iv); t._iv=null; span.textContent="Sending…"; } else span.textContent="Sending in "+secs+"s…"; }, 1000);
+  return t;
+}
+function removeUndoBar(t){ if(!t) return; if(t._iv){ clearInterval(t._iv); t._iv=null; } if(t.parentNode) t.parentNode.removeChild(t); }
+
 function doNote(){
   captureDraft();
   if(!S.draftText.trim()){ toast("Nothing to save.","err"); return; }
   S.busy=true; render();
-  jfetch(API+"/tickets/"+S.ticket.id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:S.draftText})})
+  var body={text:S.draftText}; if(S.draftEdited) body.edited=true;
+  jfetch(API+"/tickets/"+S.ticket.id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)})
     .then(function(r){
       S.busy=false;
       if(r.ok&&r.data&&r.data.ok){ toast("Saved as a private note."); openTicket(S.ticket.id); }
@@ -479,7 +729,13 @@ function doRewrite(){
   jfetch(API+"/tickets/"+S.ticket.id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({instruction:instr})})
     .then(function(r){
       S.busy=false; S.rewriteOpen=false;
-      if(r.ok&&r.data&&r.data.draft){ S.ticket.draft=r.data.draft; S.draftText=r.data.draft.body_text||""; toast("Rewritten — take a look."); render(); }
+      if(r.ok&&r.data&&r.data.draft){
+        S.ticket.draft=r.data.draft;
+        S.draftText=r.data.draft.body_text||"";
+        S.draftOriginal=S.draftText;   // a fresh AI draft — no longer "edited"
+        S.draftEdited=false;
+        toast("Rewritten — take a look."); render();
+      }
       else if(r.status===409){ toast("There's no live draft to rewrite.","err"); render(); }
       else { toast("Rewrite failed — please try again.","err"); render(); }
     });
@@ -498,7 +754,7 @@ function customerListHtml(){
   if(!S.customers) return '<div class="loading"><span class="spin"></span> Loading…</div>';
   if(!S.customers.length) return '<div class="empty"><div class="big">🔍</div><h3>No customers found</h3><div class="hint">Try a different name or email.</div></div>';
   return '<div class="custlist">'+S.customers.map(function(c){
-    return '<div class="custcard" data-cust="'+c.id+'"><div class="avt">'+esc(initials(c.name))+'</div><div><b>'+esc(c.name||"Customer")+'</b><small>'+esc(c.email||c.phone||"")+'</small></div><span class="chev">'+IC.chev+'</span></div>';
+    return '<div class="custcard" data-cust="'+c.id+'" role="button" tabindex="0"><div class="avt">'+esc(initials(c.name))+'</div><div><b>'+esc(c.name||"Customer")+'</b><small>'+esc(c.email||c.phone||"")+'</small></div><span class="chev">'+IC.chev+'</span></div>';
   }).join("")+'</div>';
 }
 function customerDetailHtml(d){
@@ -532,7 +788,10 @@ function bindCustomers(){
   bindCustCards();
 }
 function bindCustCards(){
-  $all("[data-cust]").forEach(function(c){ c.onclick=function(){ openCustomer(parseInt(c.getAttribute("data-cust"),10)); }; });
+  $all("[data-cust]").forEach(function(c){
+    c.onclick=function(){ openCustomer(parseInt(c.getAttribute("data-cust"),10)); };
+    c.onkeydown=function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); c.click(); } };
+  });
   // in the detail view, tickets are clickable too
   bindTicketCards();
 }
@@ -560,7 +819,7 @@ function statsBody(){
     {l:"AI drafts accepted", v:((s.drafts_accepted_pct!=null?s.drafts_accepted_pct:0)+"%"), sub:"sent as written or edited"}
   ];
   var bc=s.by_channel||{};
-  var rows=[["email","✉ Email"],["chat","💬 Chat"],["whatsapp","🟢 WhatsApp"]];
+  var rows=[["email","Email"],["chat","Chat"],["whatsapp","WhatsApp"]];
   var mx=Math.max(1, bc.email||0, bc.chat||0, bc.whatsapp||0);
   var colors={email:"var(--chan-email-ink)",chat:"var(--acc)",whatsapp:"var(--green)"};
   return ''
@@ -568,7 +827,7 @@ function statsBody(){
     +'<div class="sec-title">Where messages come from</div>'
     +'<div class="panel"><div class="hb">'+rows.map(function(r){
         var n=bc[r[0]]||0;
-        return '<div class="r"><div class="lab">'+esc(r[1])+'</div><div class="track"><div class="fill" style="width:'+Math.round(n/mx*100)+'%;background:'+colors[r[0]]+'"></div></div><div class="n">'+n+'</div></div>';
+        return '<div class="r"><div class="lab">'+chanIconInk(r[0])+esc(r[1])+'</div><div class="track"><div class="fill" style="width:'+Math.round(n/mx*100)+'%;background:'+colors[r[0]]+'"></div></div><div class="n">'+n+'</div></div>';
       }).join("")+'</div></div>';
 }
 
@@ -616,6 +875,20 @@ function bindView(){
 function loadHealth(){
   return jfetch(API+"/health").then(function(r){ S.health=(r.ok&&r.data)?r.data:{ok:false}; });
 }
+
+// If the tab closes mid-undo-window, still deliver the send (best-effort, keepalive).
+window.addEventListener("beforeunload", function(){
+  if(!pendingSend) return;
+  var ps=pendingSend; pendingSend=null;
+  if(ps.timer) clearTimeout(ps.timer);
+  var body={text:ps.text}; if(ps.edited) body.edited=true;
+  try{
+    fetch(API+"/tickets/"+ps.ticketId+"/send",{
+      method:"POST", headers:{"content-type":"application/json"},
+      body:JSON.stringify(body), keepalive:true
+    });
+  }catch(e){/* nothing more we can do on unload */}
+});
 
 function boot(){
   loadHealth().then(function(){

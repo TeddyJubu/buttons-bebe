@@ -32,10 +32,12 @@ CREATE TABLE IF NOT EXISTS customers (
     firstname   TEXT,
     lastname    TEXT,
     phone       TEXT,
+    external_id TEXT,                              -- source id when imported (e.g. Gorgias)
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+CREATE INDEX IF NOT EXISTS idx_customers_external ON customers(external_id);
 
 CREATE TABLE IF NOT EXISTS tickets (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +51,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     snooze_until      TEXT,
     is_unread         INTEGER NOT NULL DEFAULT 1,
     order_context     TEXT,                           -- JSON {orders,returns} or NULL
+    external_id       TEXT,                           -- source id when imported (e.g. Gorgias)
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL,
     last_message_at   TEXT NOT NULL,
@@ -57,6 +60,7 @@ CREATE TABLE IF NOT EXISTS tickets (
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_channel ON tickets(channel);
 CREATE INDEX IF NOT EXISTS idx_tickets_customer ON tickets(customer_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_external ON tickets(external_id);
 
 CREATE TABLE IF NOT EXISTS messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +71,7 @@ CREATE TABLE IF NOT EXISTS messages (
     body_text   TEXT NOT NULL,
     sender_name TEXT,
     via         TEXT NOT NULL DEFAULT 'customer',     -- customer|console|ai|api
+    external_id TEXT,                                 -- source id when imported (e.g. Gorgias)
     created_at  TEXT NOT NULL,
     FOREIGN KEY(ticket_id) REFERENCES tickets(id)
 );
@@ -140,10 +145,29 @@ CREATE TABLE IF NOT EXISTS whatsapp_outbox (
 """
 
 
+# Additive migrations for databases created before a column existed. Each entry
+# is (table, column, type); adding a column to an existing table is safe and
+# idempotent (guarded by a PRAGMA table_info check).
+_ADDITIVE_COLUMNS = [
+    ("customers", "external_id", "TEXT"),
+    ("tickets", "external_id", "TEXT"),
+    ("messages", "external_id", "TEXT"),
+]
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str) -> None:
+    have = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in have:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        # Backfill columns onto databases created before they were added.
+        for table, column, coltype in _ADDITIVE_COLUMNS:
+            _ensure_column(conn, table, column, coltype)
         conn.commit()
     finally:
         conn.close()

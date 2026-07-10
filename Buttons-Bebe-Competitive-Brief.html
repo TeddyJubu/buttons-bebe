@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buttons Bebe — Competitive Brief</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f6f4f1; --card:#ffffff; --ink:#2b2723; --muted:#6f675f; --faint:#9a9089;
+  --line:#e7e2db; --rose:#a4506e; --rose-bg:#f7e9ef; --teal:#2f7d78; --teal-bg:#e4f1f0;
+  --amber:#9a6a1f; --amber-bg:#f6ecd8; --green:#2f7a4d; --green-bg:#e4f1e8;
+  --red:#a8452f; --red-bg:#f7e6e1; --radius:12px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:26px;font-weight:600;margin:0 0 6px}
+h2{font-size:19px;font-weight:600;margin:38px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+h3{font-size:15px;font-weight:600;margin:0}
+p{margin:0 0 12px}
+.sub{color:var(--muted);font-size:14px;margin:0}
+.stamp{display:inline-block;margin-top:12px;font-size:12px;color:var(--faint);
+  background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 12px}
+.callout{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.box .lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.box.opp{border-left:4px solid var(--green)} .box.opp .lab{color:var(--green)}
+.box.thr{border-left:4px solid var(--red)} .box.thr .lab{color:var(--red)}
+.box p{font-size:14px;margin:0}
+/* positioning map */
+.map{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  height:360px;margin-top:6px;overflow:hidden}
+.map .axis{position:absolute;background:var(--line)}
+.map .axis.x{left:8%;right:4%;top:50%;height:1px}
+.map .axis.y{top:6%;bottom:12%;left:50%;width:1px}
+.map .axlab{position:absolute;font-size:11px;color:var(--faint);font-weight:600}
+.dot{position:absolute;transform:translate(-50%,-50%);text-align:center;width:120px}
+.dot .pt{width:12px;height:12px;border-radius:50%;margin:0 auto 3px;border:2px solid #fff;box-shadow:0 0 0 1px var(--line)}
+.dot .nm{font-size:11.5px;font-weight:600;line-height:1.25}
+.dot.self .nm{color:var(--rose)} .dot.self .pt{background:var(--rose)}
+.dot.direct .pt{background:var(--teal)}
+.dot.leader .pt{background:var(--amber)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.key{width:10px;height:10px;border-radius:50%;display:inline-block}
+/* filter */
+.filter{display:flex;gap:8px;margin:6px 0 16px;flex-wrap:wrap}
+.filter button{font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:7px 14px;border-radius:20px;
+  border:1px solid var(--line);background:var(--card);color:var(--muted)}
+.filter button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+/* competitor cards */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.comp{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;cursor:pointer;transition:border-color .15s}
+.comp:hover{border-color:#cfc7bd}
+.comp .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.comp .nm{font-size:16px;font-weight:600}
+.comp .dom{font-size:12px;color:var(--faint)}
+.badge{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:12px;white-space:nowrap}
+.badge.direct{background:var(--teal-bg);color:var(--teal)}
+.badge.leader{background:var(--amber-bg);color:var(--amber)}
+.oneline{font-size:13.5px;color:var(--muted);margin:8px 0 10px}
+.senti{display:flex;align-items:center;gap:8px;font-size:12px}
+.tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px}
+.tag.pos{background:var(--green-bg);color:var(--green)}
+.tag.mix{background:var(--amber-bg);color:var(--amber)}
+.tag.neg{background:var(--red-bg);color:var(--red)}
+.tag.pol{background:#efe7f2;color:#6b4a7c}
+.tag.na{background:#eee9e3;color:var(--faint)}
+.detail{display:none;margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)}
+.comp.open .detail{display:block}
+.comp.open{cursor:default}
+.drow{margin-bottom:11px}
+.drow .k{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin-bottom:2px}
+.drow .v{font-size:13.5px;color:var(--ink)}
+.drow.s .v{color:var(--green)} .drow.w .v{color:var(--red)}
+.hint{font-size:11px;color:var(--faint);margin-top:8px;font-style:italic}
+/* matrix */
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#f0ece6;font-weight:600;font-size:12px;position:sticky;top:0}
+tr:last-child td{border-bottom:none}
+td.dim{font-weight:600;background:#faf8f5;white-space:nowrap}
+td.selfcol{background:var(--rose-bg)}
+th.selfcol{background:var(--rose);color:#fff}
+/* two-col lists */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.list{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.list ul{margin:8px 0 0;padding-left:0;list-style:none}
+.list li{font-size:13.5px;padding:8px 0;border-bottom:1px solid var(--line);display:flex;gap:9px}
+.list li:last-child{border-bottom:none}
+.list li .i{flex:0 0 auto;font-weight:700}
+.list.opp .i{color:var(--green)} .list.thr .i{color:var(--red)}
+.recs{counter-reset:r;margin-top:6px}
+.rec{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 18px 14px 52px;position:relative;margin-bottom:10px}
+.rec::before{counter-increment:r;content:counter(r);position:absolute;left:16px;top:14px;width:24px;height:24px;border-radius:50%;
+  background:var(--rose);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.rec .rt{font-size:14px;font-weight:600;margin-bottom:2px}
+.rec .rd{font-size:13px;color:var(--muted)}
+.rec .when{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:10px;background:#eee9e3;color:var(--muted);margin-left:8px}
+.rec .when.quick{background:var(--green-bg);color:var(--green)}
+.foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+.foot a{color:var(--muted)}
+@media(max-width:720px){.callout,.cards,.two{grid-template-columns:1fr}.dot{width:96px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Buttons Bebe — Competitive Brief</h1>
+  <p class="sub">Where Buttons Bebe stands against its closest boutique rivals and the big category players — focused on messaging &amp; positioning, product &amp; brand mix, and customer sentiment.</p>
+  <span class="stamp">Snapshot: research as of July 10, 2026 · click any competitor card to expand</span>
+
+  <div class="callout">
+    <div class="box opp">
+      <div class="lab">Biggest opportunity</div>
+      <p>No one clearly owns the modest / community-oriented designer-kids niche online. Buttons Bebe already lives in it (Lakewood base, brand mix) but doesn't say so out loud. Naming and owning that identity — plus fixing a fee-heavy return policy — is open ground.</p>
+    </div>
+    <div class="box thr">
+      <div class="lab">Biggest threat</div>
+      <p>Young Timers NY has a warmer, better-loved service reputation (4.6★) and Juvenile Planet — literally in the same town — is a broader one-stop shop (gear + clothing, since 1981). They can out-service and out-stock Buttons Bebe for the same shoppers.</p>
+    </div>
+  </div>
+
+  <h2>Where everyone sits</h2>
+  <p class="sub">A read on the landscape: how tightly curated each store is (left = hand-picked boutique, right = vast catalog / marketplace) versus who they speak to (top = tight-knit community shopper, bottom = broad / global luxury market).</p>
+  <div class="map" aria-label="Positioning map">
+    <div class="axis x"></div><div class="axis y"></div>
+    <div class="axlab" style="left:10px;top:47%">Curated boutique</div>
+    <div class="axlab" style="right:10px;top:47%">Vast catalog</div>
+    <div class="axlab" style="left:50%;top:6px;transform:translateX(-50%)">Community shopper</div>
+    <div class="axlab" style="left:50%;bottom:6px;transform:translateX(-50%)">Broad / global market</div>
+    <div class="dot self"   style="left:30%;top:24%"><div class="pt"></div><div class="nm">Buttons Bebe</div></div>
+    <div class="dot direct" style="left:22%;top:38%"><div class="pt"></div><div class="nm">Young Timers NY</div></div>
+    <div class="dot direct" style="left:38%;top:30%"><div class="pt"></div><div class="nm">Lui Belle</div></div>
+    <div class="dot direct" style="left:62%;top:28%"><div class="pt"></div><div class="nm">Juvenile Planet</div></div>
+    <div class="dot leader" style="left:70%;top:70%"><div class="pt"></div><div class="nm">Janie &amp; Jack</div></div>
+    <div class="dot leader" style="left:86%;top:64%"><div class="pt"></div><div class="nm">Maisonette</div></div>
+    <div class="dot leader" style="left:88%;top:80%"><div class="pt"></div><div class="nm">Childrensalon</div></div>
+  </div>
+  <div class="legend">
+    <span><i class="key" style="background:var(--rose)"></i> Buttons Bebe</span>
+    <span><i class="key" style="background:var(--teal)"></i> Direct rivals</span>
+    <span><i class="key" style="background:var(--amber)"></i> Category leaders</span>
+  </div>
+
+  <h2>Competitor profiles</h2>
+  <div class="filter">
+    <button data-f="all" class="on">All (6)</button>
+    <button data-f="direct">Direct rivals</button>
+    <button data-f="leader">Category leaders</button>
+  </div>
+  <div class="cards" id="cards">
+
+    <!-- Lui Belle -->
+    <div class="comp" data-t="direct">
+      <div class="top">
+        <div><div class="nm">Lui Belle</div><div class="dom">luibelle.com</div></div>
+        <span class="badge direct">Direct rival</span>
+      </div>
+      <div class="oneline">The most modern, DTC-styled of the boutique rivals — "European fashion for the contemporary mom."</div>
+      <div class="senti"><span class="tag pol">Polarized</span><span>~2.5–3.9★ (small samples)</span></div>
+      <div class="detail">
+        <div class="drow"><div class="k">Positioning</div><div class="v">"Premier online shop for designer children's clothing," built from the ground up for the modern parent. Leans hardest into a polished, city-style, "luxury &amp; whimsy" identity.</div></div>
+        <div class="drow"><div class="k">Product &amp; brands</div><div class="v">Online-only, tightly curated European designer labels — One Child, Annice, Atelier Parsmei, BluMint. Heavy overlap with the modest / boutique aesthetic.</div></div>
+        <div class="drow s"><div class="k">Strength</div><div class="v">Free shipping both ways; the slickest brand/UX story of the direct set; clearly speaks to a fashion-forward mom.</div></div>
+        <div class="drow w"><div class="k">Weakness</div><div class="v">Tight, fee-tied return window (5-day refund / 9-day credit, $15 return minimum); thin, uneven review base.</div></div>
+      </div>
+      <div class="hint">Click to expand ▾</div>
+    </div>
+
+    <!-- Young Timers -->
+    <div class="comp" data-t="direct">
+      <div class="top">
+        <div><div class="nm">Young Timers NY</div><div class="dom">youngtimersny.com</div></div>
+        <span class="badge direct">Direct rival</span>
+      </div>
+      <div class="oneline">Brooklyn (Crown Heights) shop + online — the service-and-community favorite of the group.</div>
+      <div class="senti"><span class="tag pos">Strongly positive</span><span>4.6★ (61 reviews)</span></div>
+      <div class="detail">
+        <div class="drow"><div class="k">Positioning</div><div class="v">"Fashionable finds for infants and children from European and US designers… at competitive prices." Occasion-led — wedding attire, holiday dresses, school uniforms, layettes.</div></div>
+        <div class="drow"><div class="k">Product &amp; brands</div><div class="v">Appaman, Billieblush, Coco Blanc, Minimal, Hey Kid, Junee Jr. Physical Brooklyn store anchors a loyal community base; free shipping over $24; ships internationally.</div></div>
+        <div class="drow s"><div class="k">Strength</div><div class="v">Warm, personal, highly-rated service ("sweet, super accommodating"); real store + community trust; covers occasion + uniforms.</div></div>
+        <div class="drow w"><div class="k">Weakness</div><div class="v">Smaller/regional feel; 7-day return window; less of a distinct digital brand story beyond "nice local boutique."</div></div>
+      </div>
+      <div class="hint">Click to expand ▾</div>
+    </div>
+
+    <!-- Juvenile Planet -->
+    <div class="comp" data-t="direct">
+      <div class="top">
+        <div><div class="nm">Juvenile Planet</div><div class="dom">juvenileplanet.com</div></div>
+        <span class="badge direct">Direct rival</span>
+      </div>
+      <div class="oneline">Lakewood neighbor and one-stop baby shop — gear <em>and</em> clothing, family-run since 1981.</div>
+      <div class="senti"><span class="tag na">Sparse online reviews</span><span>Established local reputation</span></div>
+      <div class="detail">
+        <div class="drow"><div class="k">Positioning</div><div class="v">A full baby &amp; children superstore, not just apparel — strollers, car seats, highchairs, nursery furniture <em>plus</em> clothing (infant→teen), gifts and accessories. 30+ years, same town as Buttons Bebe.</div></div>
+        <div class="drow"><div class="k">Product &amp; brands</div><div class="v">Very deep catalog (1+ in the Family, 7 A.M. Enfant, Atelier Choux, and many more) spanning gear and boutique clothing. Online + physical store on 2nd St, Lakewood.</div></div>
+        <div class="drow s"><div class="k">Strength</div><div class="v">One-stop convenience (gear + clothing), longevity and trust, direct local footprint in Buttons Bebe's own backyard.</div></div>
+        <div class="drow w"><div class="k">Weakness</div><div class="v">Thin digital review/social footprint; broad focus dilutes the fashion story; older-feeling site experience.</div></div>
+      </div>
+      <div class="hint">Click to expand ▾</div>
+    </div>
+
+    <!-- Maisonette -->
+    <div class="comp" data-t="leader">
+      <div class="top">
+        <div><div class="nm">Maisonette</div><div class="dom">maisonette.com</div></div>
+        <span class="badge leader">Category leader</span>
+      </div>
+      <div class="oneline">VC-backed curated marketplace — the design-forward, national benchmark for kids shopping.</div>
+      <div class="senti"><span class="tag pol">Polarized</span><span>3.6★ (Trustpilot, 68)</span></div>
+      <div class="detail">
+        <div class="drow"><div class="k">Positioning</div><div class="v">"Your favorite one-stop shop for the best baby and kids products from across the globe." Founded 2016 by two ex-Vogue moms; curated, design-led, aspirational.</div></div>
+        <div class="drow"><div class="k">Product &amp; brands</div><div class="v">1,000+ brands across apparel, toys, gear, home decor and womenswear. Marketplace model — orders ship from brand partners.</div></div>
+        <div class="drow s"><div class="k">Strength</div><div class="v">Scale + beautiful curation; strong brand and taste-making authority; broad category coverage.</div></div>
+        <div class="drow w"><div class="k">Weakness</div><div class="v">Marketplace fulfillment pain — missing/lost packages, order accuracy, and a strict no-exceptions 30-day return policy show up repeatedly in reviews.</div></div>
+      </div>
+      <div class="hint">Click to expand ▾</div>
+    </div>
+
+    <!-- Childrensalon -->
+    <div class="comp" data-t="leader">
+      <div class="top">
+        <div><div class="nm">Childrensalon</div><div class="dom">childrensalon.com</div></div>
+        <span class="badge leader">Category leader</span>
+      </div>
+      <div class="oneline">UK heritage house of luxury childrenswear — the global designer benchmark since 1952.</div>
+      <div class="senti"><span class="tag mix">Mostly positive, mixed</span><span>Praised service, priced high</span></div>
+      <div class="detail">
+        <div class="drow"><div class="k">Positioning</div><div class="v">"The home of children's fashion online." Established 1952; a luxury/designer authority with special-occasion depth and global shipping.</div></div>
+        <div class="drow"><div class="k">Product &amp; brands</div><div class="v">280+ designer &amp; luxury brands — Burberry, Dolce &amp; Gabbana, Moncler — plus accessories, toys, gifts, shoes.</div></div>
+        <div class="drow s"><div class="k">Strength</div><div class="v">Heritage and trust; huge luxury selection; fast (often 48h) delivery and careful packaging widely praised.</div></div>
+        <div class="drow w"><div class="k">Weakness</div><div class="v">Higher price point, occasional sizing issues, limited sale stock, and returns friction; a premium/global brand, not a community one.</div></div>
+      </div>
+      <div class="hint">Click to expand ▾</div>
+    </div>
+
+    <!-- Janie & Jack -->
+    <div class="comp" data-t="leader">
+      <div class="top">
+        <div><div class="nm">Janie &amp; Jack</div><div class="dom">janieandjack.com</div></div>
+        <span class="badge leader">Category leader</span>
+      </div>
+      <div class="oneline">National own-label brand — classic, "designer-inspired" occasion &amp; everyday wear.</div>
+      <div class="senti"><span class="tag neg">Weak sentiment</span><span>~3.0★ (Yelp, 713)</span></div>
+      <div class="detail">
+        <div class="drow"><div class="k">Positioning</div><div class="v">Classic, designer-inspired clothing, newborn→preteen; special occasion + everyday chic. Owned by Go Global Retail (acquired from Gap Inc. in 2021). Retail + online.</div></div>
+        <div class="drow"><div class="k">Product &amp; brands</div><div class="v">Vertical own-label (one house brand, not a multi-brand curator) — attention to detail, coordinated collections, in-house design.</div></div>
+        <div class="drow s"><div class="k">Strength</div><div class="v">National recognition, coherent classic aesthetic, own-brand pricing control and store network.</div></div>
+        <div class="drow w"><div class="k">Weakness</div><div class="v">Notable service complaints — missing/stained items, orders not received, poor complaint resolution; not a boutique/curated experience.</div></div>
+      </div>
+      <div class="hint">Click to expand ▾</div>
+    </div>
+
+  </div>
+
+  <h2>Messaging comparison</h2>
+  <div class="scroll">
+    <table>
+      <tr>
+        <th>Dimension</th>
+        <th class="selfcol">Buttons Bebe</th>
+        <th>Lui Belle</th>
+        <th>Young Timers NY</th>
+        <th>Juvenile Planet</th>
+        <th>Category leaders</th>
+      </tr>
+      <tr>
+        <td class="dim">In one line</td>
+        <td class="selfcol">Unique designer finds, hand-picked from around the world</td>
+        <td>European designer fashion for the contemporary mom</td>
+        <td>Fashionable finds at competitive prices</td>
+        <td>One-stop baby shop — gear &amp; clothing</td>
+        <td>Curated / luxury kids at national &amp; global scale</td>
+      </tr>
+      <tr>
+        <td class="dim">Target shopper</td>
+        <td class="selfcol">Style-minded parents; strong community / modest lean (unstated)</td>
+        <td>Fashion-forward "city style" mom</td>
+        <td>Community &amp; occasion shopper (Brooklyn base)</td>
+        <td>Practical local parents wanting one trip</td>
+        <td>Mass affluent / luxury nationwide &amp; global</td>
+      </tr>
+      <tr>
+        <td class="dim">Core value prop</td>
+        <td class="selfcol">Curated, ethically-sourced, express your child's personality</td>
+        <td>Luxury + whimsy, modern DTC experience</td>
+        <td>Personal service + occasion breadth</td>
+        <td>Convenience + longevity + selection</td>
+        <td>Selection, taste authority, brand trust</td>
+      </tr>
+      <tr>
+        <td class="dim">Differentiator</td>
+        <td class="selfcol">Global brand hunt / hand-picked curation</td>
+        <td>Slick, modern, DTC-native feel</td>
+        <td>Warmth &amp; loyalty (4.6★)</td>
+        <td>Gear + clothing under one roof</td>
+        <td>Scale &amp; heritage (1,000+ / 280+ brands)</td>
+      </tr>
+      <tr>
+        <td class="dim">Sentiment</td>
+        <td class="selfcol">3.5★ — mixed; returns/fees a gripe</td>
+        <td>Polarized (~2.5–3.9★)</td>
+        <td>4.6★ — strongly positive</td>
+        <td>Sparse online; trusted locally</td>
+        <td>3.0–3.6★; fulfillment complaints</td>
+      </tr>
+    </table>
+  </div>
+  <p class="hint">Ratings come from different platforms and sample sizes — treat them as directional signals, not precise scores.</p>
+
+  <h2>Product, brand &amp; content gaps</h2>
+  <div class="two">
+    <div class="list">
+      <h3>Where Buttons Bebe can pull ahead</h3>
+      <ul>
+        <li><span class="i">+</span><span>Overlapping brand mix (Coco Blanc, Kipp, Lil Legs and similar) means the fight is won on <strong>experience, service and identity</strong> — not just what's on the shelf.</span></li>
+        <li><span class="i">+</span><span>No rival explicitly owns the <strong>modest / community family</strong> identity online — it's Buttons Bebe's to claim.</span></li>
+        <li><span class="i">+</span><span>Reviews &amp; social proof are thin across the direct set (except Young Timers) — <strong>a visible ratings program</strong> would stand out fast.</span></li>
+        <li><span class="i">+</span><span>Occasion &amp; uniform demand (weddings, holidays, school) is real — Young Timers leans in; Buttons Bebe can build dedicated <strong>occasion guides</strong>.</span></li>
+      </ul>
+    </div>
+    <div class="list">
+      <h3>Where rivals are ahead</h3>
+      <ul>
+        <li><span class="i">–</span><span>Young Timers' <strong>service warmth</strong> and Juvenile Planet's <strong>gear + clothing breadth</strong> both out-serve Buttons Bebe for the same local shoppers.</span></li>
+        <li><span class="i">–</span><span>Lui Belle's <strong>free-both-ways shipping</strong> beats Buttons Bebe's fee-heavy, 7-day return policy.</span></li>
+        <li><span class="i">–</span><span>Maisonette &amp; Childrensalon set the bar on <strong>content, editorial curation and brand depth</strong> (1,000+ / 280+ brands).</span></li>
+        <li><span class="i">–</span><span>Category leaders invest heavily in <strong>gift guides, edits and email/social</strong> — a content muscle the boutiques lack.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Opportunities &amp; threats</h2>
+  <div class="two">
+    <div class="list opp">
+      <h3>Opportunities</h3>
+      <ul>
+        <li><span class="i">▲</span><span>Explicitly own the modest / community designer-kids niche — messaging, brand edits, sizing and occasion guidance built for that shopper.</span></li>
+        <li><span class="i">▲</span><span>Turn returns from a weakness into a wedge: a friendlier, fee-light policy directly answers the #1 complaint across the whole category.</span></li>
+        <li><span class="i">▲</span><span>Build visible social proof — collect and display reviews (the direct set is largely silent here).</span></li>
+        <li><span class="i">▲</span><span>Launch occasion + seasonal content (holiday, wedding, back-to-school edits) to capture high-intent demand.</span></li>
+      </ul>
+    </div>
+    <div class="list thr">
+      <h3>Threats</h3>
+      <ul>
+        <li><span class="i">▼</span><span>Young Timers' service reputation (4.6★) can win the loyalty battle for the same community shopper.</span></li>
+        <li><span class="i">▼</span><span>Juvenile Planet, in the same town, can out-stock Buttons Bebe with gear + clothing in one visit.</span></li>
+        <li><span class="i">▼</span><span>Lui Belle's modern DTC brand + free-both-ways shipping is more shareable and frictionless.</span></li>
+        <li><span class="i">▼</span><span>Maisonette / Childrensalon's scale and content can absorb premium shoppers who "trade up."</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Recommended actions</h2>
+  <div class="recs">
+    <div class="rec"><div class="rt">Soften the return policy<span class="when quick">Quick win</span></div><div class="rd">Extend the window and cut per-item warehouse / restocking fees. It's the single most common complaint category-wide and a cheap, visible differentiator versus Lui Belle and Maisonette.</div></div>
+    <div class="rec"><div class="rt">Turn on visible reviews<span class="when quick">Quick win</span></div><div class="rd">Add on-site product + store ratings and request reviews post-delivery. The direct rivals (bar Young Timers) are nearly silent here — social proof is fast, low-cost ground to take.</div></div>
+    <div class="rec"><div class="rt">Name and own the niche<span class="when">Strategic</span></div><div class="rd">Sharpen positioning around the modest / community family shopper you already serve — homepage message, curated edits, and sizing/occasion guidance built for them.</div></div>
+    <div class="rec"><div class="rt">Build an occasion content engine<span class="when">Strategic</span></div><div class="rd">Publish holiday, wedding and back-to-school gift guides and edits — capturing the high-intent occasion demand Young Timers hints at, with the content polish the category leaders prove works.</div></div>
+    <div class="rec"><div class="rt">Compete on service warmth<span class="when">Strategic</span></div><div class="rd">Young Timers wins on feeling personal. Invest the support operation (fast, human, gift-friendly) into a signature strength and say so in the brand story.</div></div>
+  </div>
+
+  <div class="foot">
+    <p>Sources: buttonsbebe.com · luibelle.com · youngtimersny.com · juvenileplanet.com · maisonette.com · childrensalon.com · janieandjack.com · Similarweb · Trustpilot · Yelp · TenereTeam. Ratings are drawn from mixed platforms and sample sizes and should be read as directional. Snapshot compiled July 10, 2026.</p>
+  </div>
+
+</div>
+<script>
+(function(){
+  document.querySelectorAll('.comp').forEach(function(c){
+    c.addEventListener('click',function(e){
+      c.classList.toggle('open');
+      var h=c.querySelector('.hint');
+      if(h) h.textContent=c.classList.contains('open')?'Click to collapse ▴':'Click to expand ▾';
+    });
+  });
+  var btns=document.querySelectorAll('.filter button');
+  btns.forEach(function(b){
+    b.addEventListener('click',function(){
+      btns.forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on');
+      var f=b.getAttribute('data-f');
+      document.querySelectorAll('.comp').forEach(function(c){
+        c.style.display=(f==='all'||c.getAttribute('data-t')===f)?'':'none';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

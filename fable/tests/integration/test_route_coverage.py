@@ -68,5 +68,9 @@ def test_macros_stub_shape(env):
 def test_health_reports_brain_and_queue(env):
     h = env.client.get("/fable/api/health").json()
     assert h["ok"] is True
-    assert h["brain"] == "mock"
+    # Health reports the *configured* brain (FABLE_BRAIN). Default is "mock",
+    # but the suite must also stay green under FABLE_BRAIN=anthropic (GATE 2,
+    # TESTING-READINESS §3) — so assert against the config, not a literal.
+    assert h["brain"] == env.config.BRAIN
+    assert h["brain"] in ("mock", "anthropic", "hermes")
     assert "queue_depth" in h

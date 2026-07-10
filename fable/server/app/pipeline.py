@@ -12,8 +12,9 @@ import logging
 import threading
 import time
 
-from . import audit, context, risk
+from . import audit, context, kb_search, risk
 from .brains import DraftContext, get_brain
+from .draft_cleaner import should_draft
 from .db import connect, now_iso
 
 log = logging.getLogger("fable.pipeline")
@@ -79,6 +80,25 @@ def process_job(conn, job) -> None:
                  who="pipeline")
     conn.commit()
 
+    # 2b. Nothing to answer (empty / bare "thanks") -> draft nothing (QA #19).
+    gate = should_draft(last_text)
+    if not gate.ok:
+        audit.record(conn, ticket_id, "pipeline:draft",
+                     f"no draft ({gate.reason})", who="pipeline")
+        conn.commit()
+        return
+
+    # 2c. Knowledge-base grounding: pull the top policy/FAQ/intent snippets for the
+    # customer's message so the brain can cite real facts. Never fails a ticket.
+    try:
+        kb_snippets = kb_search.search(last_text, limit=3)
+    except Exception:
+        log.exception("kb_search failed for ticket %s", ticket_id)
+        kb_snippets = []
+    audit.record(conn, ticket_id, "pipeline:kb",
+                 f"snippets={len(kb_snippets)}", who="pipeline")
+    conn.commit()
+
     # 3. Brain drafts.
     brain = get_brain()
     dctx = DraftContext(
@@ -105,7 +125,7 @@ def process_job(conn, job) -> None:
         last_customer_text=last_text,
         orders=orders,
         returns=returns,
-        kb_snippets=[],
+        kb_snippets=kb_snippets,
         risk=risk_level,
         risk_reason=risk_reason,
     )
@@ -114,6 +134,15 @@ def process_job(conn, job) -> None:
     except NotImplementedError as e:
         audit.record(conn, ticket_id, "pipeline:draft",
                      f"brain '{brain.name}' not implemented: {e}", who="pipeline")
+        conn.commit()
+        return
+
+    # A brain may decline to draft (e.g. the cleaner stripped everything, or an
+    # API error). An empty body means "no draft" — record it and stop.
+    if not (result.body_text or "").strip():
+        audit.record(conn, ticket_id, "pipeline:draft",
+                     f"brain={brain.name} produced no draft ({result.notes})",
+                     who="pipeline")
         conn.commit()
         return
 
