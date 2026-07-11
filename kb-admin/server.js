@@ -13,6 +13,8 @@ const { spawn } = require("child_process");
 const PORT = process.env.KB_ADMIN_PORT || 8087;
 const KB = process.env.KB_DIR || "/root/Buttonsbebe Agent/KB";
 const FOLDERS = ["intents", "faq", "policies", "tickets"];
+const NOTICES_DIR = path.join(KB, "notices");
+const NOTICES_FILE = path.join(NOTICES_DIR, "notices.json");
 
 let reindex = { running: false, ok: null, at: null };
 
@@ -37,6 +39,23 @@ function readBody(req, cb) {
   let b = "";
   req.on("data", (c) => (b += c));
   req.on("end", () => { try { cb(JSON.parse(b || "{}")); } catch (e) { cb({}); } });
+}
+
+// ---- Notice Board (owner overrides; shared JSON with notices_lib.py) --------
+function loadNotices() {
+  try { const d = JSON.parse(fs.readFileSync(NOTICES_FILE, "utf8")); return Array.isArray(d) ? d : []; }
+  catch (e) { return []; }
+}
+function writeNotices(items) {
+  fs.mkdirSync(NOTICES_DIR, { recursive: true });
+  const tmp = NOTICES_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(items, null, 2), "utf8");
+  fs.renameSync(tmp, NOTICES_FILE); // atomic swap so a reader never sees a half file
+}
+function noticeActive(n, now) {
+  if (!n.expires_at) return true;
+  const t = Date.parse(n.expires_at);
+  return isNaN(t) ? true : t > now;
 }
 
 const server = http.createServer((req, res) => {
@@ -102,6 +121,47 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && p === "/reindex-status") return send(res, 200, reindex);
+
+  if (req.method === "GET" && p === "/notices") {
+    const now = Date.now();
+    const notices = loadNotices().map((n) => ({ ...n, active: noticeActive(n, now) }));
+    return send(res, 200, { notices, now: new Date(now).toISOString() });
+  }
+
+  if (req.method === "POST" && p === "/notices") {
+    return readBody(req, (d) => {
+      const text = (d && d.text ? String(d.text) : "").trim();
+      if (!text) return send(res, 400, { error: "text required" });
+      let expires_at = null;
+      if (d.expires_at) {
+        const t = Date.parse(d.expires_at);
+        if (isNaN(t)) return send(res, 400, { error: "bad deadline" });
+        expires_at = new Date(t).toISOString();
+      }
+      const notice = {
+        id: "n_" + Date.now() + "_" + Math.random().toString(16).slice(2, 6),
+        text,
+        created_at: new Date().toISOString(),
+        expires_at,
+        created_by: d && d.created_by ? String(d.created_by) : "owner",
+      };
+      const items = loadNotices();
+      items.push(notice);
+      try { writeNotices(items); } catch (e) { return send(res, 500, { error: String(e) }); }
+      return send(res, 200, { ok: true, notice });
+    });
+  }
+
+  if (req.method === "POST" && p === "/notices/delete") {
+    return readBody(req, (d) => {
+      const id = d && d.id ? String(d.id) : "";
+      const items = loadNotices();
+      const kept = items.filter((n) => n.id !== id);
+      if (kept.length === items.length) return send(res, 404, { error: "not found" });
+      try { writeNotices(kept); } catch (e) { return send(res, 500, { error: String(e) }); }
+      return send(res, 200, { ok: true, removed: id });
+    });
+  }
 
   send(res, 404, { error: "not found" });
 });

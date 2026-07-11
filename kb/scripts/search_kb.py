@@ -15,6 +15,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lancedb
 from kb_lib import DB_DIR, TABLE, embed_query
 
+try:
+    # Notice Board: owner-posted overrides that ride on top of every search.
+    from notices_lib import as_search_results as _notice_results
+except Exception:                      # never let the board break search
+    def _notice_results(*_a, **_k):
+        return []
+
 K = 5        # how many results to return
 POOL = 20    # how many to pull from each method before blending
 RRF_K = 60   # reciprocal-rank-fusion constant (a standard, safe default)
@@ -56,7 +63,14 @@ def search(query: str, k: int = K) -> list[dict]:
                  sensitive=bool(hit.get("sensitive")), heading=hit.get("heading"),
                  text=hit["text"])
         )
-    return results
+
+    # Notice Board: prepend active owner overrides so the agent always sees them
+    # first. Fail-safe -- any error here must not break normal search.
+    try:
+        notices = _notice_results()
+    except Exception:
+        notices = []
+    return notices + results
 
 
 def main() -> None:
