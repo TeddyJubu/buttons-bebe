@@ -43,6 +43,11 @@ health endpoint reports the *configured* brain, so the suite is green in both mo
   prominently in the patch README.
 - Tony's decision #1 (order-change rule) + Chaim's policy confirmations — content lane.
 
+## Known quirk
+Running git from the Cowork sandbox leaves a stale `.git/index.lock` behind (the sandbox
+mount can't delete files inside `.git`). If git ever complains "index.lock: File exists",
+just delete that one file from Finder/Terminal on the Mac — it's harmless.
+
 ## Log
 - 2026-07-10 (session 3) — Independent re-verification, all run personally: `test.sh` → **351 passed**; `FABLE_BRAIN=anthropic test.sh` → **351 passed**; golden → **6 passed**; **E2E live stack (`FABLE_E2E=1`, 4 real services) → 4 passed** (not run in session 2); `node --check` OK; VPS classifier self-test 34 checks OK; console source spot-checks confirmed (19× captureDraft, 0× 13.5px, keyboard-accessible customer cards, undo-send, stale-ticket banner, collapsed threads). Work committed on `Fable_buttonsbebe`. STATUS stays COMPLETE.
 - 2026-07-10 04:45 — Session 1: plans written (IMPROVEMENT-PLAN, DESIGN-CRITIQUE, SPRINT-2-PLAN, TESTING-READINESS). Scheduled continuation task `continue-buttonsbebe-sprint2` at 06:27. Launching baseline + agent waves now.
