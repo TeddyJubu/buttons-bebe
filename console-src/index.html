@@ -6,7 +6,7 @@
 <title>Buttons Bebe — Support Console</title>
 <style>
 *{box-sizing:border-box;margin:0}
-:root{--acc:#6d5efc;--acc-soft:#efeaff;--ink:#14161c;--ink2:#5b6472;--ink3:#8a93a3;--bg:#f6f7fb;--card:#fff;--line:#e9ebf1;--green:#12b76a;--green-s:#e7f7ee;--amber:#dc9309;--amber-s:#fdf3e0;--red:#e5484d;--red-s:#fdecec;--radius:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif}
+:root{--acc:#1c1c1c;--acc-soft:rgba(255,255,255,.5);--ink:#1c1c1c;--ink2:#5c5952;--ink3:#817d73;--bg:#e8e5d8;--card:rgba(255,255,255,.42);--line:rgba(28,28,28,.09);--green:#237a4b;--green-s:#dff1aa;--amber:#b56a2f;--amber-s:#f9d4ad;--red:#b74339;--red-s:#f4c8be;--radius:28px;font-family:Inter,"Avenir Next",Avenir,"Helvetica Neue",Arial,sans-serif}
 body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 #app{display:flex;min-height:100vh}
 .side{width:230px;background:var(--card);border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;flex:0 0 230px}
@@ -144,7 +144,7 @@ body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .btn{font-size:13px;font-weight:600;padding:8px 15px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
-.btn.p{background:var(--acc);border-color:var(--acc);color:#fff}.btn:hover{border-color:#cfd3de}.btn.p:hover{background:#5b4de0}.btn:disabled{opacity:.6;cursor:default}
+.btn.p{background:var(--acc);border-color:var(--acc);color:#fff}.btn:hover{border-color:rgba(28,28,28,.18)}.btn.p:hover{background:#36352f}.btn:disabled{opacity:.6;cursor:default}
 </style>
 <style id="variant-dashboard-design">
 :root{
@@ -191,14 +191,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{
 .filters{gap:7px;margin-bottom:14px}.chip{padding:8px 13px;border:1px solid rgba(28,28,28,.1);background:rgba(255,255,255,.35);font-size:11.5px}.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
 .tk{border-radius:24px}.tk .row{border-color:var(--line);padding:15px 18px}.tk .row:hover,.tk .row.open{background:rgba(255,255,255,.28)}.detail{background:rgba(255,255,255,.24);border-color:var(--line)}
 .badge.low{background:var(--yellow);color:var(--ink)}.badge.sens{background:var(--orange);color:var(--ink)}
-.btn{border-color:rgba(28,28,28,.13);background:rgba(255,255,255,.52);border-radius:999px;padding:9px 16px}.btn.p,.btn.send{background:var(--ink);border-color:var(--ink);color:#fff}.btn.p:hover,.btn.send:hover{background:#36352f}.btn.ghost:hover{background:rgba(255,255,255,.48)}
+.btn{border-color:rgba(28,28,28,.13);background:rgba(255,255,255,.52);border-radius:999px;padding:9px 16px}.btn.p{background:var(--ink);border-color:var(--ink);color:#fff}.btn.p:hover{background:#36352f}.btn.send{background:var(--green);border-color:var(--green);color:#fff}.btn.send:hover{background:#176039;border-color:#176039}.btn.ghost:hover{background:rgba(255,255,255,.48)}
 .conn{border-radius:24px}.conn .ic{border-radius:50%;background:var(--yellow);color:var(--ink)}.conn .stt,.wc-ok .ic.g{background:var(--yellow);color:var(--ink)}
-.toggle,.dopt,.detail .msg,.detail .draft,.editbox,.dedit,.numin,.kbed textarea{border-color:rgba(28,28,28,.1);background:rgba(255,255,255,.42)}.sw.on{background:var(--ink)}
+.toggle,.dopt,.detail .msg,.detail .draft,.editbox,.dedit,.numin,.kbed textarea{border-color:rgba(28,28,28,.1);background:rgba(255,255,255,.42)}.sw{border:0;padding:0}.sw.on{background:var(--ink)}
 .kblist,.kbed{border-radius:24px}.kbitem:hover{background:rgba(255,255,255,.5)}.kbitem.on,.dopt.on{background:var(--yellow);color:var(--ink);border-color:transparent}.kbgroup .gh button,.linkbtn{color:var(--ink)}
 .acct{background:rgba(255,255,255,.42);border-color:rgba(255,255,255,.58)}.warn,.detail .draft.esc{background:rgba(249,161,108,.3);border-color:rgba(154,85,31,.16);color:#633712}
 .empty{color:var(--ink2)}
 @media(max-width:1200px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:900px){#app{padding:12px}.side{display:flex;position:fixed;z-index:50;left:12px;top:12px;height:calc(100vh - 24px);min-height:0;transform:translateX(calc(-100% - 24px));transition:transform .22s ease}.side.open{transform:translateX(0)}.nav-scrim{position:fixed;inset:0;z-index:40;border:0;background:rgba(28,28,28,.32);cursor:pointer}.nav-scrim.open{display:block}.menu-btn{display:grid;place-items:center;width:39px;height:39px;border-radius:50%;border:1px solid rgba(255,255,255,.62);background:rgba(255,255,255,.42);color:var(--ink);cursor:pointer;flex:0 0 auto}.menu-btn svg{width:18px;height:18px}.top{padding:18px 16px}.top>div:first-of-type{margin-right:auto}.wrap{padding:0 16px 28px}.grid2{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.top h1{font-size:24px}.top .sub{max-width:45vw}.kbwrap{grid-template-columns:1fr}.lrow{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){#app{padding:12px}.side{display:flex;position:fixed;z-index:50;left:12px;top:12px;height:calc(100vh - 24px);min-height:0;transform:translateX(calc(-100% - 24px));transition:transform 360ms cubic-bezier(.22,1,.36,1)}.side.open{transform:translateX(0)}.nav-scrim{display:block;position:fixed;inset:0;z-index:40;border:0;background:rgba(28,28,28,.32);cursor:pointer;opacity:0;pointer-events:none;transition:opacity 260ms cubic-bezier(.22,1,.36,1)}.nav-scrim.open{opacity:1;pointer-events:auto}.menu-btn{display:grid;place-items:center;width:39px;height:39px;border-radius:50%;border:1px solid rgba(255,255,255,.62);background:rgba(255,255,255,.42);color:var(--ink);cursor:pointer;flex:0 0 auto}.menu-btn svg{width:18px;height:18px}.top{padding:18px 16px}.top>div:first-of-type{margin-right:auto}.wrap{padding:0 16px 28px}.grid2{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.top h1{font-size:24px}.top .sub{max-width:45vw}.kbwrap{grid-template-columns:1fr}.lrow{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){#app{padding:8px}.top{align-items:flex-start;padding:12px 8px 18px}.top .sub{max-width:58vw;font-size:11px}.header-actions{gap:6px}.live{font-size:0;width:38px;padding:0;justify-content:center}.head-icon{display:none}.wrap{padding:0 8px 24px}.kpis{grid-template-columns:1fr}.kpi{min-height:128px}.grid2b,.lrow{grid-template-columns:1fr}.panel{padding:20px}.tk .who{width:110px;flex-basis:110px}.tk .st{display:none}.detail{padding:8px 14px 20px}.kbwrap{gap:10px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
@@ -249,11 +249,12 @@ body{background:#e8e5d8;font-family:Inter,Arial,sans-serif}
 .t-badge{position:absolute;top:-6px;right:-8px;pointer-events:none;will-change:transform}.t-badge[data-open="true"]{animation:t-badge-slide-in var(--badge-slide-dur) var(--badge-slide-ease)}.t-badge-dot{display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#f97316;color:#fff;font-size:10px;font-weight:700;transform-origin:center;transform:scale(1);opacity:1;filter:blur(0);transition:transform var(--badge-pop-dur) var(--badge-pop-ease),opacity var(--badge-fade-dur) var(--badge-pop-ease),filter var(--badge-pop-dur) var(--badge-pop-ease);will-change:transform,opacity,filter}.t-badge[data-open="false"] .t-badge-dot{transform:scale(0);opacity:0;filter:blur(var(--badge-blur));transition:transform var(--badge-pop-close-dur) var(--badge-close-ease),opacity var(--badge-fade-close-dur) var(--badge-close-ease),filter var(--badge-pop-close-dur) var(--badge-close-ease)}
 @media(max-width:1000px){.freshness{display:none}.attention{align-items:flex-start;flex-direction:column;gap:12px}.attention-head{min-width:0;width:100%}.attention-items{width:100%}}
 @media(max-width:600px){.attention{padding:16px}.attention-items{grid-template-columns:1fr}.head-icon.refresh-control{display:grid}.activity-link{padding-left:0!important;padding-right:0!important}}
-@media(prefers-reduced-motion:reduce){.t-panel-slide{transition:none!important}.t-digit-group .t-digit{animation:none!important}.t-badge,.t-badge-dot{animation:none!important;transition:none!important}}
+@media(prefers-reduced-motion:reduce){.side,.nav-scrim{transition:none!important}.t-panel-slide{transition:none!important}.t-digit-group .t-digit{animation:none!important}.t-badge,.t-badge-dot{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div id="app"><div class="empty">Loading your support console…</div></div>
+<div id="app-status" class="sr-only" role="status" aria-live="polite"></div>
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
 let stats={},tickets=[],settings={},learn={},tab="overview",openTk=null,filter="all";
@@ -262,7 +263,7 @@ let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
 let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false;
 let noticesData=null,noticeText="",noticeDeadline="",noticeMsg="",noticeBusy=false;
-let lastUpdated=null,loadFailed=false,statusMsg="Loading dashboard data";
+let lastUpdated=null,loadFailed=false,loadErrors=[],statusMsg="Loading dashboard data",focusHeadingAfterRender=false;
 
 const IC={
  overview:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
@@ -282,13 +283,15 @@ const keyOf=t=>String(t.message_id??t.ticket_id??"");
 const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.now()-new Date(d).getTime())/1000;if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";};
 const digits=v=>{const a=String(v).split("");return `<span class="t-digit-group is-animating">${a.map((ch,i)=>`<span class="t-digit"${i===a.length-2?' data-stagger="1"':(i===a.length-1?' data-stagger="2"':'')}>${esc(ch)}</span>`).join("")}</span>`;};
 const freshText=()=>lastUpdated?"Updated "+lastUpdated.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Updating…";
+const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab==="notices"&&noticeMsg?noticeMsg:tab==="notif"&&waMsg?waMsg:statusMsg;
 async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 async function boot(){
  const [s,t,st,lg]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings"),jget(API+"/learning")]);
- loadFailed=s===null||t===null;
+ loadErrors=[];if(s===null)loadErrors.push("stats");if(t===null)loadErrors.push("tickets");if(st===null)loadErrors.push("settings");if(lg===null)loadErrors.push("learning");
+ loadFailed=loadErrors.length>0;
  if(s!==null)stats=s;if(Array.isArray(t))tickets=t;if(st!==null)settings=st;if(lg!==null)learn=lg;
- if(!loadFailed)lastUpdated=new Date();statusMsg=loadFailed?"Some dashboard data could not be loaded":"Dashboard data updated";
+ if(!loadFailed)lastUpdated=new Date();statusMsg=loadFailed?"Could not load "+loadErrors.join(", ")+" data; showing last known values":"Dashboard data updated";
  render();
 }
 
@@ -308,7 +311,7 @@ function render(){
   <div class="main">
     <header class="top">
       <button class="menu-btn" id="menu-btn" aria-label="Open navigation" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round"/></svg></button>
-      <div><h1>${pages[tab]}</h1><div class="sub">${subs[tab]}</div></div>
+      <div><h1 tabindex="-1">${pages[tab]}</h1><div class="sub">${subs[tab]}</div></div>
       <div class="header-actions">
        <span class="freshness">${freshText()}</span>
        <div class="live" role="status"><span class="dot"></span> Agent live</div>
@@ -317,22 +320,26 @@ function render(){
        <button class="head-avatar" id="header-settings" aria-label="Open settings">B</button>
       </div></header>
     <div class="wrap"><div class="t-panel-slide" data-open="false">${loadFailed?errorBanner():""}${view()}</div></div>
-  </div><div class="sr-only" role="status" aria-live="polite">${esc(statusMsg)}</div>`;
- const openTab=k=>{tab=k;openTk=null;stopWaPoll();if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"){loadWa();}else if(tab==="notices"){loadNotices();}else{render();}};
+  </div>`;
+ const status=document.getElementById("app-status");if(status){status.textContent="";requestAnimationFrame(()=>{status.textContent=liveMessage();});}
+ const openTab=k=>{tab=k;openTk=null;focusHeadingAfterRender=true;stopWaPoll();if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"){loadWa();}else if(tab==="notices"){loadNotices();}else{render();}};
  document.querySelectorAll(".nav a").forEach(a=>{a.onclick=()=>openTab(a.dataset.tab);a.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTab(a.dataset.tab);}};});
  const rf=document.getElementById("refresh");if(rf)rf.onclick=async()=>{rf.classList.add("refreshing");rf.disabled=true;statusMsg="Refreshing dashboard data";if(tab==="kb"){kbData=null;await loadKb();}else if(tab==="notif"){await loadWa();}else if(tab==="notices"){await loadNotices();}else{await boot();}};
  const hn=document.getElementById("header-notif");if(hn)hn.onclick=()=>openTab("notif");
  const hs=document.getElementById("header-settings");if(hs)hs.onclick=()=>openTab("settings");
  const mb=document.getElementById("menu-btn"),side=document.querySelector(".side"),scrim=document.getElementById("nav-scrim");
- const setMenu=open=>{if(!side||!scrim||!mb)return;side.classList.toggle("open",open);scrim.classList.toggle("open",open);mb.setAttribute("aria-expanded",String(open));};
+ const setMenu=(open,restore=true)=>{if(!side||!scrim||!mb)return;side.classList.toggle("open",open);scrim.classList.toggle("open",open);mb.setAttribute("aria-expanded",String(open));if(open)requestAnimationFrame(()=>{const first=side.querySelector(".nav a");if(first)first.focus();});else if(restore)mb.focus();};
  if(mb)mb.onclick=()=>setMenu(!side.classList.contains("open"));if(scrim)scrim.onclick=()=>setMenu(false);
+ document.onkeydown=e=>{if(e.key==="Escape"&&side&&side.classList.contains("open"))setMenu(false);};
  bind();
  const panel=document.querySelector(".t-panel-slide");if(panel)requestAnimationFrame(()=>panel.dataset.open="true");
+ if(focusHeadingAfterRender){focusHeadingAfterRender=false;requestAnimationFrame(()=>{const h=document.querySelector(".top h1");if(h)h.focus();});}
 }
 function view(){return tab==="overview"?overview():tab==="tickets"?ticketsView():tab==="conns"?conns():tab==="kb"?kbView():tab==="notices"?noticesView():tab==="notif"?waView():settingsView();}
-function errorBanner(){return `<div class="error-banner" role="alert"><div><strong>Some dashboard data could not be loaded.</strong><span>Existing values are shown where available. Refresh to try again.</span></div><button class="btn" id="retry-load">Retry</button></div>`;}
+function errorBanner(){return `<div class="error-banner" role="alert"><div><strong>Could not load ${esc(loadErrors.join(", "))} data.</strong><span>Existing values are shown where available. Refresh to try again.</span></div><button class="btn" id="retry-load">Retry</button></div>`;}
 
 function overview(){
+ if(loadErrors.includes("stats")||loadErrors.includes("tickets"))return `<div class="panel" role="alert"><h3>Overview metrics are unavailable</h3><div class="ph">Refresh to retry. No missing values are being presented as zero.</div></div>${learnPanel()}`;
  const drafted=stats.drafted||0,escalated=stats.escalated||0,done=stats.done||0,failed=stats.failed||0;
  const handled=drafted+escalated,autor=handled?Math.round(drafted/handled*100):0;
  const queue=(stats.pending||0)+(stats.processing||0),currentEsc=tickets.filter(isEsc).length;
@@ -360,6 +367,7 @@ function overview(){
  </div>${learnPanel()}`;
 }
 function learnPanel(){
+ if(loadErrors.includes("learning"))return `<div class="panel learning-panel" role="alert"><h3>Learning metrics are unavailable</h3><div class="ph">Refresh to retry. Existing totals have not been replaced with zeroes.</div></div>`;
  const lt=learn.total||0,un=learn.unchanged||0,ed=learn.edited||0,base=un+ed;
  const acc=base?Math.round(un/base*100):null;
  return `<div class="panel learning-panel"><div class="sec-title">Learning over time</div><h3>What the agent is learning</h3><div class="ph">Every reply you approve becomes an example the agent reuses — folded in automatically each night</div>
@@ -371,6 +379,7 @@ function learnPanel(){
 }
 
 function ticketsView(){
+ if(loadErrors.includes("tickets"))return `<div class="panel" role="alert"><h3>Ticket data is unavailable</h3><div class="ph">Refresh to retry. This is not an empty queue.</div></div>`;
  const fl=[["all","All"],["draft","AI drafts"],["escalated","Escalated"],["failed","Failed"],["queue","In queue"]];
  if(filter.startsWith("risk:"))fl.push([filter,filter.slice(5).replace(/^./,c=>c.toUpperCase())+" risk"]);
  const list=tickets.filter(t=>{const js=(t.job_status||"").toLowerCase(),p=(t.priority||"normal").toLowerCase();if(filter==="all")return true;if(filter==="draft")return !isEsc(t);if(filter==="escalated")return isEsc(t);if(filter==="failed")return js==="failed";if(filter==="queue")return ["queued","pending","processing","running"].includes(js);if(filter.startsWith("risk:"))return p===filter.slice(5);return true;});
@@ -422,7 +431,7 @@ function row(t){
    }
    detail+=`</div></div>`;
  }
- return `<div class="row ${open?'open':''}" data-tk="${esc(key)}"><div class="who"><b>${esc(nameOf(t))}</b><small>${esc(t.customer_email||"")}</small></div>
+ return `<div class="row ${open?'open':''}" data-tk="${esc(key)}" role="button" tabindex="0" aria-expanded="${open?'true':'false'}"><div class="who"><b>${esc(nameOf(t))}</b><small>${esc(t.customer_email||"")}</small></div>
   <div class="subj">${esc(t.ticket_subject||"(no subject)")}</div>
   <span class="badge ${e?'sens':'low'}">${e?'Sensitive':'AI draft'}</span>
   <div class="st">${posted}<br><small>${ago(t)}</small></div></div>${detail}`;
@@ -474,12 +483,13 @@ function kbView(){
 }
 
 function settingsView(){
+ if(loadErrors.includes("settings"))return `<div class="panel" role="alert"><h3>Agent settings are unavailable</h3><div class="ph">Refresh to retry. The write state is unknown and has not been presented as off.</div></div>`;
  const writes=(settings.gorgias_writes_enabled||"false")==="true";
  const steps=[["Connect Gorgias","Read tickets & post reply drafts"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets"]];
  return `<div class="sec-title">Onboarding - you're all set</div>
  <div class="panel"><div class="steps">${steps.map(x=>`<div class="step"><div class="ck">${IC.check}</div><div><b>${x[0]}</b><small>${x[1]}</small></div></div>`).join("")}</div></div>
  <div class="sec-title">Agent settings</div>
- <div class="toggle"><div><b style="font-size:13.5px">Post drafts to Gorgias</b><div class="hint">On = agent posts drafts as internal notes on tickets. Off = draft-only (safe review mode).</div></div><div class="sw ${writes?'on':''}" id="f-writes"><i></i></div></div>
+ <div class="toggle"><div><b style="font-size:13.5px">Post drafts to Gorgias</b><div class="hint">On = agent posts drafts as internal notes on tickets. Off = draft-only (safe review mode).</div></div><button type="button" class="sw ${writes?'on':''}" id="f-writes" role="switch" aria-checked="${writes?'true':'false'}" aria-label="Post drafts to Gorgias"><i aria-hidden="true"></i></button></div>
  <div class="sec-title">Always escalate (never auto-reply)</div>
  <div class="panel"><div class="chips"><span>Refunds</span><span>Chargebacks</span><span>Damaged items</span><span>Wrong items</span><span>Cancellations</span><span>Angry customers</span></div></div>`;
 }
@@ -643,7 +653,7 @@ function bind(){
  document.querySelectorAll("[data-go-ticket]").forEach(b=>b.onclick=()=>goTickets("all",b.dataset.goTicket));
  const retry=document.getElementById("retry-load");if(retry)retry.onclick=boot;
  document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{filter=c.dataset.f;openTk=null;render();});
- document.querySelectorAll(".row[data-tk]").forEach(r=>r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}});
+ document.querySelectorAll(".row[data-tk]").forEach(r=>{r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}};r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();r.click();}};});
  const as=document.getElementById("act-send");if(as)as.onclick=sendReply;
  const an=document.getElementById("act-note");if(an)an.onclick=noteReply;
  const ae=document.getElementById("act-edit");if(ae)ae.onclick=()=>{captureAct();actEditOpen=!actEditOpen;render();};
