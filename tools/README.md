@@ -22,6 +22,7 @@ different service's virtual environment.
 - `list_recent_returns(limit)`
 - `get_returns_for_order(order_name)`
 - `get_return(return_id)`
+- `get_order(order_name)` — read-only Shopify order/shipping context via Redo
 
 Reads `REDO_API_KEY` + `REDO_STORE_ID` from the agent `.env`.
 

@@ -7,6 +7,7 @@ Tools:
   - list_recent_returns(limit)         recent returns/RMAs
   - get_returns_for_order(order_name)  returns for a specific Shopify order
   - get_return(return_id)              one return by id
+  - get_order(order_name)              order with shipping, fulfillment, tracking
 
 Transport is chosen by REDO_MCP_TRANSPORT (stdio default | streamable-http).
 """
@@ -85,6 +86,27 @@ def get_returns_for_order(order_name: str) -> dict:
 def get_return(return_id: str) -> dict:
     """Get one return by its Redo return id (read-only)."""
     return _trim(_get(f"/returns/{return_id}"))
+
+
+@mcp.tool()
+def get_order(order_name: str) -> dict:
+    """Look up a Shopify order by its name/number (e.g. '12345' or '#12345').
+
+    Returns full read-only order context including shipping address,
+    fulfillment, tracking, delivery status, line items, and customer data.
+    """
+    clean = order_name.lstrip("#").strip()
+
+    # Redo's order-detail route needs its internal ID. The filtered returns
+    # response includes order records that map Shopify names to that ID.
+    data = _get("/returns", {"shopify_order_name": clean})
+    if isinstance(data, dict) and isinstance(data.get("orders"), list):
+        for order in data["orders"]:
+            if str(order.get("name")) == clean and order.get("id"):
+                return _get(f"/orders/{order['id']}")
+
+    # Also supports callers that already hold a Redo internal order ID.
+    return _get(f"/orders/{clean}")
 
 
 if __name__ == "__main__":

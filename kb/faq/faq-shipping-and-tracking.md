@@ -61,4 +61,5 @@ generally responsible for any customs/import fees their country charges.
 ## I see a charge but never got a confirmation email
 
 Often this is a typo in the email address on the order. Verify the order exists,
-correct the email if needed, and share the tracking if it has already shipped.
+and draft a staff handoff with the corrected email if needed. The AI must not edit
+the order. Share tracking only when the read-only order record shows it shipped.

@@ -1,5 +1,9 @@
 # Buttons Bebe Agent — Issues list (for the junior developer)
 
+> **SUPERSEDED (2026-07-14):** This is a historical audit snapshot, not a current
+> issue register. Several items below are now fixed. Use `CLAUDE.md`, `AGENTS.md`,
+> the current tests, and live verification; do not implement work from this file.
+
 Server: `srv1766050` (2.25.137.77), everything under `/root/Buttonsbebe Agent/`.
 Architecture reference: `CLAUDE.md` (single source of truth).
 Two sections: **A. Open issues to fix**, then **B. Already fixed (context only)**.

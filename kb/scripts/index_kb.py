@@ -48,7 +48,12 @@ def _index_lock():
         try:
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                # Unlock cleanup must not turn a completed promotion into a
+                # reported rebuild failure.
+                pass
 
 
 @contextmanager
@@ -61,7 +66,10 @@ def _promotion_lock():
         try:
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
 
 
 def _promote(staged_db: pathlib.Path) -> None:
@@ -80,7 +88,13 @@ def _promote(staged_db: pathlib.Path) -> None:
             raise
         else:
             if backup_db is not None and backup_db.exists():
-                shutil.rmtree(backup_db)
+                # os.replace above is the commit point. Backup cleanup is best
+                # effort so callers never roll their source corpus back after
+                # the new index has already become live.
+                try:
+                    shutil.rmtree(backup_db)
+                except BaseException:
+                    pass
 
 
 def _content_manifest(rows: list[dict]) -> dict[str, tuple]:
@@ -151,12 +165,14 @@ def rebuild_index_locked() -> None:
                 table.create_fts_index("text", replace=True)
 
         _validate_staged_table(table, rows)
+        print(f"Publishing {len(rows)} validated chunks to {DB_DIR}/{TABLE} ...")
         _promote(staging_root)
     finally:
         if staging_root.exists():
             shutil.rmtree(staging_root, ignore_errors=True)
 
-    print(f"Done. Indexed {len(rows)} chunks into {DB_DIR}/{TABLE}.")
+    # Nothing after the promotion commit point may raise: product sync treats
+    # any rebuild exception as pre-commit and restores the previous corpus.
 
 
 def main() -> None:

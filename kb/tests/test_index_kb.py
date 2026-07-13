@@ -161,6 +161,22 @@ class TestIndexKB(unittest.TestCase):
             self.assertFalse((db_dir / "last-known-good").exists())
             self.assertFalse(list(root.glob(".lancedb-backup-*")))
 
+    def test_post_promotion_backup_cleanup_failure_is_nonfatal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_dir = root / "lancedb"
+            staged = root / "staged"
+            db_dir.mkdir()
+            staged.mkdir()
+            (db_dir / "old").write_text("old")
+            (staged / "new").write_text("new")
+            with patch.object(index_kb, "DB_DIR", db_dir), patch.object(
+                index_kb.shutil, "rmtree", side_effect=OSError("cleanup failed")
+            ):
+                index_kb._promote(staged)
+            self.assertEqual((db_dir / "new").read_text(), "new")
+            self.assertFalse((db_dir / "old").exists())
+
     def test_rebuild_preserves_content_and_sensitive_labels_exactly(self) -> None:
         rows = [
             {

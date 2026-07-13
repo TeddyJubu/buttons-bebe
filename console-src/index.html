@@ -341,8 +341,9 @@ function errorBanner(){return `<div class="error-banner" role="alert"><div><stro
 
 function overview(){
  if(loadErrors.includes("stats")||loadErrors.includes("tickets"))return `<div class="panel" role="alert"><h3>Overview metrics are unavailable</h3><div class="ph">Refresh to retry. No missing values are being presented as zero.</div></div>${learnPanel()}`;
- const drafted=stats.drafted||0,escalated=stats.escalated||0,done=stats.done||0,failed=stats.failed||0;
- const handled=drafted+escalated,autor=handled?Math.round(drafted/handled*100):0;
+ const standardDrafts=stats.drafted||0,sensitiveDrafts=stats.sensitive_draft||0,legacyEscalated=stats.escalated||0;
+ const drafted=standardDrafts+sensitiveDrafts,escalated=legacyEscalated+sensitiveDrafts,done=stats.done||0,failed=stats.failed||0;
+ const handled=drafted+legacyEscalated,autor=handled?Math.round(drafted/handled*100):0;
  const queue=(stats.pending||0)+(stats.processing||0),currentEsc=tickets.filter(isEsc).length;
  const kpis=[
   {l:"Tickets processed",v:done,s:"all-time",up:true,f:"all"},

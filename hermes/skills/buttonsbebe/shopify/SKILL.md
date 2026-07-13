@@ -20,16 +20,15 @@ create/inspect a refund through a direct API.
 
 ## Approved data paths
 
-- Use `buttonsbebe_redo.get_order(order_name)` for order status, line items,
-  shipping address, tracking, fulfillment, and delivery context.
 - Use `buttonsbebe_redo.get_returns_for_order(order_name)` and
   `buttonsbebe_redo.get_return(return_id)` for return/RMA context.
 - Use `buttonsbebe_gorgias.get_ticket`, `get_ticket_messages`, `get_customer`,
-  and `search_customer` for help-desk/customer context.
+  and `search_customer` for help-desk/customer context and synced Shopify order,
+  fulfillment, address, line-item, and tracking details when Gorgias provides them.
 - Use `buttonsbebe_kb.search_kb` for product catalog information, sizes,
   variants, availability, policies, FAQs, and approved reply exemplars.
 
-All four paths above are authenticated read-only MCP calls. If a tool lacks the
+All approved paths above are authenticated read-only MCP calls. If a tool lacks the
 needed fact, say it needs human review; do not create a direct API fallback.
 
 ## Response rules

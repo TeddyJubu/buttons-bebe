@@ -23,14 +23,16 @@ rules. We make it right. See `../intents/intent-15-wrong-item-received.md` and
 2. Ask for a **photo** of the item received / the damage, including the
    **tag/label** if needed (photos are required for damaged items).
 3. Compare the received item to the order.
-4. **Wrong item:** notify the warehouse to locate and ship the correct item, and
-   determine whether the wrong item must be returned. The correct item may still be
+4. **Wrong item:** draft a staff handoff asking the warehouse to locate the correct
+   item and determine whether the wrong item must be returned. The correct item may still be
    physically available even if inventory shows none, because the wrong item was
    shipped — **do not rely only on the inventory count.**
-5. **Damaged item:** check whether a replacement is available; if so, notify the
-   warehouse. **Email the vendor/company** with the photos and item/order details.
+5. **Damaged item:** check whether a replacement is available; if so, draft the
+   warehouse handoff. Draft a vendor/company escalation with the photos and
+   item/order details for staff to send.
    If no replacement is available, follow the refund/return/store-credit policy.
-6. Resolution is typically a **replacement or store credit**.
+6. Resolution is typically a **replacement or store credit**. The AI performs none
+   of the warehouse, vendor-email, replacement, credit, return, or refund actions.
 
 ## Refunds for defects are still escalation-only
 

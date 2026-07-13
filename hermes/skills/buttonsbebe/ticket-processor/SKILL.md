@@ -32,9 +32,7 @@ Three MCP servers are connected and available as tools:
    - `search_kb(query, k)` — search KB for policies, FAQs, product details,
      exemplar tickets. Returns passages with `sensitive` flag.
 
-3. **buttonsbebe_redo** — Redo returns/RMA + order shipping system
-   - `get_order(order_name)` — full order with shipping address, fulfillment
-     status, tracking number, carrier, delivery status, line items, customer
+3. **buttonsbebe_redo** — Redo returns/RMA system
    - `get_returns_for_order(order_name)` — returns for a Shopify order
    - `get_return(return_id)` — single return detail
    - `list_recent_returns(limit)` — recent returns across the store
@@ -50,27 +48,25 @@ decide which MCP tools to call and in what order:
 
 ### Shipping & tracking questions
 "Where is my order?" | "Has it shipped?" | "Tracking number?"
-1. Redo → get_order(order_name) — tracking, carrier, delivery status
-2. Gorgias → get_customer(customer_id) — Shopify fulfillment_status (fallback)
-3. KB → search_kb("shipping status") — processing time policy
+1. Gorgias → get_ticket(ticket_id), then get_customer(customer_id) — synced Shopify tracking, carrier, delivery status when available
+2. KB → search_kb("shipping status") — processing time policy
 
 ### Address change requests
 "I need to change my address" | "Wrong zip code"
-1. Redo → get_order(order_name) — current address + fulfillment status
+1. Gorgias → get_ticket(ticket_id), then get_customer(customer_id) — synced Shopify shipping address + fulfillment status when available
    (not shipped = CRITICAL, already shipped = HIGH)
-2. Gorgias → get_customer(customer_id) — Shopify shipping_address (fallback)
-3. KB → search_kb("address change") — intent-10, order changes policy
+2. KB → search_kb("address change") — intent-10, order changes policy
 
 ### Return & exchange requests
 "I want to return" | "Can I exchange?" | "How many days?"
 1. Redo → get_returns_for_order(order_name) — existing return status
-2. Redo → get_order(order_name) — line items, shipping address
+2. Gorgias → get_customer(customer_id) — synced line items and shipping context when available
 3. KB → search_kb("return exchange") — 7-day window, restocking fees
 
 ### Wrong / damaged item
 "I got the wrong item" | "Item is damaged" | "Wrong size received"
 1. Gorgias → get_ticket(ticket_id) — conversation, Gorgias intents
-2. Redo → get_order(order_name) — what was ordered, tracking
+2. Gorgias → get_customer(customer_id) — synced order and tracking context when available
 3. Redo → get_returns_for_order(order_name) — existing return
 4. KB → search_kb("wrong item" / "damaged") — intent-15/16, SENSITIVE
 
@@ -82,18 +78,17 @@ decide which MCP tools to call and in what order:
 
 ### Cancellation requests
 "Cancel my order" | "I don't want this anymore"
-1. Redo → get_order(order_name) — fulfillment status (not shipped = can cancel)
-2. Gorgias → get_customer(customer_id) — cancel_reason, cancelled_at
-3. KB → search_kb("cancel order") — intent-06, order changes policy
+1. Gorgias → get_ticket(ticket_id), then get_customer(customer_id) — synced fulfillment/cancellation status when available
+2. KB → search_kb("cancel order") — intent-06, order changes policy
 
 ### Order changes (add item, change size)
 "Can I add to my order?" | "Change size before it ships"
-1. Redo → get_order(order_name) — fulfillment status, current line items
+1. Gorgias → get_ticket(ticket_id), then get_customer(customer_id) — synced fulfillment status and line items when available
 2. KB → search_kb("order change") — intent-08, order changes policy
 
 ### Lost / not received package
 "Package was lost" | "Delivered but I didn't get it"
-1. Redo → get_order(order_name) — tracking, delivery status
+1. Gorgias → get_ticket(ticket_id), then get_customer(customer_id) — synced tracking/delivery status when available
 2. KB → search_kb("lost package" / "delivered not received") — SENSITIVE
 
 ### Product / sizing / availability
@@ -107,7 +102,7 @@ decide which MCP tools to call and in what order:
 
 ### Urgent / rush delivery
 "I need this by Friday" | "It's urgent"
-1. Redo → get_order(order_name) — has it shipped?
+1. Gorgias → get_ticket(ticket_id), then get_customer(customer_id) — synced shipping status when available
 2. KB → search_kb("urgent rush shipping") — intent-18, CRITICAL
 
 ### Customer history
@@ -120,9 +115,8 @@ decide which MCP tools to call and in what order:
 1. Gorgias → get_ticket_messages(ticket_id) — confirm no question
 2. Classify as LOW, draft brief acknowledgment
 
-RULE: Always search KB for policy/safety guidance. Use Redo for
-shipping/returns/order status. Use Gorgias for ticket context and
-customer order history.
+RULE: Always search KB for policy/safety guidance. Use Redo only for returns/RMA
+status. Use Gorgias for ticket context and synced customer/order history.
 
 ## Critical rule: ALWAYS output JSON_RESULT
 
@@ -287,15 +281,15 @@ initiated one yet — mention the return process in your draft.
 
 ## Step 5.5 — Check Order & Shipping (if ticket involves an order)
 
-If the ticket mentions an order number (in subject or message), use the
-`get_order` MCP tool (from buttonsbebe_redo server) to fetch the full
-order with shipping and fulfillment data:
+If the ticket involves an order, call `get_ticket(ticket_id)` to identify the
+customer, then use `get_customer(customer_id)` from buttonsbebe_gorgias for
+synced Shopify order, shipping, and fulfillment data when available:
 
 ```
-Call: get_order(order_name="<order_number>")
+Call: get_customer(customer_id=<customer_id_from_ticket>)
 ```
 
-This returns:
+Gorgias may return:
 - **Shipping address** — full address (street, city, state, zip, country)
 - **Shipping method** — e.g. "Free Shipping"
 - **Fulfillment status** — `fulfillments` array (empty = not shipped,
@@ -317,6 +311,9 @@ Use this data to:
 - Determine if an address change is CRITICAL (not shipped) or HIGH (already shipped)
 - Provide order status updates with specific tracking info
 - Reference line items when discussing wrong/damaged items
+
+If the synced order fields are absent, flag the missing fact for the human
+reviewer. Never call a nonexistent Redo order tool or use a direct API fallback.
 
 ## Step 6 — Classify Priority
 

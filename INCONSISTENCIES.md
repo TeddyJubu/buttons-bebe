@@ -1,5 +1,9 @@
 # Project Consistency Audit — Buttons Bebe Agent
 
+> **SUPERSEDED (2026-07-14):** This is a historical audit snapshot. Its claims
+> predate the current `CLAUDE.md` and repaired runtime. Do not use it as current
+> architecture or an active issue list.
+
 **Date:** July 7, 2026 · **Scope:** local project docs vs. the live VPS (`srv1766050` / 2.25.137.77)
 
 ## The big picture (why inconsistencies exist)

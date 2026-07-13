@@ -17,8 +17,9 @@ Apologize.
 Ask for clear damage photos.
 Ask for tag/label photo if needed.
 Check if replacement is available.
-If replacement is available, notify warehouse.
-Email vendor/company with photos and item/order details.
+If replacement is available, draft a staff handoff to the warehouse.
+Draft the vendor/company escalation with photos and item/order details for staff
+to send. The AI must not notify the warehouse, email a vendor, or create a replacement.
 If no replacement is available, follow refund/return/store-credit policy.
 
 ## Customer response

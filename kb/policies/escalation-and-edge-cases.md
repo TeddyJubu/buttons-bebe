@@ -35,11 +35,12 @@ after the demo, proceed with the return via the defect flow.
 ## Partial refund for a missing accessory
 
 If an item arrives **missing an accessory** that should have been included
-(sunglasses, hat, belt, straps): first check inventory for a spare and ship it
-separately if available (no return needed). If there's no spare, offer the customer
-either a **partial refund** for the missing piece (the price difference between the
-with- and without-accessory variants) or a **full return** of the item. Contact the
-brand if it was a packaging error. Any refund amount is escalation-only.
+(sunglasses, hat, belt, straps): first check inventory for a spare, then draft a
+staff handoff to ship it separately if available (no return needed). If there's no
+spare, flag the human options: a **partial refund** for the missing piece (the price
+difference between the with- and without-accessory variants) or a **full return**
+of the item. Draft a brand escalation if it was a packaging error. The AI must not
+ship, refund, create a return, contact a brand, or promise an outcome.
 
 ## "Customer keeps the item" — agent discretion (low value only)
 

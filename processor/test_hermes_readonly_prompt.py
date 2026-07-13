@@ -36,6 +36,9 @@ class HermesReadOnlyPromptTests(unittest.TestCase):
         self.assertNotIn("curl PUT", prompt)
         self.assertNotIn("curl POST", prompt)
         self.assertNotIn("Post the draft as an internal note", prompt)
+        self.assertNotIn("get_order", prompt)
+        self.assertIn("get_returns_for_order", prompt)
+        self.assertIn("get_customer", prompt)
         self.assertNotIn("gorgias_writes_enabled", inspect.signature(_build_prompt).parameters)
         self.assertNotIn(
             "gorgias_writes_enabled",
@@ -53,9 +56,12 @@ class HermesReadOnlyPromptTests(unittest.TestCase):
 
     def test_failed_generation_never_echoes_customer_message_as_draft(self) -> None:
         customer_message = "Where is my order?"
-        self.assertEqual(draft_for_console({"reason": "Hermes failed"}), "")
+        fallback = _parse_json_result("Hermes did not return JSON")
+        draft = draft_for_console(fallback)
+        self.assertTrue(draft.startswith("[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]"))
+        self.assertIn("reviewing your request", draft)
         self.assertNotEqual(
-            draft_for_console({"reason": "Hermes failed"}), customer_message
+            draft, customer_message
         )
         self.assertEqual(
             draft_for_console({"draft_text": "  A real generated draft.  "}),

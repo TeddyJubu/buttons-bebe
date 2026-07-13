@@ -34,6 +34,8 @@ human decision.
 ## Removing package protection on pickup orders
 
 For a **local-pickup** order, package protection is unnecessary. If a customer asks
-to remove it, remove/refund the $1.99 and reply after the action is done. See
+to remove it, draft a staff handoff requesting removal/refund of the $1.99. The AI
+must not edit the order or issue the refund, and may claim completion only when
+read-only data confirms a human completed it. See
 `order-changes-and-cancellations.md` and
 `../intents/intent-06-cancel-refund-package-protection.md`.

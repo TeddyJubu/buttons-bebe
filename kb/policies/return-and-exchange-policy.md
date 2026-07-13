@@ -50,9 +50,10 @@ edit the order itself. See
 
 If the customer received the wrong item, a defective/damaged item, or an item that
 does not match its description, this is **not** a buyer return and final-sale rules
-do **not** apply. Apologize, request a photo (including the tag/label), and make it
-right via the defect flow (replacement / store credit, and email the vendor with
-photos). See `warranty-and-defects.md` and the intents
+do **not** apply. Apologize, request a photo (including the tag/label), and draft a
+staff handoff for the defect flow (replacement/store-credit review and a vendor
+email with photos). The AI performs none of those actions. See
+`warranty-and-defects.md` and the intents
 `intents/intent-15-wrong-item-received.md` and
 `intents/intent-16-damaged-item-received.md`.
 

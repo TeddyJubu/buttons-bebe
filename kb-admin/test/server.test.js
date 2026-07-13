@@ -111,9 +111,11 @@ test("console binds only KB item buttons and disables saving after a load error"
   assert.doesNotMatch(html, />Healthy</);
   assert.match(html, /Content current/);
   assert.doesNotMatch(html, /Post drafts to Gorgias|gorgias_writes_enabled/);
+  assert.match(html, /sensitiveDrafts=stats\.sensitive_draft\|\|0/);
 
   const legacyDashboard = fs.readFileSync(path.join(ROOT, "dashboard", "index.html"), "utf8");
   const legacyScripts = [...legacyDashboard.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
   for (const match of legacyScripts) assert.doesNotThrow(() => new Function(match[1]));
   assert.doesNotMatch(legacyDashboard, /Post drafts to Gorgias|gorgias_writes_enabled|4,246 products/);
+  assert.match(legacyDashboard, /sensitiveDrafts=stats\.sensitive_draft\|\|0/);
 });
