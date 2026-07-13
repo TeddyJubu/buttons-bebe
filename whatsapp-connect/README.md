@@ -6,7 +6,7 @@ when any is missing or still uses a placeholder:
 
 ```dotenv
 WA_TOKEN=<random 32+ character path token>
-WA_PASSWORD=<random 16+ character pairing-page password>
+WA_PASSWORD=<random 16+ character pairing-page password; existing 8+ character credentials remain supported>
 WA_SEND_SECRET=<random 32+ character escalation sender secret>
 ```
 
