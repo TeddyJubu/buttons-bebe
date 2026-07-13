@@ -4,6 +4,8 @@ import inspect
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PROCESSOR_DIR = Path(__file__).resolve().parent
@@ -67,6 +69,40 @@ class HermesReadOnlyPromptTests(unittest.TestCase):
             draft_for_console({"draft_text": "  A real generated draft.  "}),
             "A real generated draft.",
         )
+        self.assertTrue(
+            draft_for_console({}).startswith(
+                "[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]"
+            )
+        )
+
+    @patch("hermes_runner.subprocess.run")
+    @patch("hermes_runner.get_settings")
+    def test_valid_json_without_draft_fails_closed_to_reviewable_fallback(
+        self, get_settings, run
+    ) -> None:
+        get_settings.return_value = SimpleNamespace(job_timeout=30)
+        run.return_value = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=(
+                'JSON_RESULT: {"priority":"normal","reason":"classified",'
+                '"action":"drafted","notify_owner":false,'
+                '"gorgias_priority_set":false,"note_posted":false}'
+            ),
+        )
+
+        result = process_ticket_with_hermes(
+            ticket_id=123,
+            message_text="Where is my order?",
+            ticket_subject="Order status",
+            customer_email="customer@example.com",
+            intents=["shipping"],
+        )
+
+        self.assertEqual(result["priority"], "high")
+        self.assertEqual(result["action"], "sensitive_draft")
+        self.assertTrue(result["notify_owner"])
+        self.assertTrue(result["draft_text"].startswith("[SENSITIVE — REVIEW"))
 
     def test_documented_high_risk_topics_are_sensitive(self) -> None:
         for message in (

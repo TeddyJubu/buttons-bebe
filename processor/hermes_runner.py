@@ -94,8 +94,9 @@ _FALLBACK_RESULT: dict[str, Any] = {
 
 
 def draft_for_console(hermes_result: dict[str, Any]) -> str:
-    """Return only a real Hermes draft; never echo customer input as a reply."""
-    return str(hermes_result.get("draft_text") or "").strip()
+    """Return a reviewable draft without ever echoing customer input."""
+    draft = str(hermes_result.get("draft_text") or "").strip()
+    return draft or str(_FALLBACK_RESULT["draft_text"])
 
 
 def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
@@ -411,13 +412,22 @@ def process_ticket_with_hermes(
         # Parse the JSON_RESULT from the output
         parsed = _parse_json_result(stdout)
 
-        # Extract draft text from <DRAFT>...</DRAFT> tags (when writes disabled)
+        # A valid classification without a usable draft is still malformed.
+        # Fail closed to a reviewable sensitive draft instead of persisting an
+        # empty console card with no human action controls.
         draft_text = _extract_draft(stdout)
         if draft_text:
             parsed["draft_text"] = draft_text
             log_event(logger, "INFO", "Draft extracted from Hermes output",
                       ticket_id=ticket_id,
                       draft_length=len(draft_text))
+        else:
+            log_event(logger, "WARNING", "Hermes output missing reviewable draft",
+                      ticket_id=ticket_id)
+            parsed = dict(_FALLBACK_RESULT)
+            parsed["reason"] = (
+                "Hermes output omitted the customer draft — defaulting to high for safety"
+            )
 
         log_event(logger, "INFO", "Hermes processing complete",
                   ticket_id=ticket_id,
