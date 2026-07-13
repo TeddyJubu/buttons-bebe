@@ -6,9 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/root/Buttonsbebe Agent/whatsapp-connect
+EnvironmentFile="/root/Buttonsbebe Agent/whatsapp-connect/.env"
 Environment=WA_PORT=8085
-Environment=WA_TOKEN=__WA_TOKEN__
-Environment=WA_PASSWORD=chaim123
 Environment=WA_AUTH_DIR=/root/Buttonsbebe Agent/whatsapp-connect/auth
 Environment=HERMES_BIN=__HERMES_BIN__
 ExecStart=/bin/bash -c 'exec __NODE__ "/root/Buttonsbebe Agent/whatsapp-connect/server.js"'

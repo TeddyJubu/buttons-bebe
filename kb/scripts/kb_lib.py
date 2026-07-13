@@ -25,6 +25,7 @@ from pathlib import Path
 import frontmatter
 from lancedb.pydantic import LanceModel, Vector
 from fastembed import TextEmbedding
+from sensitivity import is_sensitive_tags, normalize_tags
 
 # ---- where things live --------------------------------------------------
 KB_DIR = Path(__file__).resolve().parent.parent   # the KB/ folder
@@ -35,9 +36,6 @@ TABLE = "kb"
 # "products" is auto-synced from Shopify (see scripts/sync_products.py).
 CONTENT_FOLDERS = ["intents", "faq", "policies", "tickets", "products"]
 # learned/ is deliberately excluded until a human promotes a file out of it.
-
-# Tags that mean "this topic is sensitive -> escalate, don't auto-draft".
-SENSITIVE_TAGS = {"sensitive", "escalation", "refund", "chargeback", "dispute"}
 
 # ---- the local language model ------------------------------------------
 # Small, multilingual (50+ languages incl. Hebrew), runs on CPU, ~0.2 GB,
@@ -136,10 +134,9 @@ def load_rows() -> list[dict]:
         category = str(meta.get("category", rel.parts[0]))
         status = str(meta.get("status", "confirmed"))
         source = str(meta.get("source", ""))
-        tags_list = meta.get("tags", []) or []
-        tags_list = [str(t).lower() for t in tags_list] if isinstance(tags_list, list) else [str(tags_list)]
+        tags_list = sorted(normalize_tags(meta.get("tags", [])))
         tags = ", ".join(tags_list)
-        sensitive = bool(set(tags_list) & SENSITIVE_TAGS)
+        sensitive = is_sensitive_tags(tags_list)
 
         for i, (heading, chunk) in enumerate(_chunks_by_heading(post.content)):
             uid = hashlib.sha1(f"{rel}::{i}".encode()).hexdigest()[:16]

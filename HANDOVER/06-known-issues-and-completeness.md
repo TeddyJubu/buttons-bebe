@@ -63,7 +63,7 @@ IDs preserved so they map to the Phase-2 roadmap: `#1–#13` = `DEV-ISSUES.md` o
 
 | ID | Sev | Area | Issue | Affected file(s) | Suggested fix |
 |---|---|---|---|---|---|
-| **#12** | **High** | Security | WhatsApp pairing page ships **weak hardcoded defaults**. `server.js` falls back to `WA_TOKEN="changeme"` and `WA_PASSWORD="chaim123"`; the systemd unit **hardcodes `WA_PASSWORD=chaim123`** and a `__WA_TOKEN__` placeholder. | `whatsapp-connect/server.js:31–32`, `whatsapp-connect/buttonsbebe-whatsapp-connect.service:10–11` | Set a strong, unique `WA_PASSWORD` and a random `WA_TOKEN` via env only; remove the hardcoded password from the `.service`; rotate the URL token; keep bound to localhost behind Caddy. |
+| **#12** | **High** | Security | **Fixed in repository; VPS rollout pending.** WhatsApp Connect now refuses missing/placeholder secrets, uses a separate `WA_SEND_SECRET`, authenticates and audit-logs `/send`, and reads only its dedicated env file. The live VPS must receive three rotated secrets and the processor caller must add send authentication before restart. | `whatsapp-connect/server.js`, `security.js`, `.service`; VPS-only `processor/twilio_notifier.py` | Generate unique `WA_TOKEN`, `WA_PASSWORD`, `WA_SEND_SECRET` in `whatsapp-connect/.env`; update the processor to send Bearer auth (or Basic password compatibility); deploy and verify unauthenticated POST returns 401. |
 | **#13** | **High** | Security | Secrets hygiene. Live API keys live in `.env`. Rotate anything ever pasted into chat/notes; enforce `chmod 600`; never commit. | `/root/Buttonsbebe Agent/.env` + `webhook/.env` (VPS); repo-root `.env` + `.env.bak-20260708` (git-ignored, present on disk) | Rotate Gorgias key, Shopify client secret, Redo key; `chmod 600`; confirm `.gitignore` coverage (it is — verified). |
 
 ### 3b. OPEN — Code / logic
@@ -201,10 +201,10 @@ cd kb && ./sync-products.sh && python3 scripts/index_kb.py   # or ./setup.sh
 
 Ordered by risk. Items 1–3 are security and should happen before the system is trusted with live traffic.
 
-1. **Rotate the WhatsApp connect credentials (#12).**
-   - Replace the weak defaults: `WA_TOKEN` (default `"changeme"` / placeholder `__WA_TOKEN__`) → a long random token; `WA_PASSWORD` (default **`"chaim123"`**, and **hardcoded** in `whatsapp-connect/buttonsbebe-whatsapp-connect.service:11`) → a strong unique password.
-   - **Remove the hardcoded password from the `.service` file**; inject both via env only. Rotate the `/connect-whatsapp/<token>/` URL token. Keep the service localhost-bound behind Caddy (it already is).
-   - Files: `whatsapp-connect/server.js:31–32`, `whatsapp-connect/buttonsbebe-whatsapp-connect.service:10–11`.
+1. **Roll out the secured WhatsApp configuration (#12).**
+   - Generate different random values for `WA_TOKEN` (32+ chars), `WA_PASSWORD` (16+ chars), and `WA_SEND_SECRET` (32+ chars) in the dedicated `whatsapp-connect/.env`; rotate the existing token/password and set file mode `600`.
+   - Configure the VPS-only processor to authenticate `POST /connect-whatsapp/<WA_TOKEN>/send` with `Authorization: Bearer <WA_SEND_SECRET>` (preferred) or use the secret as the HTTP Basic password through `WHATSAPP_SEND_URL`.
+   - Deploy the updated `server.js`, `security.js`, service unit, and dependencies; restart WhatsApp Connect only after the processor is ready. Verify missing/wrong auth returns 401 and a valid test alert succeeds.
 
 2. **Rotate all live API keys and lock down `.env` (#13).**
    - Rotate the **Gorgias** API key, **Shopify** client secret, and **Redo** key (rotate anything that may have been pasted into chat/notes historically).

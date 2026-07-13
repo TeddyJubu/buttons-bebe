@@ -54,7 +54,7 @@ The agent runs in production today on a VPS. It works as a **copilot**: it draft
 2. **The safety model is sacred.** AI drafts; humans send; sensitive tickets escalate; the only external write is a Gorgias internal note.
 3. **The live system is Hermes on `main`.** `glm-5.2` via Ollama Cloud, guided by `SOUL.md` + a Hermes skill, using three read‑only MCP tools (knowledge base :8077, Redo returns :8078, Gorgias :8079). The webhook receiver + dashboard run on :8000.
 4. **There's a second, offline codebase (Fable) on another branch** you must make a decision about.
-5. **A few security/cleanup items need day‑one attention** — weak hardcoded WhatsApp credentials, a populated `.env` on disk (git‑ignored) whose keys should be rotated, and two `.env` files to consolidate. Doc `06` has the checklist.
+5. **A few security/cleanup items need day‑one attention** — the secured WhatsApp configuration is fixed in the repository but still needs coordinated VPS rollout and secret rotation; a populated `.env` remains on disk (git‑ignored), and two `.env` files still need consolidation. Doc `06` has the checklist.
 
 ## Where the system runs
 

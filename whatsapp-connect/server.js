@@ -19,6 +19,7 @@ const QRCode = require("qrcode");
 const fs = require("fs");
 const { execFile } = require("child_process");
 const P = require("pino");
+const { clientAddress, createSendAuth, isAuthorized, validateSecret } = require("./security");
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -28,8 +29,12 @@ const {
 } = require("@whiskeysockets/baileys");
 
 const PORT = process.env.WA_PORT || 8085;
-const TOKEN = process.env.WA_TOKEN || "changeme";
-const PASSWORD = process.env.WA_PASSWORD || "chaim123"; // gate for the pairing page
+const TOKEN = validateSecret("WA_TOKEN", process.env.WA_TOKEN);
+const PASSWORD = validateSecret("WA_PASSWORD", process.env.WA_PASSWORD, 16);
+const SEND_SECRET = validateSecret("WA_SEND_SECRET", process.env.WA_SEND_SECRET);
+if (new Set([TOKEN, PASSWORD, SEND_SECRET]).size !== 3) {
+  throw new Error("WA_TOKEN, WA_PASSWORD, and WA_SEND_SECRET must be different secrets");
+}
 const AUTH_DIR = process.env.WA_AUTH_DIR || "./auth";
 const NOTIFY_FILE = process.env.WA_NOTIFY_FILE || "./notify.json";
 const HERMES_BIN = process.env.HERMES_BIN || "hermes";
@@ -40,6 +45,10 @@ let qrDataUrl = null;
 let ownerJid = null;
 let sock = null;
 const botSentIds = new Set(); // ids of messages we sent, so we don't reply to ourselves
+
+function audit(event, detail = {}) {
+  console.log(JSON.stringify({ at: new Date().toISOString(), event, ...detail }));
+}
 
 // ---------------- notification destination config ----------------
 // Where escalation alerts are delivered. mode "linked" = the linked owner
@@ -194,15 +203,16 @@ app.use(express.json());
 // shows a login box; enter any username and the password (WA_PASSWORD).
 function requireAuth(req, res, next) {
   const hdr = req.headers.authorization || "";
-  const m = hdr.match(/^Basic (.+)$/);
-  if (m) {
-    const decoded = Buffer.from(m[1], "base64").toString();
-    const pass = decoded.slice(decoded.indexOf(":") + 1);
-    if (pass === PASSWORD) return next();
-  }
+  if (isAuthorized(hdr, PASSWORD) && /^Basic\s/i.test(hdr)) return next();
   res.set("WWW-Authenticate", 'Basic realm="Buttons Bebe - Connect WhatsApp"');
   return res.status(401).send("Password required");
 }
+
+const requireSendAuth = createSendAuth(SEND_SECRET, (req) => {
+  audit("whatsapp_alert_auth_rejected", {
+    remote: clientAddress(req),
+  });
+});
 
 app.get(`${BASE}/status`, requireAuth, (req, res) =>
   res.json({ state, qr: qrDataUrl, owner: ownerJid })
@@ -210,12 +220,22 @@ app.get(`${BASE}/status`, requireAuth, (req, res) =>
 
 // Push an important message to the linked WhatsApp (used by the escalation path).
 // Delivers to the configured destination (linked owner account, or a typed number).
-app.post(`${BASE}/send`, (req, res) => {
+app.post(`${BASE}/send`, requireSendAuth, (req, res) => {
   const text = req.body && req.body.text;
-  if (!text) return res.status(400).json({ error: "text required" });
+  if (!text) {
+    audit("whatsapp_alert_send_rejected", { reason: "text_required" });
+    return res.status(400).json({ error: "text required" });
+  }
+  audit("whatsapp_alert_send_requested");
   sendAlert(text)
-    .then((jid) => res.json({ ok: true, to: jid }))
-    .catch((e) => res.status(409).json({ error: String(e.message || e) }));
+    .then((jid) => {
+      audit("whatsapp_alert_send_succeeded");
+      return res.json({ ok: true, to: jid });
+    })
+    .catch((e) => {
+      audit("whatsapp_alert_send_failed", { reason: "delivery_unavailable" });
+      return res.status(409).json({ error: String(e.message || e) });
+    });
 });
 
 // ---------------- /wa/* : JSON API for the in-console Notifications tab ----------------

@@ -3,7 +3,7 @@ title: Return & Service Edge Cases
 category: policies
 status: confirmed
 source: derived-from-tickets
-tags: [edge-cases, tags, washed, worn, zipper, partial-refund, color-discrepancy, combining-returns, keep-item]
+tags: [edge-cases, sensitive, escalation, washed, worn, zipper, partial-refund, color-discrepancy, combining-returns, keep-item]
 ---
 
 ## Tags removed from a returned item

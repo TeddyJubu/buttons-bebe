@@ -4,6 +4,9 @@
   "private": true,
   "type": "commonjs",
   "description": "WhatsApp QR pairing page + Hermes bridge for Buttons Bebe",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
     "express": "^4.19.2",

@@ -156,16 +156,16 @@ Documents the two integration modules as their own module + MCP server + service
 - **Alert delivery:** `sendAlert(text)` resolves a destination via `destJid()` — either the linked owner account (`mode:"linked"`, default/most secure) or a specific typed number (`mode:"number"`), read from `WA_NOTIFY_FILE` (`notify.json`). Fails with 409 if not connected / no destination.
 - **HTTP endpoints:**
   - `GET  {BASE}/status` — *(Basic-auth gated)* `{state, qr, owner}` (`BASE = /connect-whatsapp/${WA_TOKEN}`).
-  - `POST {BASE}/send` — `{text}` → deliver an alert (this is the escalation entry point; **no WhatsApp password** required, since it's localhost-only).
+  - `POST {BASE}/send` — `{text}` → deliver an alert. Requires the dedicated `WA_SEND_SECRET` as a Bearer token or HTTP Basic password; the path token alone cannot authorize a send.
   - `GET  {BASE}/` — *(Basic-auth gated)* the pairing HTML page (`{BASE}` redirects to `{BASE}/`; any other `/connect-whatsapp/*` → 404).
   - `GET  /wa/status` — `{state, qr, owner, notify}`.
   - `GET  /wa/notify` · `PUT /wa/notify` — read / set alert destination (`{mode:"linked"|"number", number}`; validates the number).
   - `POST /wa/test` — send a test alert to the current destination.
   - `POST /wa/logout` — unlink WhatsApp and force a fresh QR.
   - The `/wa/*` JSON API is (per the file's own header comment) reached only via Caddy at **`/console/waapi/*`** behind the console's auth gate — which is why those routes carry no WhatsApp password of their own.
-- **Auth:** `requireAuth` = HTTP Basic; it checks only the **password** part against `WA_PASSWORD` (any username).
-- **Env vars:** `WA_PORT` (8085), `WA_TOKEN` (secret path segment; code default `"changeme"`), `WA_PASSWORD` (pairing-page password), `WA_AUTH_DIR` (`./auth`), `WA_NOTIFY_FILE` (`./notify.json`), `HERMES_BIN` (`hermes`).
-  - ⚠️ **Security flag for the new team:** `WA_TOKEN` and `WA_PASSWORD` have **weak hard-coded fallback values in the source** (`server.js`) and `WA_PASSWORD` is also set to a literal in the unit file (`whatsapp-connect/buttonsbebe-whatsapp-connect.service`). Rotate these to real secrets (env / secret store) before/at handover — do not rely on the committed defaults.
+- **Auth:** the pairing page uses HTTP Basic with `WA_PASSWORD`; the escalation sender uses the separate `WA_SEND_SECRET`. Comparisons are constant-time. `WA_TOKEN`, `WA_PASSWORD`, and `WA_SEND_SECRET` must be different, non-placeholder secrets or the service refuses to start.
+- **Env vars:** `WA_PORT` (8085), `WA_TOKEN` (secret path segment), `WA_PASSWORD` (pairing-page password), `WA_SEND_SECRET` (escalation sender credential), `WA_AUTH_DIR` (`./auth`), `WA_NOTIFY_FILE` (`./notify.json`), `HERMES_BIN` (`hermes`).
+  - ⚠️ **Deployment requirement:** generate all three secrets in the dedicated `whatsapp-connect/.env`, rotate the former path/password values, and configure the VPS-only processor to authenticate its escalation POST before restarting the service. Keep this file separate from MAIN `.env` so Hermes cannot inherit unrelated commerce credentials.
 - **How it runs:** unit **`buttonsbebe-whatsapp-connect`** — see §3.4.
 
 ### 3.2 `package.json`
@@ -182,7 +182,7 @@ For host `srv1766050.hstgr.cloud` (Caddy auto-manages Let's Encrypt TLS):
 
 ### 3.4 `buttonsbebe-whatsapp-connect.service`
 
-`WorkingDirectory=/root/Buttonsbebe Agent/whatsapp-connect`; `ExecStart=/bin/bash -c 'exec __NODE__ ".../server.js"'`; `Restart=on-failure`. Env: `WA_PORT=8085`, `WA_TOKEN=__WA_TOKEN__`, `WA_PASSWORD=<literal>`, `WA_AUTH_DIR=…/auth`, `HERMES_BIN=__HERMES_BIN__`. The `__WA_TOKEN__`, `__HERMES_BIN__`, and `__NODE__` tokens are **placeholders substituted at deploy time** (absolute node path + resolved values).
+`WorkingDirectory=/root/Buttonsbebe Agent/whatsapp-connect`; `ExecStart=/bin/bash -c 'exec __NODE__ ".../server.js"'`; `Restart=on-failure`. The unit reads `whatsapp-connect/.env` through `EnvironmentFile` for `WA_TOKEN`, `WA_PASSWORD`, and `WA_SEND_SECRET`; it sets `WA_PORT=8085` and `WA_AUTH_DIR` directly. The `__HERMES_BIN__` and `__NODE__` tokens are **placeholders substituted at deploy time** (absolute executable paths).
 
 ---
 
