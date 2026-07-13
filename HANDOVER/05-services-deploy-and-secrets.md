@@ -117,10 +117,6 @@ There are **two** separate env files on the VPS (a known wart, §5):
 | `PROCESSOR_JOB_TIMEOUT` *(commented)* | webhook | processor | Per‑job timeout (seconds) | `120` |
 | `PROCESSOR_MAX_RETRIES` *(commented)* | webhook | processor | Max retries per job | `3` |
 | `PROCESSOR_STALE_MINUTES` *(commented)* | webhook | processor | Re‑queue jobs stuck this long | `10` |
-| `TWILIO_ACCOUNT_SID` *(commented — STUB)* | webhook | escalation (stub) | Twilio SID — **legacy/stub**, superseded by WhatsApp‑connect | *(unused today)* |
-| `TWILIO_AUTH_TOKEN` *(commented — STUB)* | webhook | escalation (stub) | Twilio auth token — stub | *(unused today)* |
-| `TWILIO_WHATSAPP_FROM` *(commented — STUB)* | webhook | escalation (stub) | Twilio WhatsApp sender — stub | *(unused today)* |
-| `OWNER_WHATSAPP` *(commented — STUB)* | webhook | escalation (stub) | Owner WhatsApp recipient — stub | *(unused today)* |
 | `LOG_FORMAT` | webhook | webhook + processor | Log format | `json` |
 | `LOG_LEVEL` | webhook | webhook + processor | Log verbosity | `INFO` |
 
@@ -145,7 +141,8 @@ Confirmed by a **names‑only** grep of the real MAIN `.env` and by reading the 
 | `KB_MCP_TRANSPORT` / `KB_MCP_HOST` / `KB_MCP_PORT` | `kb-mcp` unit | KB MCP | Transport (`streamable-http`) / bind host / port `8077` |
 | `GORGIAS_MCP_TRANSPORT` / `_HOST` / `_PORT` | `gorgias-mcp` unit | Gorgias MCP | Transport / host / port `8079` |
 | `REDO_MCP_TRANSPORT` / `_HOST` / `_PORT` | `redo-mcp` unit | Redo MCP | Transport / host / port `8078` |
-| `WHATSAPP_SEND_URL` | processor **systemd drop‑in** (VPS) | processor `twilio_notifier.py` | Delivery URL the processor POSTs escalation alerts to (the WhatsApp‑connect send endpoint). Per `CLAUDE.md §5` + `DEV-ISSUES.md`. Not in `env.example`. |
+| `WHATSAPP_SEND_URL` | processor **systemd drop‑in** (VPS) | processor `whatsapp_notifier.py` | Delivery URL the processor POSTs escalation alerts to (the WhatsApp‑connect send endpoint). Per `CLAUDE.md §5` + `DEV-ISSUES.md`. Not in `env.example`. |
+| `WA_SEND_SECRET` | processor **systemd drop‑in** (VPS) | processor `whatsapp_notifier.py` | Dedicated Bearer credential matching the WhatsApp-connect `WA_SEND_SECRET`; never put it in the URL. |
 
 > `.env` files are git‑ignored (`.gitignore`: `.env`, `**/.env`, `.env.bak-*`), and the full VPS backup (`_VPS-FULL-BACKUP-*/`, which contains plaintext secrets) is git‑ignored too. Never commit a filled‑in `.env`.
 

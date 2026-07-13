@@ -129,7 +129,7 @@ These were found and fixed during setup; listed so the dev has the history.
   (un-awaited coroutine → RuntimeWarning, PRAGMA never applied). Fixed.
 - **Webhook receiver was a hand-started `uvicorn` process** (not managed, not reboot-safe,
   ran stale code). Converted to the `buttonsbebe-webhook` systemd service.
-- **`twilio_notifier.py` stub** now POSTs escalations to the WhatsApp connect service
+- **`whatsapp_notifier.py`** POSTs escalations to the WhatsApp connect service
   (`WHATSAPP_SEND_URL`). (Note: only fires when a ticket is classified IMMEDIATE — see open
   item #3.)
 - **Stale docs** describing the retired architecture were removed; `CLAUDE.md` is the current

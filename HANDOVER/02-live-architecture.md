@@ -139,7 +139,7 @@ SQLite database at `/root/Buttonsbebe Agent/webhook/data/webhook.db` (WAL mode).
 `sqlite3 "…/webhook/data/webhook.db" "select status,count(*) from jobs group by status"`. The DB is a runtime artifact, not source.
 
 ### 4.4 Processor / orchestrator  🔴 **Source NOT in repo — ⚠️ see doc 06 for the VPS pull procedure**
-`/root/Buttonsbebe Agent/processor`, systemd **`buttonsbebe-processor`**, runs `python -m orchestrator`. Polls the queue (~2 s), runs Hermes once per job via `hermes_runner.py`, records the outcome, and triggers escalation. Contains: `orchestrator.py`, `hermes_runner.py`, `gorgias_writer.py`, `kb_client.py`, and the stubs `classifier.py`, `twilio_notifier.py`, `feedback_collector.py` (§7). Reads config from `webhook/.env` via `processor/config.py`. Runs Hermes with **`--yolo`** (auto-approves tool calls) — safe today because the only write is a staff-only internal note.
+`/root/Buttonsbebe Agent/processor`, systemd **`buttonsbebe-processor`**, runs `python -m orchestrator`. Polls the queue (~2 s), runs Hermes once per job via `hermes_runner.py`, records the outcome, and triggers escalation. Contains: `orchestrator.py`, `hermes_runner.py`, `gorgias_writer.py`, `kb_client.py`, the `whatsapp_notifier.py` caller, and the stubs `classifier.py`, `feedback_collector.py` (§7). Reads config from `webhook/.env` via `processor/config.py`. Runs Hermes with **`--yolo`** (auto-approves tool calls) — safe today because the only write is a staff-only internal note.
 
 ### 4.5 Hermes — the brain  🔴 **Source/config NOT in repo — ⚠️ see doc 06 for the VPS pull procedure**
 Nous **Hermes Agent** CLI, home at `~/.hermes/`. Model **`glm-5.2` via Ollama Cloud** (`~/.hermes/config.yaml`). Behaviour is steered by:
@@ -180,7 +180,7 @@ Node + **Baileys** service on `127.0.0.1:8085` (`whatsapp-connect/server.js`), s
 1. **Owner pairing** — the owner scans a QR at `https://srv1766050.hstgr.cloud/connect-whatsapp/<WA_TOKEN>/` (auth-gated, auto-refreshing QR page).
 2. **Escalation delivery + 2-way bridge** — authenticated `POST /connect-whatsapp/<WA_TOKEN>/send` delivers IMMEDIATE-ticket alerts; the same service bridges the owner's WhatsApp replies back to Hermes. The send endpoint requires the separate `WA_SEND_SECRET`; additional routes are `/wa/status`, `/wa/notify`, `/wa/test`, `/wa/logout`.
 
-The **caller** is `processor/twilio_notifier.py` (🔴, rewritten to POST here; delivery URL `WHATSAPP_SEND_URL` via a processor drop-in). The service unit reads `WA_TOKEN`, `WA_PASSWORD`, and `WA_SEND_SECRET` from the dedicated `whatsapp-connect/.env`; executable-path placeholders are still patched at deploy time. **⚠️ Rollout coordination:** the VPS-only caller must add Bearer or Basic send authentication before the updated WhatsApp service is restarted. (Name "twilio_notifier" is legacy; delivery is WhatsApp/Baileys, not Twilio.)
+The **caller** is `processor/whatsapp_notifier.py` (🔴, POSTing here with `Authorization: Bearer <WA_SEND_SECRET>`; delivery URL `WHATSAPP_SEND_URL` via a processor drop-in). The service unit reads `WA_TOKEN`, `WA_PASSWORD`, and `WA_SEND_SECRET` from the dedicated `whatsapp-connect/.env`; executable-path placeholders are still patched at deploy time. **⚠️ Rollout coordination:** deploy the coupled caller and receiver configuration before restarting WhatsApp Connect.
 
 ### 4.10 Console UI  🟢 **Source in repo: `console-src/index.html`, `dashboard/index.html`** (served by the 🔴 :8000 back-end)
 Single-page "Buttons Bebe — Support Console" (`console-src/index.html`, 529 lines; an older `dashboard/index.html`, 470 lines, exists too — both titled "Support Console"). It is the human review surface: a **Ticket feed** with per-ticket **Request edit / Draft as internal note / Send reply →** buttons, a KB panel, a WhatsApp-connect panel, and a **"Post drafts to Gorgias"** safety toggle. Front-end calls back-end APIs under `/console/api`, `/console/kbapi`, `/console/waapi`. On the VPS it is served from `/var/www/console/index.html` (per `SPRINT-notice-board-2026-07-12.md`); `console-src/` is its repo source. **The HTML is in the repo; the Python endpoints it calls are in the VPS-only webhook app.**
@@ -244,7 +244,7 @@ Reproduced from `CLAUDE.md` §8, annotated.
 - Gorgias **read** (tools) and **write** (internal note via `gorgias_writer.py`).
 
 **LIVE (added 2026-07-07)**
-- WhatsApp escalation channel — `whatsapp-connect` (:8085) + `twilio_notifier.py` POST to it. Owner links WhatsApp via the QR page; alerts then deliver.
+- WhatsApp escalation channel — `whatsapp-connect` (:8085) + `whatsapp_notifier.py` POST with Bearer auth. Owner links WhatsApp via the QR page; alerts then deliver.
 
 **LIVE (added 2026-07-09) — learning loop**
 - Every Console action records a lesson (`learning.py` → `KB/learned/lesson-*.md` + `_ledger.json`; `GET /dashboard/api/learning`).
@@ -256,7 +256,6 @@ Reproduced from `CLAUDE.md` §8, annotated.
 **STUB / not yet implemented**
 - `processor/classifier.py` — returns NORMAL for everything. Risk classification is currently done by **Hermes (the LLM)**, not a deterministic code gate.
 - `processor/feedback_collector.py` — the old poll-based capture, **superseded** by the Console-action capture (`learning.py` + nightly promote).
-- Name caveat: `processor/twilio_notifier.py` is LIVE but delivers via WhatsApp/Baileys, not Twilio.
 
 ---
 
@@ -292,7 +291,7 @@ sqlite3 "/root/Buttonsbebe Agent/webhook/data/webhook.db" "select status,count(*
 | Console front-end (HTML/JS) | served by :8000 | `console-src/index.html`, `dashboard/index.html` | 🟢 Yes |
 | Job queue DB | file | `webhook/data/webhook.db` (VPS runtime) | 🔴 runtime file |
 | Processor / orchestrator | `buttonsbebe-processor` | `/root/Buttonsbebe Agent/processor/` | 🔴 **No — doc 06** |
-| `gorgias_writer.py`, `twilio_notifier.py`, `classifier.py`, `kb_client.py`, `feedback_collector.py` | in processor | `processor/` (VPS) | 🔴 **No — doc 06** |
+| `gorgias_writer.py`, `whatsapp_notifier.py`, `classifier.py`, `kb_client.py`, `feedback_collector.py` | in processor | `processor/` (VPS) | 🔴 **No — doc 06** |
 | Hermes config / SOUL / skill | `~/.hermes/` | `config.yaml`, `SOUL.md`, `skills/buttonsbebe/` | 🔴 **No — doc 06** |
 | KB MCP + search engine (:8077) | `buttonsbebe-kb-mcp` | `kb/` | 🟢 Yes |
 | Redo MCP (:8078) | `buttonsbebe-redo-mcp` | `tools/redo_mcp.py` | 🟢 Yes |

@@ -1,8 +1,8 @@
 """WhatsApp notifier — sends IMMEDIATE-ticket alerts to the owner's WhatsApp.
 
-Delivers via the local whatsapp-connect service (Baileys bridge). The URL
-(with its secret token) is read from the WHATSAPP_SEND_URL environment variable.
-Fail-soft: never raises into the orchestrator.
+Delivers via the local whatsapp-connect service (Baileys bridge). The route URL
+is read from WHATSAPP_SEND_URL and the dedicated WA_SEND_SECRET is sent only as
+a Bearer credential. Fail-soft: never raises into the orchestrator.
 
 """
 from __future__ import annotations
@@ -33,6 +33,7 @@ def send_whatsapp(
     often succeeds on retry a few seconds later.
     """
     url = os.getenv("WHATSAPP_SEND_URL", "").strip()
+    send_secret = os.getenv("WA_SEND_SECRET", "").strip()
     body = (
         f"*[PRIORITY ALERT] Ticket #{ticket_id}*\n"
         f"Subject: {subject}\n"
@@ -42,9 +43,14 @@ def send_whatsapp(
         f"Link: https://buttonsbebe.gorgias.com/tickets/{ticket_id}"
     )
 
+    missing = []
     if not url:
+        missing.append("WHATSAPP_SEND_URL")
+    if not send_secret:
+        missing.append("WA_SEND_SECRET")
+    if missing:
         log_event(logger, "WARNING",
-                  "WhatsApp alert skipped — WHATSAPP_SEND_URL not set",
+                  f"WhatsApp alert skipped — {', '.join(missing)} not set",
                   ticket_id=ticket_id, reason=reason)
         return False
 
@@ -56,7 +62,11 @@ def send_whatsapp(
             data = json.dumps({"text": body}).encode("utf-8")
             req = urllib.request.Request(
                 url, data=data,
-                headers={"Content-Type": "application/json"}, method="POST"
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {send_secret}",
+                },
+                method="POST",
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 ok = 200 <= resp.status < 300

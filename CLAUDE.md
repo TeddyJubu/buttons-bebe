@@ -79,7 +79,7 @@ Customer message
       ▼
   HUMAN reviews the note in Gorgias and sends / edits.
 
-  (Escalation notify via Twilio WhatsApp, and the feedback/learning loop, are wired but STUBBED — see §8.)
+  (Escalation notify via the Baileys WhatsApp bridge, and the feedback/learning loop, are wired but STUBBED — see §8.)
 ```
 
 ## 5. Components
@@ -102,7 +102,7 @@ Customer message
   (keyword + local multilingual embeddings). `products/` is **auto-synced from Shopify every
   3 days** (`sync-products.sh`, timer `buttonsbebe-kb-sync`). `learned/` is not indexed.
 - **Write path** — `processor/gorgias_writer.py` posts the internal note (the only write).
-- **Escalation → WhatsApp** — `processor/twilio_notifier.py` POSTs IMMEDIATE-ticket alerts
+- **Escalation → WhatsApp** — `processor/whatsapp_notifier.py` POSTs IMMEDIATE-ticket alerts
   to the owner's WhatsApp via the **whatsapp-connect** service (Node + Baileys, port 8085).
   The owner links their WhatsApp by scanning a QR at `https://srv1766050.hstgr.cloud/connect-whatsapp/<token>/`
   (auto-refreshing QR page). That same service also bridges the owner's WhatsApp messages to
@@ -154,7 +154,7 @@ Gorgias auth = **Basic** (email + API key). Redo auth = **Bearer** token.
 
 **LIVE (added 2026-07-07):**
 - WhatsApp escalation channel — `whatsapp-connect` (port 8085) + the rewritten
-  `twilio_notifier.py` POST to it. Owner links WhatsApp via the QR page; alerts then deliver.
+  `whatsapp_notifier.py` POSTs to it with the dedicated Bearer secret. Owner links WhatsApp via the QR page; alerts then deliver.
 
 **LIVE (added 2026-07-09) — learning loop:**
 - Every console action (Send / internal Note / Request-edit) records a *lesson* to
@@ -179,7 +179,7 @@ Gorgias auth = **Basic** (email + API key). Redo auth = **Bearer** token.
 - `tools/` — Redo + Gorgias MCP modules (`tools/README.md`, `redo_mcp.py`, `gorgias_mcp.py`).
 - `webhook/` — FastAPI receiver + queue DB (`src/bb_webhook/`).
 - `processor/` — `orchestrator.py`, `hermes_runner.py`, `gorgias_writer.py`,
-  `classifier.py`(stub), `twilio_notifier.py`(stub), `feedback_collector.py`(stub), `kb_client.py`.
+  `classifier.py`(stub), `feedback_collector.py`(superseded poller), `kb_client.py`.
 - `~/.hermes/` — Hermes home: `config.yaml` (model + MCP registrations), `SOUL.md`
   (instructions), `skills/buttonsbebe/` (ticket workflow).
 - Space-free launchers: `/root/kb-mcp-run.sh`, `/root/redo-mcp-run.sh`, `/root/gorgias-mcp-run.sh`.
@@ -198,7 +198,7 @@ sqlite3 "/root/Buttonsbebe Agent/webhook/data/webhook.db" "select status,count(*
 
 ## 11. Known gaps (from the 2026-07-07 audit — see `INCONSISTENCIES.md`)
 
-- The three **stubs** in §8 (classifier / Twilio escalation / feedback loop).
+- The deterministic `classifier.py` is still a stub; the old feedback poller is superseded by Console-action learning.
 - **Doc drift:** many local files describe the retired design; **this file is the current truth.**
   Old `PROJECT-SOURCE-OF-TRUTH.md`, `kb/README.md`, `GOAL.md`, `docs/hermes-rearchitecture/`,
   `build/` should be archived or rewritten.

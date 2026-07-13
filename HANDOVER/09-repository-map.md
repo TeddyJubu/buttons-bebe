@@ -136,7 +136,7 @@ The Fable branch adds **115 files** beyond `main`. The bulk is the self-containe
 These live only under `/root/Buttonsbebe Agent/` on the VPS (`srv1766050`) and must be pulled from the server — **cross-reference handover doc 06 for the exact pull procedure.**
 
 - **`webhook/`** — the FastAPI webhook receiver + dashboard server + SQLite job queue (`webhook/data/webhook.db`), and the **live learning capture** `webhook/src/bb_webhook/learning.py`. Not in either branch.
-- **`processor/`** — the orchestrator loop (`orchestrator.py`, `hermes_runner.py`, `gorgias_writer.py`, `kb_client.py`, plus the `classifier.py` / `twilio_notifier.py` / `feedback_collector.py` stubs). Not in either branch.
+- **`processor/`** — the orchestrator loop (`orchestrator.py`, `hermes_runner.py`, `gorgias_writer.py`, `kb_client.py`, plus the `classifier.py` / `whatsapp_notifier.py` / `feedback_collector.py` modules). Not in either branch.
 - **`~/.hermes/`** — Hermes home: `config.yaml` (model + MCP registrations), `SOUL.md`, `skills/buttonsbebe/`. Not in the repo.
 - **`kb/products/`** — the ~4,246 auto-synced Shopify product markdown files (regenerated every 3 days by the KB sync timer). Only the *sync script* is in the repo, not the output.
 - **The built LanceDB index** — the vector/keyword search index generated from `kb/`. A build artifact; rebuilt on the VPS.

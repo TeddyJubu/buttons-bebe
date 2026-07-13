@@ -12,7 +12,7 @@
 - **Redo** — a **returns/refunds** service. The agent reads return/refund status from it (read‑only). Auth method: **Bearer** token.
 - **Ollama Cloud** — a hosted service that **runs the AI model** (`glm-5.2`) the agent thinks with. The Hermes brain calls it.
 - **WhatsApp** — used only for **escalation alerts** to the store owner (not for customer replies in Phase 1). Handled by the `whatsapp-connect` service.
-- **Twilio** — referenced in older code (`twilio_notifier.py`) as an escalation channel; the current escalation path uses the `whatsapp-connect` service instead. Largely historical.
+- **Twilio** — an original design that is not used. The current escalation path uses the `whatsapp-connect` Baileys service and `whatsapp_notifier.py`.
 
 ## The "brain" and how the AI runs
 
