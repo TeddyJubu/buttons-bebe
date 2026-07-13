@@ -77,7 +77,8 @@ var IC = {
   send:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>',
   note:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5z"/><path d="M15 3v6h6"/></svg>',
   spark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/></svg>',
-  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>'
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+  menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>'
 };
 
 /* ---- toasts -------------------------------------------------------------- */
@@ -142,24 +143,26 @@ function shell(title, body){
   var live = S.health && S.health.ok;
   return ''
     +'<aside class="side">'
-    +  '<div class="logo"><div class="mark">F</div><div class="txt"><b>Fable</b><small>Buttons Bebe</small></div></div>'
+    +  '<div class="logo"><div class="mark" aria-hidden="true">F</div><div class="txt"><b>Buttons Bebe</b><small>Fable Support</small></div></div>'
     +  '<nav class="nav">'+nav.map(function(n){
          var badge = (n[0]==="inbox" && S.counts.open) ? '<span class="cnt">'+S.counts.open+'</span>' : '';
-         return '<a data-nav="'+n[0]+'" class="'+(S.view===n[0]||(S.view==="ticket"&&n[0]==="inbox")?"on":"")+'" role="button" tabindex="0">'+IC[n[0]]+'<span class="lbl">'+n[1]+'</span>'+badge+'</a>';
+         var active=S.view===n[0]||(S.view==="ticket"&&n[0]==="inbox");
+         return '<a data-nav="'+n[0]+'" class="'+(active?"on":"")+'" role="button" tabindex="0"'+(active?' aria-current="page"':'')+'>'+IC[n[0]]+'<span class="lbl">'+n[1]+'</span>'+badge+'</a>';
        }).join("")+'</nav>'
     +  '<div class="store"><div class="av">B</div><div><div class="nm">Buttons Bebe</div><div class="pl">'+esc(S.health&&S.health.brain?("Brain: "+S.health.brain):"AI support")+'</div></div></div>'
-    +'</aside>'
+    +'</aside><button class="nav-scrim" id="nav-scrim" aria-label="Close navigation"></button>'
     +'<div class="main">'
-    +  '<div class="top"><div class="lhs">'+title+'</div>'
+    +  '<div class="top"><div class="lhs"><button class="menu-btn" id="menu-btn" aria-label="Open navigation" aria-expanded="false">'+IC.menu+'</button>'+title+'</div>'
     +    '<div class="topact"><div class="live '+(live?"":"off")+'"><span class="dot"></span> '+(live?"Fable is running":"Server offline")+'</div>'
     +    '<button class="iconbtn" id="refresh" title="Refresh" aria-label="Refresh">'+IC.refresh+'</button></div></div>'
-    +  '<div class="wrap" id="wrap">'+body+'</div>'
+    +  '<div class="wrap t-panel-slide" id="wrap" data-open="false">'+body+'</div>'
     +'</div>';
 }
-function titleBlock(h1, sub){ return '<div><h1>'+esc(h1)+'</h1>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'; }
+function titleBlock(h1, sub){ return '<div><h1 tabindex="-1">'+esc(h1)+'</h1>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'; }
 
 function render(){
   var app=el("app");
+  document.body.classList.remove("nav-open");
   if(S.view==="inbox") app.innerHTML=shell(titleBlock("Inbox","Every message in one place — Fable drafts, you decide"), inboxBody());
   else if(S.view==="ticket") app.innerHTML=shell('<button class="backbtn" id="back">'+IC.back+' Back to inbox</button>', ticketBody());
   else if(S.view==="customers") app.innerHTML=shell(titleBlock("Customers","Look up anyone who has written in"), customersBody());
@@ -167,16 +170,32 @@ function render(){
   else if(S.view==="settings") app.innerHTML=shell(titleBlock("Settings","What's connected and how Fable stays safe"), settingsBody());
   bindShell();
   bindView();
+  requestAnimationFrame(function(){ var panel=el("wrap"); if(panel) panel.setAttribute("data-open","true"); });
 }
 
 function bindShell(){
+  function setNavOpen(open, restoreFocus){
+    var menu=el("menu-btn");
+    document.body.classList.toggle("nav-open",open);
+    if(menu) menu.setAttribute("aria-expanded",open?"true":"false");
+    if(open){
+      requestAnimationFrame(function(){ var first=$(".side .nav a"); if(first) first.focus(); });
+    }else if(restoreFocus&&menu){
+      menu.focus();
+    }
+  }
   $all("[data-nav]").forEach(function(a){
-    a.onclick=function(){ go(a.getAttribute("data-nav")); };
+    a.onclick=function(){ setNavOpen(false,false); go(a.getAttribute("data-nav")); };
     a.onkeydown=function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); a.click(); } };
   });
   var rf=el("refresh");
   if(rf) rf.onclick=function(){ rf.classList.add("spinning"); rf.disabled=true; reloadView().then(function(){ rf.classList.remove("spinning"); rf.disabled=false; }); };
   var b=el("back"); if(b) b.onclick=function(){ go("inbox"); };
+  var menu=el("menu-btn"), scrim=el("nav-scrim");
+  if(menu) menu.onclick=function(){
+    setNavOpen(!document.body.classList.contains("nav-open"),true);
+  };
+  if(scrim) scrim.onclick=function(){ setNavOpen(false,true); };
 }
 
 function go(view){
@@ -184,10 +203,12 @@ function go(view){
   S.view=view; S.custDetail=null;
   stopPoll(); stopTicketPoll();
   render();
-  if(view==="inbox"){ refreshInbox(false); startPoll(); }
-  else if(view==="customers"){ loadCustomers(""); }
-  else if(view==="stats"){ loadStats(); }
-  else if(view==="settings"){ loadHealth().then(render); }
+  var ready=Promise.resolve();
+  if(view==="inbox"){ ready=refreshInbox(false); startPoll(); }
+  else if(view==="customers"){ ready=loadCustomers(""); }
+  else if(view==="stats"){ ready=loadStats(); }
+  else if(view==="settings"){ ready=loadHealth().then(render); }
+  ready.finally(function(){ requestAnimationFrame(function(){ var h=$(".top h1");if(h)h.focus(); }); });
 }
 
 function reloadView(){
@@ -751,6 +772,7 @@ function customersBody(){
     +'<div id="custlist">'+customerListHtml()+'</div>';
 }
 function customerListHtml(){
+  if(customersError) return '<div class="panel" role="alert"><h3>Customers could not be loaded</h3><div class="hint" style="margin:8px 0 14px">This is a connection error, not an empty customer list.</div><button class="btn" id="cust-retry">Retry</button></div>';
   if(!S.customers) return '<div class="loading"><span class="spin"></span> Loading…</div>';
   if(!S.customers.length) return '<div class="empty"><div class="big">🔍</div><h3>No customers found</h3><div class="hint">Try a different name or email.</div></div>';
   return '<div class="custlist">'+S.customers.map(function(c){
@@ -767,12 +789,16 @@ function customerDetailHtml(d){
     +(tickets.length?'<div class="tklist">'+tickets.map(ticketCard).join("")+'</div>'
        :'<div class="empty"><div class="big">📭</div><h3>No tickets yet</h3></div>');
 }
+var customersError=false;
 function loadCustomers(q){
   S.custQuery=q||"";
+  customersError=false;S.customers=null;
+  var current=el("custlist");if(current)current.innerHTML=customerListHtml();
   var url=API+"/customers"+(q?("?q="+encodeURIComponent(q)):"?limit=50");
   return jfetch(url).then(function(r){
-    S.customers=(r.data&&r.data.customers)||[];
-    if(S.view==="customers"&&!S.custDetail){ var l=el("custlist"); if(l){ l.innerHTML=customerListHtml(); bindCustCards(); } }
+    customersError=!r.ok||!r.data||!Array.isArray(r.data.customers);
+    S.customers=customersError?[]:r.data.customers;
+    if(S.view==="customers"&&!S.custDetail){ var l=el("custlist"); if(l){ l.innerHTML=customerListHtml(); bindCustomerList(); } }
   });
 }
 function openCustomer(id){
@@ -785,6 +811,10 @@ function bindCustomers(){
   var cq=el("cq");
   if(cq) cq.oninput=function(){ if(searchTimer) clearTimeout(searchTimer); searchTimer=setTimeout(function(){ loadCustomers(cq.value); },300); };
   var cb=el("cust-back"); if(cb) cb.onclick=function(){ S.custDetail=null; render(); loadCustomers(S.custQuery); };
+  bindCustomerList();
+}
+function bindCustomerList(){
+  var retry=el("cust-retry");if(retry)retry.onclick=function(){ loadCustomers(S.custQuery); };
   bindCustCards();
 }
 function bindCustCards(){
@@ -799,15 +829,18 @@ function bindCustCards(){
 /* ============================================================================
    STATS
    ========================================================================= */
-var STATS=null;
+var STATS=null, statsError=false;
 function loadStats(){
+  STATS=null;statsError=false;
   return Promise.all([jfetch(API+"/stats"), jfetch(API+"/tickets?status=open&limit=1")]).then(function(res){
-    STATS=(res[0].data)||{};
-    if(res[1].data&&res[1].data.counts) S.counts=res[1].data.counts;
+    statsError=!res[0].ok||!res[0].data||!res[1].ok||!res[1].data||!res[1].data.counts;
+    STATS=statsError?null:res[0].data;
+    if(!statsError) S.counts=res[1].data.counts;
     if(S.view==="stats") render();
   });
 }
 function statsBody(){
+  if(statsError) return '<div class="panel" role="alert"><h3>Stats could not be loaded</h3><div class="hint" style="margin:8px 0 14px">No missing metrics are being presented as zero.</div><button class="btn" id="stats-retry">Retry</button></div>';
   if(!STATS) return '<div class="loading"><span class="spin"></span> Loading…</div>';
   var s=STATS;
   var avg = s.avg_first_response_minutes;
@@ -816,14 +849,14 @@ function statsBody(){
     {l:"Tickets today", v:(s.tickets_today!=null?s.tickets_today:0), sub:"new conversations"},
     {l:"Waiting for you", v:(S.counts.open||0), sub:"need a reply"},
     {l:"Avg first reply", v:avgLabel, sub:"time to first response"},
-    {l:"AI drafts accepted", v:((s.drafts_accepted_pct!=null?s.drafts_accepted_pct:0)+"%"), sub:"sent as written or edited"}
+    {l:"Draft acceptance", v:((s.drafts_accepted_pct!=null?s.drafts_accepted_pct:0)+"%"), sub:"sent as written or edited"}
   ];
   var bc=s.by_channel||{};
   var rows=[["email","Email"],["chat","Chat"],["whatsapp","WhatsApp"]];
   var mx=Math.max(1, bc.email||0, bc.chat||0, bc.whatsapp||0);
   var colors={email:"var(--chan-email-ink)",chat:"var(--acc)",whatsapp:"var(--green)"};
   return ''
-    +'<div class="kpis">'+kpis.map(function(k){ return '<div class="kpi"><div class="l">'+esc(k.l)+'</div><div class="v">'+esc(k.v)+'</div><div class="s">'+esc(k.sub)+'</div></div>'; }).join("")+'</div>'
+    +'<div class="kpis">'+kpis.map(function(k,i){ return '<div class="kpi '+(i===0?'primary':(i===3?'secondary':''))+'"><div class="l">'+esc(k.l)+'</div><div class="v">'+esc(k.v)+'</div><div class="s">'+esc(k.sub)+'</div></div>'; }).join("")+'</div>'
     +'<div class="sec-title">Where messages come from</div>'
     +'<div class="panel"><div class="hb">'+rows.map(function(r){
         var n=bc[r[0]]||0;
@@ -869,7 +902,8 @@ function bindView(){
   if(S.view==="inbox") bindInbox();
   else if(S.view==="ticket") bindTicket();
   else if(S.view==="customers") bindCustomers();
-  // stats + settings have no interactive controls beyond the shell
+  else if(S.view==="stats"){ var retry=el("stats-retry");if(retry)retry.onclick=loadStats; }
+  // settings has no interactive controls beyond the shell
 }
 
 function loadHealth(){
@@ -888,6 +922,13 @@ window.addEventListener("beforeunload", function(){
       body:JSON.stringify(body), keepalive:true
     });
   }catch(e){/* nothing more we can do on unload */}
+});
+
+document.addEventListener("keydown", function(e){
+  if(e.key!=="Escape" || !document.body.classList.contains("nav-open")) return;
+  document.body.classList.remove("nav-open");
+  var menu=el("menu-btn");
+  if(menu){ menu.setAttribute("aria-expanded","false"); menu.focus(); }
 });
 
 function boot(){

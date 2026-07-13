@@ -1,172 +1,154 @@
-# Buttons Bebe Support Console — Design System
+# Buttons Bebe Dashboard Design System
 
-> The shared "visual language" for the support dashboard (`dashboard/index.html`).
-> Everything here is already wired up as CSS variables (design tokens) at the top of that file,
-> so any future change is a one-line edit that updates the whole app at once.
->
-> **Plain-English version:** instead of picking colors, sizes and spacing by hand every time,
-> we defined them once as named "tokens" (like `--acc` for the brand purple). Every button, card
-> and label points at those tokens. Change the token, and every screen updates together — no hunting
-> through the file. Last updated: 2026-07-09.
+This document is the implementation contract for every internal Buttons Bebe dashboard and helpdesk surface, on every branch.
 
----
+The visual source of truth is the approved Variant dashboard: warm editorial beige, translucent white cards, near-black type, chartreuse and coral accent panels, generous rounded geometry, and quiet purposeful motion.
 
-## 1. How to use this
+## Core principles
 
-Open `dashboard/index.html`. The block that starts with `:root{` (near the top, inside `<style>`)
-is the control panel. Want a different purple? Change `--acc`. Want rounder cards? Change `--r-lg`.
-You never need to touch the JavaScript.
+1. **Warm and calm.** The application background is warm beige, not cool gray or white.
+2. **Editorial hierarchy.** Page titles are large and light; card labels are small, compact, and legible.
+3. **Glass without spectacle.** Cards use translucent white surfaces and a subtle inset highlight. Avoid heavy shadows, gradients, and decorative blur.
+4. **Color has a job.** Yellow and orange establish priority and rhythm. Green, amber, and red remain semantic safety colors.
+5. **Motion explains change.** Transitions clarify navigation, updated values, and new badges. They never delay work.
+6. **Review stays in control.** Helpdesk actions keep confirmations, undo, sensitive-ticket warnings, and explicit send states.
 
----
+## Tokens
 
-## 2. Design tokens
+```css
+:root {
+  --ink: #1c1c1c;
+  --ink-muted: #5c5952;
+  --ink-subtle: #817d73;
 
-### Color
+  --canvas: #e8e5d8;
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-strong: rgba(255, 255, 255, 0.56);
+  --line: rgba(28, 28, 28, 0.09);
 
-**Brand (purple).** One family, used for anything interactive or "ours".
+  --yellow: #e7f65e;
+  --orange: #f9a16c;
 
-| Token | Value | Use |
-|-------|-------|-----|
-| `--acc` | `#6d5efc` | Base brand purple — accents, focus ring, active bar |
-| `--acc-strong` | `#5b4de0` | Solid purple **with white text** (primary buttons, active chips, switch) — darker so text passes contrast |
-| `--acc-hover` | `#4d40cf` | Hover state for purple buttons |
-| `--acc-ink` | `#5546d6` | Purple **text on white** (links, active nav) — dark enough to read |
-| `--acc-soft` | `#f1eefe` | Tinted purple background (active nav, hero card, tags) |
-| `--acc-100` | `#e7e2fd` | Slightly stronger tint / borders |
+  --green: #237a4b;
+  --green-soft: #dff1aa;
+  --amber: #b56a2f;
+  --amber-soft: #f9d4ad;
+  --red: #b74339;
+  --red-soft: #f4c8be;
 
-**Neutrals (gray ramp).** Replaces the old pile of one-off grays with a single 0→900 scale.
+  --radius-control: 12px;
+  --radius-card: 20px;
+  --radius-panel: 28px;
+  --radius-pill: 999px;
 
-| Token | Value | Use |
-|-------|-------|-----|
-| `--gray-0` | `#ffffff` | Card surface (`--card`) |
-| `--gray-25` | `#fafbfd` | Subtle fills, row hover, textarea bg |
-| `--gray-50` | `#f6f7fb` | Page background (`--bg`) |
-| `--gray-100` | `#eef0f5` | Soft fills, chips, hover backgrounds |
-| `--gray-200` | `#e5e7ef` | Borders & divider lines (`--line`) |
-| `--gray-300` | `#cfd4df` | Stronger border / hover border |
-| `--gray-400` | `#9aa2b1` | Faint icons (chevrons) |
-| `--gray-500` | `#6b7382` | Secondary text (`--ink3`) — **darkened for readability** |
-| `--gray-600` | `#4a5262` | Body secondary text (`--ink2`) |
-| `--gray-900` | `#14161c` | Primary text (`--ink`) |
+  --ease-smooth: cubic-bezier(.2, .8, .2, 1);
+  --duration-fast: 160ms;
+  --duration-normal: 280ms;
+  --duration-panel: 420ms;
+}
+```
 
-**Semantic.** Each status has a *fill* and a darker *ink* (text) variant so text on a tinted chip is always legible.
+Do not introduce a branch-specific primary hue. If a feature needs another color, document its semantic meaning first.
 
-| Meaning | Fill | Text (ink) | Soft bg |
-|---------|------|-----------|---------|
-| Success / low-risk | `--green` `#12b76a` | `--green-ink` `#0a7a48` | `--green-s` `#e7f7ee` |
-| Warning / sensitive | `--amber` `#e08c00` | `--amber-ink` `#8a5a06` | `--amber-s` `#fdf3e0` |
-| Danger / failed | `--red` `#e5484d` | `--red-ink` `#b42318` | `--red-s` `#fdecec` |
+## Layout
 
-### Typography
+### Desktop
 
-System font stack (fast, no external download). Sizes snap to a clean scale — the old half-pixel sizes (13.5px, 12.5px…) are gone.
+- Sidebar: 260px, flat against the canvas, 40px top and 24px side padding.
+- Main content: 40px horizontal gutters.
+- Page header: approximately 120px tall, with the status and refresh controls aligned to the title baseline.
+- KPI row: dense and balanced; the overview dashboard uses six cards where space permits.
+- Supporting panels: 7/5 split for primary analysis and recent activity.
+- Panel gap: 14px.
+- Long operational views may scroll within the main column. Navigation remains available.
 
-| Role | Size / weight | Where |
-|------|---------------|-------|
-| Display (KPI number) | 30px / 700 | `.kpi .v` |
-| Stat number | 26px / 700 | `.lstat .v` |
-| Page title | 20px / 700 | `.top h1` |
-| Panel heading | 15px / 700 | `.panel h3` |
-| Body | 14px / 400–500 | default |
-| Body small / meta | 13px / 500 | labels, hints |
-| Micro | 12px / 600 | KPI labels, timestamps |
-| Tag / pill | 10–11px / 700 uppercase | `.tag`, `.pill`, `.sec-title` |
+### Mobile
 
-Weights used: 400 (body), 500 (labels), 600 (emphasis/buttons), 700 (numbers/titles).
+- At 820px and below, the sidebar becomes an off-canvas drawer.
+- The drawer must have a visible menu trigger, dismissible scrim, and full text labels.
+- KPI cards become two columns, then one column below 520px.
+- Touch targets are at least 40px.
+- No horizontal page scrolling is allowed.
 
-### Spacing
+## Components
 
-4-px rhythm. Card padding `18–22px`, page padding `24–28px`, gaps `8/12/14/16px`.
+### Navigation
 
-### Radius
+- Active navigation uses a translucent white surface, not a brand-colored fill.
+- Notification counts use orange.
+- The current item exposes `aria-current="page"`.
+- Hover may move an item by 2px at most.
 
-| Token | Value | Use |
-|-------|-------|-----|
-| `--r-xs` | 6px | tiny buttons, code chips |
-| `--r-sm` | 8px | buttons, inputs, nav, icons |
-| `--r-md` | 10px | nested boxes, message/draft cards |
-| `--r-lg` | 14px | main cards & panels |
-| `--r-pill` | 999px | chips, badges, switches |
+### Page header
 
-### Elevation (shadow)
+- Page titles use 30–40px type with a tight line height and modest weight.
+- Health and freshness are separate from the refresh button.
+- Refresh is a circular glass control with a text alternative.
 
-| Token | Use |
-|-------|-----|
-| `--sh-xs` | hairline lift (buttons) |
-| `--sh-sm` | resting cards & panels |
-| `--sh-md` | hovered cards (paired with a 2px lift) |
-| `--sh-lg` | reserved for popovers/modals |
-| `--ring` | focus ring — `0 0 0 3px rgba(109,94,252,.30)` |
+### Cards and panels
 
-### Motion
+- Use `--glass`, a subtle white border, and a 20–28px radius.
+- Prefer an inset white highlight over a drop shadow.
+- Hover elevation is limited to a 2px upward shift.
+- The first priority KPI uses yellow; a supporting or outcome KPI uses orange.
+- Decorative circles or hatch marks must remain low contrast and non-interactive.
 
-`--dur .18s` / `--dur-fast .12s`, easing `--ease cubic-bezier(.4,0,.2,1)`. Used for hover, chevron rotate, bar fills, the live-dot pulse, and the loading spinner.
+### Controls
 
----
+- Primary action: near-black background and white text.
+- Send action: green.
+- Sensitive warning: amber.
+- Destructive action: red.
+- Filter chips use a dark selected state; channels may retain muted channel-specific colors.
+- Focus rings must be visible on every interactive element.
 
-## 3. Components
+### Empty, loading, and error states
 
-### Button (`.btn`)
-| Variant | Class | Use |
-|---------|-------|-----|
-| Primary | `.btn.p` | Main action (Save, Rewrite) — purple |
-| Send | `.btn.send` | Customer-facing send — green, safety-distinct |
-| Default | `.btn` | Secondary actions |
-| Ghost | `.btn.ghost` | Low-emphasis (Request edit) |
+Every data surface needs:
 
-States: hover (border/bg shift), active (1px press), disabled (55% opacity), focus-visible (ring). All buttons share radius `--r-sm` and 13px/600 text.
+- a skeleton or progress state;
+- a useful empty-state explanation;
+- an error message with an inline retry action where retry is possible;
+- a freshness indicator when stale data could change a decision.
 
-### Badge (`.badge`)
-Pill with a leading status dot. `.low` = green "AI draft"; `.sens` = amber "Sensitive". Text uses the *ink* color so it's readable on the tint.
+## Motion
 
-### Chip (`.chip`)
-Filter toggle. Default = outlined; `.on` = solid `--acc-strong` with white text. Hover darkens the border.
+Motion patterns follow the behavior library at [transitions.dev](https://transitions.dev/).
 
-### Card / Panel (`.kpi`, `.panel`, `.conn`)
-White surface, `--r-lg`, `--sh-sm`, 1px `--line` border. KPI and connection cards lift on hover (`--sh-md` + 2px). The **first KPI** is a "hero": soft purple gradient + purple number, giving the eye a clear starting point.
+- Panel entry: fade plus 10px upward movement over 360–420ms.
+- Number update: brief vertical slide without hiding the final value.
+- New badge: one short scale pulse.
+- Drawer: 360ms horizontal slide; scrim: 260ms fade.
+- Hover: 160ms.
+- Never animate layout continuously.
+- Under `prefers-reduced-motion: reduce`, remove transforms and reduce animations/transitions to effectively zero duration.
 
-### Nav item (`.nav a`)
-Sidebar link. Hover = gray fill; `.on` = purple tint, purple text, and a 3px accent bar on the left. Collapses to icon-only on narrow screens.
+## Accessibility
 
-### Toggle switch (`.sw`)
-44×26 pill, knob slides on `.on`, turns `--acc-strong`.
+- Meet WCAG AA contrast for text and controls.
+- Do not use color as the only status signal.
+- Preserve semantic buttons, headings, labels, and keyboard operation.
+- Mark decorative SVGs and marks as hidden from assistive technology.
+- Dialogs and drawers must have clear labels and predictable dismissal.
+- Dynamic status messages use an appropriate live region when the update matters.
 
-### Input / Textarea (`.numin`, `.dedit`, `.kbed textarea`)
-1px border, `--r-sm/md`; on focus the border turns purple and shows the focus ring.
+## Surface mapping
 
-### Icon button (`.iconbtn`) — new
-Square 36px control for icon-only actions (the top-bar Refresh). Keeps refresh visually separate from the "Agent live" status.
+| Surface | Required implementation |
+| --- | --- |
+| `dashboard/index.html` | Shared owner dashboard: exact tokens, layout, metrics, attention panel, activity, learning, and motion patterns. |
+| `console-src/index.html` | Live dashboard source: same system, with feature-specific sections preserved. |
+| `fable/console/style.css` | Operational helpdesk: same tokens and shell; ticket safety semantics and workflow affordances take precedence over decorative uniformity. |
 
-### Row chevron (`.chev`) — new
-A ⌄ on each ticket row that rotates 180° when the row is expanded, so it's obvious rows are clickable.
+## Review checklist
 
----
+Before merging any dashboard change:
 
-## 4. Patterns
-
-- **List + detail:** ticket feed rows expand in place to reveal the message, editable draft, and action bar.
-- **Card grid:** KPIs and connections use `auto-fit` grids that reflow from many columns to one.
-- **Left-nav shell:** fixed sidebar + sticky top bar + scrolling content. On mobile the sidebar becomes a horizontal icon bar (previously it disappeared entirely).
-- **Inline feedback:** small `.toast` text in action bars; native confirm dialog gates any customer send.
-
----
-
-## 5. Audit summary (before → after)
-
-**Score: 62 → 88 / 100.**
-
-| Category | Before | Fix applied |
-|----------|--------|-------------|
-| Token coverage | ~15 vars, many hardcoded grays/greens | Full ramp + semantic ink/soft pairs; hardcoded values removed |
-| Typography | 12+ near-duplicate sizes incl. half-pixels | Snapped to a clean scale |
-| Color contrast | `--ink3` and amber text failed WCAG AA | Darkened to pass AA |
-| Focus states | none | `:focus-visible` ring on all controls |
-| Depth / hierarchy | flat, all cards equal | Shadows + hover lift + hero KPI |
-| Radius | 5 ad-hoc values | 5-step named scale |
-| Mobile nav | sidebar hidden entirely | horizontal icon bar |
-| Affordance | rows looked static | expand chevron + clearer refresh |
-
-## 6. Known follow-ups (need small JS changes, not done yet)
-- **Keyboard operability:** nav links and ticket rows are `div`/`a`-without-href with `onclick`; add `tabindex="0"` + Enter handling and `role="button"` so keyboard users can operate them.
-- **Refresh:** the refresh action still blanks the screen briefly; could refresh in place with a spinning icon instead.
-- **Toasts:** add `aria-live="polite"` so screen readers announce "Sent"/"Saved".
+- [ ] No legacy purple primary tokens remain in the rendered interface.
+- [ ] Desktop and 390px mobile layouts are usable.
+- [ ] Sidebar, header, cards, controls, and KPI accents match this contract.
+- [ ] Send, sensitive, and destructive states retain semantic colors and text labels.
+- [ ] Keyboard focus and `aria-current` are present.
+- [ ] Motion respects reduced-motion preferences.
+- [ ] Loading, empty, error, and stale states remain understandable.
+- [ ] Relevant browser smoke tests and the full project test suite pass.
