@@ -1,5 +1,6 @@
 srv1766050.hstgr.cloud {
-	handle /connect-whatsapp/<WA_TOKEN> {
+	@whatsapp path /connect-whatsapp/<WA_TOKEN> /connect-whatsapp/<WA_TOKEN>/*
+	handle @whatsapp {
 		reverse_proxy 127.0.0.1:8085
 	}
 
