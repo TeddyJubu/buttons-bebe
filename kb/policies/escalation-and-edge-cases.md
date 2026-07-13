@@ -20,17 +20,20 @@ A **washed item is not eligible** for return or exchange. A worn-but-unwashed it
 is judged on condition; hygiene/undergarment items are never returnable. **Exception:
 a manufacturer defect that only becomes visible after washing** (print peeling,
 snaps breaking, faulty construction) is treated as a defect and **is covered** — ask
-for a photo, contact the brand, and route via the defect flow. General shrinkage
-from washing is **not** covered. When in doubt, ask the boss before promising
-anything. See `warranty-and-defects.md`.
+for a photo and draft a staff handoff for an authorized teammate to contact the
+brand and route the case through the defect flow. The AI must not contact the
+brand, create a return, or claim either action happened. General shrinkage from
+washing is **not** covered. When in doubt, ask the boss before promising anything.
+See `warranty-and-defects.md`.
 
 ## Zipper "lock mode" before accepting a broken-zipper return
 
-Before issuing a return label for a "broken zipper," check whether it is actually a
+Before staff issues a return label for a "broken zipper," check whether it is actually a
 **zipper lock mode** (a user-operation feature on some zippers), not a defect. Offer
 to send a short **video tutorial** showing how to release the lock (ask the team if
 a saved clip exists for common zipper brands). If the zipper is genuinely defective
-after the demo, proceed with the return via the defect flow.
+after the demo, draft a staff handoff for the defect flow. The AI must not issue a
+label or create the return.
 
 ## Partial refund for a missing accessory
 

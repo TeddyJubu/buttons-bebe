@@ -49,15 +49,51 @@ def _get(path: str, params: dict | None = None):
 
 
 def _trim(ret):
-    """Keep the fields a support agent needs; fall back to the whole object."""
-    keep = [
-        "id", "status", "state", "order_name", "shopify_order_name", "order_number",
-        "created_at", "updated_at", "compensation_method", "refund_amount",
-        "store_credit_amount", "total", "items", "products", "line_items",
-        "tracking", "tracking_url", "tracking_number",
-    ]
+    """Normalize the Redo return schema without dropping support context.
+
+    Redo's current v2.2 API uses camelCase and nested objects.  Older payloads
+    and fixtures used snake_case, so expose one stable snake_case contract while
+    retaining the refund, compensation, exchange, and shipment structures.
+    Customer/source addresses are intentionally not copied into this summary.
+    """
     if isinstance(ret, dict):
-        out = {k: ret[k] for k in keep if k in ret}
+        aliases = {
+            "id": ("id",),
+            "status": ("status", "state"),
+            "type": ("type",),
+            "created_at": ("created_at", "createdAt"),
+            "updated_at": ("updated_at", "updatedAt"),
+            "complete_with_no_action": ("complete_with_no_action", "completeWithNoAction"),
+            "order": ("order",),
+            "order_name": ("order_name", "shopify_order_name", "order_number"),
+            "external_order_ids": ("external_order_ids", "externalOrderIds"),
+            "external_return_ids": ("external_return_ids", "externalReturnIds"),
+            "shopify_order_ids": ("shopify_order_ids", "shopifyOrderIds"),
+            "compensation_methods": ("compensation_methods", "compensationMethods", "compensation_method"),
+            "refunds": ("refunds",),
+            "refund_amount": ("refund_amount",),
+            "store_credit_amount": ("store_credit_amount",),
+            "totals": ("totals", "total"),
+            "gift_cards": ("gift_cards", "giftCards"),
+            "exchange": ("exchange",),
+            "items": ("items", "products", "line_items"),
+            "shipments": ("shipments",),
+            "dropoffs": ("dropoffs",),
+            "tracking": ("tracking",),
+            "tracking_url": ("tracking_url", "trackingUrl"),
+            "tracking_number": ("tracking_number", "trackingNumber"),
+            "notes": ("notes",),
+            "tags": ("tags",),
+        }
+        out = {}
+        for canonical, candidates in aliases.items():
+            for key in candidates:
+                if key in ret:
+                    out[canonical] = ret[key]
+                    break
+        order = out.get("order")
+        if "order_name" not in out and isinstance(order, dict) and order.get("name"):
+            out["order_name"] = order["name"]
         return out or ret
     return ret
 

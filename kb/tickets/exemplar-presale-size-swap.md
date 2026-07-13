@@ -14,18 +14,23 @@ before it ships.
 
 ## How it was handled
 
-Agent checked that the order had not yet shipped, made the size change in the
-order, and replied warmly and briefly. No charge change was needed for a same-price
-size swap.
+An authorized human agent checked that the order had not yet shipped, made the
+size change, and replied warmly and briefly. No charge change was needed for a
+same-price size swap. This history describes a human action; it is not permission
+for the AI to edit an order or claim that the edit happened.
 
-## Ideal reply
+## Safe AI draft while the change is pending
 
-> Hi! I switched the [item] to the size [new size] for you — all set. Let me know
-> if there's anything else.
+> Hi! No problem — we’re reviewing whether we can update the [item] to size
+> [new size] before it ships. We’ll confirm once our team has checked it.
+
+The AI must not say the item was switched or the order was updated. Only a human
+may use completed-action wording after the read-only order record confirms that
+authorized staff completed the change.
 
 ## Why this is the model
 
-- Confirms the action plainly ("i fixed it for you" energy) without over-explaining.
-- Only works because the order was unshipped — always verify fulfillment status
-  first. If it had shipped, the right move is a brief apology and exchange options.
+- Acknowledges the request without falsely confirming an operational change.
+- Staff can make the change only while the order is unshipped; always verify
+  fulfillment status first and draft a handoff for the human action.
 - Warm, low-friction tone matching the store's voice.

@@ -16,12 +16,15 @@ Apologize and verify. The correct item may still physically be available even if
 Apologize.
 Ask for photo of item received, including tag/label if needed.
 Compare received item to order.
-Notify warehouse to locate and ship correct item.
-Determine whether wrong item needs to be returned.
+Draft a staff handoff asking an authorized warehouse teammate to locate the
+correct item, decide whether the wrong item must be returned, and arrange any
+replacement shipment. The AI must not notify the warehouse, create a return,
+ship an item, or claim that any of those actions happened.
 Do not rely only on inventory count.
 
 ## Customer response
 
 Hi! We’re so sorry about that.
 We’ll help get this corrected. Please send us a photo of the item you received, including the tag/label if possible, so we can confirm what was sent.
-Once confirmed, we’ll check with the warehouse and work on getting the correct item sent out.
+Once confirmed, our team will review the order and let you know the approved
+next step.

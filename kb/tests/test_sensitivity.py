@@ -1,4 +1,5 @@
 import sys
+import re
 import unittest
 from pathlib import Path
 
@@ -17,6 +18,24 @@ def read_tags(relative_path):
         if line.startswith("tags: [") and line.endswith("]"):
             return [tag.strip() for tag in line[7:-1].split(",") if tag.strip()]
     raise AssertionError(f"No inline tags found in {relative_path}")
+
+
+def searchable_chunks(markdown: str):
+    """Mirror the indexer's level-two-heading chunk boundary without dependencies."""
+    heading = None
+    lines = []
+    started = False
+    for line in markdown.splitlines():
+        if re.match(r"^##\s", line):
+            if started and any(part.strip() for part in lines):
+                yield heading or "", "\n".join(lines).strip()
+            heading = line.lstrip("#").strip()
+            lines = []
+            started = True
+        elif started:
+            lines.append(line)
+    if started and any(part.strip() for part in lines):
+        yield heading or "", "\n".join(lines).strip()
 
 
 class SensitivityTaxonomyTests(unittest.TestCase):
@@ -106,6 +125,34 @@ class SensitivityTaxonomyTests(unittest.TestCase):
         self.assertFalse(
             is_sensitive_tags(read_tags("policies/sensitive-draft-policy.md"))
         )
+
+    def test_operational_language_is_guarded_inside_each_searchable_chunk(self):
+        """Never rely on another chunk to communicate the read-only boundary."""
+        operational = re.compile(
+            r"\b(?:notify|contact|email)\s+(?:the\s+)?(?:warehouse|brand|vendor)\b"
+            r"|\b(?:ship|send)\s+(?:the\s+)?(?:correct|replacement)\s+item\b"
+            r"|\b(?:issue|process|send|provide)\s+(?:a\s+)?(?:refund|store credit|"
+            r"prepaid (?:return )?label|return label)\b"
+            r"|\b(?:i|we)(?:'ve| have)?\s+(?:switched|changed|updated|corrected|"
+            r"cancelled|canceled|refunded|issued|shipped|sent|contacted|provided)\b"
+            r"|\bhere(?:'s| is)\s+(?:a\s+)?(?:prepaid\s+)?return label\b",
+            re.IGNORECASE,
+        )
+        same_chunk_guard = re.compile(
+            r"\b(?:AI|agent) must not\b|\b(?:human|staff handoff|authorized staff)\b"
+            r"|\b(?:do not|never|avoid) (?:claim|promise|issue|process|present)\b"
+            r"|\bonly (?:after|when)\b.{0,160}\b(?:confirm|verif|complet)",
+            re.IGNORECASE | re.DOTALL,
+        )
+        failures = []
+        for folder in ("intents", "faq", "policies", "tickets"):
+            for path in sorted((KB_DIR / folder).rglob("*.md")):
+                if path.name.lower() == "readme.md":
+                    continue
+                for heading, chunk in searchable_chunks(path.read_text(encoding="utf-8")):
+                    if operational.search(chunk) and not same_chunk_guard.search(chunk):
+                        failures.append(f"{path.relative_to(KB_DIR)}::{heading}")
+        self.assertEqual(failures, [], "unguarded operational KB chunks")
 
 
 if __name__ == "__main__":
