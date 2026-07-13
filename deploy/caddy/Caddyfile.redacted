@@ -58,13 +58,33 @@ srv1766050.hstgr.cloud {
 	handle @roothome {
 		redir * /console/ 302
 	}
-	handle {
+
+	# /dashboard/api is the FastAPI service's internal route namespace. The
+	# authenticated /console/api handler above rewrites to it inside its own
+	# terminal handle. Never let a public request reach these read/write routes
+	# through the catch-all webhook proxy below.
+	@directdashboard path /dashboard /dashboard/*
+	handle @directdashboard {
+		respond "Not found" 404
+	}
+
+	@publicwebhook path /webhook/gorgias/*
+	handle @publicwebhook {
 		reverse_proxy 127.0.0.1:8000 {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}
 		}
+	}
+
+	@health path /health /ready
+	handle @health {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		respond "Not found" 404
 	}
 
 	request_body {

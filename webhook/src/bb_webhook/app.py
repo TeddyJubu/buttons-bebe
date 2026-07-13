@@ -121,6 +121,8 @@ async def ready() -> JSONResponse:
 # ── Console API (serves the management console at /console) ───
 # The console is a static SPA at /var/www/console/index.html (served by Caddy).
 # It calls /console/api/* which Caddy rewrites to /dashboard/api/* below.
+# Caddy rejects direct public /dashboard and /dashboard/* requests before its
+# catch-all webhook proxy; these route names are an internal upstream namespace.
 # The old /dashboard HTML route has been removed — the console replaces it.
 
 

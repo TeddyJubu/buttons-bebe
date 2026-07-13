@@ -1,48 +1,7 @@
-# Caddyfile for Buttons Bebe webhook receiver
-# Caddy automatically obtains and renews Let's Encrypt TLS certificates.
+# RETIRED — DO NOT DEPLOY
 #
-# The hostname is the VPS default domain: srv1766050.hstgr.cloud
-# Gorgias will send webhooks to: https://srv1766050.hstgr.cloud/webhook/gorgias/buttonsbebe?secret=...
-#
-# After editing this file, reload Caddy:  caddy reload --config Caddyfile
-
-srv1766050.hstgr.cloud {
-	# Reverse proxy to the FastAPI uvicorn app
-	reverse_proxy 127.0.0.1:8000 {
-		# Pass headers through
-		header_up Host {host}
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
-	}
-
-	# Limit request body to 256KB (real payloads are 3-50KB)
-	request_body {
-		max_size 256KB
-	}
-
-	# Security headers
-	header {
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
-		Referrer-Policy no-referrer
-	}
-
-	# Compress responses
-	encode gzip zstd
-
-	# Logging — redact the webhook secret from access logs
-	# Using a custom log format that excludes the query string
-	log {
-		output file /var/log/bb-webhook/caddy.log
-		format json
-		# Override to redact secret from logs by excluding "uri"
-		# Caddy logs the full URI by default; we override with a
-		# sanitized format that strips query parameters.
-	}
-}
-
-# Redaction: Caddy does not natively redact query params from logs.
-# As an alternative, the app-level middleware strips the secret
-# from its own structured logs. For Caddy access logs, we rely on
-# file permissions (chmod 600) to limit access.
+# This component-local file used to proxy every public request to FastAPI and
+# would expose the internal /dashboard/api namespace. The only supported Caddy
+# source is ../deploy/caddy/Caddyfile.redacted, which includes the authenticated
+# console routes and an explicit public /dashboard* deny rule. Restore its
+# placeholders from protected production secrets, validate it, then reload.

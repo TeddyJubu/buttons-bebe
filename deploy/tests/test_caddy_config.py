@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 CADDY = Path(__file__).resolve().parents[1] / "caddy" / "Caddyfile.redacted"
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class CaddyConfigTests(unittest.TestCase):
@@ -24,6 +25,27 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertEqual(self.text.count("chaim <CONSOLE_PASSWORD_HASH>"), 4)
         for route in ("/console/api/*", "/console/waapi/*", "/console/kbapi/*", "/console*"):
             self.assertIn(route, self.text)
+
+    def test_internal_dashboard_namespace_cannot_fall_through_public_proxy(self) -> None:
+        self.assertIn("@directdashboard path /dashboard /dashboard/*", self.text)
+        self.assertIn('respond "Not found" 404', self.text)
+        direct_block = self.text.index("handle @directdashboard")
+        public_catch_all = self.text.index("\n\thandle {", direct_block)
+        self.assertLess(direct_block, public_catch_all)
+        self.assertLess(self.text.index("handle @consoleapi"), direct_block)
+        self.assertIn("@publicwebhook path /webhook/gorgias/*", self.text)
+        self.assertIn("handle @publicwebhook", self.text)
+        self.assertIn("@health path /health /ready", self.text)
+        self.assertIn("handle @health", self.text)
+        catch_all = self.text[public_catch_all:]
+        self.assertIn('respond "Not found" 404', catch_all)
+        self.assertNotIn("reverse_proxy", catch_all)
+
+    def test_legacy_component_caddyfiles_are_retired_not_deployable(self) -> None:
+        for relative in ("webhook/Caddyfile", "whatsapp-connect/Caddyfile"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn("RETIRED — DO NOT DEPLOY", text)
+            self.assertNotIn("reverse_proxy", text)
 
     def test_proxy_targets_are_local_and_secrets_are_placeholders(self) -> None:
         self.assertNotIn("bcrypt", self.text.lower())

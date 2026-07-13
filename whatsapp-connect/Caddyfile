@@ -1,32 +1,7 @@
-# Caddyfile for Buttons Bebe — reverse proxy on srv1766050.hstgr.cloud
-# Caddy auto-obtains/renews Let's Encrypt TLS. Reload:  systemctl reload caddy
-
-srv1766050.hstgr.cloud {
-	# WhatsApp connect page (Node + Baileys QR service on :8085)
-	handle /connect-whatsapp/* {
-		reverse_proxy 127.0.0.1:8085
-	}
-
-	# Everything else -> the webhook / dashboard app (FastAPI on :8000)
-	handle {
-		reverse_proxy 127.0.0.1:8000 {
-			header_up Host {host}
-			header_up X-Real-IP {remote_host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-		}
-	}
-
-	request_body {
-		max_size 256KB
-	}
-	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
-	}
-	encode gzip zstd
-	log {
-		output file /var/log/bb-webhook/caddy.log
-		format json
-	}
-}
+# RETIRED — DO NOT DEPLOY
+#
+# This component-local file predated the authenticated management console and
+# proxied every unmatched public request to FastAPI. That exposed the internal
+# /dashboard/api namespace. Use ../deploy/caddy/Caddyfile.redacted only; it
+# contains the token-scoped WhatsApp route, Basic-Auth console routes, and an
+# explicit public /dashboard* deny rule.
