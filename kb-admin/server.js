@@ -15,6 +15,8 @@ const KB = process.env.KB_DIR || "/root/Buttonsbebe Agent/KB";
 const FOLDERS = ["intents", "faq", "policies", "tickets"];
 const NOTICES_DIR = path.join(KB, "notices");
 const NOTICES_FILE = path.join(NOTICES_DIR, "notices.json");
+const NOTICE_LOCK_DIR = path.join(NOTICES_DIR, ".notices.lock");
+const NOTICE_LOCK_STALE_MS = 60 * 1000;
 
 let reindex = { running: false, ok: null, at: null };
 
@@ -42,15 +44,57 @@ function readBody(req, cb) {
 }
 
 // ---- Notice Board (owner overrides; shared JSON with notices_lib.py) --------
+function validNotice(n) {
+  if (!n || typeof n !== "object") return false;
+  if (!["id", "text", "created_at", "created_by"].every((k) => typeof n[k] === "string" && n[k].trim())) return false;
+  if (Number.isNaN(Date.parse(n.created_at))) return false;
+  return n.expires_at === null || (typeof n.expires_at === "string" && !Number.isNaN(Date.parse(n.expires_at)));
+}
+function readNotices(strict) {
+  const d = JSON.parse(fs.readFileSync(NOTICES_FILE, "utf8"));
+  if (!Array.isArray(d)) throw new Error("notice store must be a JSON list");
+  const valid = d.filter(validNotice);
+  if (strict && valid.length !== d.length) throw new Error("notice store contains malformed entries");
+  return valid;
+}
 function loadNotices() {
-  try { const d = JSON.parse(fs.readFileSync(NOTICES_FILE, "utf8")); return Array.isArray(d) ? d : []; }
+  try { return readNotices(false); }
   catch (e) { return []; }
+}
+function loadNoticesStrict() {
+  return fs.existsSync(NOTICES_FILE) ? readNotices(true) : [];
+}
+function acquireNoticeLock() {
+  fs.mkdirSync(NOTICES_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(NOTICE_LOCK_DIR);
+  } catch (e) {
+    const stale = e.code === "EEXIST" && (() => {
+      try { return Date.now() - fs.statSync(NOTICE_LOCK_DIR).mtimeMs > NOTICE_LOCK_STALE_MS; }
+      catch (_) { return false; }
+    })();
+    if (!stale) { const busy = new Error("notice board write already running"); busy.code = "EBUSY"; throw busy; }
+    try { fs.rmdirSync(NOTICE_LOCK_DIR); fs.mkdirSync(NOTICE_LOCK_DIR); }
+    catch (err) { const busy = new Error("notice board write already running"); busy.code = "EBUSY"; throw busy; }
+  }
+}
+function releaseNoticeLock() {
+  try { fs.rmdirSync(NOTICE_LOCK_DIR); } catch (e) {}
+}
+function withNoticeLock(fn) {
+  acquireNoticeLock();
+  try { return fn(); }
+  finally { releaseNoticeLock(); }
 }
 function writeNotices(items) {
   fs.mkdirSync(NOTICES_DIR, { recursive: true });
-  const tmp = NOTICES_FILE + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(items, null, 2), "utf8");
-  fs.renameSync(tmp, NOTICES_FILE); // atomic swap so a reader never sees a half file
+  const tmp = path.join(NOTICES_DIR, `.notices-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(items, null, 2), "utf8");
+    fs.renameSync(tmp, NOTICES_FILE); // atomic swap so a reader never sees a half file
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (e) {}
+  }
 }
 function noticeActive(n, now) {
   if (!n.expires_at) return true;
@@ -133,8 +177,8 @@ const server = http.createServer((req, res) => {
       const text = (d && d.text ? String(d.text) : "").trim();
       if (!text) return send(res, 400, { error: "text required" });
       let expires_at = null;
-      if (d.expires_at) {
-        const t = Date.parse(d.expires_at);
+      if (d.expires_at !== undefined && d.expires_at !== null && d.expires_at !== "") {
+        const t = Date.parse(String(d.expires_at));
         if (isNaN(t)) return send(res, 400, { error: "bad deadline" });
         expires_at = new Date(t).toISOString();
       }
@@ -143,23 +187,33 @@ const server = http.createServer((req, res) => {
         text,
         created_at: new Date().toISOString(),
         expires_at,
-        created_by: d && d.created_by ? String(d.created_by) : "owner",
+        created_by: d && d.created_by && String(d.created_by).trim() ? String(d.created_by).trim() : "owner",
       };
-      const items = loadNotices();
-      items.push(notice);
-      try { writeNotices(items); } catch (e) { return send(res, 500, { error: String(e) }); }
-      return send(res, 200, { ok: true, notice });
+      try {
+        withNoticeLock(() => { const items = loadNoticesStrict(); items.push(notice); writeNotices(items); });
+        return send(res, 200, { ok: true, notice });
+      } catch (e) {
+        return send(res, e.code === "EBUSY" ? 409 : 500, { error: e.code === "EBUSY" ? "notice board busy" : String(e) });
+      }
     });
   }
 
   if (req.method === "POST" && p === "/notices/delete") {
     return readBody(req, (d) => {
       const id = d && d.id ? String(d.id) : "";
-      const items = loadNotices();
-      const kept = items.filter((n) => n.id !== id);
-      if (kept.length === items.length) return send(res, 404, { error: "not found" });
-      try { writeNotices(kept); } catch (e) { return send(res, 500, { error: String(e) }); }
-      return send(res, 200, { ok: true, removed: id });
+      try {
+        const removed = withNoticeLock(() => {
+          const items = loadNoticesStrict();
+          const kept = items.filter((n) => n.id !== id);
+          if (kept.length === items.length) return false;
+          writeNotices(kept);
+          return true;
+        });
+        if (!removed) return send(res, 404, { error: "not found" });
+        return send(res, 200, { ok: true, removed: id });
+      } catch (e) {
+        return send(res, e.code === "EBUSY" ? 409 : 500, { error: e.code === "EBUSY" ? "notice board busy" : String(e) });
+      }
     });
   }
 

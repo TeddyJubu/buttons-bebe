@@ -238,8 +238,8 @@ Currently the file is `[]` (no active notices) in this clone.
 
 ### 4.3 The helper (`kb/scripts/notices_lib.py`)
 
-- `load_all()` / `active_notices()` / `is_active(n)` — reads the file; **any error returns `[]`** (fail-safe: a missing/corrupt board never breaks customer search).
-- `add_notice()`, `remove_notice(id)`, `purge_expired()` — mutations; writes are **atomic** (temp file + `os.replace`).
+- `load_all()` / `active_notices()` / `is_active(n)` — reads the file; malformed records are filtered and **any error returns `[]`** (fail-safe: a missing/corrupt board never breaks customer search).
+- `add_notice()`, `remove_notice(id)`, `purge_expired()` — mutations guarded by the shared atomic-directory `.notices.lock`; writers reject malformed stores and use unique fsynced temp files + `os.replace`.
 - **Expiry is enforced at read time** in `is_active()` (`expires_at is None or expires_at > now`), so an expired notice is filtered the instant it's read — never a second late.
 - `as_search_results()` shapes each active notice exactly like a `search_kb` result: `score: 999.0`, `title: "NOTICE BOARD"`, `category: notices`, `status: confirmed`, `sensitive: False`, `heading: "Owner override"`, and text prefixed with:
 
@@ -253,7 +253,7 @@ Stdlib-only script that calls `notices_lib.purge_expired()` to *physically* drop
 
 ### 4.5 How the console posts notices (`kb-admin/server.js`, port 8087)
 
-A **zero-dependency Node** HTTP API bound to `127.0.0.1:8087`, exposed via Caddy behind the console's auth gate at `/console/kbapi/*` (`buttonsbebe-kb-admin.service`; its `ExecStart` has a `__NODE__` placeholder substituted at deploy time). It reads/writes the **same `notices.json`** as the Python side (Node re-implements load/write/active with matching atomic-swap semantics). Relevant routes:
+A **zero-dependency Node** HTTP API bound to `127.0.0.1:8087`, exposed via Caddy behind the console's auth gate at `/console/kbapi/*` (`buttonsbebe-kb-admin.service`; its `ExecStart` has a `__NODE__` placeholder substituted at deploy time). It reads/writes the **same `notices.json`** as the Python side (Node re-implements the canonical schema, uses the shared `.notices.lock`, and uses unique atomic swaps). A concurrent writer receives a bounded `409` response. Relevant routes:
 
 | Method + path | Purpose |
 |---|---|

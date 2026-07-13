@@ -23,13 +23,21 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 KB_DIR = Path(__file__).resolve().parent.parent      # the KB/ folder
 NOTICES_DIR = KB_DIR / "notices"
 NOTICES_FILE = NOTICES_DIR / "notices.json"
+LOCK_DIR = NOTICES_DIR / ".notices.lock"
+LOCK_STALE_SECONDS = 60
+
+
+class NoticeBusy(RuntimeError):
+    """Another writer currently owns the Notice Board transaction."""
 
 # Stamped in front of every notice handed to the agent so it is unmistakable.
 OVERRIDE_PREFIX = (
@@ -55,12 +63,58 @@ def _parse(ts) -> datetime | None:
         return None
 
 
+def _valid_notice(n: object) -> bool:
+    if not isinstance(n, dict):
+        return False
+    if not all(isinstance(n.get(key), str) and n[key].strip() for key in ("id", "text", "created_at", "created_by")):
+        return False
+    if _parse(n["created_at"]) is None:
+        return False
+    return n.get("expires_at") is None or _parse(n.get("expires_at")) is not None
+
+
+def _read_items(*, strict: bool) -> list[dict]:
+    with open(NOTICES_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError("notice store must be a JSON list")
+    valid = [n for n in data if _valid_notice(n)]
+    if strict and len(valid) != len(data):
+        raise ValueError("notice store contains malformed entries")
+    return valid
+
+
+@contextmanager
+def _notice_lock():
+    """Acquire a short-lived cross-language lock using atomic directory creation."""
+    NOTICES_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        LOCK_DIR.mkdir()
+    except FileExistsError:
+        try:
+            stale = time.time() - LOCK_DIR.stat().st_mtime > LOCK_STALE_SECONDS
+        except OSError:
+            stale = False
+        if not stale:
+            raise NoticeBusy("notice board write already running")
+        try:
+            LOCK_DIR.rmdir()
+            LOCK_DIR.mkdir()
+        except OSError as exc:
+            raise NoticeBusy("notice board write already running") from exc
+    try:
+        yield
+    finally:
+        try:
+            LOCK_DIR.rmdir()
+        except OSError:
+            pass
+
+
 def load_all() -> list[dict]:
     """Every notice on file. Empty list on any problem (fail-safe)."""
     try:
-        with open(NOTICES_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
+        return _read_items(strict=False)
     except Exception:
         return []
 
@@ -69,10 +123,18 @@ def _write(items: list[dict]) -> None:
     """Write atomically (temp file + rename) so a concurrent reader never sees
     a half-written file."""
     NOTICES_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = NOTICES_FILE.with_name(NOTICES_FILE.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, NOTICES_FILE)
+    fd, tmp_name = tempfile.mkstemp(prefix=".notices-", suffix=".tmp", dir=NOTICES_DIR)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, NOTICES_FILE)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
 
 
 def is_active(n: dict, now: datetime | None = None) -> bool:
@@ -90,38 +152,44 @@ def add_notice(text: str, expires_at=None, created_by: str = "owner") -> dict:
     text = (text or "").strip()
     if not text:
         raise ValueError("notice text is required")
+    created_by = str(created_by or "").strip() or "owner"
     exp = _parse(expires_at)
+    if expires_at not in (None, "") and exp is None:
+        raise ValueError("invalid expires_at")
     notice = {
         "id": f"n_{int(time.time() * 1000)}_{secrets.token_hex(2)}",
         "text": text,
         "created_at": _now().isoformat(),
         "expires_at": exp.isoformat() if exp else None,
-        "created_by": created_by or "owner",
+        "created_by": created_by,
     }
-    items = load_all()
-    items.append(notice)
-    _write(items)
+    with _notice_lock():
+        items = _read_items(strict=True) if NOTICES_FILE.exists() else []
+        items.append(notice)
+        _write(items)
     return notice
 
 
 def remove_notice(nid: str) -> bool:
-    items = load_all()
-    kept = [n for n in items if n.get("id") != nid]
-    if len(kept) == len(items):
-        return False
-    _write(kept)
-    return True
+    with _notice_lock():
+        items = _read_items(strict=True) if NOTICES_FILE.exists() else []
+        kept = [n for n in items if n.get("id") != nid]
+        if len(kept) == len(items):
+            return False
+        _write(kept)
+        return True
 
 
 def purge_expired(now: datetime | None = None) -> int:
     """Physically drop expired notices. Returns how many were removed."""
     now = now or _now()
-    items = load_all()
-    kept = [n for n in items if is_active(n, now)]
-    removed = len(items) - len(kept)
-    if removed:
-        _write(kept)
-    return removed
+    with _notice_lock():
+        items = _read_items(strict=True) if NOTICES_FILE.exists() else []
+        kept = [n for n in items if is_active(n, now)]
+        removed = len(items) - len(kept)
+        if removed:
+            _write(kept)
+        return removed
 
 
 def as_search_results(now: datetime | None = None) -> list[dict]:
