@@ -1,0 +1,355 @@
+--- SLIDE 1 ---
+BUTTONS BEBE  ·  AI SUPPORT AGENT
+Phase 2 & 3 Plan
+Every feature we build next — and how long each one takes.
+1
+PHASE 1
+Copilot — live today
+2
+PHASE 2
+Trustworthy & Visible
+3
+PHASE 3
+Autonomous & Multi-channel
+Prepared for the meeting with Chaim   ·   July 12, 2026
+--- SLIDE 2 ---
+PHASE 1  ·  LIVE TODAY
+Where we are today
+The agent already works as a copilot. For every incoming ticket it reads the message, pulls the order, return and product details, searches the knowledge base, and writes a first-draft reply — placed in Gorgias as a private note for your team to review and send.
+The safety promise
+The AI never sends on its own. Every customer reply is written by the AI but sent by a human. Sensitive tickets are flagged, never auto-handled.
+~2,000  tickets / month
+the volume this agent is built to take on
+1
+Reads every ticket
+Understands the customer's message in context
+2
+Pulls order context
+Order, return & product details, automatically
+3
+Searches the knowledge base
+Policies, FAQs and 4,246 live products
+4
+Drafts the reply
+Written as a private note for staff to approve
+5
+WhatsApp escalation
+Urgent tickets ping the owner instantly
+6
+Notice Board
+Owner posts override the AI's answers on the fly
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+2
+--- SLIDE 3 ---
+THE PLAN AT A GLANCE
+Three phases — the AI earns more trust at each step
+1
+LIVE TODAY
+Phase 1 — Copilot
+The AI drafts every reply. A human reviews and sends. Read-only access to your systems.
+Your team: Human sends every reply
+2
+NEXT  ·  ~4–6 WEEKS
+Phase 2 — Trustworthy & Visible
+Make it rock-solid and higher quality, prove it learns, and give you a dashboard to see it working.
+Your team: Human still approves — now with proof & metrics
+3
+LATER  ·  ~3–4 MONTHS
+Phase 3 — Autonomous & Multi-channel
+The AI handles routine tickets end-to-end, across more channels, and can take real actions.
+Your team: Human supervises the exceptions
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+3
+--- SLIDE 4 ---
+PHASE 2
+Make it Trustworthy & Visible
+Rock-solid, measurable, and higher quality — while the AI still drafts and a human still approves every reply.
+ESTIMATE:  ~4–6 WEEKS
+One focused builder, delivered in small pieces so value ships every week.
+--- SLIDE 5 ---
+PHASE 2  ·  WHY IT MATTERS
+What you get out of Phase 2
+1
+Fewer risky replies slip through
+A second, rule-based safety net catches refunds, disputes and upset customers — not just the AI's judgment.
+2
+You can SEE it working
+A simple dashboard: how many drafts were used as-is, tickets handled, hours saved, and the top topics.
+3
+Drafts get smarter weekly
+The AI learns from your team's real edits — and we prove a lesson actually changes the next draft.
+4
+Faster, more accurate answers
+Live order & tracking details in every draft, and a guardrail so it never invents a price or policy.
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+5
+--- SLIDE 6 ---
+PHASE 2  ·  FEATURE GROUP A
+Make what we have rock-solid
+The behind-the-scenes cleanup that turns a working prototype into a system you can trust in production.
+1
+Deterministic safety net
+Code-level gate flags refunds, disputes, damaged/angry cases — backing up the AI's own judgment.
+2–3 days
+2
+Cleaner drafts
+Strip the AI's leftover self-talk and duplicated answers so drafts arrive tidy.
+~1 day
+3
+Handle empty / junk messages
+Recognise blank or survey messages and not invent a reply for them.
+~½ day
+4
+Never invent facts or prices
+A guardrail so the AI only quotes prices and policies that are actually in the knowledge base.
+~1 day
+5
+Finish the Shopify connection
+Wire live order & tracking data directly, using the correct secure login method.
+~2 days
+6
+Fix returns tool + lock the toolset
+Correct a returns lookup and restrict what the AI is allowed to touch.
+~1 day
+7
+Security & config cleanup
+One settings file, tightened secrets, and a hardened owner login page.
+~1 day
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+6
+--- SLIDE 7 ---
+PHASE 2  ·  FEATURE GROUPS B & C
+Proven learning  +  a window into performance
+B
+Learning loop, proven ON
+Most of this is already built. Phase 2 turns it fully on and proves it actually helps:
+1
+Capture your team's real reply on each ticket
+2
+Review & approve the good ones (with privacy scrub)
+3
+Promote them so the AI can reuse them
+4
+PROVE a promoted lesson changes the next draft
+EST:  ~1 WEEK
+C
+Owner performance dashboard
+A brand-new screen so you can see, at a glance, how the agent is doing:
+Draft acceptance
+% of drafts sent as-is vs edited
+Tickets handled
+Volume per day / week
+Time saved
+Estimated hours the AI saved your team
+Top topics
+What customers ask about most
+Escalations
+Sensitive tickets flagged for a human
+EST:  ~1–1.5 WEEKS
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+7
+--- SLIDE 8 ---
+PHASE 2  ·  FEATURE GROUPS D & E
+Smarter context — and a first careful step toward autonomy
+D
+Live order & shipping status
+Every draft can include the real, up-to-the-minute order status and tracking link — so “where is my order?” answers itself, accurately.
+Builds on the finished Shopify connection from group A.
+EST:  ~1–2 DAYS
+E
+Auto-send pilot — ONE safe topic
+Optional stretch: let the AI send its own reply for a single, very low-risk topic (order status) — behind confidence checks, the safety net, full logging, and a one-click kill switch.
+Sensitive tickets are never in scope — the bridge to Phase 3.
+EST:  ~1 WEEK  (stretch)
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+8
+--- SLIDE 9 ---
+PHASE 2  ·  TIMELINE
+Phase 2 estimates
+Focused build + test time for one person. Ranges leave room for testing and surprises.
+Rock-solid foundation (group A)
+~8–10 days
+Learning loop, proven ON (B)
+~1 week
+Owner dashboard (C)
+~1–1.5 weeks
+Live order & shipping context (D)
+~1–2 days
+Auto-send pilot — stretch (E)
+~1 week
+Phase 2 total:  ~4–6 weeks    (core A–D ~4 weeks  ·  pilot E adds ~1 week)
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+9
+--- SLIDE 10 ---
+PHASE 2  ·  YOUR INPUT UNBLOCKS ACCURACY
+5 quick answers we need from you
+The AI is only as accurate as the policies it's given. A few confirmed answers replace today's cautious placeholders.
+1
+Return window
+How many days do customers have to return?
+2
+Return shipping
+Who pays return postage — you or the customer?
+3
+Sale-season rules
+Are sale / clearance items final, or returnable?
+4
+International rates
+What's the real shipping cost outside the country?
+5
+Pickup vs return bin
+Confirm the pickup spot and the 24/7 return-bin address.
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+10
+--- SLIDE 11 ---
+PHASE 3
+Autonomous & Multi-channel
+The AI handles routine tickets end-to-end, reaches customers on more channels, and can take real actions — while you supervise the exceptions.
+ESTIMATE:  ~3–4 MONTHS, IN STAGES
+Delivered feature-by-feature — each one live before the next begins.
+--- SLIDE 12 ---
+PHASE 3  ·  WHY IT MATTERS
+What changes for you in Phase 3
+1
+Routine tickets answer themselves
+Common questions are resolved without a human touching them — your team focuses on the hard cases.
+2
+Customers reached anywhere
+Not just email: website chat, Instagram & Facebook DMs, and text/WhatsApp.
+3
+The AI can DO things
+With approval, it issues refunds, starts returns and applies discounts — not just talk about them.
+Still safe:  sensitive tickets — refunds you haven't approved, disputes, upset customers — always go to a human. Autonomy is switched on one topic at a time, with a kill switch.
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+12
+--- SLIDE 13 ---
+PHASE 3  ·  THE BIG THREE
+The three biggest new capabilities
+1
+Auto-send graduation
+Expand from the pilot to a growing set of safe, high-confidence topics — each with its own on/off switch, confidence threshold and monitoring.
+2–3 weeks
+2
+Multi-channel
+Handle conversations from website live chat, Instagram & Facebook DMs, and SMS / WhatsApp — not just email tickets.
+2–4 weeks
+3
+Action-taking
+With approval (then trusted over time): issue refunds, start & approve returns, apply discount codes, edit or cancel orders.
+3–4 weeks
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+13
+--- SLIDE 14 ---
+PHASE 3  ·  ROUNDING IT OUT
+Four more capabilities
+1
+Proactive & bulk handling
+1–2 weeks
+Spot a delay hitting many orders, auto-post a Notice, and reply in bulk — before customers even ask.
+2
+Multi-language at scale
+1–2 weeks
+Detect, reply and learn per language — reliable Hebrew and others, not just English.
+3
+Continuous-improvement engine
+2–3 weeks
+Test reply variations, auto-surface gaps in the knowledge base, and a weekly quality report.
+4
+Scale & reliability
+1–2 weeks
+Automatic retries, alerting if something breaks, and evaluating a faster / cheaper model.
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+14
+--- SLIDE 15 ---
+PHASE 3  ·  TIMELINE
+Phase 3 estimates
+Weeks of focused build per capability. Delivered in stages — not all at once.
+Auto-send graduation
+2–3 weeks
+Multi-channel
+2–4 weeks
+Action-taking
+3–4 weeks
+Proactive & bulk
+1–2 weeks
+Multi-language at scale
+1–2 weeks
+Continuous improvement
+2–3 weeks
+Scale & reliability
+1–2 weeks
+Phase 3 total:  ~3–4 months   delivered feature-by-feature, each live before the next
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+15
+--- SLIDE 16 ---
+THE WHOLE PICTURE
+Roadmap at a glance
+NOW
+Phase 1 — Copilot
+Live: AI drafts, human sends
+WEEKS 1–6
+Phase 2 — Trustworthy & Visible
+Hardening · proven learning · owner dashboard · live order data · auto-send pilot
+MONTHS 2–5
+Phase 3 — Autonomous & Multi-channel
+Auto-send graduation · new channels · refunds/returns actions · proactive · languages · scale
+Full program:  ~4.5–6 months  of focused build after today — with something new shipping almost every week.
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+16
+--- SLIDE 17 ---
+FROM TODAY'S MEETING
+What we need to decide
+1
+Confirm Phase 2 priorities
+Agree the order of work — and whether the auto-send pilot is in or out for now.
+2
+Answer the 5 policy questions
+The return, shipping, sale and location details that make the AI accurate.
+3
+Steer Phase 3
+Tell us where to lean first: more autonomy, more channels, or taking actions.
+4
+Line up access
+When we reach new channels & actions, we'll need the relevant logins.
+Next step:  lock Phase 2 scope today and start on the rock-solid foundation this week.
+--- SLIDE 18 ---
+APPENDIX  ·  FOR THE BUILD
+Technical detail — Phase 2
+How each Phase 2 item maps to the actual system (from CLAUDE.md, DEV-ISSUES.md and the sprint notes).
+Safety net
+Implement processor/classifier.py (IMMEDIATE/HIGH/NORMAL) — currently a stub returning NORMAL.
+Cleaner drafts
+Strip trailing self-commentary / de-dupe in hermes_runner.py (glm-5.2 verbosity, QA #01/#04/#10).
+Empty messages
+Guard blank / survey messages in the ticket workflow (QA #19).
+Grounding
+Reinforce “no price not in KB” in SOUL/prompt; add real international rate to KB (QA #03).
+Shopify
+Add client-credentials token minting to config.py; remove dead SHOPIFY_ADMIN_API_TOKEN (H2, #1).
+Returns + toolset
+Fix redo_mcp get_order mismatch (#2); restrict --yolo toolset on the Hermes call (#8).
+Security / config
+Consolidate the two .env files (#9); chmod 600 + rotate keys (#13); harden WhatsApp page (#12).
+Learning loop
+Run the spike + feedback/validate.py on 10+ tickets, then flip STUB→LIVE + add the timer.
+Dashboard
+New views over webhook.db + KB/learned/_ledger.json (no analytics code exists yet).
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+18
+--- SLIDE 19 ---
+APPENDIX  ·  FOR THE BUILD
+Technical notes & estimate assumptions
+Phase 3 — architecture notes
+Auto-send = confidence score + classifier gate + per-intent switch + kill switch + full logging.
+New channels ride Gorgias' native chat / social / SMS integrations where possible.
+Actions (refunds, returns, discounts, order edits) = new gated writes to Shopify & Redo — today the only write is a Gorgias internal note.
+Multi-language builds on the existing multilingual KB embeddings; add per-language routing.
+Model evaluation: test a less verbose / cheaper model than glm-5.2 to cut cost & cleanup.
+What the estimates assume
+One focused builder (Tony + Claude), working sequentially.
+Estimates are build + test time; ranges absorb testing & surprises.
+Chaim's 5 policy answers and any channel/action logins arrive promptly.
+Scope stays fixed per item; features can be re-ordered to taste.
+Days = focused work-days, not calendar days; ~1 week ≈ 5 build-days.
+Buttons Bebe  ·  AI Support Agent — Phase 2 & 3 Plan
+19
