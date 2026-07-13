@@ -1,0 +1,21 @@
+[Unit]
+Description=Buttons Bebe Job Processor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Buttonsbebe Agent/processor
+ExecStart=/bin/bash -c 'exec "/root/Buttonsbebe Agent/processor/.venv/bin/python" -m orchestrator'
+Restart=always
+RestartSec=5
+Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment="PYTHONPATH=/root/Buttonsbebe Agent/processor:/root/Buttonsbebe Agent/webhook/src"
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bb-processor
+
+[Install]
+WantedBy=multi-user.target

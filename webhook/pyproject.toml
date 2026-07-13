@@ -1,0 +1,27 @@
+[project]
+name = "bb-webhook"
+version = "0.1.0"
+description = "Buttons Bebe Gorgias webhook receiver"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "aiosqlite>=0.20.0",
+]
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+packages = ["bb_webhook"]
+
+[tool.setuptools.package-dir]
+bb_webhook = "src/bb_webhook"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

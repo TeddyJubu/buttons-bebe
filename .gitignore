@@ -14,6 +14,7 @@ build/hermes/kb-rag/vault/exemplars/
 # Python caches
 __pycache__/
 *.pyc
+**/*.egg-info/
 
 # Full VPS backup — contains plaintext secrets, never commit
 _VPS-FULL-BACKUP-*/
@@ -27,3 +28,21 @@ _VPS-FULL-BACKUP-*/
 # node/venv if ever present locally
 **/node_modules/
 **/.venv/
+
+# Live service runtime state — never version or recover from the VPS
+webhook/data/
+processor/.processor.lock
+whatsapp-connect/auth/
+whatsapp-connect/notify.json
+
+# Hermes credentials, conversations, caches, and generated runtime state
+hermes/config.yaml
+hermes/auth.json
+hermes/auth.lock
+hermes/.hermes_history
+hermes/session*/
+hermes/pastes/
+hermes/logs/
+hermes/platforms/
+hermes/*cache*
+hermes/processes.json

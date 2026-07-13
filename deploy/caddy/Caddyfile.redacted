@@ -1,0 +1,81 @@
+srv1766050.hstgr.cloud {
+	handle /connect-whatsapp/<WA_TOKEN> {
+		reverse_proxy 127.0.0.1:8085
+	}
+
+	handle_path /qa/* {
+		root * /var/www/qa
+		file_server
+	}
+
+	@consoleapi path /console/api/*
+	handle @consoleapi {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		uri replace /console/api /dashboard/api
+		reverse_proxy 127.0.0.1:8000 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	@consolewa path /console/waapi/*
+	handle @consolewa {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		uri replace /console/waapi /wa
+		reverse_proxy 127.0.0.1:8085 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle_path /console/kbapi/* {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		reverse_proxy 127.0.0.1:8087 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle_path /console* {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		root * /var/www/console
+		file_server
+	}
+
+	@roothome path /
+	handle @roothome {
+		redir * /console/ 302
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	request_body {
+		max_size 256KB
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+	encode gzip zstd
+	log {
+		output file /var/log/bb-webhook/caddy.log
+		format json
+	}
+}
