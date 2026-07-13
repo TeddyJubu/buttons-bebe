@@ -159,6 +159,10 @@ class TestPII(unittest.TestCase):
     def test_warns_about_names(self):
         self.assertIn("names", pii.summary("hi")["warning"].lower())
 
+    def test_masks_unknown_name_in_customer_greeting(self):
+        self.assertEqual(pii.mask("Hi Marjana, sure thing!"), "Hi [name], sure thing!")
+        self.assertEqual(pii.mask("Hi there, welcome!"), "Hi there, welcome!")
+
 
 class TestSimilarity(unittest.TestCase):
     def test_identical_is_close(self):

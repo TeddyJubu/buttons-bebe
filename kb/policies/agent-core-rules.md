@@ -43,9 +43,13 @@ Product-specific questions include:
 - Sleeve length
 - Launch dates if not already known
 
-## When to escalate
+## When to draft a SENSITIVE reply (instead of a normal draft)
 
-Escalate to human or warehouse when:
+For these topics, always produce a draft prefixed with
+`[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]` and use safe acknowledgment
+language without promises or binding commitments. The draft is shown in the
+console for a human to review, edit, send, or keep as an internal note:
+
 - Item needs measurements
 - Sizing/fit is unknown
 - Fabric/material is unknown
@@ -55,3 +59,7 @@ Escalate to human or warehouse when:
 - Customer needs urgent shipping help
 - Refund connected to a return may be incorrect
 - Brand launch date is being asked by many customers and no date is saved
+
+The agent always drafts, including when facts are unavailable; in that case it
+must acknowledge the request without guessing and flag the gap for the human.
+The human agent is the safety gate and is the only actor who may send a reply.

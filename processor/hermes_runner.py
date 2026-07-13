@@ -91,15 +91,16 @@ _FALLBACK_RESULT: dict[str, Any] = {
 
 def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
                   customer_email: str, intents: list,
-                  gorgias_writes_enabled: bool = True) -> str:
+                  gorgias_writes_enabled: bool = False) -> str:
     """Build the one-shot prompt for Hermes.
 
     Truncates very long messages to avoid prompt overflow, and flags
     empty messages for safe handling.
 
-    When gorgias_writes_enabled is False, Hermes is told NOT to write to
-    Gorgias — only read, search KB, classify, and output the draft text +
-    JSON_RESULT. The draft is captured from stdout and shown on the dashboard.
+    Hermes is always read-only. ``gorgias_writes_enabled`` remains in the
+    signature for compatibility with older callers, but cannot grant Hermes
+    write access. The draft is captured from stdout and shown in the console;
+    only a human-triggered console endpoint may send or post it.
     """
     intents_str = ", ".join(intents) if intents else "none"
 
@@ -115,50 +116,30 @@ def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
         message_text = "[EMPTY MESSAGE — no customer text in body. " \
                        "Check if this is a survey, thank-you, or system email.]"
 
-    # Steps 7-10 differ based on the write flag, but priority
-    # classification and notify_owner are ALWAYS determined the same way.
-    if gorgias_writes_enabled:
-        write_steps = (
-            f"7. Set the ticket priority in Gorgias using curl PUT "
-            f"/api/tickets/{ticket_id} (MCP tools are read-only for writes)\n"
-            f"8. Draft a reply based on KB content + returns + order data. "
-            f"ALWAYS draft — even for sensitive topics (see drafting rules below). "
-            f"The draft is an internal note for human review, never sent directly.\n"
-            f"9. Post the draft as an internal note in Gorgias via curl POST "
-            f"(action: internal_note, public: false)\n"
-            f"10. Output the JSON_RESULT line at the very end\n\n"
-        )
-        draft_output = ""
-        safety_writes = (
-            f"- Use curl only for Gorgias writes (set priority, post internal note).\n"
-        )
-    else:
-        write_steps = (
-            f"7. You are in READ-ONLY mode for Gorgias — do NOT use curl to "
-            f"PUT or POST. Do NOT set ticket priority in Gorgias. Do NOT post "
-            f"any internal note. (A dashboard toggle controls this; the human "
-            f"will enable writes later.)\n"
-            f"8. Draft a reply based on KB content + returns + order data. "
-            f"ALWAYS draft — even for sensitive topics (see drafting rules below). "
-            f"The draft is an internal note for human review, never sent directly.\n"
-            f"9. Output the FULL DRAFT TEXT between <DRAFT> and </DRAFT> tags. "
-            f"This is the complete reply you would post as an internal note.\n"
-            f"10. Output the JSON_RESULT line at the very end "
-            f"(note_posted=false, gorgias_priority_set=false — these are false "
-            f"because writes are disabled, NOT because the topic is unimportant)\n\n"
-        )
-        draft_output = (
-            f"\nAfter your analysis, output the complete draft between these tags:\n"
-            f"<DRAFT>\n"
-            f"...your full draft or escalation note here...\n"
-            f"</DRAFT>\n\n"
-            f"The text between <DRAFT> and </DRAFT> will be shown on the dashboard "
-            f"for human review — it will NOT be sent to Gorgias.\n\n"
-        )
-        safety_writes = (
-            f"- DO NOT use curl for ANY Gorgias writes. Do NOT set priority. "
-            f"Do NOT post any note. Read-only mode for Gorgias API only.\n"
-        )
+    _ = gorgias_writes_enabled  # deprecated; intentionally cannot enable writes
+    write_steps = (
+        f"7. Stay READ-ONLY: do NOT use curl to PUT or POST, do NOT set Gorgias "
+        f"priority or tags, and do NOT post an internal note or customer reply.\n"
+        f"8. ALWAYS draft a reply based on KB content + returns + order data, "
+        f"including for sensitive topics (see drafting rules below).\n"
+        f"9. Output the FULL DRAFT TEXT between <DRAFT> and </DRAFT> tags for the "
+        f"console's human review workflow.\n"
+        f"10. Output the JSON_RESULT line at the very end with "
+        f"note_posted=false and gorgias_priority_set=false.\n\n"
+    )
+    draft_output = (
+        f"\nAfter your analysis, output the complete draft between these tags:\n"
+        f"<DRAFT>\n"
+        f"...your full draft here...\n"
+        f"</DRAFT>\n\n"
+        f"The console will show this text to a human, who may edit it and choose "
+        f"Send reply, Draft as internal note, or Request edit. Hermes does not "
+        f"perform any of those Gorgias writes.\n\n"
+    )
+    safety_writes = (
+        f"- DO NOT use curl for ANY Gorgias writes. Do NOT set priority or tags. "
+        f"Do NOT post a note or reply. All external tools are read-only.\n"
+    )
 
     return (
         f"Process Buttons Bebe support ticket {ticket_id} autonomously.\n\n"
@@ -262,7 +243,8 @@ def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
         f"- If no KB match: 'Hi [name], thanks for reaching out. We're reviewing "
         f"your message and will get back to you shortly.' Tag as [SENSITIVE].\n\n"
         f"Safety rules:\n"
-        f"- NEVER send an external reply to the customer. All drafts are internal notes.\n"
+        f"- NEVER send an external reply or post an internal note. Return the draft "
+        f"to the console for a human decision.\n"
         f"- Search KB with CLEANED query. Do not search with raw email thread text.\n"
         f"- Do not invent policy. If KB has no match, use generic acknowledgment (above).\n"
         f"- If KB marks topic as sensitive, ALWAYS draft with [SENSITIVE] tag + safe "
@@ -292,12 +274,10 @@ def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
         f'"notify_owner": <true|false>, '
         f'"gorgias_priority_set": <true|false>, '
         f'"note_posted": <true|false>}}\n\n'
-        f"IMPORTANT: priority and notify_owner must reflect the TICKET CONTENT and "
-        f"the priority definitions above — NOT whether Gorgias writes are enabled. "
-        f"A sensitive refund ticket is HIGH with notify_owner=true even if you "
-        f"cannot write to Gorgias. gorgias_priority_set and note_posted reflect "
-        f"whether you actually performed the write, but notify_owner reflects "
-        f"the urgency of the ticket itself.\n\n"
+        f"IMPORTANT: priority and notify_owner must reflect the TICKET CONTENT. "
+        f"A sensitive refund ticket is HIGH with notify_owner=true. Always return "
+        f"gorgias_priority_set=false and note_posted=false because Hermes never "
+        f"writes to Gorgias; those false values do not reduce urgency.\n\n"
         f"Be concise. Do not ask questions. Make your best judgment. "
         f"REMEMBER: The draft between <DRAFT></DRAFT> is what the customer "
         f"will see — keep it SHORT, WARM, and ON-POINT. No more than 4-5 "
@@ -355,7 +335,7 @@ def process_ticket_with_hermes(
     ticket_subject: str,
     customer_email: str,
     intents: list,
-    gorgias_writes_enabled: bool = True,
+    gorgias_writes_enabled: bool = False,
 ) -> dict[str, Any]:
     """Invoke Hermes headlessly to process a ticket.
 
@@ -365,13 +345,13 @@ def process_ticket_with_hermes(
         ticket_subject: Ticket subject line
         customer_email: Customer's email address
         intents: List of Gorgias intent name strings
-        gorgias_writes_enabled: If False, Hermes reads/searches/drafts only —
-            no curl writes to Gorgias (no priority set, no internal note).
-            The draft is extracted from <DRAFT>...</DRAFT> tags in stdout.
+        gorgias_writes_enabled: Deprecated compatibility argument. Hermes remains
+            read-only regardless of its value. The draft is extracted from
+            <DRAFT>...</DRAFT> tags in stdout for the console.
 
     Returns:
         Dict with keys: priority, reason, action, notify_owner,
-        gorgias_priority_set, note_posted, draft_text (if writes disabled)
+        gorgias_priority_set, note_posted, draft_text
     """
     settings = get_settings()
     prompt = _build_prompt(ticket_id, message_text, ticket_subject,
@@ -382,8 +362,8 @@ def process_ticket_with_hermes(
     # This is safe because:
     # 1. The 3 registered MCP tools (buttonsbebe_kb, buttonsbebe_redo,
     #    buttonsbebe_gorgias) are ALL read-only (GET only — no POST/PUT/DELETE).
-    # 2. The only write in the system (gorgias_writer.py internal note) goes
-    #    through direct HTTP (httpx/curl), NOT through MCP tools.
+    # 2. The prompt forbids curl/direct API access and returns the draft to the
+    #    processor. Only a human-triggered console endpoint may write to Gorgias.
     # 3. `hermes mcp list` confirms exactly 3 tools, all read-only.
     # If a future MCP tool with write capability is added, --yolo would
     # auto-approve it — revisit this decision at that point.

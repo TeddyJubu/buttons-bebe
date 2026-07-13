@@ -1,9 +1,9 @@
 ---
-title: Exemplar — Refund request (ESCALATION, not auto-answered)
+title: Exemplar — Refund request (SENSITIVE DRAFT, human reviews)
 category: tickets
 status: confirmed
 source: derived-from-tickets
-tags: [refund, escalation, immediate, sensitive, exemplar]
+tags: [refund, immediate, sensitive, sensitive-draft, exemplar]
 ---
 
 ## Customer situation
@@ -11,21 +11,29 @@ tags: [refund, escalation, immediate, sensitive, exemplar]
 Customer asks for a refund (out-of-stock item, "money back," returning items they
 don't want, etc.).
 
-## The correct AI behavior: escalate, do not draft a customer reply
+## The correct AI behavior: always draft a SENSITIVE reply
 
-Refunds are **sensitive → IMMEDIATE → escalation-only**. The AI must **not** draft
-a customer-facing reply that confirms, promises, denies, or processes a refund.
+Refunds are **sensitive → IMMEDIATE/HIGH**. The AI always drafts a reply, prefixed
+with `[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]`, using safe acknowledgment
+language. The draft is shown in the console for human review and is never sent by
+the AI.
 
-What the system does instead:
-1. Classify the ticket IMMEDIATE.
-2. Tag it and post an **internal note** summarizing the refund request (for the
-   human agent), not a customer reply.
-3. Notify the owner so a human handles the money decision.
+The AI must not confirm, promise, deny, or process a refund; state an amount; or
+make a binding commitment. The system classifies the ticket IMMEDIATE or HIGH,
+notifies the owner via WhatsApp, and gives the draft to a human who can edit,
+send, post as an internal note, or discard it.
 
-## Internal note the AI may post (NOT sent to the customer)
+## Sample sensitive draft
+
+`[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]`
+
+Hi! We're checking into this now. We want to make sure everything is processed
+correctly, so we're reviewing the order and return details before confirming.
+We'll get back to you shortly.
 
 ## Why
 
-Money movement is irreversible and high-stakes, and refund/chargeback/dispute
-tickets are exactly the cases the safety model reserves for a human. See
-`../policies/refunds-and-disputes.md` and `SYSTEM_WORKFLOW.md` Safety Model item 2.
+Money movement is irreversible and high-stakes. The draft acknowledges the
+request without deciding it; the human remains the safety gate. See
+`../policies/refunds-and-disputes.md` and
+`../policies/sensitive-draft-policy.md`.

@@ -79,7 +79,8 @@ the US. There are **no prepaid international return labels**. See
 
 For very upset customers, chargeback threats, manager requests, privacy issues
 (received another customer's items), or order value over ~$200 with an unresolved
-complaint: acknowledge, apologize, fix the root issue, and **escalate to a human**.
+complaint: produce a **SENSITIVE** acknowledgment draft, flag it for immediate
+human review, and do not make promises or binding commitments.
 The boss cell **845-570-3569** is escalation-only and must be **confirmed with the
-boss before sharing**. Chargebacks and disputes are never auto-answered (see
-`refunds-and-disputes.md`).
+boss before sharing**. Chargebacks and disputes always receive a sensitive draft,
+but are never sent or decided by the AI (see `refunds-and-disputes.md`).

@@ -569,7 +569,15 @@ async def action_rewrite(ticket_id: int, request: Request) -> JSONResponse:
         if i != -1:
             reply = reply[:i].strip()
     try:
-        _record_lesson("rewrite", ticket_id, customer_msg, draft, reply, instruction=instruction)
+        _record_lesson(
+            "rewrite",
+            ticket_id,
+            customer_msg,
+            draft,
+            reply,
+            instruction=instruction,
+            customer_name=str(body.get("customer_name", "")),
+        )
     except Exception:
         pass
     return JSONResponse(content={"ok": True, "draft": reply})

@@ -1,3 +1,3 @@
 ---
-description: Buttons Bebe customer-support agent skills — Gorgias ticket management, Shopify order lookup, and support orchestration through the Hermes KB.
+description: Buttons Bebe customer-support skills — read-only Gorgias/order context, KB-grounded drafting, and human console handoff.
 ---

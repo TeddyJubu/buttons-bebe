@@ -9,9 +9,11 @@ known customer name), and writes a clean 'confirmed' exemplar into KB/tickets/
 Runs nightly (see learn-nightly.sh); index_kb.py is run afterwards.
 """
 from __future__ import annotations
-import datetime
+import hashlib
+import os
 import pathlib
 import re
+import shutil
 import sys
 
 import yaml
@@ -42,13 +44,38 @@ def _parse(path: pathlib.Path):
 
 
 def _mask(text: str, name: str = "") -> str:
-    t = pii.mask(text or "")
-    if name:
-        for tok in [name] + str(name).split():
-            tok = tok.strip()
-            if len(tok) >= 3:
-                t = re.sub(r"\b" + re.escape(tok) + r"\b", "[name]", t, flags=re.I)
-    return t
+    names = [name] if str(name).strip() else []
+    return pii.mask_with_known_values(text or "", customer_names=names)
+
+
+def _safe_component(value: object, fallback: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value)).strip("-")
+    return cleaned[:80] or fallback
+
+
+def _write_without_replacing(path: pathlib.Path, content: str) -> pathlib.Path:
+    """Write an exemplar with an exclusive create, suffixing on collision."""
+    candidate = path
+    for number in range(1, 1000):
+        try:
+            fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            candidate = path.with_name(f"{path.stem}-{number + 1}{path.suffix}")
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        return candidate
+    raise FileExistsError(f"could not allocate output path for {path.name}")
+
+
+def _archive_without_replacing(path: pathlib.Path) -> pathlib.Path:
+    """Move a raw lesson into the archive without replacing an earlier packet."""
+    candidate = config.ARCHIVE_DIR / path.name
+    for number in range(1, 1000):
+        if not candidate.exists():
+            return pathlib.Path(shutil.move(str(path), str(candidate)))
+        candidate = config.ARCHIVE_DIR / f"{path.stem}-{number + 1}{path.suffix}"
+    raise FileExistsError(f"could not allocate archive path for {path.name}")
 
 
 def promote_one(path: pathlib.Path) -> bool:
@@ -63,15 +90,13 @@ def promote_one(path: pathlib.Path) -> bool:
             break
     if not (final or "").strip():
         return False
-    tid = front.get("source_ticket_id", "x")
     masked_sit = _mask(situation, name)
     masked_reply = _mask(final, name)
     ex_front = {
-        "title": f"Approved reply - {(masked_sit[:56] or ('ticket ' + str(tid)))}",
+        "title": f"Approved reply - {(masked_sit[:56] or 'support example')}",
         "category": "tickets",
         "status": "confirmed",
         "source": "learned-auto",
-        "source_ticket_id": tid,
         "kind": kind,
         "tags": ["exemplar", "learned", "approved"],
     }
@@ -83,11 +108,14 @@ def promote_one(path: pathlib.Path) -> bool:
                + yaml.safe_dump(ex_front, sort_keys=False, allow_unicode=True)
                + "---\n\n" + body)
     config.TICKETS_DIR.mkdir(parents=True, exist_ok=True)
-    ts = int(datetime.datetime.utcnow().timestamp())
-    out = config.TICKETS_DIR / f"exemplar-learned-{tid}-{ts}.md"
-    out.write_text(content, encoding="utf-8")
+    source_id = path.stem
+    digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:12]
+    out = config.TICKETS_DIR / (
+        f"exemplar-learned-{_safe_component(kind, 'sent')}-{digest}.md"
+    )
+    _write_without_replacing(out, content)
     config.ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-    path.rename(config.ARCHIVE_DIR / path.name)
+    _archive_without_replacing(path)
     return True
 
 

@@ -258,7 +258,7 @@ body{background:#e8e5d8;font-family:Inter,Arial,sans-serif}
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
 let stats={},tickets=[],settings={},learn={},tab="overview",openTk=null,filter="all";
-let kbData=null,kbSel=null,kbBuf="",kbMsg="",kbReindexing=false;
+let kbData=null,kbHealth=null,kbHealthError="",kbSel=null,kbBuf="",kbMsg="",kbReindexing=false,kbLoaded=false,kbLoadError="";
 let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
 let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false;
@@ -287,10 +287,11 @@ const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab
 async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 async function boot(){
- const [s,t,st,lg]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings"),jget(API+"/learning")]);
+ const [s,t,st,lg,kh]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings"),jget(API+"/learning"),jget(KBAPI+"/health")]);
  loadErrors=[];if(s===null)loadErrors.push("stats");if(t===null)loadErrors.push("tickets");if(st===null)loadErrors.push("settings");if(lg===null)loadErrors.push("learning");
  loadFailed=loadErrors.length>0;
  if(s!==null)stats=s;if(Array.isArray(t))tickets=t;if(st!==null)settings=st;if(lg!==null)learn=lg;
+ if(kh!==null){kbHealth=kh;kbHealthError="";}else{kbHealth=null;kbHealthError="Knowledge-base health data is unavailable";}
  if(!loadFailed)lastUpdated=new Date();statusMsg=loadFailed?"Could not load "+loadErrors.join(", ")+" data; showing last known values":"Dashboard data updated";
  render();
 }
@@ -461,21 +462,33 @@ async function rewriteDraft(){
  captureAct();const t=curTk();if(!t)return;
  if(!actInstr.trim()){actMsg="Type an instruction first.";render();return;}
  actBusy=true;actMsg="AI is rewriting… (can take up to a minute)";render();
- try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({draft:actDraft,instruction:actInstr,message_text:t.message_text||""})});const j=await r.json();if(r.ok&&j.draft){actDraft=j.draft;actEditOpen=false;actInstr="";actMsg="✅ Rewritten — review it, then send.";}else{actMsg="Rewrite failed: "+(j.error||r.status);}}catch(e){actMsg="Rewrite failed.";}
+ try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({draft:actDraft,instruction:actInstr,message_text:t.message_text||"",customer_name:nameOf(t)})});const j=await r.json();if(r.ok&&j.draft){actDraft=j.draft;actEditOpen=false;actInstr="";actMsg="✅ Rewritten — review it, then send.";}else{actMsg="Rewrite failed: "+(j.error||r.status);}}catch(e){actMsg="Rewrite failed.";}
  actBusy=false;render();
 }
 
 function conns(){
- const cs=[["G","Gorgias","buttonsbebe.gorgias.com","Help desk - tickets in & drafts out"],["S","Shopify","buttons-bebe.myshopify.com","Orders & 4,246 products"],["R","Redo","Returns & refunds","Live return status"],["W","WhatsApp alerts","Owner escalations","Linked device"],["KB","Knowledge base","22 intents - 17 policies - 5 FAQs","Auto-refreshes every 3 days"]];
- return `<div class="conns">${cs.map(c=>`<div class="conn"><div class="h"><div class="ic">${c[0]}</div><div><b>${c[1]}</b><small>${esc(c[2])}</small></div></div><span class="stt"><span class="dot"></span> Connected</span><div class="dt">${esc(c[3])}</div></div>`).join("")}</div>
+ const h=kbHealth,folders=h&&h.folders||{},products=h&&h.products||{};
+ const count=(name,label)=>Number.isInteger(folders[name])?folders[name]+" "+label:"unknown "+label;
+ const productCount=Number.isInteger(products.count)?products.count.toLocaleString():"unknown";
+ const age=Number.isFinite(products.age_hours)?(products.age_hours<24?Math.round(products.age_hours)+"h":Math.floor(products.age_hours/24)+"d"):null;
+ const productDetail=products.last_modified?`Product files last changed ${age||"recently"} ago${products.fresh?"":" — refresh overdue"}`:"Product file freshness unavailable";
+ const kbState=h&&h.ok?(products.fresh?"Healthy":"Needs refresh"):"Unavailable";
+ const cs=[["G","Gorgias","buttonsbebe.gorgias.com","Help desk - tickets in & drafts out","Configured",true],["S","Shopify","buttons-bebe.myshopify.com",`${productCount} product files`,products.fresh?"Current":"Needs refresh",!!products.fresh],["R","Redo","Returns & refunds","Live return status","Configured",true],["W","WhatsApp alerts","Owner escalations","Linked device","Configured",true],["KB","Knowledge base",`${count("intents","intents")} - ${count("policies","policies")} - ${count("faq","FAQs")}`,productDetail,kbState,h&&h.ok&&products.fresh]];
+ const healthTitle=kbHealthError?"Knowledge-base health unavailable":(h&&h.ok&&products.fresh?"Knowledge-base files are current":"Knowledge base needs attention");
+ const healthDetail=kbHealthError||(!h||!h.ok?"One or more knowledge-base folders could not be read.":productDetail+`. ${h.editable_files??"Unknown"} editable files detected.`);
+ return `<div class="conns">${cs.map(c=>`<div class="conn"><div class="h"><div class="ic">${c[0]}</div><div><b>${c[1]}</b><small>${esc(c[2])}</small></div></div><span class="stt"><span class="dot ${c[5]?'':'off'}"></span> ${esc(c[4])}</span><div class="dt">${esc(c[3])}</div></div>`).join("")}</div>
  <div class="sec-title">Health</div>
- <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div>All services responding<br><small style="color:var(--ink3)">Gorgias, Shopify, Redo, WhatsApp and the knowledge base are healthy</small></div><div class="tm">live</div></div></div></div>`;
+ <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div>${esc(healthTitle)}<br><small style="color:var(--ink3)">${esc(healthDetail)}</small></div><div class="tm">${h?"live":"unknown"}</div></div></div></div>`;
 }
 
 function kbView(){
  if(!kbData)return '<div class="ph2">Loading knowledge base…</div>';
  const left=(kbData.folders||[]).map(g=>`<div class="kbgroup"><div class="gh"><span>${esc(g.folder)}</span><button data-new="${esc(g.folder)}">+ new</button></div>${(g.files||[]).map(f=>`<button class="kbitem ${kbSel===f.path?'on':''}" data-open="${esc(f.path)}" title="${esc(f.path)}">${esc(f.title)}</button>`).join("")||'<div style="padding:6px 9px;color:var(--ink3);font-size:12px">empty</div>'}</div>`).join("");
- const right=kbSel
+ const right=kbSel&&kbLoadError
+  ?`<div class="kbed" role="alert"><div class="eh"><b>${esc(kbSel)}</b></div><div class="error-banner"><div><strong>Could not load this file.</strong><span>${esc(kbLoadError)} Nothing was changed, and saving is disabled.</span></div><button class="btn" id="kb-retry-file">Retry</button></div></div>`
+  :kbSel&&!kbLoaded
+  ?`<div class="kbed"><div class="eh"><b>${esc(kbSel)}</b></div><div class="ph2">Loading file…</div></div>`
+  :kbSel
   ?`<div class="kbed"><div class="eh"><b>${esc(kbSel)}</b><div class="ef"><span class="toast">${esc(kbMsg)}</span><button class="btn p" id="kb-save">Save</button></div></div><textarea id="kb-text" spellcheck="false">${esc(kbBuf)}</textarea><div class="hint" style="margin-top:8px">Saved to the file instantly. Click <b>Re-index</b> (top right) to apply your edits to the agent's search.</div></div>`
   :`<div class="kbed"><div class="ph2">Pick a policy, FAQ, intent, or ticket on the left to edit — or use <b>+ new</b> to add one.</div></div>`;
  return `<div class="rixbar"><div class="hint">This is what your agent knows. Edits here change how it answers.</div><button class="btn" id="kb-reindex" ${kbReindexing?'disabled':''}>${kbReindexing?'Re-indexing…':'Re-index to apply'}</button></div>
@@ -500,12 +513,18 @@ async function loadKb(){
  render();
 }
 async function openKbFile(p){
- kbSel=p;kbMsg="";kbBuf="Loading…";render();
- const d=await jget(KBAPI+"/file?path="+encodeURIComponent(p));
- kbBuf=d&&d.content!=null?d.content:"(failed to load)";render();
+ if(typeof p!=="string"||!/^(intents|faq|policies|tickets)\/[A-Za-z0-9._-]+\.md$/.test(p)){kbMsg="Invalid knowledge-base path";render();return;}
+ kbSel=p;kbMsg="Loading…";kbBuf="";kbLoaded=false;kbLoadError="";render();
+ try{
+  const r=await fetch(KBAPI+"/file?path="+encodeURIComponent(p),{cache:"no-store"});
+  let d={};try{d=await r.json();}catch(e){}
+  if(!r.ok||typeof d.content!=="string")throw new Error(d.error||("Request failed ("+r.status+")"));
+  kbBuf=d.content;kbLoaded=true;kbMsg="";
+ }catch(e){kbBuf="";kbLoaded=false;kbLoadError=e&&e.message?e.message:"The file API did not respond.";kbMsg="File not loaded";}
+ render();
 }
 async function saveKb(){
- const ta=document.getElementById("kb-text");if(!ta||!kbSel)return;
+ const ta=document.getElementById("kb-text");if(!ta||!kbSel||!kbLoaded||kbLoadError)return;
  kbBuf=ta.value;kbMsg="Saving…";render();
  try{const r=await fetch(KBAPI+"/save",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:kbSel,content:kbBuf})});kbMsg=r.ok?"Saved — re-index to apply":"Save failed";}catch(e){kbMsg="Save failed";}
  render();
@@ -661,9 +680,10 @@ function bind(){
  const acx=document.getElementById("act-canceledit");if(acx)acx.onclick=()=>{captureAct();actEditOpen=false;render();};
  const arw=document.getElementById("act-raw");if(arw)arw.onclick=()=>{captureAct();actShowRaw=!actShowRaw;render();};
  const w=document.getElementById("f-writes");if(w)w.onclick=async()=>{const nv=!((settings.gorgias_writes_enabled||"false")==="true");settings.gorgias_writes_enabled=nv?"true":"false";render();try{await fetch(API+"/settings",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({gorgias_writes_enabled:settings.gorgias_writes_enabled})});}catch(e){}};
- document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openKbFile(b.dataset.open));
+ document.querySelectorAll(".kbitem[data-open]").forEach(b=>b.onclick=e=>{e.stopPropagation();openKbFile(b.dataset.open);});
  document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));
  const ks=document.getElementById("kb-save");if(ks)ks.onclick=saveKb;
+ const kretry=document.getElementById("kb-retry-file");if(kretry)kretry.onclick=()=>openKbFile(kbSel);
  const kr=document.getElementById("kb-reindex");if(kr)kr.onclick=reindexKb;
  const ws=document.getElementById("wa-save");if(ws)ws.onclick=saveWa;
  const wt=document.getElementById("wa-test");if(wt)wt.onclick=testWa;

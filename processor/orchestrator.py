@@ -1,12 +1,11 @@
 """Job processor orchestrator — the heart of the automated pipeline.
 
 Polls the job_queue for pending jobs and processes them:
-  - Customer messages → invoke Hermes headless → classify, draft, post to Gorgias
+  - Customer messages → invoke Hermes headless → classify, draft for console review
   - Agent messages → invoke Hermes headless → feedback/learning loop
 
-Hermes handles: KB search, priority classification, draft generation,
-Gorgias priority setting, and posting internal notes — using its
-existing skills (ticket-processor, gorgias, shopify, support-agent)
+Hermes handles read-only KB search, context lookup, priority classification, and
+draft generation using its skills (ticket-processor, gorgias, support-agent).
 and tools (search_kb).
 
 The processor handles: job lifecycle, Hermes invocation, output parsing,
@@ -176,7 +175,7 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
     3. Classify priority (CRITICAL/HIGH/NORMAL/LOW)
     4. Set Gorgias priority
     5. Draft a reply (always draft — sensitive topics get [SENSITIVE] tag)
-    6. Post as internal note
+    6. Return the draft for the console Ticket feed; perform no Gorgias write
     7. Return JSON_RESULT
 
     The processor then:

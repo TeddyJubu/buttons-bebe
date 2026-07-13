@@ -8,7 +8,9 @@ numbers, other languages) and paraphrases. Returns the best passages with a
 relevance score and the file's risk label.
 """
 import os
+import fcntl
 import sys
+from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,19 +29,54 @@ POOL = 20    # how many to pull from each method before blending
 RRF_K = 60   # reciprocal-rank-fusion constant (a standard, safe default)
 
 
+def _diversify_by_file(ranked: list[tuple[str, float]], info: dict[str, dict], k: int):
+    """Prefer one result per file, then use second chunks for spare slots."""
+    if k <= 0:
+        return []
+    selected: list[tuple[str, float]] = []
+    deferred: list[tuple[str, float]] = []
+    seen_files: set[str] = set()
+    for item in ranked:
+        file = str(info[item[0]].get("file", ""))
+        if file not in seen_files:
+            selected.append(item)
+            seen_files.add(file)
+            if len(selected) == k:
+                return selected
+        else:
+            deferred.append(item)
+    if len(selected) < k:
+        selected.extend(deferred[: k - len(selected)])
+    return selected
+
+
+@contextmanager
+def _index_read_lock():
+    """Prevent a search from observing the brief staged-index promotion gap."""
+    path = DB_DIR.parent / ".index_kb.promote.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def search(query: str, k: int = K) -> list[dict]:
-    db = lancedb.connect(str(DB_DIR))
-    table = db.open_table(TABLE)
+    with _index_read_lock():
+        db = lancedb.connect(str(DB_DIR))
+        table = db.open_table(TABLE)
 
-    # 1) meaning search (vectors)
-    qv = embed_query(query)
-    vec_hits = table.search(qv).metric("cosine").limit(POOL).to_list()
+        # 1) meaning search (vectors)
+        qv = embed_query(query)
+        vec_hits = table.search(qv).metric("cosine").limit(POOL).to_list()
 
-    # 2) keyword search (full text / BM25)
-    try:
-        kw_hits = table.search(query, query_type="fts").limit(POOL).to_list()
-    except Exception:
-        kw_hits = []   # if the keyword index isn't ready, fall back to meaning only
+        # 2) keyword search (full text / BM25)
+        try:
+            kw_hits = table.search(query, query_type="fts").limit(POOL).to_list()
+        except Exception:
+            kw_hits = []   # if the keyword index isn't ready, fall back to meaning only
 
     # 3) blend the two lists with reciprocal rank fusion
     scores: dict[str, float] = {}
@@ -53,7 +90,8 @@ def search(query: str, k: int = K) -> list[dict]:
         scores[i] = scores.get(i, 0.0) + 1.0 / (RRF_K + rank + 1)
         info.setdefault(i, hit)
 
-    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:k]
+    ranked_all = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    ranked = _diversify_by_file(ranked_all, info, k)
     results = []
     for i, score in ranked:
         hit = info[i]

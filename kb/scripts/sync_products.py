@@ -21,12 +21,14 @@ Env vars:
 Run ./sync-products.sh to run this AND re-index in one step.
 """
 import json
+import fcntl
 import os
 import pathlib
 import re
 import shutil
 import tempfile
 import time
+from contextlib import contextmanager
 
 import requests
 
@@ -35,6 +37,31 @@ PRODUCTS_DIR = KB_DIR / "products"
 ENV_CANDIDATES = [KB_DIR.parent / ".env", KB_DIR / ".env", KB_DIR.parent / "webhook" / ".env"]
 DEFAULT_API_VERSION = "2026-04"
 MAX_BULK_POLLS = 180  # 12 minutes at the four-second polling interval
+MIN_CATALOG_RETENTION_RATIO = 0.75
+SYNC_LOCK_PATH = KB_DIR / ".products-sync.lock"
+INDEX_LOCK_PATH = KB_DIR / ".index_kb.lock"
+
+
+@contextmanager
+def _exclusive_lock(path: pathlib.Path, message: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(message)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _sync_lock():
+    return _exclusive_lock(SYNC_LOCK_PATH, "product sync already running")
+
+
+def _index_lock():
+    return _exclusive_lock(INDEX_LOCK_PATH, "index rebuild already running")
 
 
 def _clean(v: str) -> str:
@@ -140,9 +167,13 @@ def split_records(records):
             raise SystemExit("refusing malformed Shopify export record")
         rid = rec.get("id", "")
         if isinstance(rid, str) and rid.startswith("gid://shopify/Product/"):
+            if rid in products:
+                raise SystemExit(f"refusing duplicate Shopify product record: {rid}")
             products[rid] = rec
         elif "__parentId" in rec:  # a variant belonging to a product
             variants.setdefault(rec["__parentId"], []).append(rec)
+        else:
+            raise SystemExit("refusing unrecognized Shopify export record")
     return products, variants
 
 
@@ -178,7 +209,7 @@ def _render_product(p: dict, variants: dict, pid: str) -> tuple[str, str]:
         "category: products\n"
         "status: confirmed\n"
         "source: shopify-sync\n"
-        f"tags: [{', '.join(tags)}]\n"
+        f"tags: [{', '.join(json.dumps(tag) for tag in tags)}]\n"
         "---\n\n"
         "## Product details\n"
         f"{title} — {p.get('productType') or 'product'} by {p.get('vendor') or 'unknown vendor'}. "
@@ -225,7 +256,13 @@ def _commit_staged(staged_dir: pathlib.Path, names: set[str]) -> None:
         raise
 
 
-def write_files(products, variants) -> int:
+def write_files(
+    products,
+    variants,
+    *,
+    require_active: bool = False,
+    allow_large_shrink: bool = False,
+) -> int:
     if not products:
         raise SystemExit("refusing to replace product corpus with an empty export")
     for pid, product in products.items():
@@ -235,6 +272,28 @@ def write_files(products, variants) -> int:
             raise SystemExit(f"refusing product with missing title: {pid}")
         if not isinstance(product.get("handle"), str) or not product["handle"].strip():
             raise SystemExit(f"refusing product with missing handle: {pid}")
+        if require_active and str(product.get("status", "")).upper() != "ACTIVE":
+            raise SystemExit(f"refusing non-active product in active export: {pid}")
+
+    orphan_parents = set(variants) - set(products)
+    if orphan_parents:
+        raise SystemExit(
+            f"refusing export with orphan variants: {sorted(orphan_parents)[:3]}"
+        )
+
+    old_count = len(list(PRODUCTS_DIR.glob("product-*.md")))
+    retention = len(products) / old_count if old_count else 1.0
+    if (
+        old_count
+        and retention < MIN_CATALOG_RETENTION_RATIO
+        and not allow_large_shrink
+    ):
+        raise SystemExit(
+            "refusing suspicious catalog shrink: "
+            f"existing={old_count} exported={len(products)} "
+            f"retention={retention:.1%}; set SHOPIFY_ALLOW_LARGE_CATALOG_SHRINK=1 "
+            "only after verifying the export"
+        )
 
     staging_root = pathlib.Path(tempfile.mkdtemp(prefix=".products-sync-", dir=PRODUCTS_DIR.parent))
     staged_dir = staging_root / "products"
@@ -247,25 +306,35 @@ def write_files(products, variants) -> int:
                 raise SystemExit(f"duplicate product filename in export: {filename}")
             names.add(filename)
             (staged_dir / filename).write_text(body)
-        _commit_staged(staged_dir, names)
+        with _index_lock():
+            _commit_staged(staged_dir, names)
         return len(names)
     finally:
         shutil.rmtree(staging_root, ignore_errors=True)
 
 
 def main():
-    creds = load_creds()
-    print(f"shop={creds['shop']} api={creds['ver']} filter='{creds['product_query']}'")
-    tok = mint_token(creds["shop"], creds["cid"], creds["sec"])
-    print("token minted (valid ~24h).")
-    url = run_bulk_export(creds["shop"], creds["ver"], tok, creds["product_query"])
-    records = download_jsonl(url)
-    print(f"downloaded {len(records)} records (products + variants).")
-    products, variants = split_records(records)
-    if not products:
-        raise SystemExit("refusing to replace product corpus: export contained no products")
-    n = write_files(products, variants)
-    print(f"wrote {n} product files to {PRODUCTS_DIR}")
+    with _sync_lock():
+        creds = load_creds()
+        print(f"shop={creds['shop']} api={creds['ver']} filter='{creds['product_query']}'")
+        tok = mint_token(creds["shop"], creds["cid"], creds["sec"])
+        print("token minted (valid ~24h).")
+        url = run_bulk_export(creds["shop"], creds["ver"], tok, creds["product_query"])
+        records = download_jsonl(url)
+        print(f"downloaded {len(records)} records (products + variants).")
+        products, variants = split_records(records)
+        if not products:
+            raise SystemExit("refusing to replace product corpus: export contained no products")
+        product_query = creds["product_query"]
+        require_active = bool(re.search(r"(?:^|\s)status\s*:\s*active(?:\s|$)", product_query, re.I))
+        allow_large_shrink = os.environ.get("SHOPIFY_ALLOW_LARGE_CATALOG_SHRINK") == "1"
+        n = write_files(
+            products,
+            variants,
+            require_active=require_active,
+            allow_large_shrink=allow_large_shrink,
+        )
+        print(f"wrote {n} product files to {PRODUCTS_DIR}")
 
 
 if __name__ == "__main__":

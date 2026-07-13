@@ -4,6 +4,7 @@ import sys
 import tempfile
 import types
 import unittest
+import fcntl
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,11 +24,34 @@ PRODUCT = {
     "productType": "Dress",
     "vendor": "Buttons Bebe",
     "totalInventory": 2,
+    "status": "ACTIVE",
     "options": [],
 }
 
 
 class TestSyncProducts(unittest.TestCase):
+    def test_numeric_vendor_slug_is_written_as_a_string_tag(self):
+        product = {
+            "title": "Basic Tee",
+            "handle": "basic-tee",
+            "vendor": "1758",
+            "productType": "Tee",
+            "status": "ACTIVE",
+        }
+
+        _filename, body = sync_products._render_product(
+            product, {}, "gid://shopify/Product/1"
+        )
+        tags_line = next(line for line in body.splitlines() if line.startswith("tags:"))
+
+        self.assertEqual(tags_line, 'tags: ["product", "tee", "1758"]')
+
+    def test_duplicate_or_unrecognized_export_records_are_rejected(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "duplicate Shopify product"):
+            sync_products.split_records([PRODUCT, dict(PRODUCT)])
+        with self.assertRaisesRegex(SystemExit, "unrecognized Shopify export"):
+            sync_products.split_records([{"unexpected": "record"}])
+
     def test_empty_export_preserves_existing_corpus(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             products_dir = Path(tmp) / "products"
@@ -88,6 +112,45 @@ class TestSyncProducts(unittest.TestCase):
                         )
             self.assertEqual(old.read_text(), "old corpus")
             self.assertFalse((products_dir / "product-blue-dress.md").exists())
+
+    def test_suspiciously_small_export_preserves_existing_corpus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            products_dir = Path(tmp) / "products"
+            products_dir.mkdir()
+            for index in range(10):
+                (products_dir / f"product-existing-{index}.md").write_text("old corpus")
+            with patch.object(sync_products, "PRODUCTS_DIR", products_dir):
+                with self.assertRaisesRegex(SystemExit, "catalog shrink"):
+                    sync_products.write_files({PRODUCT["id"]: PRODUCT}, {})
+            self.assertEqual(len(list(products_dir.glob("product-*.md"))), 10)
+
+    def test_active_export_rejects_inactive_or_orphaned_records(self) -> None:
+        inactive = {**PRODUCT, "status": "DRAFT"}
+        with tempfile.TemporaryDirectory() as tmp:
+            products_dir = Path(tmp) / "products"
+            products_dir.mkdir()
+            with patch.object(sync_products, "PRODUCTS_DIR", products_dir):
+                with self.assertRaisesRegex(SystemExit, "non-active product"):
+                    sync_products.write_files(
+                        {inactive["id"]: inactive},
+                        {},
+                        require_active=True,
+                    )
+                with self.assertRaisesRegex(SystemExit, "orphan variants"):
+                    sync_products.write_files(
+                        {PRODUCT["id"]: PRODUCT},
+                        {"gid://shopify/Product/missing": [{"title": "orphan"}]},
+                    )
+
+    def test_sync_lock_contention_fails_fast(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / ".products-sync.lock"
+            with lock_path.open("w") as held:
+                fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with patch.object(sync_products, "SYNC_LOCK_PATH", lock_path):
+                    with self.assertRaisesRegex(SystemExit, "already running"):
+                        with sync_products._sync_lock():
+                            pass
 
     def test_bulk_polling_has_a_hard_bound(self) -> None:
         started = {"data": {"bulkOperationRunQuery": {"userErrors": []}}}

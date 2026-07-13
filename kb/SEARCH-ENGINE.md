@@ -56,6 +56,11 @@ don't hand-write these files.
   To include everything, set `SHOPIFY_PRODUCT_QUERY=` (empty) in `.env`.
 - **Refreshes automatically every 3 days** via a systemd timer
   (`buttonsbebe-kb-sync.timer`) — it re-syncs, re-indexes, and reloads the service.
+- **Fails closed:** malformed/inactive records, orphan variants, an empty export,
+  or a catalog retaining less than 75% of the current product files leave the
+  existing corpus untouched. After independently verifying an intentional large
+  catalog reduction, a one-off run may set
+  `SHOPIFY_ALLOW_LARGE_CATALOG_SHRINK=1`.
 - **Run it on demand:** `./sync-products.sh`  (from the KB folder).
 - **Check the schedule / last run:** `systemctl list-timers buttonsbebe-kb-sync.timer`
   and `journalctl -u buttonsbebe-kb-sync -n 30`.
@@ -111,8 +116,10 @@ This KB is wired into Hermes as the `search_kb` tool, served by a small
   - status:  `systemctl status buttonsbebe-kb-mcp`
   - restart (only after editing the scripts):  `systemctl restart buttonsbebe-kb-mcp`
   - logs:    `journalctl -u buttonsbebe-kb-mcp -n 50`
-- **After you edit content:** run `./update.sh`. The service picks up the new index
-  automatically — no restart needed.
+- **After you edit content:** run `./update.sh`. The rebuild is staged and verified
+  for exact source-text and sensitivity-label parity before a reader-locked
+  promotion, so a failed rebuild leaves the last-known-good index live. The
+  service picks up the new index automatically — no restart needed.
 - **Verify anytime:**  `hermes mcp test buttonsbebe_kb`  (expect "Connected, 1 tool").
 - **Rollback:**  `hermes mcp remove buttonsbebe_kb`  and
   `systemctl disable --now buttonsbebe-kb-mcp`.

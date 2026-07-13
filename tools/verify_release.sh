@@ -65,5 +65,7 @@ fi
 
 node --check whatsapp-connect/server.js
 node --test whatsapp-connect/test/security.test.js
+node --check kb-admin/server.js
+node --test kb-admin/test/server.test.js
 
-echo "release gate passed: manifests, syntax, offline tests, WhatsApp auth, and no-Twilio check"
+echo "release gate passed: manifests, syntax, offline tests, KB admin safety, WhatsApp auth, and no-Twilio check"

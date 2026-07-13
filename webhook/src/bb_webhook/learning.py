@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import pathlib
+import secrets
 import sys
-import time
 
 _AGENT_ROOT = pathlib.Path(__file__).resolve().parents[3]
 if str(_AGENT_ROOT) not in sys.path:
@@ -32,6 +33,27 @@ LEDGER = LEARNED_DIR / "_ledger.json"  # underscore => never indexed
 
 def _now() -> str:
     return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+
+
+def _write_unique_lesson(ticket_id: object, content: str) -> pathlib.Path:
+    """Create a lesson without ever replacing another console action.
+
+    A ticket can receive multiple actions inside one second (for example an
+    internal note followed immediately by a public send).  The old timestamp-only
+    name silently replaced the first action.  An exclusive create plus a random
+    suffix makes the no-overwrite guarantee hold across threads and processes.
+    """
+    for _attempt in range(20):
+        token = secrets.token_hex(6)
+        out = LEARNED_DIR / f"lesson-{ticket_id}-{_now()}-{token}.md"
+        try:
+            fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:  # practically impossible, but never overwrite
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        return out
+    raise FileExistsError("could not allocate a unique lesson filename")
 
 
 def _bump_ledger(kind: str, edited: bool) -> None:
@@ -79,12 +101,7 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
         content = ("---\n"
                    + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
                    + "---\n\n" + body)
-        out = LEARNED_DIR / f"lesson-{ticket_id}-{int(time.time())}.md"
-        out.write_text(content, encoding="utf-8")
-        try:
-            out.chmod(0o600)
-        except Exception:
-            pass
+        _write_unique_lesson(ticket_id, content)
         _bump_ledger(kind, edited)
         return True
     except Exception:

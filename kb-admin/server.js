@@ -17,6 +17,7 @@ const NOTICES_DIR = path.join(KB, "notices");
 const NOTICES_FILE = path.join(NOTICES_DIR, "notices.json");
 const NOTICE_LOCK_DIR = path.join(NOTICES_DIR, ".notices.lock");
 const NOTICE_LOCK_STALE_MS = 60 * 1000;
+const PRODUCT_FRESH_HOURS = Number(process.env.KB_PRODUCT_FRESH_HOURS || 96);
 
 let reindex = { running: false, ok: null, at: null };
 
@@ -41,6 +42,60 @@ function readBody(req, cb) {
   let b = "";
   req.on("data", (c) => (b += c));
   req.on("end", () => { try { cb(JSON.parse(b || "{}")); } catch (e) { cb({}); } });
+}
+
+function contentFiles(folder) {
+  const dir = path.join(KB, folder);
+  try {
+    return fs.readdirSync(dir)
+      .filter((n) => n.endsWith(".md") && !n.startsWith("_") && n.toLowerCase() !== "readme.md")
+      .sort();
+  } catch (e) {
+    return null;
+  }
+}
+
+function kbHealth() {
+  const now = Date.now();
+  const folders = {};
+  let ok = true;
+  for (const folder of FOLDERS) {
+    const files = contentFiles(folder);
+    folders[folder] = files === null ? null : files.length;
+    if (files === null) ok = false;
+  }
+
+  const productFiles = contentFiles("products");
+  let newest = null;
+  if (productFiles === null) {
+    ok = false;
+  } else {
+    for (const name of productFiles) {
+      try {
+        const mtime = fs.statSync(path.join(KB, "products", name)).mtimeMs;
+        if (newest === null || mtime > newest) newest = mtime;
+      } catch (e) {
+        ok = false;
+      }
+    }
+  }
+  const ageHours = newest === null ? null : Math.max(0, (now - newest) / 3600000);
+  const threshold = Number.isFinite(PRODUCT_FRESH_HOURS) && PRODUCT_FRESH_HOURS > 0 ? PRODUCT_FRESH_HOURS : 96;
+  return {
+    ok,
+    generated_at: new Date(now).toISOString(),
+    folders,
+    editable_files: Object.values(folders).every(Number.isInteger)
+      ? Object.values(folders).reduce((sum, count) => sum + count, 0)
+      : null,
+    products: {
+      count: productFiles === null ? null : productFiles.length,
+      last_modified: newest === null ? null : new Date(newest).toISOString(),
+      age_hours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
+      fresh: ageHours !== null && ageHours <= threshold,
+      fresh_for_hours: threshold,
+    },
+  };
 }
 
 // ---- Notice Board (owner overrides; shared JSON with notices_lib.py) --------
@@ -106,15 +161,15 @@ const server = http.createServer((req, res) => {
   const u = new URL(req.url, "http://x");
   const p = u.pathname;
 
+  if (req.method === "GET" && p === "/health") {
+    const health = kbHealth();
+    return send(res, health.ok ? 200 : 503, health);
+  }
+
   if (req.method === "GET" && p === "/list") {
     const folders = FOLDERS.map((f) => {
       const dir = path.join(KB, f);
-      let files = [];
-      try {
-        files = fs.readdirSync(dir)
-          .filter((n) => n.endsWith(".md") && !n.startsWith("_") && n.toLowerCase() !== "readme.md")
-          .sort();
-      } catch (e) {}
+      const files = contentFiles(f) || [];
       return {
         folder: f,
         files: files.map((n) => {

@@ -22,6 +22,18 @@ import lancedb
 from kb_lib import DB_DIR, TABLE, KBChunk, load_rows, embed_passages
 
 LOCK_PATH = DB_DIR.parent / ".index_kb.lock"
+CONTENT_FIELDS = (
+    "id",
+    "file",
+    "title",
+    "category",
+    "status",
+    "source",
+    "tags",
+    "heading",
+    "sensitive",
+    "text",
+)
 
 
 @contextmanager
@@ -39,27 +51,78 @@ def _index_lock():
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
+@contextmanager
+def _promotion_lock():
+    """Keep readers off the index only for the brief directory swap."""
+    path = DB_DIR.parent / ".index_kb.promote.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def _promote(staged_db: pathlib.Path) -> None:
     """Swap a completed staged database into place, restoring the old one on error."""
-    backup_db: pathlib.Path | None = None
-    if DB_DIR.exists():
-        backup_db = pathlib.Path(tempfile.mkdtemp(prefix=".lancedb-backup-", dir=DB_DIR.parent))
-        backup_db.rmdir()
-        os.replace(DB_DIR, backup_db)
+    with _promotion_lock():
+        backup_db: pathlib.Path | None = None
+        if DB_DIR.exists():
+            backup_db = pathlib.Path(tempfile.mkdtemp(prefix=".lancedb-backup-", dir=DB_DIR.parent))
+            backup_db.rmdir()
+            os.replace(DB_DIR, backup_db)
+        try:
+            os.replace(staged_db, DB_DIR)
+        except Exception:
+            if backup_db is not None and backup_db.exists() and not DB_DIR.exists():
+                os.replace(backup_db, DB_DIR)
+            raise
+        else:
+            if backup_db is not None and backup_db.exists():
+                shutil.rmtree(backup_db)
+
+
+def _content_manifest(rows: list[dict]) -> dict[str, tuple]:
+    manifest: dict[str, tuple] = {}
+    for row in rows:
+        row_id = str(row.get("id", ""))
+        if not row_id:
+            raise SystemExit("refusing index row without an id")
+        if row_id in manifest:
+            raise SystemExit(f"refusing duplicate index row id: {row_id}")
+        try:
+            manifest[row_id] = tuple(row[field] for field in CONTENT_FIELDS)
+        except KeyError as exc:
+            raise SystemExit(f"refusing index row missing field: {exc.args[0]}") from exc
+    return manifest
+
+
+def _validate_staged_table(table, expected_rows: list[dict]) -> None:
+    """Prove staged source text and risk labels match the parsed corpus."""
+    expected = _content_manifest(expected_rows)
     try:
-        os.replace(staged_db, DB_DIR)
-    except Exception:
-        if backup_db is not None and backup_db.exists() and not DB_DIR.exists():
-            os.replace(backup_db, DB_DIR)
-        raise
-    else:
-        if backup_db is not None and backup_db.exists():
-            shutil.rmtree(backup_db)
+        persisted_rows = table.to_arrow().select(list(CONTENT_FIELDS)).to_pylist()
+    except Exception as exc:
+        raise SystemExit(f"could not validate staged index: {exc}") from exc
+    actual = _content_manifest(persisted_rows)
+    if actual != expected:
+        missing = len(expected.keys() - actual.keys())
+        extra = len(actual.keys() - expected.keys())
+        changed = sum(
+            expected[row_id] != actual[row_id]
+            for row_id in expected.keys() & actual.keys()
+        )
+        raise SystemExit(
+            "staged index content mismatch: "
+            f"expected={len(expected)} actual={len(actual)} "
+            f"missing={missing} extra={extra} changed={changed}"
+        )
 
 
 def main() -> None:
     with _index_lock():
-        rows = load_rows()
+        rows = [dict(row) for row in load_rows()]
         if not rows:
             print("No content found. Add some .md files to the content folders, then re-run.")
             return
@@ -86,6 +149,7 @@ def main() -> None:
                 except TypeError:
                     table.create_fts_index("text", replace=True)
 
+            _validate_staged_table(table, rows)
             _promote(staging_root)
         finally:
             if staging_root.exists():

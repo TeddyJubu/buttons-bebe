@@ -33,6 +33,10 @@ _VPS-FULL-BACKUP-*/
 webhook/data/
 processor/.processor.lock
 kb/.index_kb.lock
+kb/.index_kb.promote.lock
+kb/.products-sync.lock
+# Nightly, masked ticket-derived learning artifacts (runtime data)
+kb/tickets/exemplar-learned-*.md
 whatsapp-connect/auth/
 whatsapp-connect/notify.json
 

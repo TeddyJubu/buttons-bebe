@@ -25,7 +25,7 @@ from pathlib import Path
 import frontmatter
 from lancedb.pydantic import LanceModel, Vector
 from fastembed import TextEmbedding
-from sensitivity import is_sensitive_tags, normalize_tags
+from sensitivity import is_sensitive_metadata, normalize_tags
 
 # ---- where things live --------------------------------------------------
 KB_DIR = Path(__file__).resolve().parent.parent   # the KB/ folder
@@ -136,7 +136,7 @@ def load_rows() -> list[dict]:
         source = str(meta.get("source", ""))
         tags_list = sorted(normalize_tags(meta.get("tags", [])))
         tags = ", ".join(tags_list)
-        sensitive = is_sensitive_tags(tags_list)
+        sensitive = is_sensitive_metadata(meta)
 
         for i, (heading, chunk) in enumerate(_chunks_by_heading(post.content)):
             uid = hashlib.sha1(f"{rel}::{i}".encode()).hexdigest()[:16]
