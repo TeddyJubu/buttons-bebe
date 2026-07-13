@@ -30,9 +30,7 @@ const {
 
 const PORT = process.env.WA_PORT || 8085;
 const TOKEN = validateSecret("WA_TOKEN", process.env.WA_TOKEN);
-// Keep the established pairing-page credential compatible while requiring the
-// new service-to-service send secret to stay at the stronger default length.
-const PASSWORD = validateSecret("WA_PASSWORD", process.env.WA_PASSWORD, 8);
+const PASSWORD = validateSecret("WA_PASSWORD", process.env.WA_PASSWORD, 16);
 const SEND_SECRET = validateSecret("WA_SEND_SECRET", process.env.WA_SEND_SECRET);
 if (new Set([TOKEN, PASSWORD, SEND_SECRET]).size !== 3) {
   throw new Error("WA_TOKEN, WA_PASSWORD, and WA_SEND_SECRET must be different secrets");
