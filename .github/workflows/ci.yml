@@ -1,0 +1,43 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install declared Python environments
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r kb/requirements.txt -r tools/requirements.txt
+          python -m pip install -e processor -e webhook
+      - name: Run offline release gate
+        env:
+          PYTHON: python
+          PROCESSOR_PYTHON: python
+        run: bash tools/verify_release.sh
+
+  whatsapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: whatsapp-connect
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: whatsapp-connect/package-lock.json
+      - run: npm ci
+      - run: npm test
