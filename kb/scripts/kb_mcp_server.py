@@ -38,7 +38,8 @@ mcp = FastMCP("buttonsbebe-kb", host=HOST, port=PORT)
 def search_kb(query: str, k: int = 5) -> list[dict]:
     """Search the Buttons Bebe knowledge base (policies, macros, solved tickets).
     Returns the top matching passages, each with a relevance score and a risk
-    label ("sensitive": true means escalate to a human, don't auto-draft)."""
+    label ("sensitive": true means return a safely prefixed draft for elevated
+    human review; never send it and never suppress the draft)."""
     return search(query, k=k)
 
 

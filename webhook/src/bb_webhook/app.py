@@ -24,18 +24,15 @@ if _AGENT_ROOT not in _sys.path:
 from .config import get_settings
 from .database import (
     enqueue_job,
-    get_all_settings,
     get_dashboard_tickets,
     get_parsed_messages,
     get_parsed_stats,
     get_result_stats,
-    get_setting,
     init_db,
     is_duplicate,
     record_event,
     record_parsed_message,
     record_ticket_result,
-    set_setting,
 )
 from .logging_utils import get_logger, log_event, setup_logging
 from .webhook_handler import (
@@ -194,46 +191,6 @@ async def record_result_api(request: Request) -> JSONResponse:
     )
 
     return JSONResponse(content={"status": "ok"})
-
-
-@app.get("/dashboard/api/settings")
-async def dashboard_get_settings() -> JSONResponse:
-    """Get all dashboard/app settings."""
-    settings = await get_all_settings()
-    # Ensure defaults
-    if "gorgias_writes_enabled" not in settings:
-        settings["gorgias_writes_enabled"] = "false"
-    return JSONResponse(content=settings)
-
-
-@app.get("/dashboard/api/settings/{key}")
-async def dashboard_get_one_setting(key: str) -> JSONResponse:
-    """Get a single setting value."""
-    value = await get_setting(key, default="")
-    return JSONResponse(content={"key": key, "value": value})
-
-
-@app.put("/dashboard/api/settings")
-async def dashboard_put_settings(request: Request) -> JSONResponse:
-    """Update a dashboard/app setting.
-
-    Body: {"key": "value"} — currently supports:
-    - gorgias_writes_enabled: "true" | "false"
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": "invalid_json"})
-
-    if not body or not isinstance(body, dict):
-        return JSONResponse(status_code=400, content={"error": "empty_body"})
-
-    for key, value in body.items():
-        await set_setting(key, str(value).lower())
-        log_event(logger, "INFO", f"Setting updated: {key}={value}")
-
-    return JSONResponse(content={"status": "ok", "updated": body})
-
 
 
 @app.get("/dashboard/api/review/list")

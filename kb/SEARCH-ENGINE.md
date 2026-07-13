@@ -137,7 +137,7 @@ env vars), but the always-on service is what's used because it's reliable every 
 
 ## Important notes
 
-- This is a **self-contained LanceDB copy** of the KB. It does not touch the
-  existing Supermemory/`kb_client.py` path described in `README.md`.
+- This is the production LanceDB index for the current KB. Retired search
+  backends are not part of the live system.
 - After you edit content, run `./update.sh` so the agent searches the latest version.
 - A backup copy of all this also lives in your project folder on your Mac.

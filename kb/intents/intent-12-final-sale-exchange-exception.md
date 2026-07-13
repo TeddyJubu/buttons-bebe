@@ -15,14 +15,16 @@ If order has not shipped, size can be changed if available. If order already shi
 
 Locate order.
 Check if shipped.
-If not shipped, check requested size availability and change if possible.
+If not shipped, check requested size availability and draft a staff handoff for
+the change. The AI must not edit the order.
 If shipped, do not promise exception.
 If exception may be considered, escalate or ask staff approval.
 Warehouse-only exchange address: Buttons Bebe, 2133 Lakewood Road, Unit 104, Toms River, NJ.
 
 ## Customer response if changed before shipping
 
-Hi! We were able to switch the size for you before the order shipped.
+Use this only when the read-only order record confirms a human completed the change:
+Hi! The size was switched for you before the order shipped.
 Your order is now updated to size [new size].
 
 ## Customer response if shipped / final sale

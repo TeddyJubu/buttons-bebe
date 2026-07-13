@@ -34,6 +34,10 @@ SENSITIVE_TAGS = frozenset(
         "cancellation",
         "cancellations",
         "address-change",
+        "final-sale",
+        "final-sale-exception",
+        "lost-package",
+        "stolen-package",
     }
 )
 

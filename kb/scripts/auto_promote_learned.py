@@ -53,19 +53,23 @@ def _safe_component(value: object, fallback: str) -> str:
     return cleaned[:80] or fallback
 
 
-def _write_without_replacing(path: pathlib.Path, content: str) -> pathlib.Path:
-    """Write an exemplar with an exclusive create, suffixing on collision."""
-    candidate = path
-    for number in range(1, 1000):
-        try:
-            fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        except FileExistsError:
-            candidate = path.with_name(f"{path.stem}-{number + 1}{path.suffix}")
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        return candidate
-    raise FileExistsError(f"could not allocate output path for {path.name}")
+def _write_idempotent(path: pathlib.Path, content: str) -> bool:
+    """Create a deterministic exemplar, or accept an identical prior write.
+
+    Returns True only when this call created the file. A different file at the
+    deterministic path is treated as corruption rather than silently duplicated.
+    """
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        if path.read_text(encoding="utf-8") == content:
+            return False
+        raise FileExistsError(f"conflicting promoted exemplar: {path.name}")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return True
 
 
 def _archive_without_replacing(path: pathlib.Path) -> pathlib.Path:
@@ -113,9 +117,16 @@ def promote_one(path: pathlib.Path) -> bool:
     out = config.TICKETS_DIR / (
         f"exemplar-learned-{_safe_component(kind, 'sent')}-{digest}.md"
     )
-    _write_without_replacing(out, content)
+    created = _write_idempotent(out, content)
     config.ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-    _archive_without_replacing(path)
+    try:
+        _archive_without_replacing(path)
+    except Exception:
+        # Keep lesson + exemplar as an all-or-nothing pair. On retry, an
+        # identical pre-existing exemplar is recognized without duplication.
+        if created:
+            out.unlink(missing_ok=True)
+        raise
     return True
 
 

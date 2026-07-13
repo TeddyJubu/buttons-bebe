@@ -2,7 +2,7 @@
 title: Agent Core Rules
 category: policies
 status: confirmed
-tags: [core-rules, order-identification, escalation, do-not-guess, action-before-response]
+tags: [core-rules, order-identification, escalation, do-not-guess, read-only]
 ---
 
 These are the core operating rules for the Buttons Bebe AI agent, confirmed by the
@@ -13,14 +13,16 @@ owner. They apply across every intent.
 If the order is already connected in the helpdesk/order system, do not ask the customer for the order number.
 Only ask for the order number if the order cannot be identified.
 
-## Action before response
+## Read-only actions
 
-When possible, the agent should complete or draft the action first, then respond to the customer.
-Examples:
-- Change shipping address before replying.
-- Switch pickup to shipping before replying.
-- Remove package protection before replying.
-- Change size before replying if order has not shipped.
+The agent must never change an order, return, customer record, shipment, or product.
+When a customer requests an operational change, the agent should draft a clear
+acknowledgment for human review and identify the exact change a staff member needs
+to complete. This includes shipping-address changes, pickup/shipping changes,
+package-protection removal, cancellations, refunds, and size changes.
+
+Never claim that a requested action has been completed unless the read-only tools
+show that a human or external system already completed it.
 
 ## Do not guess product information
 

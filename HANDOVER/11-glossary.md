@@ -1,5 +1,7 @@
 # 11 · Glossary
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 *What this doc covers: plain‑English definitions of every product, tool, and term used across this handover. Skim it once; refer back as needed.*
 
 ---

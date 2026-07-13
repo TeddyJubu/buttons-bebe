@@ -10,7 +10,13 @@ PROCESSOR_DIR = Path(__file__).resolve().parent
 WEBHOOK_SRC = PROCESSOR_DIR.parent / "webhook" / "src"
 sys.path[:0] = [str(PROCESSOR_DIR), str(WEBHOOK_SRC)]
 
-from hermes_runner import _build_prompt, process_ticket_with_hermes  # noqa: E402
+from hermes_runner import (  # noqa: E402
+    _build_prompt,
+    _parse_json_result,
+    draft_for_console,
+    process_ticket_with_hermes,
+)
+from classifier import classify  # noqa: E402
 
 
 class HermesReadOnlyPromptTests(unittest.TestCase):
@@ -35,6 +41,38 @@ class HermesReadOnlyPromptTests(unittest.TestCase):
             "gorgias_writes_enabled",
             inspect.signature(process_ticket_with_hermes).parameters,
         )
+
+    def test_model_cannot_claim_read_only_writes_happened(self) -> None:
+        parsed = _parse_json_result(
+            'JSON_RESULT: {"priority":"high","reason":"test",'
+            '"action":"sensitive_draft","notify_owner":true,'
+            '"gorgias_priority_set":true,"note_posted":true}'
+        )
+        self.assertFalse(parsed["gorgias_priority_set"])
+        self.assertFalse(parsed["note_posted"])
+
+    def test_failed_generation_never_echoes_customer_message_as_draft(self) -> None:
+        customer_message = "Where is my order?"
+        self.assertEqual(draft_for_console({"reason": "Hermes failed"}), "")
+        self.assertNotEqual(
+            draft_for_console({"reason": "Hermes failed"}), customer_message
+        )
+        self.assertEqual(
+            draft_for_console({"draft_text": "  A real generated draft.  "}),
+            "A real generated draft.",
+        )
+
+    def test_documented_high_risk_topics_are_sensitive(self) -> None:
+        for message in (
+            "Can you make a final sale exception?",
+            "Please change my shipping address",
+            "I need to cancel my order",
+            "My package was stolen",
+        ):
+            with self.subTest(message=message):
+                result = classify({"ticket_id": 1, "message_text": message})
+                self.assertTrue(result["sensitive"])
+                self.assertTrue(result["should_notify_owner"])
 
 
 if __name__ == "__main__":

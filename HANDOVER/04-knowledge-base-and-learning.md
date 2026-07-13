@@ -1,5 +1,7 @@
 # 04 · Knowledge Base & Learning Loop
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 **What this doc covers:** the Buttons Bebe knowledge base (content layout + LanceDB hybrid search), the Shopify product auto-sync, the owner Notice Board override, and the learning loop that turns a human's real reply into reusable knowledge — with each piece marked LIVE or STUB.
 
 **Sources read:** `kb/SEARCH-ENGINE.md`, `kb/hermes-SOUL-buttonsbebe-addition.md`, `kb/scripts/{index_kb,kb_lib,search_kb,sync_products,notices_lib,purge_notices,review_learned,kb_mcp_server}.py`, `kb/{setup,run_mcp,search,sync-products,update}.sh`, `kb/requirements.txt`, `kb/*.service` + `kb/*.timer`, `kb-admin/server.js` + `kb-admin/buttonsbebe-kb-admin.service`, all content dirs (`kb/intents/`, `kb/faq/`, `kb/policies/`, `kb/tickets/`, `kb/notices/`, `kb/learned/`), the full `feedback/` package (`README.md`, `collector.py`, `pii.py`, `pairing.py`, `similarity.py`, `validate.py`, `store.py`, `review.py`, `language.py`, `text_clean.py`, `config.py`, `gorgias_read.py`, `macro_signatures.txt`, `tests/test_all.py`), `SPRINT-feedback-collector.md`, `SPRINT-notice-board-2026-07-12.md`, and cross-checked against `CLAUDE.md` §4/§5/§8.

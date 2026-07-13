@@ -15,14 +15,14 @@ This can only be changed if the order has not shipped yet.
 
 Locate order.
 Check fulfillment/shipping status.
-If not shipped, edit order to pickup.
-Refund shipping if applicable.
-Send pickup instructions when ready.
+If not shipped, draft a staff handoff to change the order to pickup and review
+any shipping refund. The AI must not edit the order or issue a refund.
 If already shipped, explain that it cannot be changed.
 
 ## Customer response if not shipped
 
-Hi! No problem, we switched your order to pickup.
+Use this only when the read-only order record confirms a human completed the change:
+Hi! Your order was switched to pickup.
 You’ll receive pickup instructions once the order is ready.
 
 ## Customer response if already shipped

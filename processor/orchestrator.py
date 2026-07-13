@@ -52,14 +52,13 @@ from bb_webhook.database import (  # noqa: E402
 
 from config import get_settings  # noqa: E402
 from classifier import classify as deterministic_classify, IMMEDIATE, HIGH, NORMAL  # noqa: E402
-from hermes_runner import process_ticket_with_hermes  # noqa: E402
+from hermes_runner import draft_for_console, process_ticket_with_hermes  # noqa: E402
 from logging_setup import get_logger, setup_logging, log_event  # noqa: E402
 from whatsapp_notifier import send_whatsapp  # noqa: E402
 
 logger = get_logger(__name__)
 
 # ── Result persistence ──────────────────────────────────────
-
 def _save_result_to_webhook(
     ticket_id: int,
     message_id: str,
@@ -82,8 +81,10 @@ def _save_result_to_webhook(
         "action": hermes_result.get("action", ""),
         "reason": hermes_result.get("reason", ""),
         "notify_owner": hermes_result.get("notify_owner", False),
-        "gorgias_priority_set": hermes_result.get("gorgias_priority_set", False),
-        "note_posted": hermes_result.get("note_posted", False),
+        # Processor/Hermes never perform Gorgias writes. Only authenticated,
+        # human-triggered console endpoints can make either side effect.
+        "gorgias_priority_set": False,
+        "note_posted": False,
         "draft_text": draft_text,
     }).encode("utf-8")
 
@@ -282,15 +283,15 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
             notify_owner = True
             hermes_result["notify_owner"] = True
 
-    # gorgias_priority_set and note_posted are informational — they
-    # reflect whether the write actually happened, not the urgency.
-    # When writes are disabled these are false, which is correct.
-    # notify_owner is independent and based on ticket urgency alone.
+    # gorgias_priority_set and note_posted are always false here: the processor
+    # and Hermes are strictly read-only. Human console actions are separate.
 
     # Save result to the dashboard API (fail-soft)
-    # When writes are disabled, use the draft extracted from Hermes output
+    # Never substitute the customer's message for a failed AI draft. An empty
+    # draft makes the console show a human-action-required state with no send or
+    # internal-note buttons, while the high-priority fallback reason remains.
     message_id = payload.get("message_id", "")
-    draft_text = hermes_result.get("draft_text") or message_text
+    draft_text = draft_for_console(hermes_result)
     _save_result_to_webhook(
         ticket_id=ticket_id,
         message_id=str(message_id),

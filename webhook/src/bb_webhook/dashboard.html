@@ -279,7 +279,7 @@ h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
 <p class="subtitle">
   <span class="live-dot"></span>
   Customer tickets &amp; AI-generated draft replies
-  &nbsp;|&nbsp; Gorgias writes: <span id="write-status-text" style="color:var(--text-dim);font-weight:600">OFF (read-only)</span>
+  &nbsp;|&nbsp; Human review required
   &nbsp;|&nbsp; Auto-refresh: <span id="refresh-status">on</span>
 </p>
 
@@ -294,13 +294,6 @@ h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
 
 <div class="controls">
   <input type="text" class="search-box" id="search" placeholder="Search subject, email, ticket ID, message..." oninput="filterTickets()">
-  <div class="toggle-switch" id="gorgias-toggle" onclick="toggleGorgiasWrites()">
-    <label>Send to Gorgias</label>
-    <div class="toggle-track" id="gorgias-track">
-      <div class="toggle-thumb"></div>
-    </div>
-    <span class="toggle-status off" id="gorgias-status">OFF</span>
-  </div>
   <button class="btn" onclick="loadData()">Refresh Now</button>
   <label class="auto-refresh">
     <input type="checkbox" id="auto-refresh" checked onchange="toggleAutoRefresh()"> Auto-refresh (5s)
@@ -315,59 +308,6 @@ h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
 let allTickets = [];
 let autoRefresh = true;
 let refreshTimer = null;
-let gorgiasWritesEnabled = false;
-
-// ── Gorgias writes toggle ──────────────────────────────────
-function updateGorgiasToggleUI(enabled) {
-  const track = document.getElementById('gorgias-track');
-  const status = document.getElementById('gorgias-status');
-  const subtitleStatus = document.getElementById('write-status-text');
-  if (enabled) {
-    track.classList.add('on');
-    status.classList.remove('off');
-    status.classList.add('on');
-    status.textContent = 'ON';
-    subtitleStatus.textContent = 'ON (writing notes to Gorgias)';
-    subtitleStatus.style.color = 'var(--green)';
-  } else {
-    track.classList.remove('on');
-    status.classList.add('off');
-    status.classList.remove('on');
-    status.textContent = 'OFF';
-    subtitleStatus.textContent = 'OFF (read-only)';
-    subtitleStatus.style.color = 'var(--text-dim)';
-  }
-}
-
-async function loadGorgiasSetting() {
-  try {
-    const resp = await fetch('/dashboard/api/settings/gorgias_writes_enabled');
-    const data = await resp.json();
-    gorgiasWritesEnabled = data.value === 'true';
-    updateGorgiasToggleUI(gorgiasWritesEnabled);
-  } catch (e) {
-    console.error('Failed to load setting', e);
-    gorgiasWritesEnabled = false;
-    updateGorgiasToggleUI(false);
-  }
-}
-
-async function toggleGorgiasWrites() {
-  gorgiasWritesEnabled = !gorgiasWritesEnabled;
-  updateGorgiasToggleUI(gorgiasWritesEnabled);
-  try {
-    await fetch('/dashboard/api/settings', {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({gorgias_writes_enabled: String(gorgiasWritesEnabled)}),
-    });
-  } catch (e) {
-    console.error('Failed to save setting', e);
-    gorgiasWritesEnabled = !gorgiasWritesEnabled;
-    updateGorgiasToggleUI(gorgiasWritesEnabled);
-  }
-}
-
 // ── Auto-refresh toggle ────────────────────────────────────
 function toggleAutoRefresh() {
   autoRefresh = document.getElementById('auto-refresh').checked;
@@ -571,7 +511,6 @@ async function loadData() {
   }
 }
 
-loadGorgiasSetting();
 loadData();
 startTimer();
 </script>

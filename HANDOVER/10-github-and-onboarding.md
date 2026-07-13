@@ -1,5 +1,7 @@
 # 10 · GitHub Setup & Onboarding
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 *What this doc covers: the repo's current git state, how to publish it to GitHub, the branch strategy, and a first‑week onboarding checklist for the new team.*
 
 *Sources: live `git` inspection of this repo, `.gitignore`, and docs 06 + 09.*

@@ -106,6 +106,38 @@ class LearningPromotionTests(unittest.TestCase):
         self.assertEqual(stats["edited"], 20)
         self.assertEqual(stats["unchanged"], 20)
 
+    def test_archive_failure_rolls_back_exemplar_and_retry_is_idempotent(self) -> None:
+        self.learned.mkdir(parents=True)
+        lesson = self.learned / "lesson-sent-42-abc.md"
+        lesson.write_text(
+            "---\nkind: sent\ncustomer_name: Jane Doe\n---\n\n"
+            "## Customer situation\n\nWhere is order 123456?\n\n"
+            "## Human final reply\n\nHi Jane Doe, we are checking it.\n",
+            encoding="utf-8",
+        )
+
+        with patch.object(
+            auto_promote_learned,
+            "_archive_without_replacing",
+            side_effect=OSError("archive unavailable"),
+        ):
+            with self.assertRaisesRegex(OSError, "archive unavailable"):
+                auto_promote_learned.promote_one(lesson)
+
+        self.assertTrue(lesson.exists())
+        self.assertEqual(list(self.tickets.glob("exemplar-learned-*.md")), [])
+
+        self.assertTrue(auto_promote_learned.promote_one(lesson))
+        exemplars = list(self.tickets.glob("exemplar-learned-*.md"))
+        self.assertEqual(len(exemplars), 1)
+
+        # Simulate the exact retry boundary: exemplar committed, source still
+        # present. The retry archives it without creating a suffixed duplicate.
+        archived = next(self.archive.glob("lesson-*.md"))
+        lesson.write_text(archived.read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertTrue(auto_promote_learned.promote_one(lesson))
+        self.assertEqual(len(list(self.tickets.glob("exemplar-learned-*.md"))), 1)
+
 
 class KnownValueMaskingTests(unittest.TestCase):
     def test_masks_greeting_name_when_legacy_lesson_has_no_customer_name(self) -> None:

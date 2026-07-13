@@ -9,15 +9,15 @@ tags: [package-protection, refund, order-change, remove]
 
 Customer was charged package protection and wants it removed/refunded.
 
-If possible, remove/refund package protection.
+Package protection may be removed/refunded by authorized staff when allowed.
 
 ## Agent action
 
 Locate order.
 If order is identified, do not ask for order number.
-Cancel/refund package protection if allowed.
-If unable to complete, draft for staff approval.
-Respond after action is completed.
+Draft a staff handoff requesting the removal/refund if allowed. The AI must not
+cancel protection or issue a refund. Only use a completed-action response when
+the read-only order record confirms a human completed it.
 
 ## Customer response if completed
 

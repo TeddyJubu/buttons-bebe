@@ -15,17 +15,15 @@ This can be changed even if the order was already processed for pickup, as long 
 ## Agent action
 
 Locate order.
-Remove order from pickup workflow/bin.
 Confirm shipping address.
 Check whether order qualifies for free shipping.
-If it qualifies, switch order to shipping.
-If it does not qualify, send or draft invoice for shipping charge.
-Notify warehouse to ship the order.
+Draft a staff handoff listing the required pickup-workflow, shipping, invoice,
+and warehouse changes. The AI must not make those changes or send an invoice.
 
 ## Customer response if free shipping applies
 
-Hi! No problem, we can switch your order from pickup to shipping.
-We updated the order to ship to the address on file. You’ll receive tracking once it ships.
+Use this only when the read-only order record confirms a human completed the change:
+Hi! Your order was updated to ship to the address on file. You’ll receive tracking once it ships.
 
 ## Customer response if shipping payment is needed
 

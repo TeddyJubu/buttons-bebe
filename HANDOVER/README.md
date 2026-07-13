@@ -1,6 +1,15 @@
 # Buttons Bebe AI Support Agent — Developer Handover
 
-**Read this first.** This folder is a complete, self-contained handover package for the team taking over the Buttons Bebe AI support agent. It is written for **both a human developer and an AI coding agent** with zero prior context. If you just cloned this repo from GitHub, start here.
+> ⚠️ **SUPERSEDED — DO NOT USE THIS FOLDER AS CURRENT OPERATING OR
+> ARCHITECTURE DOCUMENTATION.** The `HANDOVER/` package is a historical snapshot
+> from 2026-07-13 and contains details that no longer match production. Use the
+> repository-root `AGENTS.md` and `CLAUDE.md` for the live system as of
+> 2026-07-14. Read files in this folder only for historical context, and verify
+> every claim against those current sources before acting on it.
+
+This folder was prepared as a self-contained handover package for the team
+taking over the Buttons Bebe AI support agent. It is retained for historical
+context, not as a runbook.
 
 > **Prepared:** 2026‑07‑13 · **Handover from:** Tony (builder) → client's development team · **Client:** Chaim (Buttons Bebe, a Shopify store)
 
@@ -8,7 +17,10 @@
 
 ## 30‑second orientation
 
-Buttons Bebe gets ~2,000 customer support tickets/month in **Gorgias** (their help desk). This project is an **AI agent that reads each ticket, gathers order/return/product context, searches a knowledge base, and writes a first‑draft reply** — which it posts as a **private internal note** for a human to review and send.
+Buttons Bebe gets ~2,000 customer support tickets/month in **Gorgias** (their
+help desk). The agent reads each ticket, gathers order/return/product context,
+searches a knowledge base, and creates a first-draft reply in the support
+console. It does not post that draft to Gorgias.
 
 **The core safety rule: the AI never sends anything to a customer on its own. A human always sends.** Keep this rule in mind for every change you make — it is the promise the whole system is built around.
 
@@ -18,7 +30,11 @@ The system is **live in production today** (this is "Phase 1 — Copilot"). Ther
 
 ## ⚠️ Three things to know before you do anything
 
-1. **This repo is a *partial* snapshot — cloning GitHub alone does not give you a runnable system.** Two core services that run in production — the **webhook receiver** (`webhook/`) and the **processor/orchestrator** (`processor/`), plus the **Hermes brain config** (`~/.hermes/`: `config.yaml`, `SOUL.md`, the `buttonsbebe` skill) — have **no source in this repo**. They live only on the production server. **Doc `06` explains exactly what's missing and gives a safe, read‑only procedure to copy it off the server** so the repo becomes complete. Do this early.
+1. **The runtime source is now in this repo.** The webhook receiver (`webhook/`),
+   processor/orchestrator (`processor/`), and scrubbed Hermes skills (`hermes/`)
+   are reviewable here. Runtime secrets, queue data, the derived Shopify product
+   corpus, and the built LanceDB index remain deployment artifacts and must not
+   be committed.
 
 2. **There are two branches, and they are different systems.**
    - **`main`** — the **live** system running in production (the "Hermes" agent). This is what serves real customers today.
@@ -45,13 +61,17 @@ The system is **live in production today** (this is "Phase 1 — Copilot"). Ther
 | 10 | **`10-github-and-onboarding.md`** | Git/branch setup, pushing to GitHub, and a first‑week checklist |
 | 11 | **`11-glossary.md`** | Plain‑English definitions of every term and tool used here |
 
-**If you're an AI agent:** read `01`, then `02`, then `06` (so you understand what's *not* here before you try to run anything), then the rest as needed. Also read the repo‑root **`CLAUDE.md`** — it is the current in‑repo source of truth for the live architecture. Note that a few older docs in the repo describe a *retired* design; `06` lists exactly which files not to trust.
+**If you're an AI agent:** do not use this reading order for current work. Read
+the repository-root `AGENTS.md` and `CLAUDE.md`; consult this folder only when a
+task explicitly requires historical handover context.
 
 ---
 
 ## The single source of truth
 
-Inside the repo root, **`CLAUDE.md`** is the authoritative, current architecture map for the **live** system. This handover expands on it, verifies it against the actual files, and records where it has drifted (see `06`). Where this handover and an older doc disagree, trust this handover and `CLAUDE.md`.
+The repository-root **`AGENTS.md`** and **`CLAUDE.md`** are the authoritative
+maps for the live system. This handover no longer expands or verifies them. If
+anything in `HANDOVER/` differs, the handover is wrong.
 
 ---
 
@@ -59,11 +79,11 @@ Inside the repo root, **`CLAUDE.md`** is the authoritative, current architecture
 
 You are ready to take over when you can:
 
-1. Clone the repo and read this handover.
-2. Complete the repo by pulling the VPS‑only source (doc `06`).
-3. Reproduce the live architecture in your head from doc `02`.
-4. Run the verify commands in doc `05` against the server (read‑only) and see green.
-5. Locate the credentials you'll need and know how to rotate them (docs `05` + `06`).
-6. Decide the fate of the Fable branch (doc `07`) and lock Phase 2 scope (doc `08`).
+1. Clone the repo and read root `AGENTS.md` and `CLAUDE.md`.
+2. Review the in-repo runtime source in `webhook/`, `processor/`, and `hermes/`.
+3. Run the current repository release gate and the live verification commands
+   documented in `CLAUDE.md`.
+4. Treat credentials and production data as deployment-only secrets.
+5. Consult this handover only for explicitly historical questions.
 
-Everything you need to do each of these is in the docs above.
+Current operating instructions are outside this superseded folder.

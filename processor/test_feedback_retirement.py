@@ -13,7 +13,6 @@ if str(PROCESSOR_DIR) not in sys.path:
     sys.path.insert(0, str(PROCESSOR_DIR))
 
 import feedback_collector  # noqa: E402
-import hermes_runner  # noqa: E402
 
 
 class LegacyFeedbackRetirementTests(unittest.TestCase):
@@ -32,15 +31,11 @@ class LegacyFeedbackRetirementTests(unittest.TestCase):
                 )
             )
 
-    def test_hermes_helper_does_not_spawn_by_default(self) -> None:
-        with patch.object(hermes_runner.subprocess, "run") as run:
-            result = hermes_runner.process_agent_reply_with_hermes(
-                ticket_id=456,
-                message_text="hello",
-                author_email="agent@example.test",
-            )
-        self.assertEqual(result, {"action": "disabled", "ticket_id": 456})
-        run.assert_not_called()
+    def test_retired_hermes_feedback_helper_is_absent(self) -> None:
+        source = (PROCESSOR_DIR / "hermes_runner.py").read_text(encoding="utf-8")
+        self.assertNotIn("process_agent_reply_with_hermes", source)
+        self.assertNotIn("FEEDBACK_LEGACY_OPT_IN", source)
+        self.assertNotIn("Load credentials", source)
 
     def test_orchestrator_does_not_import_legacy_helper(self) -> None:
         source = (PROCESSOR_DIR / "orchestrator.py").read_text(encoding="utf-8")

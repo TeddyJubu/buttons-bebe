@@ -52,6 +52,8 @@ _IMMEDIATE_KEYWORDS = [
     r"\bnever\s+(received|arrived|came|got)\b",
     r"\bdidn'?t\s+(receive|get|arrive)\b", r"\bnot\s+received\b",
     r"\blost\s+(package|parcel|order|shipment)\b",
+    r"\bstolen\s+(package|parcel|order|shipment)\b",
+    r"\b(package|parcel|order|shipment)\s+(?:was|is|got|has\s+been)\s+(lost|stolen)\b",
     # Angry/abusive
     r"\b(angry|furious|outraged|disgusted|appalled|unacceptable)\b",
     r"\b(terrible|horrible|awful|worst)\s+(service|experience|company|store)\b",
@@ -96,6 +98,17 @@ _HIGH_INTENTS = {
     "urgent", "rush", "cancel", "cancellation",
     "address-change", "final-sale-exception",
 }
+
+_HIGH_SENSITIVE_INTENTS = {
+    "cancel", "cancellation", "address-change", "final-sale-exception",
+}
+
+_HIGH_SENSITIVE_PATTERN = re.compile(
+    r"\b(final\s+sale|change\s+(?:my\s+)?(?:shipping\s+)?address|"
+    r"wrong\s+address|update\s+(?:my\s+)?address|new\s+address|"
+    r"cancel(?:lation)?(?:\s+(?:my\s+)?(?:order|item|purchase))?)\b",
+    re.IGNORECASE,
+)
 
 # Angry indicator count threshold — if 2+ angry keywords, force IMMEDIATE
 _ANGRY_KEYWORDS = [
@@ -222,6 +235,9 @@ def classify(
     followup_match = _FOLLOWUP_PATTERN.search(combined_text)
 
     if high_hits > 0 or high_intent_hit or followup_match:
+        high_sensitive = bool(intent_names & _HIGH_SENSITIVE_INTENTS) or bool(
+            _HIGH_SENSITIVE_PATTERN.search(combined_text)
+        )
         reason_parts = []
         if high_hits > 0:
             reason_parts.append(f"keyword match ({high_hits} urgent keywords)")
@@ -237,7 +253,7 @@ def classify(
         return {
             "priority": HIGH,
             "reason": "; ".join(reason_parts),
-            "sensitive": False,
+            "sensitive": high_sensitive,
             "should_draft": True,
             "should_notify_owner": True,
             "source": "deterministic",

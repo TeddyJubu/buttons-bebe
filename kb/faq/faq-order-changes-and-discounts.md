@@ -15,28 +15,30 @@ promotion. See `../intents/intent-01-first-time-customer-discount.md`.
 
 ## Can you change my size/item before it ships?
 
-Yes, if the order **hasn't shipped** and the requested size is available. Complete or
-draft the change first, then reply. If it already shipped, apologize — the size can
+Yes, if the order **hasn't shipped** and the requested size is available. The AI
+checks status and drafts a staff handoff; it never changes the order. If it already shipped, apologize — the size can
 no longer be changed. See `../intents/intent-08-wrong-size-switch-before-shipping.md`.
 
 ## Can you change my shipping address?
 
-Only **before the order ships**. If not shipped, update or draft the correction. If
+Only **before the order ships**. If not shipped, the AI drafts the correction for
+staff and does not update the order itself. If
 it already shipped, it cannot be changed on our end and the customer may contact the
 carrier directly. See `../intents/intent-10-zip-code-address-correction.md`.
 
 ## Can I switch between pickup and shipping?
 
 A **pickup** order can be switched to **shipping** as long as it hasn't been picked
-up (check free-shipping eligibility; invoice the charge if it doesn't qualify). A
-**shipping** order can be switched to **pickup** only if it hasn't shipped yet. See
+up (check free-shipping eligibility; staff may invoice the charge if it doesn't qualify). A
+**shipping** order can be switched to **pickup** only if it hasn't shipped yet. The
+AI only drafts the staff handoff. See
 `../intents/intent-02-pickup-to-shipping.md` and
 `../intents/intent-03-shipping-to-pickup.md`.
 
 ## Can you remove package protection?
 
-Yes — if a customer was charged package protection and wants it removed, we
-remove/refund it if possible and reply after the action is completed. See
+Yes — authorized staff can remove/refund it when allowed. The AI must only draft a
+staff handoff and may claim completion only after read-only data confirms it. See
 `../intents/intent-06-cancel-refund-package-protection.md`.
 
 ## The price dropped after I ordered — can I get the difference?

@@ -1,5 +1,7 @@
 # 02 · Live System Architecture
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 **What this doc covers:** the current, LIVE architecture of the Buttons Bebe AI support agent — what each moving part does, how a ticket flows end-to-end, which parts run where, and (critically for this handover) which component **source lives in this Git repo** versus which lives **only on the VPS**.
 
 **Sources read:** `CLAUDE.md` (the project source of truth, dated 2026-07-07/09), `tools/README.md`, `kb/SEARCH-ENGINE.md`, `whatsapp-connect/Caddyfile`, `whatsapp-connect/server.js`, `console-src/index.html`, `dashboard/index.html`, the in-repo `*.service`/`*.timer` unit files (`tools/`, `kb/`, `whatsapp-connect/`, `kb-admin/`), `SPRINT-notice-board-2026-07-12.md`, and a full directory census of the repo (excluding the `_VPS-FULL-BACKUP-20260706/` snapshot).

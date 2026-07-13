@@ -1,5 +1,7 @@
 # 09 · Repository Map
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 **What this doc covers:** an annotated, path-by-path guide to every folder and important file in this repo — on **both** git branches — so a newcomer cloning from GitHub with zero context instantly knows what each thing is, which branch it lives on, whether it's tracked/gitignored, and whether to trust it.
 
 **Sources read:** `git branch -a`; `git log --oneline`; `git ls-tree -r --name-only main`; `git ls-tree -r --name-only Fable_buttonsbebe` (and a diff of the two, both directions); `cat .gitignore`; `ls -la` at root; `du -sh` on the large dirs; `find` on `fable/`, `deploy/`, `data/`, `_VPS-FULL-BACKUP-20260706/`; and header reads of `CLAUDE.md`, `feedback/README.md`, `tools/README.md`, `kb-admin/server.js`, `whatsapp-connect/package.json`, `deploy/patch_app.py`, `server-fixes.sh`, `console-src/index.html`, `dashboard/index.html`, `qa-run/qa.html`, `INCONSISTENCIES.md`, `DEV-ISSUES.md`, the two `SPRINT-*.md`, and `git show Fable_buttonsbebe:fable/README.md`. All facts below were verified against the filesystem/git on 2026-07-13.

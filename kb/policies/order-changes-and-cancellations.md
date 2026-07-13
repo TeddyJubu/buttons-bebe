@@ -5,23 +5,23 @@ status: confirmed
 tags: [order-change, size-swap, address-change, pickup, package-protection, price-adjustment]
 ---
 
-The owner-confirmed rule across order changes is **action before response**:
-complete or draft the change first, then reply. Most changes are only possible
-**before the order ships** — always check fulfillment status first. See
-`agent-core-rules.md`.
+The AI is read-only. Across order-change requests it must check the available
+status, draft a precise staff handoff, and avoid claiming completion. Most changes
+are only possible **before the order ships** — always check fulfillment status
+first. See `agent-core-rules.md`.
 
 ## Changing a size before it ships
 
 A size can be changed **only if the order has not shipped and the requested size is
 available**. Locate the order, check fulfillment status and size availability, and
-edit the order (or draft the change for approval), then reply. If the order already
+draft the change for staff approval. Never edit the order. If the order already
 shipped, apologize — the size can no longer be changed. See
 `intents/intent-08-wrong-size-switch-before-shipping.md`.
 
 ## Changing the shipping address / zip code
 
 An address or zip-code correction is possible **only if the order has not shipped**.
-If not shipped, update or draft the correction and confirm. If it already shipped,
+If not shipped, draft the correction for staff; never update it directly. If it already shipped,
 explain it cannot be changed on our end and the customer may contact the carrier
 directly to request a delivery change. See
 `intents/intent-10-zip-code-address-correction.md`.
@@ -30,16 +30,17 @@ directly to request a delivery change. See
 
 A **pickup** order can be switched to **shipping** even after it was processed for
 pickup, as long as it has not been picked up (check free-shipping eligibility; if it
-does not qualify, invoice the shipping charge). A **shipping** order can be switched
-to **pickup** only if it has **not shipped** yet (refund shipping if applicable).
+does not qualify, staff may invoice the shipping charge). A **shipping** order can be
+switched to **pickup** only if it has **not shipped** yet (staff reviews any shipping
+refund). The AI drafts the handoff and performs none of these actions.
 See `intents/intent-02-pickup-to-shipping.md` and
 `intents/intent-03-shipping-to-pickup.md`.
 
 ## Removing / refunding package protection
 
-If a customer was charged package protection and wants it removed, **remove/refund
-it if possible** and respond after the action is completed. If it cannot be
-completed directly, draft it for staff approval. See
+If a customer was charged package protection and wants it removed, draft the
+request for staff approval. The AI must not remove protection or issue a refund,
+and may state completion only when read-only data confirms a human completed it. See
 `intents/intent-06-cancel-refund-package-protection.md`.
 
 ## Price adjustments — we do NOT offer them

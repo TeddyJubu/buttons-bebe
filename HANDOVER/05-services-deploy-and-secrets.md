@@ -1,5 +1,7 @@
 # 05 · Services, Deployment & Secrets
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 **What this doc covers:** the running services & ports, the systemd unit/timer inventory (with repo source paths vs. VPS‑only), how each external system authenticates, the full environment‑variable inventory and the two‑`.env` split, the Caddy reverse proxy, and the operate/verify runbook.
 
 **Sources read:** `CLAUDE.md` (§3, §6, §7, §8, §10, §11); `env.example` & `.env.example` (identical — verified with `diff`); NAMES‑only enumeration of the real root `.env` (`grep -oE '^[A-Za-z_]+=' .env` — no values read); `kb/buttonsbebe-kb-mcp.service`, `kb/buttonsbebe-kb-sync.service`, `kb/buttonsbebe-kb-sync.timer`, `kb/buttonsbebe-kb-notices-gc.service`, `kb/buttonsbebe-kb-notices-gc.timer`, `tools/buttonsbebe-gorgias-mcp.service`, `tools/buttonsbebe-redo-mcp.service`, `whatsapp-connect/buttonsbebe-whatsapp-connect.service`, `kb-admin/buttonsbebe-kb-admin.service`; `server-fixes.sh`, `kb/setup.sh`, `kb/run_mcp.sh`, `kb/sync-products.sh`, `kb/update.sh`, `kb/search.sh`, `tools/run-gorgias.sh`, `tools/run-redo.sh`; `whatsapp-connect/Caddyfile`; `.gitignore`.

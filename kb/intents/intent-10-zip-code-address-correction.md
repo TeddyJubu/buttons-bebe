@@ -15,13 +15,15 @@ Address can be changed only if order has not shipped.
 
 Locate order.
 Check if order shipped.
-If not shipped, update or draft address correction.
+If not shipped, draft a staff handoff with the exact requested correction. The
+AI must not update the order.
 If shipped, explain that it cannot be changed by Buttons Bebe.
 If needed, advise customer to contact carrier.
 
 ## Customer response if changed
 
-Hi! We updated the shipping address/zip code on your order.
+Use this only when the read-only order record confirms a human completed the change:
+Hi! The shipping address/zip code on your order was updated.
 Your order will now ship to the corrected address.
 
 ## Customer response if already shipped

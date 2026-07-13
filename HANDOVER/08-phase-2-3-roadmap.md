@@ -1,5 +1,7 @@
 # 08 · Phase 2 & 3 Roadmap
 
+> **SUPERSEDED (2026-07-14):** This historical handover chapter is not current operational documentation. Do not use its counts, runtime status, write-path descriptions, or instructions. Use the repository-root `CLAUDE.md`, the user-provided `AGENTS.md`, and live verification instead.
+
 **What this doc covers:** the client-facing Phase 2 & 3 roadmap presented to Chaim on 2026-07-12 — the three phases at a glance, what's live today (Phase 1), every Phase 2 feature group (A–E) with its estimate **and a "Maps to" column tying each item to the real file/stub**, the Phase 2 timeline, the 5 policy questions the owner must answer, the Phase 3 capabilities with their architecture notes, and the whole-program timeline plus the estimate assumptions.
 
 **Sources read:** `HANDOVER/_assets/phase-2-3-plan-fulltext.txt` (full extracted text of `Buttons-Bebe-Phase-2-3-Plan.pptx`, the authoritative deck — 19 slides); `SPRINT-feedback-collector.md`; `SPRINT-notice-board-2026-07-12.md`; `DEV-ISSUES.md`; `CLAUDE.md` (§4, §5, §8); `INCONSISTENCIES.md` (H2); plus repo file-existence checks (`tools/redo_mcp.py`, `feedback/`, `kb/learned/`, `kb/scripts/`, `dashboard/`, `console-src/` — and confirmation that `processor/` and `webhook/` are **not in this repo**).

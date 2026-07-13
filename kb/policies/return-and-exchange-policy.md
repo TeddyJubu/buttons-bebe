@@ -40,7 +40,8 @@ Do not promise an exception — escalate or ask staff for approval (see
 If a final sale order has **not shipped yet**, the size can still be changed if the
 requested size is available — this is the normal pre-ship size swap, not an
 exception. Locate the order, check fulfillment status and size availability, and
-change it (or draft the change for approval) before the order ships. See
+draft a staff handoff for the change before the order ships. The AI must never
+edit the order itself. See
 `order-changes-and-cancellations.md` and the intents
 `intents/intent-08-wrong-size-switch-before-shipping.md` and
 `intents/intent-12-final-sale-exchange-exception.md`.

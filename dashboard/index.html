@@ -260,7 +260,7 @@ body{background:#e8e5d8;font-family:Inter,Arial,sans-serif}
 <div id="app-status" class="sr-only" role="status" aria-live="polite"></div>
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
-let stats={},tickets=[],settings={},learn={},tab="overview",openTk=null,filter="all";
+let stats={},tickets=[],learn={},tab="overview",openTk=null,filter="all";
 let kbData=null,kbSel=null,kbBuf="",kbMsg="",kbReindexing=false;
 let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
@@ -288,10 +288,10 @@ const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab
 async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 async function boot(){
- const [s,t,st,lg]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/settings"),jget(API+"/learning")]);
- loadErrors=[];if(s===null)loadErrors.push("stats");if(t===null)loadErrors.push("tickets");if(st===null)loadErrors.push("settings");if(lg===null)loadErrors.push("learning");
+ const [s,t,lg]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/learning")]);
+ loadErrors=[];if(s===null)loadErrors.push("stats");if(t===null)loadErrors.push("tickets");if(lg===null)loadErrors.push("learning");
  loadFailed=loadErrors.length>0;
- if(s!==null)stats=s;if(Array.isArray(t))tickets=t;if(st!==null)settings=st;if(lg!==null)learn=lg;
+ if(s!==null)stats=s;if(Array.isArray(t))tickets=t;if(lg!==null)learn=lg;
  if(!loadFailed)lastUpdated=new Date();statusMsg=loadFailed?"Could not load "+loadErrors.join(", ")+" data; showing last known values":"Dashboard data updated";
  render();
 }
@@ -467,10 +467,10 @@ async function rewriteDraft(){
 }
 
 function conns(){
- const cs=[["G","Gorgias","buttonsbebe.gorgias.com","Help desk - tickets in & drafts out"],["S","Shopify","buttons-bebe.myshopify.com","Orders & 4,246 products"],["R","Redo","Returns & refunds","Live return status"],["W","WhatsApp alerts","Owner escalations","Linked device"],["KB","Knowledge base","22 intents - 17 policies - 5 FAQs","Auto-refreshes every 3 days"]];
+ const cs=[["G","Gorgias","buttonsbebe.gorgias.com","Help desk - tickets in & human-approved replies out"],["S","Shopify","buttons-bebe.myshopify.com","Current product catalog"],["R","Redo","Returns & refunds","Live return status"],["W","WhatsApp alerts","Owner escalations","Linked device"],["KB","Knowledge base","Policies, intents, FAQs, products and exemplars","Auto-refreshes every 3 days"]];
  return `<div class="conns">${cs.map(c=>`<div class="conn"><div class="h"><div class="ic">${c[0]}</div><div><b>${c[1]}</b><small>${esc(c[2])}</small></div></div><span class="stt"><span class="dot"></span> Connected</span><div class="dt">${esc(c[3])}</div></div>`).join("")}</div>
  <div class="sec-title">Health</div>
- <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div>All services responding<br><small style="color:var(--ink3)">Gorgias, Shopify, Redo, WhatsApp and the knowledge base are healthy</small></div><div class="tm">live</div></div></div></div>`;
+ <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div>Connection summary<br><small style="color:var(--ink3)">Use the current Console Connections page for live file counts and status.</small></div><div class="tm">summary</div></div></div></div>`;
 }
 
 function kbView(){
@@ -484,13 +484,11 @@ function kbView(){
 }
 
 function settingsView(){
- if(loadErrors.includes("settings"))return `<div class="panel" role="alert"><h3>Agent settings are unavailable</h3><div class="ph">Refresh to retry. The write state is unknown and has not been presented as off.</div></div>`;
- const writes=(settings.gorgias_writes_enabled||"false")==="true";
- const steps=[["Connect Gorgias","Read tickets & post reply drafts"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets"]];
+ const steps=[["Connect Gorgias","Read tickets and accept human-approved replies"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets for review"]];
  return `<div class="sec-title">Onboarding - you're all set</div>
  <div class="panel"><div class="steps">${steps.map(x=>`<div class="step"><div class="ck">${IC.check}</div><div><b>${x[0]}</b><small>${x[1]}</small></div></div>`).join("")}</div></div>
  <div class="sec-title">Agent settings</div>
- <div class="toggle"><div><b style="font-size:13.5px">Post drafts to Gorgias</b><div class="hint">On = agent posts drafts as internal notes on tickets. Off = draft-only (safe review mode).</div></div><button type="button" class="sw ${writes?'on':''}" id="f-writes" role="switch" aria-checked="${writes?'true':'false'}" aria-label="Post drafts to Gorgias"><i aria-hidden="true"></i></button></div>
+ <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div><b>Human review is always required</b><br><small style="color:var(--ink3)">The agent prepares drafts only. A person confirms every reply or internal note.</small></div><div class="tm">locked</div></div></div></div>
  <div class="sec-title">Always escalate (never auto-reply)</div>
  <div class="panel"><div class="chips"><span>Refunds</span><span>Chargebacks</span><span>Damaged items</span><span>Wrong items</span><span>Cancellations</span><span>Angry customers</span></div></div>`;
 }
@@ -608,7 +606,6 @@ function bind(){
  const ar=document.getElementById("act-rewrite");if(ar)ar.onclick=rewriteDraft;
  const acx=document.getElementById("act-canceledit");if(acx)acx.onclick=()=>{captureAct();actEditOpen=false;render();};
  const arw=document.getElementById("act-raw");if(arw)arw.onclick=()=>{captureAct();actShowRaw=!actShowRaw;render();};
- const w=document.getElementById("f-writes");if(w)w.onclick=async()=>{const nv=!((settings.gorgias_writes_enabled||"false")==="true");settings.gorgias_writes_enabled=nv?"true":"false";render();try{await fetch(API+"/settings",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({gorgias_writes_enabled:settings.gorgias_writes_enabled})});}catch(e){}};
  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openKbFile(b.dataset.open));
  document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));
  const ks=document.getElementById("kb-save");if(ks)ks.onclick=saveKb;

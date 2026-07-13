@@ -16,9 +16,9 @@ Size can be changed only if the order has not shipped and requested size is avai
 Locate order.
 Check if order shipped.
 Check requested size availability.
-If available and order has not shipped, edit order.
-If agent cannot edit directly, draft action for approval.
-Respond after action is completed.
+If available and the order has not shipped, draft a staff handoff requesting
+the size change. The AI must not edit the order. Use the completed-action
+response only when the read-only order record confirms a human completed it.
 
 ## Customer response if changed
 

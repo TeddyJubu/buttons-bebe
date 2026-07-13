@@ -6,14 +6,13 @@ Parses the JSON_RESULT block from stdout for the job processor.
 
 Performance:
   - KB search + classify + draft: 6-10 seconds
-  - Full pipeline (with Gorgias read/write): 30-60 seconds
+  - Full read-only pipeline with Gorgias context: 30-60 seconds
   - Timeout: 120 seconds (configurable in settings)
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -87,6 +86,11 @@ _FALLBACK_RESULT: dict[str, Any] = {
     "gorgias_priority_set": False,
     "note_posted": False,
 }
+
+
+def draft_for_console(hermes_result: dict[str, Any]) -> str:
+    """Return only a real Hermes draft; never echo customer input as a reply."""
+    return str(hermes_result.get("draft_text") or "").strip()
 
 
 def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
@@ -315,8 +319,10 @@ def _parse_json_result(output: str) -> dict[str, Any]:
             return dict(_FALLBACK_RESULT)
 
         result["priority"] = priority
-        result.setdefault("gorgias_priority_set", False)
-        result.setdefault("note_posted", False)
+        # Hermes has read-only tools. These fields describe real side effects,
+        # so model output must never be allowed to claim that a write occurred.
+        result["gorgias_priority_set"] = False
+        result["note_posted"] = False
 
         return result
 
@@ -434,120 +440,3 @@ def process_ticket_with_hermes(
                   ticket_id=ticket_id,
                   error_type=type(exc).__name__)
         return dict(_FALLBACK_RESULT)
-
-
-def process_agent_reply_with_hermes(
-    ticket_id: int,
-    message_text: str,
-    author_email: str,
-) -> dict[str, Any]:
-    """Invoke Hermes headlessly to process an agent reply for feedback.
-
-    Asks Hermes to:
-    1. Read the ticket thread from Gorgias
-    2. Check if there was a previous AI draft (internal note with "DRAFT REPLY")
-    3. If yes, compare the agent's reply with the AI draft
-    4. Save the agent's version to KB/learned/ as a learned example
-    5. Output JSON result
-    """
-    if os.environ.get("FEEDBACK_LEGACY_OPT_IN") != "1":
-        log_event(
-            logger,
-            "WARNING",
-            "Legacy Hermes feedback helper disabled; use console-action learning",
-            ticket_id=ticket_id,
-            action="legacy_feedback_disabled",
-        )
-        return {"action": "disabled", "ticket_id": ticket_id}
-
-    prompt = (
-        f"Process a Buttons Bebe agent reply for the feedback/learning loop.\n\n"
-        f"Ticket ID: {ticket_id}\n"
-        f"Agent message: {message_text[:500]}\n"
-        f"Agent email: {author_email}\n\n"
-        f"Do the following autonomously:\n"
-        f"1. Load credentials from /root/Buttonsbebe Agent/webhook/.env\n"
-        f"2. Read the ticket thread from Gorgias API (ticket {ticket_id})\n"
-        f"3. Check if there was a previous AI draft (internal note starting with 'DRAFT REPLY')\n"
-        f"4. If a previous AI draft exists:\n"
-        f"   - Save the agent's actual reply as a learned example\n"
-        f"   - Write it to /root/Buttonsbebe Agent/KB/learned/ticket-{ticket_id}.md\n"
-        f"   - Use this format:\n"
-        f"     ---\n"
-        f"     title: Learned — Ticket {ticket_id} agent reply\n"
-        f"     category: learned\n"
-        f"     status: confirmed\n"
-        f"     source: agent_reply\n"
-        f"     tags: [learned, feedback]\n"
-        f"     ticket_id: {ticket_id}\n"
-        f"     review_pending: true\n"
-        f"     created_at: <current timestamp>\n"
-        f"     ---\n"
-        f"     ## Agent's reply\n\n"
-        f"     <the agent's reply text>\n\n"
-        f"     ## Context\n\n"
-        f"     Customer question: <the original customer question>\n"
-        f"     AI draft (for reference): <the previous AI draft, if any>\n"
-        f"5. If no previous AI draft, just log that no learning opportunity exists.\n"
-        f"6. Output this JSON at the very end:\n"
-        f'JSON_RESULT: {{"action": "<saved|no_draft|error>", "ticket_id": {ticket_id}}}\n\n'
-        f"Be concise. Do not ask questions."
-    )
-
-    cmd = ["hermes", "--yolo", "-z", prompt]
-
-    log_event(logger, "INFO", "Invoking Hermes for feedback loop",
-              ticket_id=ticket_id)
-
-    try:
-        settings = get_settings()
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=settings.job_timeout,
-            env={
-                **dict(__import__("os").environ),
-                "HOME": "/root",
-                "PATH": "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
-            },
-        )
-
-        stdout = result.stdout.strip()
-
-        if result.returncode != 0 or not stdout:
-            log_event(logger, "WARNING", "Hermes feedback loop returned empty",
-                      ticket_id=ticket_id,
-                      returncode=result.returncode)
-            return {"action": "error", "ticket_id": ticket_id}
-
-        # Parse JSON result
-        match = _JSON_RESULT_MARKER_RE.search(stdout)
-        if match:
-            raw_json = _extract_json_block(stdout, match.start(1))
-            if raw_json:
-                parsed = json.loads(raw_json)
-                log_event(logger, "INFO", "Feedback loop complete",
-                          ticket_id=ticket_id,
-                          action=parsed.get("action"))
-                return parsed
-
-        # No JSON — check if the file was created anyway
-        learned_path = f"/root/Buttonsbebe Agent/KB/learned/ticket-{ticket_id}.md"
-        if os.path.exists(learned_path):
-            log_event(logger, "INFO", "Feedback loop saved learned file",
-                      ticket_id=ticket_id,
-                      path=learned_path)
-            return {"action": "saved", "ticket_id": ticket_id}
-
-        return {"action": "no_draft", "ticket_id": ticket_id}
-
-    except subprocess.TimeoutExpired:
-        log_event(logger, "ERROR", "Hermes feedback loop timed out",
-                  ticket_id=ticket_id)
-        return {"action": "error", "ticket_id": ticket_id}
-
-    except Exception as exc:
-        log_event(logger, "ERROR", f"Hermes feedback loop failed: {exc}",
-                  ticket_id=ticket_id)
-        return {"action": "error", "ticket_id": ticket_id}

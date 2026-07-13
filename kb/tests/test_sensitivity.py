@@ -51,6 +51,10 @@ class SensitivityTaxonomyTests(unittest.TestCase):
             "cancellation",
             "cancellations",
             "address-change",
+            "final-sale",
+            "final-sale-exception",
+            "lost-package",
+            "stolen-package",
         }
         for topic in topics:
             with self.subTest(topic=topic):
@@ -84,6 +88,8 @@ class SensitivityTaxonomyTests(unittest.TestCase):
             "intents/intent-09-measurements.md",
             "intents/intent-15-wrong-item-received.md",
             "intents/intent-16-damaged-item-received.md",
+            "intents/intent-12-final-sale-exchange-exception.md",
+            "policies/lost-or-stolen-package.md",
             "policies/warranty-and-defects.md",
             "policies/return-and-exchange-policy.md",
             "policies/return-windows-and-refund-tiers.md",

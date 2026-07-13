@@ -108,4 +108,12 @@ test("console binds only KB item buttons and disables saving after a load error"
   assert.match(html, /Nothing was changed, and saving is disabled/);
   assert.match(html, /!kbLoaded\|\|kbLoadError/);
   assert.doesNotMatch(html, /4,246 products|17 policies|All services responding/);
+  assert.doesNotMatch(html, />Healthy</);
+  assert.match(html, /Content current/);
+  assert.doesNotMatch(html, /Post drafts to Gorgias|gorgias_writes_enabled/);
+
+  const legacyDashboard = fs.readFileSync(path.join(ROOT, "dashboard", "index.html"), "utf8");
+  const legacyScripts = [...legacyDashboard.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+  for (const match of legacyScripts) assert.doesNotThrow(() => new Function(match[1]));
+  assert.doesNotMatch(legacyDashboard, /Post drafts to Gorgias|gorgias_writes_enabled|4,246 products/);
 });

@@ -1,5 +1,9 @@
 # 01 · Executive Summary
 
+> ⚠️ **SUPERSEDED.** This historical summary is not an operating source of
+> truth. Use the repository-root `AGENTS.md` and `CLAUDE.md` for the current
+> architecture and safety model.
+
 *What this doc covers: the product, who it's for, its current status, the two codebases, and the five facts a newcomer most needs.*
 
 *Sources: `CLAUDE.md`, the Phase 2/3 plan deck, and the verified findings in docs 02–09.*
@@ -14,9 +18,12 @@ For every incoming ticket, the agent:
 
 1. **Reads** the customer's message in context.
 2. **Pulls order context** — order, return, and product details — automatically.
-3. **Searches a knowledge base** of policies, FAQs, ~22 support "intents", and ~4,246 live products.
+3. **Searches a knowledge base** of policies, FAQs, 22 support "intents", and
+   4,018 active Shopify products.
 4. **Classifies** the ticket's risk.
-5. **Drafts a reply** and posts it as a **private internal note** in Gorgias for a human to review, edit, and send — **or escalates** sensitive tickets to a human.
+5. **Creates a console draft for every ticket.** Sensitive drafts are clearly
+   prefixed and raised for human review; they are not suppressed. A human can
+   edit, send, post an internal note, request a rewrite, or discard the draft.
 
 The client is **Chaim**. The builder handing this over is **Tony**.
 
@@ -26,11 +33,21 @@ The entire system is built around one promise:
 
 > **The AI never sends a message to a customer on its own. Every customer‑facing reply is written by the AI but *sent by a human*. Sensitive tickets (refunds, disputes, damaged/wrong items, angry customers) are flagged, never auto‑handled.**
 
-Concretely: the only thing the AI writes back to any external system is a **staff‑only internal note in Gorgias**. All other external access (Shopify, Redo returns, Gorgias reads) is **read‑only**. Preserve this model in every change. The full five‑rule version is in doc `02` and `CLAUDE.md §2`.
+Concretely: Hermes and all three MCP tools are read-only. The AI does not post
+internal notes. Gorgias writes occur only after a human uses the console's
+**Send reply** or **internal Note** action; public send also requires
+confirmation. Shopify and Redo remain read-only. Preserve this model in every
+change. The current rules are in root `AGENTS.md` and `CLAUDE.md`.
 
 ## Current status: Phase 1 (Copilot) is LIVE
 
-The agent runs in production today on a VPS. It works as a **copilot**: it drafts, a human approves and sends. What's live and verified: the webhook→queue→processor loop, the Hermes "brain" running per ticket with three read‑only tools, hybrid knowledge‑base search including the auto‑synced product catalog, Gorgias read + internal‑note write, WhatsApp escalation alerts, an owner "Notice Board" for on‑the‑fly overrides, and a learning loop that captures the human's real replies to improve future drafts. A few pieces are still **stubs** (notably the deterministic risk classifier — risk is currently judged by the AI itself). See doc `06` for the precise LIVE‑vs‑stub breakdown.
+The agent runs in production today on a VPS. It works as a **copilot**: it
+creates console drafts and a human chooses the final action. Live components
+include the webhook→queue→processor loop, Hermes with three read-only tools,
+hybrid KB search over the auto-synced 4,018-product catalog, human-triggered
+Gorgias actions, WhatsApp escalation alerts, the Notice Board, and the learning
+loop. The deterministic classifier is implemented as an advisory, escalation-
+only safety net; Hermes also classifies risk.
 
 ## Two codebases (this trips people up)
 
@@ -46,15 +63,23 @@ The agent runs in production today on a VPS. It works as a **copilot**: it draft
 
 ## The roadmap in one paragraph
 
-**Phase 2 (~4–6 weeks): "Trustworthy & Visible"** — add a deterministic safety net (the classifier), clean up drafts, stop the AI inventing prices/policies, finish the live Shopify order/tracking integration, turn the learning loop fully on, and build an **owner dashboard** (draft‑acceptance rate, tickets handled, hours saved, top topics). A stretch goal is an **auto‑send pilot for one very low‑risk topic** (order status) behind confidence checks and a kill switch. **Phase 3 (~3–4 months): "Autonomous & Multi‑channel"** — graduate auto‑send to more safe topics, add channels (web chat, Instagram/Facebook DMs, SMS/WhatsApp), and let the AI *take actions* (refunds, returns, discounts) via new **gated** writes. Full program: ~4.5–6 months. Doc `08` has the feature‑by‑feature breakdown and the **5 policy questions the client must answer** to make the AI accurate.
+The roadmap in this package is historical and must be re-approved before use.
+Current work should preserve the human approval gate, strengthen the advisory
+classifier and grounding, and improve observability without adding autonomous
+send or external write capabilities.
 
 ## The five facts that matter most
 
-1. **The repo is incomplete on its own.** The live `webhook/` and `processor/` services and the `~/.hermes/` brain config are **not in the repo** — they're only on the server. Pull them (read‑only) using the procedure in doc `06` before you try to run anything.
-2. **The safety model is sacred.** AI drafts; humans send; sensitive tickets escalate; the only external write is a Gorgias internal note.
+1. **The runtime source is reviewable in the repo.** `webhook/`, `processor/`,
+   and scrubbed Hermes skills are present. Secrets, queue data, and derived KB
+   artifacts remain deployment-only.
+2. **The safety model is sacred.** AI drafts; humans decide every Gorgias write;
+   sensitive tickets receive a prefixed draft and elevated review.
 3. **The live system is Hermes on `main`.** `glm-5.2` via Ollama Cloud, guided by `SOUL.md` + a Hermes skill, using three read‑only MCP tools (knowledge base :8077, Redo returns :8078, Gorgias :8079). The webhook receiver + dashboard run on :8000.
 4. **There's a second, offline codebase (Fable) on another branch** you must make a decision about.
-5. **A few security/cleanup items need day‑one attention** — the secured WhatsApp configuration is fixed in the repository but still needs coordinated VPS rollout and secret rotation; a populated `.env` remains on disk (git‑ignored), and two `.env` files still need consolidation. Doc `06` has the checklist.
+5. **Current limitations are listed in `CLAUDE.md`.** They include split runtime
+   environment files, the advisory classifier, a retired poll-based feedback
+   collector, and Hermes `--yolo` requiring a strictly read-only tool set.
 
 ## Where the system runs
 

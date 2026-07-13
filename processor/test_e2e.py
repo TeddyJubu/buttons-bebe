@@ -6,12 +6,11 @@ Tests each component in sequence:
   2. MCP server connectivity (KB, Redo, Gorgias)
   3. KB search returns results
   4. Gorgias API read (get_ticket)
-  5. Gorgias API write (set priority — uses a real ticket but reverts it)
-  6. Gorgias internal note post (posts a test note, then verifies it)
-  7. Processor job queue (enqueue + claim + complete lifecycle)
-  8. Hermes runner prompt builder (unit test)
-  9. JSON_RESULT parser (unit test with edge cases)
- 10. Full webhook → queue → processor flow (simulated)
+  5. Processor job queue (enqueue + claim + complete lifecycle)
+  6. Hermes runner prompt builder (unit test)
+  7. JSON_RESULT parser (unit test with edge cases)
+  8. Full webhook → queue → processor flow (simulated)
+  9. Live read-only Hermes invocation (optional)
 
 Usage:
   python3 test_e2e.py
@@ -46,9 +45,8 @@ GORGIAS_API_KEY = os.environ.get("GORGIAS_API_KEY", "")
 GORGIAS_BASE = f"https://{GORGIAS_SUBDOMAIN}.gorgias.com/api"
 GORGIAS_AUTH = (GORGIAS_API_EMAIL, GORGIAS_API_KEY)
 
-# Live write tests are opt-in. Never keep production ticket/user IDs in source.
+# Live reads are opt-in. Never keep production ticket IDs in source.
 TEST_TICKET_ID = int(os.environ.get("TEST_TICKET_ID", "0"))
-GORGIAS_SENDER_ID = int(os.environ.get("GORGIAS_SENDER_ID", "0"))
 
 # MCP server URLs
 KB_MCP_URL = "http://127.0.0.1:8077/mcp"
@@ -184,62 +182,6 @@ def test_gorgias_read() -> None:
             fail_test("get_ticket_messages", f"status={resp.status_code}")
     except Exception as e:
         fail_test("get_ticket_messages", str(e))
-
-
-def test_gorgias_write() -> None:
-    section("5. Gorgias API Write (priority + internal note)")
-    if not (TEST_TICKET_ID and GORGIAS_SENDER_ID and GORGIAS_API_EMAIL and GORGIAS_API_KEY):
-        print("  SKIP: set TEST_TICKET_ID, GORGIAS_SENDER_ID, and credentials to opt into live writes")
-        return
-
-    # 5a. Set priority to low (it should already be low from earlier processing)
-    try:
-        resp = httpx.put(
-            f"{GORGIAS_BASE}/tickets/{TEST_TICKET_ID}",
-            json={"priority": "low"},
-            auth=GORGIAS_AUTH,
-            timeout=15,
-        )
-        if resp.status_code in (200, 202) and resp.json().get("priority") == "low":
-            pass_test("set ticket priority")
-        else:
-            fail_test("set ticket priority", f"status={resp.status_code} body={resp.text[:200]}")
-    except Exception as e:
-        fail_test("set ticket priority", str(e))
-
-    # 5b. Post a test internal note
-    test_note = f"E2E TEST NOTE — {datetime.now(timezone.utc).isoformat()} — this is an automated test, safe to ignore."
-    try:
-        resp = httpx.post(
-            f"{GORGIAS_BASE}/tickets/{TEST_TICKET_ID}/messages",
-            json={
-                "channel": "internal-note",
-                "action": "internal_note",
-                "public": False,
-                "sender": {"id": GORGIAS_SENDER_ID},
-                "body_text": test_note,
-            },
-            auth=GORGIAS_AUTH,
-            timeout=15,
-        )
-        data = resp.json()
-        msg_id = data.get("id")
-        if resp.status_code in (200, 201) and msg_id:
-            # Verify the note was posted with content
-            body_text = data.get("body_text", "")
-            if body_text and len(body_text) > 0:
-                pass_test("post internal note", f"msg_id={msg_id} body_len={len(body_text)}")
-            else:
-                # Some Gorgias versions return body_text empty but body_html populated
-                body_html = data.get("body_html", "")
-                if body_html:
-                    pass_test("post internal note", f"msg_id={msg_id} (body_html)")
-                else:
-                    fail_test("post internal note content", f"msg_id={msg_id} but body_text and body_html both empty")
-        else:
-            fail_test("post internal note", f"status={resp.status_code} body={resp.text[:200]}")
-    except Exception as e:
-        fail_test("post internal note", str(e))
 
 
 def test_processor_queue() -> None:
@@ -465,44 +407,9 @@ def test_webhook_e2e() -> None:
         fail_test("test data cleanup", str(e))
 
 
-def test_gorgias_writer_unit() -> None:
-    section("9. Gorgias Writer Unit Test")
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "webhook" / "src"))
-
-    try:
-        from gorgias_writer import GorgiasWriter
-
-        writer = GorgiasWriter()
-        if writer._check_auth():
-            pass_test("GorgiasWriter auth configured")
-        else:
-            fail_test("GorgiasWriter auth", "no credentials")
-            return
-
-        # Test posting a note with the correct channel format
-        test_note = f"GORGIAS WRITER TEST — {datetime.now(timezone.utc).isoformat()} — safe to ignore."
-        result = writer.post_internal_note(TEST_TICKET_ID, test_note)
-        if result and result.get("id"):
-            body_text = result.get("body_text", "")
-            if body_text and len(body_text) > 0:
-                pass_test("GorgiasWriter post_internal_note", f"msg_id={result['id']} body_len={len(body_text)}")
-            else:
-                body_html = result.get("body_html", "")
-                if body_html:
-                    pass_test("GorgiasWriter post_internal_note", f"msg_id={result['id']} (body_html only)")
-                else:
-                    fail_test("GorgiasWriter post_internal_note content", "body_text and body_html both empty — Gorgias may require body_html instead of body_text")
-        else:
-            fail_test("GorgiasWriter post_internal_note", "returned None")
-    except Exception as e:
-        fail_test("GorgiasWriter", str(e))
-
-
 def test_live_hermes() -> None:
-    section("10. Live Hermes Invocation (slow ~60s)")
-    # This tests the full pipeline: Hermes reads ticket, searches KB, writes to Gorgias
-    # We use a real ticket that was already processed, so the priority set will be idempotent
+    section("9. Live Read-Only Hermes Invocation (slow ~60s)")
+    # This tests that Hermes reads the ticket, searches KB, and returns a draft.
     try:
         prompt = (
             f"Process Buttons Bebe support ticket {TEST_TICKET_ID} autonomously.\n\n"
@@ -517,11 +424,12 @@ def test_live_hermes() -> None:
             f"2. buttonsbebe_kb: search_kb\n"
             f"3. buttonsbebe_redo: get_order, get_returns_for_order, get_return, list_recent_returns\n\n"
             f"Follow the ticket-processor skill workflow. Read the ticket, search KB, classify, "
-            f"set priority, draft reply (always draft, tag sensitive), post internal note, output JSON_RESULT.\n"
+            f"recommend priority, draft reply (always draft, tag sensitive), and output JSON_RESULT. "
+            f"Do not write to Gorgias or any file.\n"
             f"Be concise. Do not ask questions. Make your best judgment.\n\n"
             f'JSON_RESULT: {{"priority": "<critical|high|normal|low>", "reason": "<one sentence>", '
             f'"action": "<drafted|sensitive_draft|no_kb_match>", "notify_owner": <true|false>, '
-            f'"gorgias_priority_set": <true|false>, "note_posted": <true|false>}}'
+            f'"gorgias_priority_set": false, "note_posted": false}}'
         )
 
         result = subprocess.run(
@@ -590,29 +498,26 @@ def main() -> int:
 
     # Reload config after dotenv
     global GORGIAS_API_EMAIL, GORGIAS_API_KEY, GORGIAS_AUTH, WEBHOOK_SECRET
-    global TEST_TICKET_ID, GORGIAS_SENDER_ID
+    global TEST_TICKET_ID
     GORGIAS_API_EMAIL = os.environ.get("GORGIAS_API_EMAIL", GORGIAS_API_EMAIL)
     GORGIAS_API_KEY = os.environ.get("GORGIAS_API_KEY", GORGIAS_API_KEY)
     GORGIAS_AUTH = (GORGIAS_API_EMAIL, GORGIAS_API_KEY)
     WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", WEBHOOK_SECRET)
     TEST_TICKET_ID = int(os.environ.get("TEST_TICKET_ID", str(TEST_TICKET_ID)))
-    GORGIAS_SENDER_ID = int(os.environ.get("GORGIAS_SENDER_ID", str(GORGIAS_SENDER_ID)))
 
     test_webhook_health()
     test_mcp_servers()
     test_kb_search()
     test_gorgias_read()
-    test_gorgias_write()
     test_processor_queue()
     test_hermes_runner_unit()
     test_webhook_e2e()
-    test_gorgias_writer_unit()
 
     if "--live" in sys.argv:
         test_live_hermes()
     else:
         print(f"\n{'─' * 60}")
-        print("  10. Live Hermes Invocation — SKIPPED (use --live to enable, ~60s)")
+        print("  9. Live Read-Only Hermes Invocation — SKIPPED (use --live to enable, ~60s)")
         print(f"{'─' * 60}")
 
     # Summary
