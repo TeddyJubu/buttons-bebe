@@ -106,7 +106,7 @@ Documents the two integration modules as their own module + MCP server + service
 ### 2.1 Index builder — `kb/scripts/index_kb.py`
 
 - **Purpose:** (re)build the LanceDB search index from the markdown KB. Old index is overwritten each run, so it always matches current files.
-- **Flow (`main`):** `load_rows()` → `embed_passages()` for each chunk → `lancedb.connect(DB_DIR)` → `create_table(TABLE, schema=KBChunk, mode="overwrite")` → `table.add(rows)` → `create_fts_index("text", replace=True, use_tantivy=False)` (with a `TypeError` fallback for older LanceDB) — the keyword half of hybrid search.
+- **Flow (`main`):** a non-blocking lock prevents overlapping rebuilds; `load_rows()` → `embed_passages()` for each chunk → build the table and FTS index in a sibling staging directory → promote the completed directory with rollback to the prior `lancedb/` index on failure. Vector cardinality is checked before staging.
 - **Inputs/outputs:** in = markdown under the content folders; out = the `kb/lancedb/kb` table. **Env vars:** none.
 - **How it runs:** CLI. Invoked by `kb/update.sh` (`./.venv/bin/python scripts/index_kb.py`) and by `kb/sync-products.sh` after a product sync. The Node kb-admin `/reindex` route (see §5) shells out to `update.sh`.
 

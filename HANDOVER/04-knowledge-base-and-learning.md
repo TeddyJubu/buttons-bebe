@@ -118,8 +118,9 @@ Defined in `kb_lib.py`:
 
 1. `load_rows()` reads every indexed file, splits into `##` chunks, builds one `KBChunk` dict per chunk (id, file, title, category, status, source, tags, heading, `sensitive`, text).
 2. `embed_passages()` turns each chunk's text into a 384-d vector.
-3. `lancedb.connect(kb/lancedb)` → `create_table("kb", mode="overwrite")` (the whole index is rebuilt each run, so it always matches the files) → `table.add(rows)`.
-4. `table.create_fts_index("text", replace=True, use_tantivy=False)` builds the **keyword (BM25/full-text)** index — the other half of hybrid search. Falls back to the default tantivy path on older LanceDB via a `TypeError` guard.
+3. A non-blocking `.index_kb.lock` prevents overlapping rebuilds. The indexer connects to a sibling staging directory, creates the `kb` table, adds all rows, and builds the FTS index there.
+4. Only after the complete staged build succeeds is it promoted to `kb/lancedb/`; failures restore the prior directory. Empty input and embedding-count mismatches leave the existing index untouched.
+5. `table.create_fts_index("text", replace=True, use_tantivy=False)` builds the **keyword (BM25/full-text)** index — the other half of hybrid search. Falls back to the default tantivy path on older LanceDB via a `TypeError` guard.
 
 ### 2.4 How `search_kb.py` serves a query
 

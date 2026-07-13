@@ -32,6 +32,7 @@ _VPS-FULL-BACKUP-*/
 # Live service runtime state — never version or recover from the VPS
 webhook/data/
 processor/.processor.lock
+kb/.index_kb.lock
 whatsapp-connect/auth/
 whatsapp-connect/notify.json
 
