@@ -29,6 +29,7 @@ import shutil
 import tempfile
 import time
 from contextlib import contextmanager
+from collections.abc import Callable
 
 import requests
 
@@ -223,37 +224,32 @@ def _render_product(p: dict, variants: dict, pid: str) -> tuple[str, str]:
     return f"product-{handle}.md", body
 
 
-def _commit_staged(staged_dir: pathlib.Path, names: set[str]) -> None:
-    """Replace product files transactionally, restoring the old corpus on error."""
-    PRODUCTS_DIR.mkdir(parents=True, exist_ok=True)
-    old_files = sorted(PRODUCTS_DIR.glob("product-*.md"))
+def _commit_staged(staged_dir: pathlib.Path) -> tuple[pathlib.Path, bool]:
+    """Swap the staged product directory in and retain the previous corpus."""
+    PRODUCTS_DIR.parent.mkdir(parents=True, exist_ok=True)
     backup_dir = staged_dir.parent / "backup"
-    backup_dir.mkdir()
-    for old in old_files:
-        shutil.copy2(old, backup_dir / old.name)
-
-    replaced: list[pathlib.Path] = []
+    had_previous = PRODUCTS_DIR.exists()
     try:
-        for staged in sorted(staged_dir.glob("product-*.md")):
-            destination = PRODUCTS_DIR / staged.name
-            os.replace(staged, destination)
-            replaced.append(destination)
-        for old in old_files:
-            if old.name not in names:
-                old.unlink()
+        if had_previous:
+            os.replace(PRODUCTS_DIR, backup_dir)
+        os.replace(staged_dir, PRODUCTS_DIR)
     except Exception:
-        old_names = {old.name for old in old_files}
-        for destination in replaced:
-            backup = backup_dir / destination.name
-            if backup.exists():
-                shutil.copy2(backup, destination)
-            elif destination.name not in old_names and destination.exists():
-                destination.unlink()
-        for old in old_files:
-            backup = backup_dir / old.name
-            if backup.exists() and not old.exists():
-                shutil.copy2(backup, old)
+        if had_previous and backup_dir.exists() and not PRODUCTS_DIR.exists():
+            os.replace(backup_dir, PRODUCTS_DIR)
         raise
+    return backup_dir, had_previous
+
+
+def _restore_previous_products(backup_dir: pathlib.Path, had_previous: bool) -> None:
+    """Roll back a completed corpus swap after an index build failure."""
+    failed_dir = backup_dir.parent / "failed-products"
+    if PRODUCTS_DIR.exists():
+        os.replace(PRODUCTS_DIR, failed_dir)
+    if had_previous:
+        if not backup_dir.exists():
+            raise RuntimeError("cannot restore previous product corpus: backup missing")
+        os.replace(backup_dir, PRODUCTS_DIR)
+    shutil.rmtree(failed_dir, ignore_errors=True)
 
 
 def write_files(
@@ -262,6 +258,7 @@ def write_files(
     *,
     require_active: bool = False,
     allow_large_shrink: bool = False,
+    rebuild_index: Callable[[], None] | None = None,
 ) -> int:
     if not products:
         raise SystemExit("refusing to replace product corpus with an empty export")
@@ -307,7 +304,13 @@ def write_files(
             names.add(filename)
             (staged_dir / filename).write_text(body)
         with _index_lock():
-            _commit_staged(staged_dir, names)
+            backup_dir, had_previous = _commit_staged(staged_dir)
+            try:
+                if rebuild_index is not None:
+                    rebuild_index()
+            except BaseException:
+                _restore_previous_products(backup_dir, had_previous)
+                raise
         return len(names)
     finally:
         shutil.rmtree(staging_root, ignore_errors=True)
@@ -315,6 +318,8 @@ def write_files(
 
 def main():
     with _sync_lock():
+        from index_kb import rebuild_index_locked
+
         creds = load_creds()
         print(f"shop={creds['shop']} api={creds['ver']} filter='{creds['product_query']}'")
         tok = mint_token(creds["shop"], creds["cid"], creds["sec"])
@@ -333,8 +338,9 @@ def main():
             variants,
             require_active=require_active,
             allow_large_shrink=allow_large_shrink,
+            rebuild_index=rebuild_index_locked,
         )
-        print(f"wrote {n} product files to {PRODUCTS_DIR}")
+        print(f"wrote and indexed {n} product files from {PRODUCTS_DIR}")
 
 
 if __name__ == "__main__":

@@ -85,7 +85,8 @@ class TestIndexKB(unittest.TestCase):
             marker.write_text("keep")
             with self._patch_paths(root)[0], self._patch_paths(root)[1]:
                 with patch.object(index_kb, "load_rows", return_value=[]), patch.object(index_kb.lancedb, "connect") as connect:
-                    index_kb.main()
+                    with self.assertRaisesRegex(SystemExit, "last-known-good"):
+                        index_kb.main()
             connect.assert_not_called()
             self.assertEqual(marker.read_text(), "keep")
 

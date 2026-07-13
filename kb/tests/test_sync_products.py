@@ -113,6 +113,31 @@ class TestSyncProducts(unittest.TestCase):
             self.assertEqual(old.read_text(), "old corpus")
             self.assertFalse((products_dir / "product-blue-dress.md").exists())
 
+    def test_failed_rebuild_restores_previous_corpus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            products_dir = root / "products"
+            products_dir.mkdir()
+            old = products_dir / "product-existing.md"
+            old.write_text("old corpus")
+
+            def fail_rebuild() -> None:
+                self.assertTrue((products_dir / "product-red-dress.md").exists())
+                raise RuntimeError("simulated index failure")
+
+            with patch.object(sync_products, "PRODUCTS_DIR", products_dir), patch.object(
+                sync_products, "INDEX_LOCK_PATH", root / ".index_kb.lock"
+            ):
+                with self.assertRaisesRegex(RuntimeError, "index failure"):
+                    sync_products.write_files(
+                        {PRODUCT["id"]: PRODUCT},
+                        {},
+                        rebuild_index=fail_rebuild,
+                    )
+
+            self.assertEqual(old.read_text(), "old corpus")
+            self.assertFalse((products_dir / "product-red-dress.md").exists())
+
     def test_suspiciously_small_export_preserves_existing_corpus(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             products_dir = Path(tmp) / "products"

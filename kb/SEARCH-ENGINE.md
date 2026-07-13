@@ -58,8 +58,10 @@ don't hand-write these files.
   (`buttonsbebe-kb-sync.timer`) — it re-syncs, re-indexes, and reloads the service.
 - **Fails closed:** malformed/inactive records, orphan variants, an empty export,
   or a catalog retaining less than 75% of the current product files leave the
-  existing corpus untouched. After independently verifying an intentional large
-  catalog reduction, a one-off run may set
+  existing corpus untouched. The sync lock and index lock remain held through
+  the validated rebuild; if rebuilding fails, the previous product directory is
+  restored and the last-known-good index stays live. After independently
+  verifying an intentional large catalog reduction, a one-off run may set
   `SHOPIFY_ALLOW_LARGE_CATALOG_SHRINK=1`.
 - **Run it on demand:** `./sync-products.sh`  (from the KB folder).
 - **Check the schedule / last run:** `systemctl list-timers buttonsbebe-kb-sync.timer`
@@ -126,8 +128,9 @@ This KB is wired into Hermes as the `search_kb` tool, served by a small
   (Hermes config backups are at `~/.hermes/config.yaml.bak-*`.)
 
 Verified end-to-end: Hermes searches the KB on its own for Buttons Bebe questions,
-drafts grounded replies that cite the source file, and — for sensitive topics like
-refunds — escalates to a human instead of drafting, per the system instruction.
+drafts grounded replies that cite the source file. Sensitive topics like refunds
+still get a clearly marked safe draft; they are elevated for human review and are
+never sent or posted automatically.
 
 The older per-session (stdio) mode still exists as a fallback (`run_mcp.sh` with no
 env vars), but the always-on service is what's used because it's reliable every run.

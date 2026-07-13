@@ -1,7 +1,7 @@
 """Hermes headless runner — invokes Hermes in one-shot mode to process tickets.
 
 Uses `hermes --yolo -z "prompt"` to run the full ticket processing
-pipeline (KB search, classify, draft, post to Gorgias) autonomously.
+pipeline (read context, search KB, classify, and return a console draft).
 Parses the JSON_RESULT block from stdout for the job processor.
 
 Performance:
@@ -90,17 +90,14 @@ _FALLBACK_RESULT: dict[str, Any] = {
 
 
 def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
-                  customer_email: str, intents: list,
-                  gorgias_writes_enabled: bool = False) -> str:
+                  customer_email: str, intents: list) -> str:
     """Build the one-shot prompt for Hermes.
 
     Truncates very long messages to avoid prompt overflow, and flags
     empty messages for safe handling.
 
-    Hermes is always read-only. ``gorgias_writes_enabled`` remains in the
-    signature for compatibility with older callers, but cannot grant Hermes
-    write access. The draft is captured from stdout and shown in the console;
-    only a human-triggered console endpoint may send or post it.
+    Hermes is always read-only. The draft is captured from stdout and shown in
+    the console; only a human-triggered console endpoint may send or post it.
     """
     intents_str = ", ".join(intents) if intents else "none"
 
@@ -116,7 +113,6 @@ def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
         message_text = "[EMPTY MESSAGE — no customer text in body. " \
                        "Check if this is a survey, thank-you, or system email.]"
 
-    _ = gorgias_writes_enabled  # deprecated; intentionally cannot enable writes
     write_steps = (
         f"7. Stay READ-ONLY: do NOT use curl to PUT or POST, do NOT set Gorgias "
         f"priority or tags, and do NOT post an internal note or customer reply.\n"
@@ -155,7 +151,7 @@ def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
         f"1. buttonsbebe_gorgias: get_ticket, get_ticket_messages, "
         f"get_customer, search_customer (read-only)\n"
         f"2. buttonsbebe_kb: search_kb — searches policies, FAQs, "
-        f"4246 product files, 22 intents, exemplar tickets\n"
+        f"the current active product catalog, 22 intents, exemplar tickets\n"
         f"3. buttonsbebe_redo: get_order, get_returns_for_order, "
         f"get_return, list_recent_returns — order shipping/tracking + returns/RMA\n\n"
         f"Follow the ticket-processor skill workflow:\n"
@@ -262,7 +258,7 @@ def _build_prompt(ticket_id: int, message_text: str, ticket_subject: str,
         f"- Cancel order: Redo get_order (check shipped) → KB search_kb\n"
         f"- Order change/size: Redo get_order (check shipped) → KB search_kb\n"
         f"- Lost/not received: Redo get_order (tracking) → KB (SENSITIVE)\n"
-        f"- Product/sizing: KB search_kb (4246 products) → KB sizing guide\n"
+        f"- Product/sizing: KB search_kb (active product catalog) → KB sizing guide\n"
         f"- Policy/FAQ: KB search_kb only\n"
         f"- Urgent/rush: Redo get_order (shipped?) → KB search_kb (CRITICAL)\n"
         f"- Customer history: Gorgias get_customer (Shopify orders)\n"
@@ -335,7 +331,6 @@ def process_ticket_with_hermes(
     ticket_subject: str,
     customer_email: str,
     intents: list,
-    gorgias_writes_enabled: bool = False,
 ) -> dict[str, Any]:
     """Invoke Hermes headlessly to process a ticket.
 
@@ -345,9 +340,6 @@ def process_ticket_with_hermes(
         ticket_subject: Ticket subject line
         customer_email: Customer's email address
         intents: List of Gorgias intent name strings
-        gorgias_writes_enabled: Deprecated compatibility argument. Hermes remains
-            read-only regardless of its value. The draft is extracted from
-            <DRAFT>...</DRAFT> tags in stdout for the console.
 
     Returns:
         Dict with keys: priority, reason, action, notify_owner,
@@ -355,8 +347,7 @@ def process_ticket_with_hermes(
     """
     settings = get_settings()
     prompt = _build_prompt(ticket_id, message_text, ticket_subject,
-                           customer_email, intents,
-                           gorgias_writes_enabled=gorgias_writes_enabled)
+                           customer_email, intents)
 
     # --yolo auto-approves all tool calls without human confirmation.
     # This is safe because:
@@ -425,8 +416,7 @@ def process_ticket_with_hermes(
                   action=parsed["action"],
                   notify_owner=parsed["notify_owner"],
                   gorgias_priority_set=parsed["gorgias_priority_set"],
-                  note_posted=parsed["note_posted"],
-                  gorgias_writes_enabled=gorgias_writes_enabled)
+                  note_posted=parsed["note_posted"])
 
         # Store the raw output for debugging (first 500 chars)
         parsed["_raw_output_preview"] = stdout[:500]

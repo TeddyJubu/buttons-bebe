@@ -1,6 +1,6 @@
 ---
 name: ticket-processor
-description: "Headless ticket processing: read ticket, normalize message, search KB, check returns, classify priority, draft reply, post to Gorgias, output JSON result."
+description: "Headless read-only ticket processing: gather context, search KB, classify, and return a draft to the console."
 version: 2.0.0
 author: Buttons Bebe
 license: MIT
@@ -9,8 +9,6 @@ metadata:
   hermes:
     tags: [Customer-Support, Classification, Drafting, Headless, Buttons-Bebe]
     related_skills: [gorgias, support-agent]
-prerequisites:
-  envvars: [GORGIAS_SUBDOMAIN, GORGIAS_API_KEY, GORGIAS_API_EMAIL]
 ---
 
 # Buttons Bebe Headless Ticket Processor
@@ -100,7 +98,7 @@ decide which MCP tools to call and in what order:
 
 ### Product / sizing / availability
 "Do you have this in size X?" | "Is this available?" | "How does it run?"
-1. KB → search_kb("product name + size") — 4,246 product files
+1. KB → search_kb("product name + size") — current active product catalog
 2. KB → search_kb("sizing guide") — sizing policy, DO NOT GUESS
 
 ### Shipping policy / general FAQ
@@ -193,12 +191,12 @@ complaint.
 ### 3b. Handle empty or non-message emails
 
 If after cleaning, the message is empty or contains only:
-- A satisfaction survey link → classify as LOW, action: "escalated",
-  reason: "satisfaction survey — no customer question"
+- A satisfaction survey link → classify as LOW and draft: "No reply needed —
+  satisfaction survey with no customer question"
 - A "thank you" with no question → classify as LOW, draft a brief
   acknowledgment
-- Only an order confirmation (no customer text) → classify as LOW,
-  action: "escalated", reason: "order confirmation — no customer question"
+- Only an order confirmation (no customer text) → classify as LOW and draft:
+  "No reply needed — order confirmation with no customer question"
 
 ### 3c. Correct spelling and normalize phrasing
 
@@ -254,7 +252,7 @@ The KB contains:
 - FAQs derived from real tickets
 - 22 customer intent patterns with approved response templates
 - Exemplar solved tickets
-- 4,246 product files with sizes, prices, and availability
+- The current active product catalog with sizes, prices, and availability
 
 Review the results and their sensitive flags:
 - If results have `sensitive: true` → the topic is at least HIGH priority

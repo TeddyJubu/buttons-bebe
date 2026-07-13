@@ -24,8 +24,8 @@ except Exception:                      # never let the board break search
     def _notice_results(*_a, **_k):
         return []
 
-K = 5        # how many results to return
-POOL = 20    # how many to pull from each method before blending
+K = 5         # how many results to return
+POOL = 100    # deep enough to diversify repeated chunks across the 22 intents
 RRF_K = 60   # reciprocal-rank-fusion constant (a standard, safe default)
 
 
@@ -64,17 +64,18 @@ def _index_read_lock():
 
 
 def search(query: str, k: int = K) -> list[dict]:
+    candidate_pool = max(POOL, k * 20)
     with _index_read_lock():
         db = lancedb.connect(str(DB_DIR))
         table = db.open_table(TABLE)
 
         # 1) meaning search (vectors)
         qv = embed_query(query)
-        vec_hits = table.search(qv).metric("cosine").limit(POOL).to_list()
+        vec_hits = table.search(qv).metric("cosine").limit(candidate_pool).to_list()
 
         # 2) keyword search (full text / BM25)
         try:
-            kw_hits = table.search(query, query_type="fts").limit(POOL).to_list()
+            kw_hits = table.search(query, query_type="fts").limit(candidate_pool).to_list()
         except Exception:
             kw_hits = []   # if the keyword index isn't ready, fall back to meaning only
 

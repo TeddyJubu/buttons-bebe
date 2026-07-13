@@ -1,101 +1,48 @@
-# feedback/ — the Buttons Bebe learning loop
+# feedback/ — Buttons Bebe learning safety helpers
 
-Turns the human's real reply into knowledge the agent can reuse — **safely**.
-Three moves: **capture → review → promote**. Nothing here messages a customer, and
-nothing reaches the live KB without a human approving it.
+The live learning flow is **console capture → nightly masking/promotion → KB
+rebuild**. Nothing in this package sends a customer message or writes to
+Gorgias.
 
-## Why it's built this way (the one thing to understand)
+## Live path
 
-The search engine **does not index `kb/learned/`** on purpose (`kb/scripts/kb_lib.py`).
-So a captured reply sits inert until a human **promotes** it into `kb/tickets/`
-(which is indexed, and required to be PII-free). That human step is the quality gate
-*and* the PII gate. Automatic promotion is intentionally impossible.
+1. A human clicks Send, internal Note, or Request edit in the console.
+2. `webhook/src/bb_webhook/learning.py` creates a unique mode-0600
+   `KB/learned/lesson-*.md` packet and updates `_ledger.json` under a lock.
+3. `buttonsbebe-kb-learn.timer` runs at 03:30 UTC.
+4. `KB/scripts/auto_promote_learned.py` masks identifier patterns and the known
+   Gorgias customer name, writes a distinct confirmed
+   `KB/tickets/exemplar-learned-*.md`, and archives the raw lesson.
+5. `KB/learn-nightly.sh` rebuilds the validated index.
 
-## The pieces
+`KB/learned/` is never indexed. Promoted exemplars are searchable because they
+live in `KB/tickets/` with `status: confirmed` and `source: learned-auto`.
 
-| File | Job |
+## Current helpers
+
+| File | Purpose |
 |---|---|
-| `config.py` | env + KB paths + knobs (`FEEDBACK_*`). SHADOW by default. |
-| `gorgias_read.py` | read-only Gorgias client (GET only — no writes exist). |
-| `pairing.py` | find the (AI draft = internal note, human reply = public reply) pair; skip macros, multi-turn, empty, sensitive. |
-| `text_clean.py` | strip glm self-commentary tails + de-dupe repeated answers. |
-| `language.py` | flag non-English (e.g. Hebrew) so the similarity hint is suppressed. |
-| `similarity.py` | difflib ratio as a **display hint only — never a gate**. |
-| `pii.py` | PII **highlighter** (emails/phones/orders/addresses). Does **not** catch names. |
-| `store.py` | SQLite: high-water-mark cursor + processed-ticket ledger (no double-writes). |
-| `collector.py` | legacy capture: write `kb/learned/ticket-<id>.md` (review_pending); network polling is disabled by default. |
-| `../kb/scripts/review_learned.py` | the human gate: review + promote to `kb/tickets/`. |
-| `validate.py` | before/after retrieval check — the go-live proof. |
+| `pii.py` | Best-effort masking for emails, phones, orders, cards, tracking numbers, addresses, postal codes, URLs, known names, and greeting-shaped first names. |
+| `config.py` | Shared KB/learned/archive paths and legacy configuration. |
+| `text_clean.py` | Remove model commentary and repeated text. |
+| `language.py` | Language detection hints. |
+| `similarity.py` | Display-only similarity scoring. |
 
-## Run it
+PII masking is deliberately described as best-effort, not anonymous-by-proof.
+Operators should review and purge any unexpected personal information in an
+exemplar.
 
-Capture (read-only; safe to run repeatedly):
+## Retired rollback path
 
-```bash
-FEEDBACK_LEGACY_OPT_IN=1 python3 -m feedback.collector poll  # one bounded rollback pass
-python3 -m feedback.collector             # show the ledger
-```
+The old poll-based `feedback.collector`, pairing logic, and
+`processor/feedback_collector.py` are retained only for rollback investigation.
+They are disabled by default and are not used by the processor. Do not enable
+them as a second production learning path; doing so can duplicate or mis-pair
+lessons.
 
-Review + promote (the human gate):
+For current verification, run:
 
 ```bash
-python3 kb/scripts/review_learned.py list
-python3 kb/scripts/review_learned.py show <ticket_id>
-python3 kb/scripts/review_learned.py approve <ticket_id> --pii-cleared   # refuses without the flag
-python3 kb/scripts/review_learned.py reject <ticket_id> [--purge]
-# after editing the drafted exemplar(s) and setting status: confirmed:
-python3 kb/scripts/review_learned.py reindex
+python3 -m unittest feedback.tests.test_all feedback.tests.test_retirement -v
+python3 -m unittest discover -s kb/tests -v
 ```
-
-Prove it helped before going live:
-
-```bash
-python3 -m feedback.validate "do you ship to canada" "778899"
-```
-
-## Config (`.env` / env vars)
-
-```
-FEEDBACK_ENABLED=shadow          # shadow | live  (stay shadow until validated)
-FEEDBACK_BOT_EMAIL=              # the Gorgias user that posts AI internal notes — set this!
-FEEDBACK_BOT_USER_ID=            # alternative to email
-FEEDBACK_CAPTURE_MULTI_TURN=0    # v1 skips multi-message threads
-FEEDBACK_MACRO_FILE=feedback/macro_signatures.txt
-FEEDBACK_POLL_OVERLAP_SECONDS=120
-FEEDBACK_KB_ROOT=/root/Buttonsbebe Agent/KB     # defaults to repo kb/
-FEEDBACK_STATE_DB=/root/Buttonsbebe Agent/processor/feedback_state.db
-FEEDBACK_LEGACY_OPT_IN=0             # required for the superseded poller
-```
-
-Set `FEEDBACK_BOT_EMAIL` to the agent's Gorgias identity — it makes "which internal
-note is the AI draft" exact instead of a guess.
-
-## Deploy on the VPS
-
-1. Copy `feedback/` next to `processor/` under `/root/Buttonsbebe Agent/`, and
-   `review_learned.py` into `KB/scripts/`.
-2. Set the `FEEDBACK_*` vars in the main `.env`.
-3. **Spike first (task 0):** `get_ticket_messages` on 2–3 resolved tickets and
-   confirm the `public` / `from_agent` fields behave as assumed here. Adjust
-   `pairing.is_internal_note` / `is_public_agent_reply` if the payload differs.
-4. Do not add a systemd timer. The poller is superseded and fail-closed. If a
-   rollback test is explicitly approved, run one bounded pass with
-   `FEEDBACK_LEGACY_OPT_IN=1` and inspect `kb/learned/`.
-5. Keep production learning on the console-action capture + nightly promotion.
-
-## Do NOT flip CLAUDE.md §8 STUB→LIVE until
-
-- capture verified on **10+ real tickets** across easy/hard paths (not 3), **and**
-- `feedback/validate.py` shows a promoted exemplar is actually retrieved for its
-  own question (M5). Plumbing passing is not proof the agent improved.
-
-## Known limits (honest list)
-
-- **Names are not masked** by `pii.py` — the human must read every promotion. Hebrew
-  names especially won't match anything.
-- **"Human derived from the draft" is unprovable** from data alone; the human gate
-  is what catches from-scratch/off-topic replies. Similarity is only a hint.
-- **Retrieval poisoning:** promoting many similar tickets can skew drafts. Cap
-  promotions per topic and periodically review what `kb/tickets/` retrieves.
-- Archived (rejected) packets still hold raw text — use `--purge` if PII-at-rest
-  matters.

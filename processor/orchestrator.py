@@ -105,25 +105,6 @@ def _save_result_to_webhook(
                   ticket_id=ticket_id)
 
 
-def _check_gorgias_writes_enabled() -> bool:
-    """Check the gorgias_writes_enabled setting from the webhook API.
-
-    Returns True if Gorgias writes are enabled, False if disabled (read-only mode).
-    Defaults to False (disabled) for safety during testing.
-    """
-    import urllib.request
-    url = "http://127.0.0.1:8000/dashboard/api/settings/gorgias_writes_enabled"
-    try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
-            value = data.get("value", "false").strip().lower()
-            return value == "true"
-    except Exception as exc:
-        log_event(logger, "WARNING",
-                  f"Failed to check gorgias_writes_enabled setting — defaulting to False: {exc}")
-        return False
-
 # ── Globals ────────────────────────────────────────────────
 _shutdown = False
 _lock_fd: int | None = None
@@ -173,7 +154,7 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
     1. Read the ticket from Gorgias
     2. Search the KB
     3. Classify priority (CRITICAL/HIGH/NORMAL/LOW)
-    4. Set Gorgias priority
+    4. Recommend a review priority in its returned result
     5. Draft a reply (always draft — sensitive topics get [SENSITIVE] tag)
     6. Return the draft for the console Ticket feed; perform no Gorgias write
     7. Return JSON_RESULT
@@ -215,9 +196,6 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
               det_sensitive=det_result["sensitive"],
               det_reason=det_result["reason"])
 
-    # Check if Gorgias writes are enabled (dashboard toggle)
-    gorgias_writes_enabled = _check_gorgias_writes_enabled()
-
     # Invoke Hermes headlessly
     hermes_result = process_ticket_with_hermes(
         ticket_id=ticket_id,
@@ -225,7 +203,6 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
         ticket_subject=ticket_subject,
         customer_email=customer_email,
         intents=intent_names,
-        gorgias_writes_enabled=gorgias_writes_enabled,
     )
 
     result["priority"] = hermes_result.get("priority", "high")

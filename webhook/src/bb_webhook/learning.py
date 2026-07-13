@@ -12,6 +12,7 @@ written 0600. Masking happens at promotion (auto_promote_learned.py).
 from __future__ import annotations
 
 import datetime
+import fcntl
 import json
 import os
 import pathlib
@@ -32,7 +33,7 @@ LEDGER = LEARNED_DIR / "_ledger.json"  # underscore => never indexed
 
 
 def _now() -> str:
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
 
 
 def _write_unique_lesson(ticket_id: object, content: str) -> pathlib.Path:
@@ -57,21 +58,41 @@ def _write_unique_lesson(ticket_id: object, content: str) -> pathlib.Path:
 
 
 def _bump_ledger(kind: str, edited: bool) -> None:
+    temp_path: pathlib.Path | None = None
     try:
         LEARNED_DIR.mkdir(parents=True, exist_ok=True)
-        data = {}
-        if LEDGER.exists():
-            data = json.loads(LEDGER.read_text() or "{}")
-        data["total"] = data.get("total", 0) + 1
-        data[kind] = data.get(kind, 0) + 1
-        if kind == "sent":
-            data["edited" if edited else "unchanged"] = (
-                data.get("edited" if edited else "unchanged", 0) + 1
+        lock_path = LEDGER.with_suffix(LEDGER.suffix + ".lock")
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(lock_fd, "r+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            data = {}
+            if LEDGER.exists():
+                loaded = json.loads(LEDGER.read_text(encoding="utf-8") or "{}")
+                if isinstance(loaded, dict):
+                    data = loaded
+            data["total"] = data.get("total", 0) + 1
+            data[kind] = data.get(kind, 0) + 1
+            if kind == "sent":
+                key = "edited" if edited else "unchanged"
+                data[key] = data.get(key, 0) + 1
+            data["updated"] = _now()
+
+            temp_path = LEDGER.with_name(
+                f".{LEDGER.name}.{os.getpid()}.{secrets.token_hex(6)}.tmp"
             )
-        data["updated"] = _now()
-        LEDGER.write_text(json.dumps(data))
+            fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, LEDGER)
+            temp_path = None
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     except Exception:
         pass
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,

@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -93,6 +94,17 @@ class LearningPromotionTests(unittest.TestCase):
         self.assertNotIn("260291615", combined)
         self.assertTrue(all("260291615" not in path.name for path in exemplars))
         self.assertEqual(len(list(self.archive.glob("lesson-*.md"))), 2)
+
+    def test_concurrent_actions_do_not_lose_ledger_totals(self) -> None:
+        actions = [("sent", index % 2 == 0) for index in range(40)]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda item: learning._bump_ledger(*item), actions))
+
+        stats = learning.ledger()
+        self.assertEqual(stats["total"], 40)
+        self.assertEqual(stats["sent"], 40)
+        self.assertEqual(stats["edited"], 20)
+        self.assertEqual(stats["unchanged"], 20)
 
 
 class KnownValueMaskingTests(unittest.TestCase):

@@ -61,7 +61,11 @@ fi
 "$PYTHON" -c 'import sys,types,unittest; requests=types.ModuleType("requests"); requests.get=lambda *a,**k: None; requests.post=lambda *a,**k: None; sys.modules["requests"]=requests; names=["feedback.tests.test_all","feedback.tests.test_retirement"]; suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(n) for n in names); result=unittest.TextTestRunner(verbosity=1).run(suite); raise SystemExit(not result.wasSuccessful())'
 "$PYTHON" -m unittest discover -s kb/tests -v
 "$PYTHON" -m unittest discover -s deploy/tests -v
-"$PROCESSOR_PYTHON" -m unittest processor.test_whatsapp_notifier processor.test_feedback_retirement -v
+"$PROCESSOR_PYTHON" -m unittest \
+  processor.test_whatsapp_notifier \
+  processor.test_feedback_retirement \
+  processor.test_hermes_readonly_prompt \
+  -v
 
 node --check whatsapp-connect/server.js
 node --test whatsapp-connect/test/security.test.js

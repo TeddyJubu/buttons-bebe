@@ -4,6 +4,7 @@ import io
 import json
 import os
 import sys
+import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import call, patch
@@ -112,3 +113,11 @@ def test_unexpected_error_is_fail_soft_and_bounded() -> None:
 
     assert urlopen.call_count == 4
     assert sleep.call_args_list == [call(2), call(5), call(10)]
+
+
+def load_tests(_loader, _tests, _pattern):
+    """Expose the function-style cases to the repository's unittest gate."""
+    names = [name for name in globals() if name.startswith("test_")]
+    return unittest.TestSuite(
+        unittest.FunctionTestCase(globals()[name]) for name in sorted(names)
+    )

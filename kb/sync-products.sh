@@ -5,7 +5,5 @@ set -e
 cd "$(dirname "$0")"
 echo "[$(date -u +%FT%TZ)] product sync starting"
 ./.venv/bin/python scripts/sync_products.py
-echo "[$(date -u +%FT%TZ)] re-indexing..."
-./.venv/bin/python scripts/index_kb.py
 systemctl restart buttonsbebe-kb-mcp 2>/dev/null || true
 echo "[$(date -u +%FT%TZ)] product sync done"

@@ -92,6 +92,19 @@ class SearchDiversificationTests(unittest.TestCase):
             ],
         )
 
+    def test_candidate_pool_reaches_intent_beyond_twenty_duplicate_chunks(self) -> None:
+        rows = [
+            *(hit(f"repeat-{index}", "policies/repeated.md") for index in range(40)),
+            hit("intent-17", "intents/intent-17-when-will-order-ship.md"),
+        ]
+
+        results = self._search(rows, k=2)
+
+        self.assertEqual(
+            [result["file"] for result in results],
+            ["policies/repeated.md", "intents/intent-17-when-will-order-ship.md"],
+        )
+
     def test_second_chunks_fill_remaining_slots_after_unique_files(self) -> None:
         rows = [
             hit("returns-1", "policies/returns.md"),

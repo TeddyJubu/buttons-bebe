@@ -120,42 +120,48 @@ def _validate_staged_table(table, expected_rows: list[dict]) -> None:
         )
 
 
+def rebuild_index_locked() -> None:
+    """Build and promote an index while the caller holds ``_index_lock``."""
+    rows = [dict(row) for row in load_rows()]
+    if not rows:
+        raise SystemExit(
+            "No content found; refusing to replace the last-known-good index."
+        )
+
+    print(f"Reading {len(rows)} chunks from your content ...")
+    print("Turning text into search fingerprints (first run downloads the model)...")
+    vectors = embed_passages([r["text"] for r in rows])
+    if len(vectors) != len(rows):
+        raise SystemExit(f"embedding count mismatch: rows={len(rows)} vectors={len(vectors)}")
+    for row, vec in zip(rows, vectors):
+        row["vector"] = vec
+
+    staging_root = pathlib.Path(tempfile.mkdtemp(prefix=".lancedb-staging-", dir=DB_DIR.parent))
+    try:
+        db = lancedb.connect(str(staging_root))
+        table = db.create_table(TABLE, schema=KBChunk, mode="overwrite")
+        table.add(rows)
+
+        # keyword (full-text) index -- the other half of hybrid search
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                table.create_fts_index("text", replace=True, use_tantivy=False)
+            except TypeError:
+                table.create_fts_index("text", replace=True)
+
+        _validate_staged_table(table, rows)
+        _promote(staging_root)
+    finally:
+        if staging_root.exists():
+            shutil.rmtree(staging_root, ignore_errors=True)
+
+    print(f"Done. Indexed {len(rows)} chunks into {DB_DIR}/{TABLE}.")
+
+
 def main() -> None:
     with _index_lock():
-        rows = [dict(row) for row in load_rows()]
-        if not rows:
-            print("No content found. Add some .md files to the content folders, then re-run.")
-            return
-
-        print(f"Reading {len(rows)} chunks from your content ...")
-        print("Turning text into search fingerprints (first run downloads the model)...")
-        vectors = embed_passages([r["text"] for r in rows])
-        if len(vectors) != len(rows):
-            raise SystemExit(f"embedding count mismatch: rows={len(rows)} vectors={len(vectors)}")
-        for row, vec in zip(rows, vectors):
-            row["vector"] = vec
-
-        staging_root = pathlib.Path(tempfile.mkdtemp(prefix=".lancedb-staging-", dir=DB_DIR.parent))
-        try:
-            db = lancedb.connect(str(staging_root))
-            table = db.create_table(TABLE, schema=KBChunk, mode="overwrite")
-            table.add(rows)
-
-            # keyword (full-text) index -- the other half of hybrid search
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                try:
-                    table.create_fts_index("text", replace=True, use_tantivy=False)
-                except TypeError:
-                    table.create_fts_index("text", replace=True)
-
-            _validate_staged_table(table, rows)
-            _promote(staging_root)
-        finally:
-            if staging_root.exists():
-                shutil.rmtree(staging_root, ignore_errors=True)
-
-        print(f"Done. Indexed {len(rows)} chunks into {DB_DIR}/{TABLE}.")
+        rebuild_index_locked()
 
 
 if __name__ == "__main__":
