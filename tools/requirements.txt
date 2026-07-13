@@ -1,0 +1,4 @@
+# Shared dependencies for the read-only Redo and Gorgias MCP services.
+# Keep this environment separate from the KB embedding stack.
+mcp==1.26.0
+requests==2.32.4

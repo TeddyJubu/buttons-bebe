@@ -5,6 +5,10 @@ always-on service, its own port, and its own Hermes tool. They share one small
 Python environment (`tools/.venv`) and one helper (`_common.py`) that reads the
 agent `.env`. Everything here is **read-only** (GET requests only, no writes).
 
+Set up that environment from a clean checkout with `./setup.sh`. The pinned
+runtime dependencies live in `requirements.txt`; do not rely on packages from a
+different service's virtual environment.
+
 ## Modules
 
 | Module  | File           | Port | systemd service           | Hermes name          | Status |

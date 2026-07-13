@@ -65,7 +65,9 @@ Content is plain markdown; a build step indexes it into a LanceDB hybrid index (
 |---|---|
 | `kb/SEARCH-ENGINE.md` | How the hybrid (keyword + local embeddings) search works. |
 | `kb/hermes-SOUL-buttonsbebe-addition.md` | The block appended to Hermes' `SOUL.md` for this store. |
-| `kb/requirements.txt` | Python deps for the KB scripts/MCP. |
+| `kb/requirements.txt` | Pinned Python deps for the KB scripts, Shopify sync, shadow learning, and KB MCP. |
+| `tools/requirements.txt` | Pinned Python deps for the Redo and Gorgias MCP services. |
+| `tools/setup.sh` | Creates the isolated `tools/.venv` from its manifest. |
 | `kb/intents/` | **22** intent playbooks (`intent-01..22-*.md`) — canned handling per common request. |
 | `kb/faq/` | 5 customer-facing FAQ docs (shipping, returns, sizing, brands, order-changes). |
 | `kb/policies/` | 17 policy docs (returns/refunds, shipping, package protection, escalation, sizing, etc.) — the factual ground truth. |

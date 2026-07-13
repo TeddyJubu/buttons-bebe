@@ -1,6 +1,9 @@
-# The knowledge base's search engine. Everything runs locally on the server --
-# no API keys, no ongoing cost. Installed into KB/.venv by setup.sh.
-# Versions are pinned to the ones we tested, so a reinstall never surprises you.
+# The knowledge base search engine, MCP service, Shopify sync, and shadow
+# learning scripts. Everything runs locally on the server. Installed into
+# KB/.venv by setup.sh.
 lancedb==0.34.0
 fastembed==0.8.0
-python-frontmatter>=1.3
+python-frontmatter==1.3.0
+mcp==1.26.0
+requests==2.32.4
+PyYAML==6.0.3

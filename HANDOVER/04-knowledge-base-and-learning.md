@@ -163,8 +163,15 @@ Transport is chosen by env var `KB_MCP_TRANSPORT`:
 ```
 lancedb==0.34.0
 fastembed==0.8.0
-python-frontmatter>=1.3
+python-frontmatter==1.3.0
+mcp==1.26.0
+requests==2.32.4
+PyYAML==6.0.3
 ```
+
+The KB venv also runs the Shopify product sync and the shadow learning scripts,
+so `requests`, `PyYAML`, and the Python MCP SDK are declared here rather than
+being assumed to come from the separate `tools/.venv`.
 
 ### 2.7 systemd units for the KB (in `kb/`)
 
