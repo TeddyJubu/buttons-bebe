@@ -10,6 +10,7 @@ human-gated step (kb/scripts/review_learned.py).
 from __future__ import annotations
 
 import datetime
+import os
 import pathlib
 
 import yaml
@@ -125,6 +126,16 @@ def process_ticket(ticket_id: int, messages: list[dict], ticket: dict | None = N
 def run_poll(limit: int = 50) -> dict:
     """One poll pass: pull tickets updated since the cursor, process new ones,
     advance the cursor. Read-only against Gorgias; writes only local files/ledger."""
+    if os.environ.get(config.LEGACY_OPT_IN_ENV) != "1":
+        return {
+            "scanned": 0,
+            "captured": 0,
+            "cursor": None,
+            "outcomes": [],
+            "disabled": True,
+            "reason": "legacy_feedback_disabled",
+        }
+
     cursor = store.get_cursor()
     if cursor and config.POLL_OVERLAP_SECONDS:
         # step the cursor back a little so boundary tickets are never missed

@@ -91,6 +91,11 @@ STATE_DB = pathlib.Path(_env.get("FEEDBACK_STATE_DB", str(PKG_DIR / "feedback_st
 # --------------------------------------------------------------------------- #
 # Behaviour knobs
 # --------------------------------------------------------------------------- #
+# The old poll-based collector is superseded by console-action learning. Keep
+# its network entry point disabled unless an operator explicitly opts in for a
+# bounded rollback test.
+LEGACY_OPT_IN_ENV = "FEEDBACK_LEGACY_OPT_IN"
+
 # SHADOW mode: the collector still runs and writes learned/ files, but this flag is
 # a reminder that NOTHING reaches the live KB until a human promotes it AND we have
 # a passing before/after check. Do NOT flip CLAUDE.md STUB->LIVE until validated.

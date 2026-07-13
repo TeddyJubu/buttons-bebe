@@ -13,6 +13,7 @@ Performance:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -479,6 +480,16 @@ def process_agent_reply_with_hermes(
     4. Save the agent's version to KB/learned/ as a learned example
     5. Output JSON result
     """
+    if os.environ.get("FEEDBACK_LEGACY_OPT_IN") != "1":
+        log_event(
+            logger,
+            "WARNING",
+            "Legacy Hermes feedback helper disabled; use console-action learning",
+            ticket_id=ticket_id,
+            action="legacy_feedback_disabled",
+        )
+        return {"action": "disabled", "ticket_id": ticket_id}
+
     prompt = (
         f"Process a Buttons Bebe agent reply for the feedback/learning loop.\n\n"
         f"Ticket ID: {ticket_id}\n"
@@ -552,7 +563,6 @@ def process_agent_reply_with_hermes(
                 return parsed
 
         # No JSON — check if the file was created anyway
-        import os
         learned_path = f"/root/Buttonsbebe Agent/KB/learned/ticket-{ticket_id}.md"
         if os.path.exists(learned_path):
             log_event(logger, "INFO", "Feedback loop saved learned file",

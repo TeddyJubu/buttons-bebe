@@ -23,7 +23,7 @@ So a captured reply sits inert until a human **promotes** it into `kb/tickets/`
 | `similarity.py` | difflib ratio as a **display hint only — never a gate**. |
 | `pii.py` | PII **highlighter** (emails/phones/orders/addresses). Does **not** catch names. |
 | `store.py` | SQLite: high-water-mark cursor + processed-ticket ledger (no double-writes). |
-| `collector.py` | capture: write `kb/learned/ticket-<id>.md` (review_pending). |
+| `collector.py` | legacy capture: write `kb/learned/ticket-<id>.md` (review_pending); network polling is disabled by default. |
 | `../kb/scripts/review_learned.py` | the human gate: review + promote to `kb/tickets/`. |
 | `validate.py` | before/after retrieval check — the go-live proof. |
 
@@ -32,7 +32,7 @@ So a captured reply sits inert until a human **promotes** it into `kb/tickets/`
 Capture (read-only; safe to run repeatedly):
 
 ```bash
-python3 -m feedback.collector poll        # one poll pass
+FEEDBACK_LEGACY_OPT_IN=1 python3 -m feedback.collector poll  # one bounded rollback pass
 python3 -m feedback.collector             # show the ledger
 ```
 
@@ -64,6 +64,7 @@ FEEDBACK_MACRO_FILE=feedback/macro_signatures.txt
 FEEDBACK_POLL_OVERLAP_SECONDS=120
 FEEDBACK_KB_ROOT=/root/Buttonsbebe Agent/KB     # defaults to repo kb/
 FEEDBACK_STATE_DB=/root/Buttonsbebe Agent/processor/feedback_state.db
+FEEDBACK_LEGACY_OPT_IN=0             # required for the superseded poller
 ```
 
 Set `FEEDBACK_BOT_EMAIL` to the agent's Gorgias identity — it makes "which internal
@@ -77,8 +78,10 @@ note is the AI draft" exact instead of a guess.
 3. **Spike first (task 0):** `get_ticket_messages` on 2–3 resolved tickets and
    confirm the `public` / `from_agent` fields behave as assumed here. Adjust
    `pairing.is_internal_note` / `is_public_agent_reply` if the payload differs.
-4. Run `python3 -m feedback.collector poll` by hand; inspect `kb/learned/`.
-5. Add a systemd timer (every ~10 min) once you trust it — see the sprint plan.
+4. Do not add a systemd timer. The poller is superseded and fail-closed. If a
+   rollback test is explicitly approved, run one bounded pass with
+   `FEEDBACK_LEGACY_OPT_IN=1` and inspect `kb/learned/`.
+5. Keep production learning on the console-action capture + nightly promotion.
 
 ## Do NOT flip CLAUDE.md §8 STUB→LIVE until
 

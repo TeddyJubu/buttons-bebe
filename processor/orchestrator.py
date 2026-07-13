@@ -53,7 +53,7 @@ from bb_webhook.database import (  # noqa: E402
 
 from config import get_settings  # noqa: E402
 from classifier import classify as deterministic_classify, IMMEDIATE, HIGH, NORMAL  # noqa: E402
-from hermes_runner import process_ticket_with_hermes, process_agent_reply_with_hermes  # noqa: E402
+from hermes_runner import process_ticket_with_hermes  # noqa: E402
 from logging_setup import get_logger, setup_logging, log_event  # noqa: E402
 from whatsapp_notifier import send_whatsapp  # noqa: E402
 

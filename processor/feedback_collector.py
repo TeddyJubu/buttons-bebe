@@ -14,6 +14,7 @@ the feedback loop:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,16 @@ from config import get_settings
 from logging_setup import get_logger, log_event
 
 logger = get_logger(__name__)
+
+# Retained only for backwards-compatible imports from older VPS snapshots.
+# The live learning path is console-action capture plus nightly promotion.
+# Keep this legacy hook fail-closed unless an operator deliberately enables it
+# for a bounded rollback test.
+LEGACY_FEEDBACK_OPT_IN = "FEEDBACK_LEGACY_OPT_IN"
+
+
+def _legacy_opted_in() -> bool:
+    return os.environ.get(LEGACY_FEEDBACK_OPT_IN) == "1"
 
 
 def process_agent_reply(
@@ -37,6 +48,16 @@ def process_agent_reply(
         True if the agent reply was captured, False on error or if
         no previous AI draft existed.
     """
+    if not _legacy_opted_in():
+        log_event(
+            logger,
+            "WARNING",
+            "Legacy feedback collector disabled; use console-action learning",
+            ticket_id=payload.get("ticket_id"),
+            action="legacy_feedback_disabled",
+        )
+        return False
+
     ticket_id = payload.get("ticket_id")
     message_text = payload.get("message_text", "")
     author_email = payload.get("author_email", "")

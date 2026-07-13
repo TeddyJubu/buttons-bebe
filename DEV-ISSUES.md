@@ -37,12 +37,13 @@ Two sections: **A. Open issues to fix**, then **B. Already fixed (context only)*
    - Fix: implement the planned IMMEDIATE/HIGH/NORMAL classifier (refunds, chargebacks,
      disputes, damaged/wrong/missing items, cancellations, angry customers → IMMEDIATE).
 
-4. **`feedback_collector.py` is a STUB (logs only).**
+4. **`feedback_collector.py` is a retired STUB (logs only).**
    - Where: `processor/feedback_collector.py`.
    - Problem: the "learn from the human's actual reply → `KB/learned/ticket-<id>.md`" loop
      doesn't store anything yet.
-   - Fix: implement it (fetch the agent's real reply from Gorgias, find the prior AI draft,
-     save the human version into `KB/learned/`).
+   - Fix/status: the old path is superseded by console-action learning. Its processor
+     hook, Hermes helper, and standalone poll command are now fail-closed; no timer
+     should be installed. Use `FEEDBACK_LEGACY_OPT_IN=1` only for a bounded rollback test.
 
 5. **Draft cleanup — the model leaks trailing self-commentary / duplicates the answer.**
    - Where: happens in the Hermes output; cleanest place to fix is `processor/hermes_runner.py`
