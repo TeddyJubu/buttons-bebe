@@ -133,6 +133,12 @@ class DeploymentGuardrailTests(unittest.TestCase):
         self.assertIn("--no-same-owner --no-same-permissions", source)
         self.assertIn("--no-specials --no-devices", source)
 
+    def test_readiness_retries_do_not_trigger_the_global_rollback_trap(self) -> None:
+        source = RECEIVER.read_text(encoding="utf-8")
+        readiness = source.split("readiness_ok() (", 1)[1].split("\n)", 1)[0]
+        self.assertIn("trap - ERR", readiness)
+        self.assertIn("curl --fail", readiness)
+
     def test_checkout_and_sudo_do_not_persist_or_prompt_for_credentials(self) -> None:
         workflow = (ROOT / ".github/workflows/deploy-production.yml").read_text(
             encoding="utf-8"

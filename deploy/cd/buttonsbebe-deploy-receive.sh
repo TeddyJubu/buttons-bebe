@@ -217,7 +217,11 @@ for timer in "${maintenance_timers[@]}"; do
   systemctl start "$timer"
 done
 
-readiness_ok() {
+readiness_ok() (
+  # Startup failures are expected while services warm up. Keep the global ERR
+  # rollback trap out of this probe subprocess; the caller decides after all
+  # bounded attempts have been exhausted.
+  trap - ERR
   local service whatsapp_state
   for service in "${services[@]}"; do
     systemctl is-active --quiet "$service" || return 1
@@ -231,7 +235,7 @@ readiness_ok() {
   [[ "$whatsapp_state" == "connected" ]] || return 1
   (cd "$live_root/KB" && \
     ./.venv/bin/python scripts/search_kb.py "size guide" >/dev/null) || return 1
-}
+)
 
 ready=0
 for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
