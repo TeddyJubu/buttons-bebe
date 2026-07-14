@@ -1,41 +1,45 @@
-# secrets
+# Secrets
 .env
-
-# Ticket exports — contain customer PII, never commit
-data/
-
-# KB vault exemplars — derived from real tickets (PII-redacted but confidential)
-build/hermes/kb-rag/vault/exemplars/
-
-# Hermes runtime secrets / local env files
+.env.*
+!.env.example
 **/.env
 *.env.local
+.env.bak-*
+config.json
+config.local.json
+secrets.json
+*.pem
+*.key
 
-# Python caches
+# Ticket exports and confidential KB artifacts
+data/
+exports/
+ticket_contexts/
+backups/
+build/hermes/kb-rag/vault/exemplars/
+
+# Python
 __pycache__/
 *.pyc
 **/*.egg-info/
-
-# Full VPS backup — contains plaintext secrets, never commit
-_VPS-FULL-BACKUP-*/
-
-# local .env backups (contain secrets)
-.env.bak-*
-
-# OS cruft
-.DS_Store
-
-# node/venv if ever present locally
-**/node_modules/
+.venv/
+venv/
 **/.venv/
 
-# Live service runtime state — never version or recover from the VPS
+# Node
+**/node_modules/
+
+# Runtime data
+*.db
+*.sqlite*
+webhook_events.jsonl
+*.jsonl
+*.log
 webhook/data/
 processor/.processor.lock
 kb/.index_kb.lock
 kb/.index_kb.promote.lock
 kb/.products-sync.lock
-# Nightly, masked ticket-derived learning artifacts (runtime data)
 kb/tickets/exemplar-learned-*.md
 whatsapp-connect/auth/
 whatsapp-connect/notify.json
@@ -51,3 +55,11 @@ hermes/logs/
 hermes/platforms/
 hermes/*cache*
 hermes/processes.json
+
+# Full VPS backup — contains plaintext secrets, never commit
+_VPS-FULL-BACKUP-*/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

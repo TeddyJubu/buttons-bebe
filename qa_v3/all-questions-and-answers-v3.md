@@ -1,0 +1,1139 @@
+# Buttons Bebe QA v3 — All Questions & Answers
+
+**Date:** 2026-06-29 · **Model:** deepseek-v4-flash:cloud · **Queries:** 30 (20 order-specific, 10 policy)
+
+Both systems tested with identical inputs and mock Shopify order context (post-fix run).
+
+---
+
+## Q01: Where is my order (unfulfilled)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Where is my order?
+- **Email:** wheresit@example.com
+- **Message:** Hi, I placed an order a couple days ago and haven't heard anything. Where is it / when will it ship?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out. your order #1001 (floral onesie) is still being prepped — orders usually ship within 24–48 hours, so it should be on its way soon. after that, delivery time depends on the shipping method you picked at checkout. let us know if you have any other questions!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** SHIPPING
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Thanks for reaching out. Your order #1001 for the Floral Onesie is currently in processing — orders typically ship within 24–48 hours, so it should be on its way soon. Once it ships, you'll receive a tracking number by email. Please also check your spam or junk folder if you don't see it. We appreciate your patience!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q02: Has my order shipped (fulfilled+tracking)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Has my order shipped yet?
+- **Email:** shipped@example.com
+- **Message:** Can you tell me if my order has shipped, and if so the tracking?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! your order has shipped 🎉 here's the tracking: https://www.ups.com/track?tracknum=1Z999AA10123456784
+> 
+> let us know if you need anything else!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Your order has shipped, and here's your tracking number: **1Z999AA10123456784**. You can follow its journey with UPS at this link: https://www.ups.com/track?tracknum=1Z999AA10123456784. Thanks for choosing Buttons Bebe! 💛
+> 
+> — The Buttons Bebe Team
+
+---
+
+## Q03: Tracking number request
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Tracking number please
+- **Email:** tracknum@example.com
+- **Message:** Could you send me the tracking number for my recent order? I want to follow it.
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! your order #1003 (velour sleepers) shipped via usps — here's the tracking link so you can follow it: https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200881234567890
+> 
+> let us know if anything else comes up! 😊
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Your order #1003 has been shipped and is on its way. You can track it using this USPS link: [USPS Tracking](https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200881234567890). Enjoy your Velour Sleepers! If you have any other questions, we're here to help. 💛 — The Buttons Bebe Team
+
+---
+
+## Q04: Is it delivered yet
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Did my order arrive?
+- **Email:** delivered@example.com
+- **Message:** I think my order should be here by now — has it been delivered?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! your order #1004 has actually shipped — here's the tracking link so you can see where it's at: https://www.fedex.com/fedextrack/?trknbr=772233445566. let us know if you need anything else!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** UNKNOWN
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Thanks for reaching out. Your order #1004 (Muslin Swaddle 3pk) has been fulfilled and shipped via FedEx. You can check the latest delivery status using this tracking link:  
+> [https://www.fedex.com/fedextrack/?trknbr=772233445566](https://www.fedex.com/fedextrack/?trknbr=772233445566)  
+> 
+> If it shows as delivered but hasn't arrived yet, please let us know and we'll help you with the next steps.  
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q05: Cancel before ship (unfulfilled)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Please cancel my order
+- **Email:** cancelme@example.com
+- **Message:** I just placed an order this morning but changed my mind — can you cancel it before it ships?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** immediate
+- **KB confidence:** none (escalated)
+- **Order context used:** Yes
+- **Escalation:** Yes
+- **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: cancellation | Urgency: immediate
+> Why: Cancellation request — order/subscription cancel language present
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+### Teddy
+
+- **Priority:** IMMEDIATE
+- **KB confidence:** HIGH
+- **Intent:** RETURN
+- **Order context used:** Yes
+- **Posted:** No
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q06: Change size before ship
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Can I change the size?
+- **Email:** sizechange@example.com
+- **Message:** I ordered the ribbed romper in 6-12m but I need 12-18m instead. Can you change it before it goes out?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! i can see your order hasn't shipped yet, so let me check if the 12-18m is available for the ribbed romper. i'll get back to you as soon as i know!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** PRODUCT
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Thank you for reaching out! Your order hasn't shipped yet, so we can look into switching the size for you. However, I need to confirm availability of the 12-18m Ribbed Romper before I can make the change. Could you hold on a moment while I check on that for you? I'll be right back with an update.
+> 
+> **The Buttons Bebe Team**
+
+---
+
+## Q07: Return eligibility (shipped order)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Can I return this?
+- **Email:** delivered@example.com
+- **Message:** I'd like to return the swaddle set from my last order. Is it still within the return window and how do I start?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> thanks for reaching out! i'll check the delivery date on your swaddle set order to see if it's within the 7-day window. once i have that, i'll send you the steps to start the return. hang tight!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** RETURN
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! We'd be happy to help with your return. To check whether the swaddle set is still within the return window, we need to confirm the delivery date of your order (Order #1004). Unfortunately, that information isn't available to us right now.
+> 
+> Could you let us know the date you received the package? Once we have that, we can calculate your refund deadline and provide instructions for starting the return. 
+> 
+> Warmly,
+> The Buttons Bebe Team
+
+---
+
+## Q08: Why was I refunded
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Why did I get a refund?
+- **Email:** whyrefund@example.com
+- **Message:** I just saw a refund on my card from you but I didn't ask for one. Can you tell me what it was for?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** immediate
+- **KB confidence:** none (escalated)
+- **Order context used:** Yes
+- **Escalation:** Yes
+- **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: refund | Urgency: immediate
+> Why: Refund request — money-back / refund language present
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+### Teddy
+
+- **Priority:** HIGH
+- **KB confidence:** HIGH
+- **Intent:** RETURN
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! We see that Order #1016 (Knit Booties) shows as refunded even though it was fulfilled and you didn't request a refund. We're not able to confirm the reason from the information we have right now, so we'll need to review this carefully. We've escalated your case to our team to look into why the refund was issued and get back to you. Thank you for your patience!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q09: Did both my orders ship (multi-order)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Status of my two orders
+- **Email:** twoorders@example.com
+- **Message:** I have two recent orders with you. Did they both ship? I only got one tracking email.
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hi! looks like order #1018 (ruffle leggings) shipped — here's the tracking: https://www.ups.com/track?tracknum=1Z999AA10144455566. order #1019 (bow headbands) is still processing, so it hasn't shipped yet. let us know if you need anything else!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q10: Delivered but not received
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Says delivered but nothing here
+- **Email:** notgot@example.com
+- **Message:** My tracking says delivered but I never got the package. What do I do?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> oh no, that's so frustrating! could you check with neighbors, your building office, or any alternate drop spots (porch, garage, back door) first? also see if anyone else in the household grabbed it. if it still hasn't turned up after that, just let me know and we'll figure out next steps together.
+
+### Teddy
+
+- **Priority:** HIGH
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! We're sorry to hear that — the tracking shows it as delivered. Could you please check with any neighbors or your building office, and look in alternate spots like the front door, back door, porch, or garage? Carriers sometimes mark packages delivered a little early, so it may also turn up within a day. If it still hasn't shown up, let us know and we'll look into next steps with you.
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q11: Change shipping address
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Need to fix my address
+- **Email:** addr@example.com
+- **Message:** I just realised I used my old address on my order. Can you update it before it ships?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hi! since your order hasn't shipped yet, we can definitely update the address. just reply with the correct one and we'll get that changed for you 🙂
+
+### Teddy
+
+- **Priority:** IMMEDIATE
+- **KB confidence:** HIGH
+- **Intent:** SHIPPING
+- **Order context used:** Yes
+- **Posted:** No
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q12: Ordered wrong item, swap
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Wrong size ordered
+- **Email:** wrongsize@example.com
+- **Message:** I ordered the tutu dress in 2T but meant 3T. Can you swap it before shipping?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out — i see your order hasn't shipped yet, so we can definitely look into swapping the tutu dress to 3T. let me check if that size is available and i'll get right back to you!
+
+### Teddy
+
+- **Priority:** HIGH
+- **KB confidence:** HIGH
+- **Intent:** RETURN
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! I'd be happy to help switch your Tutu Dress from size 2T to 3T. Since your order hasn't shipped yet, this is possible if the 3T is available. I need to check stock on that size first — let me transfer your request to our team so they can confirm availability and make the update. We'll get back to you shortly!
+> 
+> ESCALATE: Need to verify availability of Tutu Dress size 3T before changing the order.
+
+---
+
+## Q13: Add item to existing order
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Add to my order
+- **Email:** additem@example.com
+- **Message:** Can I add a matching pair of booties to my order so it ships together and I don't pay shipping twice?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for reaching out — i'd love to help with that. adding items to an existing order isn't something we can do directly on our end, but let me check with the team to see if there's a way to combine it or cancel and reorder so everything ships together. i'll get back to you as soon as i hear back!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** SHIPPING
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Unfortunately, we're not able to add new items to an existing order. I'd recommend placing a separate order for the booties. If your combined total would be over $75, you'll qualify for free standard shipping on your new order. Sorry I can't combine them — if you have any other questions, I'm happy to help!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q14: Order seems stuck (older unfulfilled)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Is my order on hold?
+- **Email:** onhold@example.com
+- **Message:** I ordered the linen bloomers about a week ago and it still hasn't shipped. Is something wrong / is it on hold?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! sorry about the delay — orders usually ship within 24-48 hours, so yours should have gone out by now. let me check with the team and get back to you asap!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q15: Partial shipment — missing item
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Only got part of my order
+- **Email:** partial@example.com
+- **Message:** My order arrived but the sun hat wasn't in the box — only the romper. Where's the rest?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> oh no, i'm so sorry the sun hat was missing from your order — that's definitely our mistake. let me check our inventory for a spare hat; if we have one, we'll ship it out to you separately. i'll follow up as soon as i know more. thanks for your patience!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** UNKNOWN
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q16: What did I order again
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** What was in my order?
+- **Email:** whatdidiorder@example.com
+- **Message:** I forgot what I ordered — can you remind me what's in my most recent order?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> no worries! your most recent order (#1020) has a gingham dress in 4t, two pairs of lace socks, and a cardigan. it hasn't shipped yet, so you're all set if you need to make any changes!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** UNKNOWN
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Of course — your most recent order (#1020) includes a Gingham Dress in size 4T, two pairs of Lace Socks, and a Cardigan. It's currently paid and being prepared to ship. Let us know if there's anything else we can help with!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q17: Refund status (returned item)
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Where is my refund?
+- **Email:** refundstatus@example.com
+- **Message:** I sent back an item — has my refund gone through yet? I see the order but want to confirm the money.
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** immediate
+- **KB confidence:** none (escalated)
+- **Order context used:** Yes
+- **Escalation:** Yes
+- **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: refund | Urgency: immediate
+> Why: Refund request — money-back / refund language present
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+### Teddy
+
+- **Priority:** HIGH
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q18: Expedite — need by Friday
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Need it by Friday
+- **Email:** expedite@example.com
+- **Message:** I just ordered the smocked dress — is there any way to rush it so it arrives by Friday?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! we'll send a note to the warehouse to see if they can prioritize your order. just keep in mind that delivery timing still depends on the shipping method you picked at checkout — if you want, we can check if a faster option is available to help get it there by Friday.
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** MEDIUM
+- **Intent:** SHIPPING
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+---
+
+## Q19: Did my exchange ship
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Exchange shipped?
+- **Email:** exchship@example.com
+- **Message:** I did an exchange for the corduroy overalls — has the replacement shipped yet?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! looks like your replacement corduroy overalls have already shipped 🎉 here's the tracking: https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200887654321098 — should update soon if it hasn't already!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> Thank you for reaching out! Checking Order #1014, I can see that the original order for the Corduroy Overalls (18m) has been fulfilled and shipped via USPS. However, I don't have any verified information about an exchange being processed or a replacement shipment in our system.
+> 
+> To look into this further and check if an exchange was initiated on your account, I'll need to escalate this to our team. They can review the order history and provide you with an update. We'll get back to you as soon as possible!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q20: Cancel one item from order
+
+**Category:** Order-specific
+
+### Customer Question
+
+- **Subject:** Remove one item
+- **Email:** cancelitem@example.com
+- **Message:** Can you remove just the matching booties from my order and keep the cardigan? It hasn't shipped yet.
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** Yes
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! we can definitely remove the booties from order #1012 and keep the cardigan for you — i'll take care of that now since it hasn't shipped yet. we'll let you know once it's done!
+
+### Teddy
+
+- **Priority:** HIGH
+- **KB confidence:** HIGH
+- **Intent:** ORDER_STATUS
+- **Order context used:** Yes
+- **Posted:** Yes
+
+**Response:**
+
+> I'm sorry, but I'm unable to process a partial item removal from your order, as this isn't covered in our available policies or procedures. For Order #1012 (Knit Cardigan and Matching Booties, still unfulfilled), I'll need to escalate your request to a team member who can help with order modifications.
+> 
+> **ESCALATE:** Policy for removing individual items from an unfulfilled order is not available in the Knowledge Base.
+
+---
+
+## Q21: Do items run small (sizing)
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Sizing question
+- **Email:** sizingq@example.com
+- **Message:** Do your clothes run small? Trying to decide whether to size up for a 9-month-old.
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for asking — fit really varies by brand since we carry a bunch of different labels, so i don't want to guess and steer you wrong. let me check with the team on the specific items you're looking at and get back to you asap!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** PRODUCT
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! We’d love to help with sizing, but fit can vary by brand and style, and we don’t have specific notes on whether our clothes run small across the board. To give you the best recommendation, we’d need to check the exact item you’re considering. Could you share which product you’re looking at? If you don’t have a specific item, we’ll have to escalate this to a team member who can look into it further.
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q22: Gift wrapping cost/eligibility
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Gift wrapping?
+- **Email:** giftq@example.com
+- **Message:** Do you offer gift wrapping, and is there a charge for it?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hi! gift wrapping is free on full-price items $35 and up — sale items aren't eligible, unfortunately. we're just double-checking the exact threshold with the owner, so feel free to ask again if you need a firm answer before you order 😊
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** GENERAL
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, we offer complimentary gift wrapping on full-price items valued at $35 or more. Sale items are not eligible, but you're welcome to purchase a gift box separately. Just be sure to select the gift wrap option at checkout so our packing team sees it! Let us know if you have any other questions.
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q23: International shipping to Israel
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Ship to Israel?
+- **Email:** intlq@example.com
+- **Message:** Do you ship internationally? I'm in Israel and would love to order.
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hi! yes, we ship to Israel — the international shipping option shows up at checkout and costs about $35 USD. just keep in mind that any customs or import duties would be your responsibility. let us know if you have any other questions!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** SHIPPING
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, we ship internationally, including to Israel. You'll see the shipping option at checkout — international shipping is approximately $35 USD, and delivery times vary depending on your location. We can't wait to have you shop with us!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q24: Restocking fee
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Is there a restocking fee?
+- **Email:** feeq@example.com
+- **Message:** If I return something, is there a restocking fee, and how much?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** high
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! yes, there's a small restocking fee on cash refunds — $1.69 per item for standard returns. it covers the processing fee our card provider charges us. if you'd rather avoid it, we can do store credit for the full amount instead. just let us know what works best for you!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** RETURN
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, a small restocking fee does apply to returns refunded to your original payment method — it's **$1.69 per item** for standard returns (or $1.99 per item if you’re cancelling). That fee covers the processing charge we receive from the credit card company on every refund. If you'd prefer to avoid the fee, we'd be happy to issue your refund as store credit instead — that’s the full amount with no deduction. Just let us know which works best for you!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q25: Final sale threshold
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Is my discounted item returnable?
+- **Email:** finalq@example.com
+- **Message:** If I buy something on sale, can I still return it? At what discount does it become final sale?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** immediate
+- **KB confidence:** none (escalated)
+- **Order context used:** No
+- **Escalation:** Yes
+- **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: final_sale_exception | Urgency: immediate
+> Why: Final sale exception request — 'final sale' + return/exchange/exception language present (warehouse-only, approval-gated; Intent 12)
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** GENERAL
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Great question. Whether you can return a sale item depends on the discount amount. If the item is **20% or more off**, it becomes **final sale** and can't be returned or exchanged after shipping. If the discount is **1–19% off**, it's eligible for **store credit only** (no cash refund). Full-price items follow our standard return policy. Feel free to reach out if you have any other questions! — The Buttons Bebe Team
+
+---
+
+## Q26: Care / machine washable
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Washing instructions
+- **Email:** careq@example.com
+- **Message:** Are your onesies machine washable or do they need hand washing?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! most of our onesies are machine washable — we'd recommend washing cold on a gentle cycle and drying low or laying flat to avoid shrinkage. but care can vary by brand, so definitely check the tag on the garment too. if you have a specific onesie in mind, send us the name and we can look into it for you!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** UNKNOWN
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Great question — our onesies are absolutely machine washable. We recommend washing them on a gentle/delicate cycle in cold water and then tumbling on low heat or laying flat to dry. This helps keep them soft and colorful while preventing shrinkage. Avoid bleach and high heat for the best results. 😊
+> 
+> The
+
+---
+
+## Q27: Promo code stacking
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Two codes?
+- **Email:** promoq@example.com
+- **Message:** Can I use two discount codes on the same order?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! great question — i don't have a clear answer on stacking two codes handy, so let me check with the team and get back to you asap. thanks for your patience!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** GENERAL
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Unfortunately, only one discount code can be applied per order — codes cannot be combined. We recommend choosing the code that gives you the best savings! Please let us know if you have any other questions.
+> 
+> — The Buttons Bebe Team
+
+---
+
+## Q28: Warehouse pickup hours
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Pickup hours
+- **Email:** pickupq@example.com
+- **Message:** Can I pick up my order in person, and what are your warehouse hours?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> yes, you can pick up at our Toms River warehouse! our regular hours are mon–thu 9–3 and fri 9–2, but they can vary so it's best to confirm before heading over. there are also outdoor pickup bins available 24/7 if you need to grab your order outside those hours.
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** SHIPPING
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi there! Yes, you can pick up your order in person at our Toms River warehouse. Orders placed with the pickup option are placed in our outdoor pickup bin at 2133 Lakewood Road, Unit 104, which is accessible 24/7. Our warehouse hours for visits are Monday–Thursday 9am–3pm and Friday 9am–2pm. If you have an order waiting, feel free to stop by anytime! Let us know if you need further details.
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q29: What is package protection
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** Package protection?
+- **Email:** ppq@example.com
+- **Message:** I saw a package protection option at checkout — what does it actually cover?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hey! package protection is a $1.99 add-on at checkout that covers your order if it gets lost, stolen, or misdelivered on the way to you. it's totally optional, but gives you peace of mind! let us know if you have any other questions.
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** GENERAL
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Package protection is an optional $1.99 add-on at checkout. If your package is lost, stolen, or misdelivered on the way to you, it covers a full refund — so you're all set. Without it, we'd help you file a claim with the carrier instead. Let us know if you have any other questions!
+> 
+> The Buttons Bebe Team
+
+---
+
+## Q30: First-time customer discount
+
+**Category:** Policy-only
+
+### Customer Question
+
+- **Subject:** New customer discount?
+- **Email:** firstq@example.com
+- **Message:** I'm a first-time customer — do you have a welcome or first-order discount code?
+
+### Old System (gorgias-webhook)
+
+- **Urgency:** normal
+- **KB confidence:** high
+- **Order context used:** No
+- **Escalation:** No
+- **Should post:** Yes
+
+**Response:**
+
+> hi! welcome to buttons bebe 💕 we don't have a first-time customer discount, but we do run sales and promos from time to time — best way to catch them is through our emails/texts or on the site. let us know if you need any help with your order!
+
+### Teddy
+
+- **Priority:** LOW
+- **KB confidence:** HIGH
+- **Intent:** GENERAL
+- **Order context used:** No
+- **Posted:** Yes
+
+**Response:**
+
+> Hi! Thank you so much for reaching out and welcome to Buttons Bebe. At this time, we do not offer a first-time customer discount. However, we do run sales and promotions from time to time, so the best way to stay updated is through our emails/texts and website. Please let us know if you need help with anything while placing your order!
+> 
+> The Buttons Bebe Team
+
+---

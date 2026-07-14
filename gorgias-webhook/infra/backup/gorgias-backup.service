@@ -1,0 +1,19 @@
+# Buttons Bebe AI support agent — Stage 5 / Task 17
+# Oneshot service run by gorgias-backup.timer. Runs backup.sh once.
+# Install: see install-backup-timer.sh (copies this to /etc/systemd/system/).
+[Unit]
+Description=Buttons Bebe — backup pgvector DB, feedback.db, and KB repo bundle
+Documentation=file:///root/gorgias-webhook/backup.sh
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/gorgias-webhook
+ExecStart=/root/gorgias-webhook/backup.sh
+# Retain default KEEP=14; override here if desired, e.g.:
+# Environment=KEEP=14
+Nice=10
+IOSchedulingClass=idle
+# Don't hang the timer forever if something wedges.
+TimeoutStartSec=900

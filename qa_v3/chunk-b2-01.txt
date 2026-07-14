@@ -1,0 +1,21 @@
+<details>
+<summary>Q11: Change shipping address (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Need to fix my address
+- **Email:** addr@example.com
+- **Message:** I just realised I used my old address on my order. Can you update it before it ships?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! since your order hasn't shipped yet, we can definitely update the address. just reply with the correct one and we'll get that changed for you 🙂
+
+#### Teddy
+- **Priority:** IMMEDIATE · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** Yes · **Posted:** No
+
+**Response:** *(no draft — escalated)*
+
+</details>

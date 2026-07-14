@@ -1,0 +1,25 @@
+<details>
+<summary>Q29: What is package protection (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Package protection?
+- **Email:** ppq@example.com
+- **Message:** I saw a package protection option at checkout — what does it actually cover?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! package protection is a $1.99 add-on at checkout that covers your order if it gets lost, stolen, or misdelivered on the way to you. it's totally optional, but gives you peace of mind! let us know if you have any other questions.
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Package protection is an optional $1.99 add-on at checkout. If your package is lost, stolen, or misdelivered on the way to you, it covers a full refund — so you're all set. Without it, we'd help you file a claim with the carrier instead. Let us know if you have any other questions!
+>
+> The Buttons Bebe Team
+
+</details>

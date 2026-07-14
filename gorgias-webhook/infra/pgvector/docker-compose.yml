@@ -1,0 +1,39 @@
+# Postgres + pgvector for the Buttons Bebe KB semantic-search backend.
+#
+# Localhost-only (bound to 127.0.0.1:5433 — NEVER exposed publicly), persistent
+# named volume, healthcheck-gated. This is the storage layer for the Stage 4 KB
+# upgrade: the ingestion worker embeds kb/*.md chunks and upserts them here; the
+# pgvector kb_client backend queries them behind the existing search() seam.
+#
+# The password is read from /root/.env (POSTGRES_PASSWORD). Bring up with:
+#   cd infra/pgvector && docker compose --env-file /root/.env up -d
+services:
+  kb-postgres:
+    image: pgvector/pgvector:pg17
+    container_name: kb-postgres
+    # 127.0.0.1 prefix = loopback ONLY. Do not change to 0.0.0.0.
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_DB: kb
+      POSTGRES_USER: kb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in /root/.env}
+      # Keep PG's own memory modest on a small shared VPS.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=128MB"
+      - "-c"
+      - "max_connections=20"
+    volumes:
+      - kb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kb -d kb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  kb_pgdata:

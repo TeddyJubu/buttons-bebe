@@ -1,0 +1,86 @@
+# ──────────────────────────────────────────────────────────────────────────
+# Buttons Bebe / Hermes agent — .gitignore
+#
+# HARD RULE: secrets and customer data must NEVER be committed.
+# The KB Markdown (kb/**) and the application source code ARE tracked.
+# Everything below is excluded.
+# ──────────────────────────────────────────────────────────────────────────
+
+# --- Secrets / credentials (config.json holds the encrypted Gorgias API key,
+#     webhook secret_token, and Telegram bot token — never commit it) ---
+config.json
+config.local.json
+.env
+.env.*
+*.env
+secrets.json
+*.pem
+*.key
+# OS / server key material referenced from outside the repo
+/etc/*
+
+# --- Operational data stores (built by other tasks) ---
+# feedback.db (drafts / replies / comparisons) — contains customer PII
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- Exports of real tickets/messages (PII: names, emails, orders) ---
+# Ignore the whole exports/ dir — ALL of it is derived real-ticket data (csv,
+# json, logs, .zip bundles, state markers). None of it belongs in git.
+exports/
+
+# --- Per-ticket context snapshots fetched from Gorgias (raw PII) ---
+ticket_contexts/
+
+# --- Backups (Task 17): pg dumps, sqlite snapshots, KB git bundles ---
+# Operational data stores — convenience/DR copies, never belong in git.
+# (Re-asserted at the very bottom so no !kb rule can re-include anything here.)
+backups/
+
+# --- Webhook capture / logs ---
+webhook_events.jsonl
+*.jsonl
+*.log
+webhooks.log
+
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Editor / OS noise ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# ──────────────────────────────────────────────────────────────────────────
+# Explicitly KEEP the knowledge base and its scaffolding.
+# (Negations below override the broad rules above where they would conflict.)
+# ──────────────────────────────────────────────────────────────────────────
+!kb/
+!kb/**/.gitkeep
+!kb/**/*.md
+
+# ──────────────────────────────────────────────────────────────────────────
+# Final hard exclusion — after the kb negations above — so nothing under
+# backups/ (e.g. a kb-*.bundle) can ever be re-included by a !kb/** rule.
+# ──────────────────────────────────────────────────────────────────────────
+backups/
+
+# editor/script backups
+*.bak
+*.bak-*

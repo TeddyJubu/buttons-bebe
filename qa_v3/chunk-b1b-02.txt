@@ -1,0 +1,25 @@
+<details>
+<summary>Q03: Tracking number request (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Tracking number please
+- **Email:** tracknum@example.com
+- **Message:** Could you send me the tracking number for my recent order? I want to follow it.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! your order #1003 (velour sleepers) shipped via usps — here's the tracking link so you can follow it: https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200881234567890
+>
+> let us know if anything else comes up! 😊
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Your order #1003 has been shipped and is on its way. You can track it using this USPS link: [USPS Tracking](https://tools.usps.com/go/TrackConfirmAction?tLabels=9400110200881234567890). Enjoy your Velour Sleepers! If you have any other questions, we're here to help. 💛 — The Buttons Bebe Team
+
+</details>

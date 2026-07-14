@@ -1,0 +1,34 @@
+# Buttons Bebe AI support agent — KB black-box service (kb_service.py)
+# LONG-RUNNING service (NOT a timer): the standalone, localhost-only semantic KB
+# retrieval service. It owns the embeddings model + the pgvector connection, so
+# the webhook process never loads fastembed/pg8000 and can neither block nor be
+# blocked by KB retrieval. The thin kb_client talks to it over 127.0.0.1 HTTP.
+# Install: see install-kb-service.sh (copies this to /etc/systemd/system/).
+[Unit]
+Description=Buttons Bebe — KB semantic retrieval service (localhost-only black box)
+Documentation=file:///root/gorgias-webhook/kb_service.py
+# pgvector runs in Docker; it must be up before we start (the service degrades
+# gracefully if it isn't, but ordering after docker avoids a noisy cold start).
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/gorgias-webhook
+# Binds 127.0.0.1 only (host is forced to loopback in kb_service._load_service_config).
+# Port/host come from config.json kb_service.* / env KB_SERVICE_HOST,KB_SERVICE_PORT.
+ExecStart=/root/gorgias-webhook/.venv/bin/python /root/gorgias-webhook/kb_service.py
+# Reload nudges the service to reset its caches / re-open the DB (POST /reload).
+ExecReload=/usr/bin/curl -fsS -X POST http://127.0.0.1:8899/reload
+Restart=on-failure
+RestartSec=3
+# Give the model time to load on a cold start before systemd considers it failed.
+TimeoutStartSec=120
+Nice=5
+# Light hardening — it only ever needs the project dir + loopback networking.
+NoNewPrivileges=true
+PrivateTmp=false
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.vendors_cache.json
+*.bak-*
+.DS_Store
+*.log

@@ -1,0 +1,25 @@
+<details>
+<summary>Q21: Do items run small (sizing) (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Sizing question
+- **Email:** sizingq@example.com
+- **Message:** Do your clothes run small? Trying to decide whether to size up for a 9-month-old.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for asking — fit really varies by brand since we carry a bunch of different labels, so i don't want to guess and steer you wrong. let me check with the team on the specific items you're looking at and get back to you asap!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** PRODUCT · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! We’d love to help with sizing, but fit can vary by brand and style, and we don’t have specific notes on whether our clothes run small across the board. To give you the best recommendation, we’d need to check the exact item you’re considering. Could you share which product you’re looking at? If you don’t have a specific item, we’ll have to escalate this to a team member who can look into it further.
+>
+> The Buttons Bebe Team
+
+</details>

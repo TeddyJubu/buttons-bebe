@@ -1,0 +1,28 @@
+<details>
+<summary>Q04: Is it delivered yet (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Did my order arrive?
+- **Email:** delivered@example.com
+- **Message:** I think my order should be here by now — has it been delivered?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! your order #1004 has actually shipped — here's the tracking link so you can see where it's at: https://www.fedex.com/fedextrack/?trknbr=772233445566. let us know if you need anything else!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Thanks for reaching out. Your order #1004 (Muslin Swaddle 3pk) has been fulfilled and shipped via FedEx. You can check the latest delivery status using this tracking link:  
+> [https://www.fedex.com/fedextrack/?trknbr=772233445566](https://www.fedex.com/fedextrack/?trknbr=772233445566)  
+>
+> If it shows as delivered but hasn't arrived yet, please let us know and we'll help you with the next steps.  
+>
+> The Buttons Bebe Team
+
+</details>

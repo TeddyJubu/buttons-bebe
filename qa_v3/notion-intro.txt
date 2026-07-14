@@ -1,0 +1,5 @@
+**Date:** 2026-06-29 · **Model:** deepseek-v4-flash:cloud · **Queries:** 30 (20 order-specific, 10 policy)
+
+Both systems tested with identical inputs and mock Shopify order context (post-fix run).
+
+---

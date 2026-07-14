@@ -1,0 +1,27 @@
+<details>
+<summary>Q02: Has my order shipped (fulfilled+tracking) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Has my order shipped yet?
+- **Email:** shipped@example.com
+- **Message:** Can you tell me if my order has shipped, and if so the tracking?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! your order has shipped 🎉 here's the tracking: https://www.ups.com/track?tracknum=1Z999AA10123456784
+>
+> let us know if you need anything else!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! Your order has shipped, and here's your tracking number: **1Z999AA10123456784**. You can follow its journey with UPS at this link: https://www.ups.com/track?tracknum=1Z999AA10123456784. Thanks for choosing Buttons Bebe! 💛
+>
+> — The Buttons Bebe Team
+
+</details>

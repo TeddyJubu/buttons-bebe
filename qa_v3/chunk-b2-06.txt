@@ -1,0 +1,25 @@
+<details>
+<summary>Q16: What did I order again (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** What was in my order?
+- **Email:** whatdidiorder@example.com
+- **Message:** I forgot what I ordered — can you remind me what's in my most recent order?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> no worries! your most recent order (#1020) has a gingham dress in 4t, two pairs of lace socks, and a cardigan. it hasn't shipped yet, so you're all set if you need to make any changes!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** Yes · **Posted:** Yes
+
+**Response:**
+
+> Hi! Of course — your most recent order (#1020) includes a Gingham Dress in size 4T, two pairs of Lace Socks, and a Cardigan. It's currently paid and being prepared to ship. Let us know if there's anything else we can help with!
+>
+> The Buttons Bebe Team
+
+</details>

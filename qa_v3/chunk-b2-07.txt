@@ -1,0 +1,24 @@
+<details>
+<summary>Q17: Refund status (returned item) (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Where is my refund?
+- **Email:** refundstatus@example.com
+- **Message:** I sent back an item — has my refund gone through yet? I see the order but want to confirm the money.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** immediate · **KB:** none (escalated) · **Order used:** Yes · **Escalation:** Yes · **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: refund | Urgency: immediate
+> Why: Refund request — money-back / refund language present
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+#### Teddy
+- **Priority:** HIGH · **KB:** HIGH · **Intent:** ORDER_STATUS · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>

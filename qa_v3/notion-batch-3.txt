@@ -1,0 +1,260 @@
+<details>
+<summary>Q21: Do items run small (sizing) (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Sizing question
+- **Email:** sizingq@example.com
+- **Message:** Do your clothes run small? Trying to decide whether to size up for a 9-month-old.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! thanks for asking — fit really varies by brand since we carry a bunch of different labels, so i don't want to guess and steer you wrong. let me check with the team on the specific items you're looking at and get back to you asap!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** PRODUCT · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! We’d love to help with sizing, but fit can vary by brand and style, and we don’t have specific notes on whether our clothes run small across the board. To give you the best recommendation, we’d need to check the exact item you’re considering. Could you share which product you’re looking at? If you don’t have a specific item, we’ll have to escalate this to a team member who can look into it further.
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q22: Gift wrapping cost/eligibility (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Gift wrapping?
+- **Email:** giftq@example.com
+- **Message:** Do you offer gift wrapping, and is there a charge for it?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! gift wrapping is free on full-price items $35 and up — sale items aren't eligible, unfortunately. we're just double-checking the exact threshold with the owner, so feel free to ask again if you need a firm answer before you order 😊
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, we offer complimentary gift wrapping on full-price items valued at $35 or more. Sale items are not eligible, but you're welcome to purchase a gift box separately. Just be sure to select the gift wrap option at checkout so our packing team sees it! Let us know if you have any other questions.
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q23: International shipping to Israel (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Ship to Israel?
+- **Email:** intlq@example.com
+- **Message:** Do you ship internationally? I'm in Israel and would love to order.
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! yes, we ship to Israel — the international shipping option shows up at checkout and costs about $35 USD. just keep in mind that any customs or import duties would be your responsibility. let us know if you have any other questions!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, we ship internationally, including to Israel. You'll see the shipping option at checkout — international shipping is approximately $35 USD, and delivery times vary depending on your location. We can't wait to have you shop with us!
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q24: Restocking fee (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Is there a restocking fee?
+- **Email:** feeq@example.com
+- **Message:** If I return something, is there a restocking fee, and how much?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** high · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! yes, there's a small restocking fee on cash refunds — $1.69 per item for standard returns. it covers the processing fee our card provider charges us. if you'd rather avoid it, we can do store credit for the full amount instead. just let us know what works best for you!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** RETURN · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Yes, a small restocking fee does apply to returns refunded to your original payment method — it's **$1.69 per item** for standard returns (or $1.99 per item if you’re cancelling). That fee covers the processing charge we receive from the credit card company on every refund. If you'd prefer to avoid the fee, we'd be happy to issue your refund as store credit instead — that’s the full amount with no deduction. Just let us know which works best for you!
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q25: Final sale threshold (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Is my discounted item returnable?
+- **Email:** finalq@example.com
+- **Message:** If I buy something on sale, can I still return it? At what discount does it become final sale?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** immediate · **KB:** none (escalated) · **Order used:** No · **Escalation:** Yes · **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: final_sale_exception | Urgency: immediate
+> Why: Final sale exception request — 'final sale' + return/exchange/exception language present (warehouse-only, approval-gated; Intent 12)
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Great question. Whether you can return a sale item depends on the discount amount. If the item is **20% or more off**, it becomes **final sale** and can't be returned or exchanged after shipping. If the discount is **1–19% off**, it's eligible for **store credit only** (no cash refund). Full-price items follow our standard return policy. Feel free to reach out if you have any other questions! — The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q26: Care / machine washable (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Washing instructions
+- **Email:** careq@example.com
+- **Message:** Are your onesies machine washable or do they need hand washing?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! most of our onesies are machine washable — we'd recommend washing cold on a gentle cycle and drying low or laying flat to avoid shrinkage. but care can vary by brand, so definitely check the tag on the garment too. if you have a specific onesie in mind, send us the name and we can look into it for you!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** UNKNOWN · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Great question — our onesies are absolutely machine washable. We recommend washing them on a gentle/delicate cycle in cold water and then tumbling on low heat or laying flat to dry. This helps keep them soft and colorful while preventing shrinkage. Avoid bleach and high heat for the best results. 😊
+>
+> The
+
+</details>
+
+<details>
+<summary>Q27: Promo code stacking (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Two codes?
+- **Email:** promoq@example.com
+- **Message:** Can I use two discount codes on the same order?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! great question — i don't have a clear answer on stacking two codes handy, so let me check with the team and get back to you asap. thanks for your patience!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Unfortunately, only one discount code can be applied per order — codes cannot be combined. We recommend choosing the code that gives you the best savings! Please let us know if you have any other questions.
+>
+> — The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q28: Warehouse pickup hours (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Pickup hours
+- **Email:** pickupq@example.com
+- **Message:** Can I pick up my order in person, and what are your warehouse hours?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> yes, you can pick up at our Toms River warehouse! our regular hours are mon–thu 9–3 and fri 9–2, but they can vary so it's best to confirm before heading over. there are also outdoor pickup bins available 24/7 if you need to grab your order outside those hours.
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** SHIPPING · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Yes, you can pick up your order in person at our Toms River warehouse. Orders placed with the pickup option are placed in our outdoor pickup bin at 2133 Lakewood Road, Unit 104, which is accessible 24/7. Our warehouse hours for visits are Monday–Thursday 9am–3pm and Friday 9am–2pm. If you have an order waiting, feel free to stop by anytime! Let us know if you need further details.
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q29: What is package protection (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Package protection?
+- **Email:** ppq@example.com
+- **Message:** I saw a package protection option at checkout — what does it actually cover?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! package protection is a $1.99 add-on at checkout that covers your order if it gets lost, stolen, or misdelivered on the way to you. it's totally optional, but gives you peace of mind! let us know if you have any other questions.
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Package protection is an optional $1.99 add-on at checkout. If your package is lost, stolen, or misdelivered on the way to you, it covers a full refund — so you're all set. Without it, we'd help you file a claim with the carrier instead. Let us know if you have any other questions!
+>
+> The Buttons Bebe Team
+
+</details>
+
+<details>
+<summary>Q30: First-time customer discount (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** New customer discount?
+- **Email:** firstq@example.com
+- **Message:** I'm a first-time customer — do you have a welcome or first-order discount code?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** No · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hi! welcome to buttons bebe 💕 we don't have a first-time customer discount, but we do run sales and promos from time to time — best way to catch them is through our emails/texts or on the site. let us know if you need any help with your order!
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi! Thank you so much for reaching out and welcome to Buttons Bebe. At this time, we do not offer a first-time customer discount. However, we do run sales and promotions from time to time, so the best way to stay updated is through our emails/texts and website. Please let us know if you need help with anything while placing your order!
+>
+> The Buttons Bebe Team
+
+</details>

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# llm-set — switch the chat model everywhere from one command.
+#
+# Usage:
+#   llm-set openrouter z-ai/glm-5.2
+#   llm-set ollama deepseek-v4-flash:cloud
+#   llm-set mimo mimo-v2.5-pro
+#   llm-set show
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_LOADER="$DIR/env_loader.py"
+HINDSIGHT="$DIR/infra/hindsight/run.sh"
+
+if [[ "${1:-}" == "show" || $# -eq 0 ]]; then
+  python3 "$ENV_LOADER" --show
+  exit 0
+fi
+
+if [[ $# -lt 2 ]]; then
+  echo "Usage: llm-set <provider> <model>" >&2
+  echo "       llm-set show" >&2
+  echo "Providers: openrouter | ollama | mimo" >&2
+  exit 1
+fi
+
+python3 "$ENV_LOADER" --set "$1" "$2"
+
+echo
+read -r -p "Recreate Hindsight container to apply? [Y/n] " ans
+if [[ "${ans:-Y}" =~ ^[Yy]$ ]]; then
+  "$HINDSIGHT" recreate
+fi
+
+echo
+echo "Restart gorgias-webhook / teddy if they are running as long-lived processes."

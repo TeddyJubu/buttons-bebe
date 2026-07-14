@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KB Review — Buttons Bebe</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+    header { margin-bottom: 1.5rem; }
+    h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; }
+    .sub { color: #94a3b8; font-size: 0.875rem; margin-top: 0.35rem; }
+    .stats {
+      display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem;
+    }
+    .stat {
+      background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
+      padding: 0.5rem 0.85rem; font-size: 0.8rem;
+    }
+    .stat b { color: #f8fafc; font-weight: 600; }
+    .stat.approved b { color: #34d399; }
+    .stat.rejected b { color: #fb7185; }
+    .stat.pending b { color: #fbbf24; }
+    .filters {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem;
+    }
+    .filters button {
+      background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+      padding: 0.4rem 0.85rem; border-radius: 999px; font-size: 0.8rem;
+      cursor: pointer; font-family: inherit;
+    }
+    .filters button.active {
+      background: #164e63; border-color: #22d3ee; color: #22d3ee;
+    }
+    .card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem;
+      padding: 1.15rem; margin-bottom: 1rem;
+    }
+    .card.approved { border-color: #065f46; }
+    .card.rejected { border-color: #881337; opacity: 0.85; }
+    .card-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 0.75rem; margin-bottom: 0.75rem;
+    }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 0.4rem; font-size: 0.7rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .badge {
+      background: #0f172a; border: 1px solid #475569; border-radius: 0.25rem;
+      padding: 0.15rem 0.45rem; color: #94a3b8;
+    }
+    .badge.warn { border-color: #b45309; color: #fbbf24; }
+    .badge.tag { border-color: #6366f1; color: #a5b4fc; }
+    .badge.auto { border-color: #059669; color: #6ee7b7; }
+    .q { font-weight: 600; font-size: 1rem; color: #f8fafc; margin-bottom: 0.5rem; }
+    .a { font-size: 0.9rem; color: #cbd5e1; margin-bottom: 0.5rem; }
+    .caveat { font-size: 0.8rem; color: #64748b; font-style: italic; margin-bottom: 0.75rem; }
+    .actions {
+      display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;
+    }
+    .vote-btn {
+      width: 2.5rem; height: 2.5rem; border-radius: 0.5rem; border: 1px solid #475569;
+      background: #0f172a; font-size: 1.2rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .vote-btn:hover { border-color: #94a3b8; }
+    .vote-btn.up.active { background: #064e3b; border-color: #34d399; }
+    .vote-btn.down.active { background: #4c0519; border-color: #fb7185; }
+    .comment-box { width: 100%; }
+    .comment-box label {
+      display: block; font-size: 0.75rem; color: #64748b; margin-bottom: 0.3rem;
+    }
+    .comment-row { display: flex; gap: 0.5rem; }
+    .comment-row textarea {
+      flex: 1; background: #0f172a; border: 1px solid #475569; border-radius: 0.5rem;
+      color: #e2e8f0; padding: 0.5rem 0.65rem; font-family: inherit; font-size: 0.85rem;
+      min-height: 2.5rem; resize: vertical;
+    }
+    .comment-row button {
+      background: #334155; border: none; color: #f8fafc; border-radius: 0.5rem;
+      padding: 0 0.85rem; font-size: 0.8rem; cursor: pointer; font-family: inherit;
+    }
+    .comment-row button:hover { background: #475569; }
+    .pager {
+      display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+      margin-top: 1.5rem; font-size: 0.875rem;
+    }
+    .pager button {
+      background: #334155; border: none; color: #f8fafc; border-radius: 0.5rem;
+      padding: 0.45rem 1rem; cursor: pointer; font-family: inherit;
+    }
+    .pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .loading, .empty { text-align: center; color: #64748b; padding: 3rem 1rem; }
+    .toast {
+      position: fixed; bottom: 1.5rem; right: 1.5rem; background: #164e63;
+      border: 1px solid #22d3ee; color: #ecfeff; padding: 0.6rem 1rem;
+      border-radius: 0.5rem; font-size: 0.85rem; opacity: 0;
+      transition: opacity 0.25s; pointer-events: none; z-index: 100;
+    }
+    .toast.show { opacity: 1; }
+    footer {
+      text-align: center; margin-top: 2rem; color: #475569; font-size: 0.75rem;
+    }
+    footer a { color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Knowledge Base Review</h1>
+      <p class="sub">Semantically merged from 11k+ ticket Q&amp;A. Auto-approved high-confidence FAQs — Chaim reviews the rest.</p>
+      <div class="stats" id="stats"></div>
+    </header>
+
+    <div class="filters" id="filters">
+      <button data-filter="" >All</button>
+      <button data-filter="pending" class="active">Needs review</button>
+      <button data-filter="up">Approved</button>
+      <button data-filter="down">Rejected</button>
+    </div>
+
+    <div id="list"><div class="loading">Loading…</div></div>
+    <div class="pager" id="pager" style="display:none">
+      <button id="prev">← Prev</button>
+      <span id="pageInfo"></span>
+      <button id="next">Next →</button>
+    </div>
+    <footer>
+      Hermes API: <a href="/api/kb-review/approved">/api/kb-review/approved</a>
+      · 20 items per page · isolated from live KB
+    </footer>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let page = 1;
+    let filter = 'pending';
+    let totalPages = 1;
+
+    const listEl = document.getElementById('list');
+    const statsEl = document.getElementById('stats');
+    const pagerEl = document.getElementById('pager');
+    const toastEl = document.getElementById('toast');
+
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 2000);
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    function renderStats(s) {
+      const auto = s.auto_approved != null ? `<div class="stat approved"><b>${s.auto_approved}</b> auto-approved</div>` : '';
+      statsEl.innerHTML = `
+        <div class="stat"><b>${s.total}</b> merged items</div>
+        <div class="stat pending"><b>${s.pending}</b> need review</div>
+        <div class="stat approved"><b>${s.approved}</b> approved</div>
+        <div class="stat rejected"><b>${s.rejected}</b> rejected</div>
+        ${auto}
+      `;
+    }
+
+    function renderCard(item) {
+      const voteClass = item.vote === 'up' ? 'approved' : item.vote === 'down' ? 'rejected' : '';
+      const tags = (item.tags || []).map(t => `<span class="badge tag">${esc(t)}</span>`).join('');
+      const sensitive = item.sensitive === true || item.sensitive === 'true';
+      const mergeBadge = (item.merge_count && item.merge_count > 1)
+        ? `<span class="badge auto">${item.merge_count} merged</span>` : '';
+      const autoBadge = item.auto_approved ? '<span class="badge auto">auto ✓</span>' : '';
+      return `
+        <article class="card ${voteClass}" data-id="${esc(item.cluster_id)}">
+          <div class="card-head">
+            <div class="meta">
+              <span class="badge">#${esc(item.cluster_id)}</span>
+              <span class="badge">${esc(item.size)} tickets</span>
+              <span class="badge">${Math.round((item.confidence || 0) * 100)}% conf</span>
+              ${mergeBadge}${autoBadge}
+              ${sensitive ? '<span class="badge warn">sensitive</span>' : ''}
+              ${tags}
+            </div>
+          </div>
+          <div class="q">${esc(item.canonical_question)}</div>
+          <div class="a">${esc(item.canonical_answer)}</div>
+          ${item.caveats ? `<div class="caveat">${esc(item.caveats)}</div>` : ''}
+          <div class="actions">
+            <button class="vote-btn up ${item.vote === 'up' ? 'active' : ''}" title="Approve" data-vote="up">👍</button>
+            <button class="vote-btn down ${item.vote === 'down' ? 'active' : ''}" title="Reject" data-vote="down">👎</button>
+          </div>
+          <div class="comment-box">
+            <label>Comment for Chaim / Hermes</label>
+            <div class="comment-row">
+              <textarea placeholder="Optional note…">${esc(item.comment)}</textarea>
+              <button type="button" class="save-comment">Save</button>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    async function load() {
+      listEl.innerHTML = '<div class="loading">Loading…</div>';
+      const params = new URLSearchParams({ page, per_page: 20 });
+      if (filter) params.set('filter', filter);
+      const res = await fetch('/api/kb-review?' + params);
+      const data = await res.json();
+      renderStats(data.stats);
+      totalPages = data.total_pages;
+      page = data.page;
+
+      if (!data.items.length) {
+        listEl.innerHTML = '<div class="empty">No items in this view.</div>';
+        pagerEl.style.display = 'none';
+        return;
+      }
+
+      listEl.innerHTML = data.items.map(renderCard).join('');
+      document.getElementById('pageInfo').textContent = `Page ${page} of ${totalPages} (${data.total} items)`;
+      pagerEl.style.display = 'flex';
+      document.getElementById('prev').disabled = page <= 1;
+      document.getElementById('next').disabled = page >= totalPages;
+
+      listEl.querySelectorAll('.vote-btn').forEach(btn => {
+        btn.addEventListener('click', () => vote(btn.closest('.card'), btn.dataset.vote));
+      });
+      listEl.querySelectorAll('.save-comment').forEach(btn => {
+        btn.addEventListener('click', () => saveComment(btn.closest('.card')));
+      });
+    }
+
+    async function vote(card, voteVal) {
+      const id = card.dataset.id;
+      const current = card.classList.contains('approved') ? 'up' : card.classList.contains('rejected') ? 'down' : null;
+      const newVote = current === voteVal ? null : voteVal;
+      const res = await fetch('/api/kb-review/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cluster_id: id, vote: newVote }),
+      });
+      if (!res.ok) { toast('Save failed'); return; }
+      toast(newVote === 'up' ? 'Approved' : newVote === 'down' ? 'Rejected' : 'Vote cleared');
+      load();
+    }
+
+    async function saveComment(card) {
+      const id = card.dataset.id;
+      const comment = card.querySelector('textarea').value;
+      const res = await fetch('/api/kb-review/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cluster_id: id, comment }),
+      });
+      if (!res.ok) { toast('Comment save failed'); return; }
+      toast('Comment saved');
+      load();
+    }
+
+    document.getElementById('filters').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-filter]');
+      if (!btn) return;
+      document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filter = btn.dataset.filter;
+      page = 1;
+      load();
+    });
+    document.getElementById('prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.getElementById('next').addEventListener('click', () => { if (page < totalPages) { page++; load(); } });
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<details>
+<summary>Q25: Final sale threshold (Policy-only)</summary>
+
+#### Customer Question
+- **Subject:** Is my discounted item returnable?
+- **Email:** finalq@example.com
+- **Message:** If I buy something on sale, can I still return it? At what discount does it become final sale?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** immediate · **KB:** none (escalated) · **Order used:** No · **Escalation:** Yes · **Should post:** No
+
+**Response:**
+
+> ⚠️ ESCALATE — DO NOT AUTO-REPLY
+> Category: final_sale_exception | Urgency: immediate
+> Why: Final sale exception request — 'final sale' + return/exchange/exception language present (warehouse-only, approval-gated; Intent 12)
+> This ticket is sensitive (refund / chargeback / dispute / cancellation / wrong-item / damaged / final-sale-exception) and must be handled by a human. No customer reply was drafted and nothing (refund/discount/policy) was promised. Review the order and respond manually.
+
+#### Teddy
+- **Priority:** LOW · **KB:** HIGH · **Intent:** GENERAL · **Order used:** No · **Posted:** Yes
+
+**Response:**
+
+> Hi there! Great question. Whether you can return a sale item depends on the discount amount. If the item is **20% or more off**, it becomes **final sale** and can't be returned or exchanged after shipping. If the discount is **1–19% off**, it's eligible for **store credit only** (no cash refund). Full-price items follow our standard return policy. Feel free to reach out if you have any other questions! — The Buttons Bebe Team
+
+</details>

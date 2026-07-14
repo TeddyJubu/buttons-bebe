@@ -1,0 +1,21 @@
+<details>
+<summary>Q18: Expedite — need by Friday (Order-specific)</summary>
+
+#### Customer Question
+- **Subject:** Need it by Friday
+- **Email:** expedite@example.com
+- **Message:** I just ordered the smocked dress — is there any way to rush it so it arrives by Friday?
+
+#### Old System (gorgias-webhook)
+- **Urgency:** normal · **KB:** high · **Order used:** Yes · **Escalation:** No · **Should post:** Yes
+
+**Response:**
+
+> hey! we'll send a note to the warehouse to see if they can prioritize your order. just keep in mind that delivery timing still depends on the shipping method you picked at checkout — if you want, we can check if a faster option is available to help get it there by Friday.
+
+#### Teddy
+- **Priority:** LOW · **KB:** MEDIUM · **Intent:** SHIPPING · **Order used:** Yes · **Posted:** Yes
+
+**Response:** *(no draft — escalated)*
+
+</details>

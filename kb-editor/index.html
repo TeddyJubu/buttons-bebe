@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buttons Bebe - KB Editor</title>
+<link rel="stylesheet" href="vendor/easymde.min.css">
+<style>
+  :root{--bg:#f4f5f7;--panel:#fff;--ink:#1f2328;--muted:#6b7280;--line:#e6e8eb;--accent:#3b6fed;--accent-soft:#eaf0fe;--ok:#16a34a;--warn:#b45309;--err:#dc2626;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);}
+  #app{display:grid;grid-template-columns:286px 1fr;grid-template-rows:auto 1fr;height:100vh;}
+  header{grid-column:1 / 3;display:flex;align-items:center;gap:14px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line);}
+  header .brand{display:flex;flex-direction:column;line-height:1.15;}
+  header .brand b{font-size:15px;font-weight:700;}
+  header .brand small{font-size:11px;color:var(--muted);}
+  header .file{flex:1;color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .status{font-size:12.5px;color:var(--muted);min-width:160px;text-align:right;}
+  .status.ok{color:var(--ok);}.status.err{color:var(--err);}.status.work{color:var(--warn);}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 14px;transition:background .12s,border-color .12s;}
+  button:hover{background:#f6f7f9;}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;box-shadow:0 1px 2px rgba(59,111,237,.25);}
+  button.primary:hover{background:#2f60d8;}
+  button.primary:disabled{opacity:.45;cursor:default;box-shadow:none;}
+  aside{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:12px 10px;}
+  .newbtn{width:100%;margin-bottom:10px;font-weight:600;}
+  aside .grp{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:#9aa1ab;margin:16px 8px 5px;font-weight:700;}
+  aside a{display:block;padding:7px 10px;border-radius:8px;font-size:13px;color:#3a3f46;text-decoration:none;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid transparent;}
+  aside a:hover{background:#f3f4f6;}
+  aside a.active{background:var(--accent-soft);color:var(--accent);font-weight:600;border-left-color:var(--accent);}
+  main{overflow:auto;padding:22px;}
+  .empty{max-width:520px;margin:8vh auto;color:var(--muted);text-align:center;line-height:1.7;font-size:15px;}
+  .empty .big{font-size:34px;display:block;margin-bottom:10px;}
+  .EasyMDEContainer{max-width:880px;margin:0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(16,24,40,.04);}
+  .editor-toolbar{border:none;border-bottom:1px solid var(--line);background:#fafbfc;padding:6px 8px;opacity:1;}
+  .editor-toolbar button{color:#5b616b !important;border:none !important;border-radius:6px;}
+  .editor-toolbar button:hover{background:#eceef1 !important;}
+  .editor-toolbar button.active{background:#e3e7ee !important;}
+  .editor-toolbar i.separator{border-left:1px solid var(--line);border-right:none;margin:0 4px;}
+  .EasyMDEContainer .CodeMirror{border:none;min-height:68vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.75;color:#24292f;padding:14px 20px;}
+  .cm-s-easymde .cm-header{font-weight:700;color:#1f2328;}
+  .cm-s-easymde .cm-header-1{font-size:1.55em;line-height:1.35;}
+  .cm-s-easymde .cm-header-2{font-size:1.28em;line-height:1.35;}
+  .cm-s-easymde .cm-header-3{font-size:1.1em;}
+  .cm-s-easymde .cm-formatting-header{color:#c4c9d0;font-weight:600;}
+  .cm-s-easymde .cm-quote{color:#6b7280;font-style:italic;}
+  .cm-s-easymde .cm-link,.cm-s-easymde .cm-url{color:var(--accent);}
+  .cm-s-easymde .cm-strong{color:#1f2328;}
+  .editor-preview,.editor-preview-side{background:#fff;padding:18px 26px;font-size:15px;line-height:1.75;}
+  .editor-preview h1{font-size:1.6em;border-bottom:1px solid var(--line);padding-bottom:.2em;}
+  .editor-preview h2{font-size:1.3em;}.editor-preview h3{font-size:1.12em;}
+  .editor-preview hr{border:none;border-top:1px solid var(--line);}
+  .editor-preview code{background:#f3f4f6;padding:1px 5px;border-radius:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="brand"><b>KB Editor</b><small>Buttons Bebe - auto-saves as you type</small></span>
+    <span class="file" id="curfile">Select a note on the left to start editing</span>
+    <span class="status" id="status"></span>
+    <button class="primary" id="saveBtn" disabled title="Publish to the agent now">Save</button>
+  </header>
+  <aside>
+    <button class="newbtn" id="newBtn">+ New note</button>
+    <div id="tree"></div>
+  </aside>
+  <main>
+    <div class="empty" id="empty">Pick a note on the left, or create a new one.<br>Your changes <b>auto-save</b>, and go live to the support agent when you pause or click Save.</div>
+    <textarea id="editor" style="display:none"></textarea>
+  </main>
+</div>
+<script src="vendor/easymde.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let editor=null, curPath=null, lastSaved="", lastPublished="";
+let saveTimer=null, pubTimer=null;
+const SAVE_MS=1500, PUB_MS=15000;
+function setStatus(t,c){const e=$("#status");e.textContent=t||"";e.className="status "+(c||"");}
+function val(){return editor?editor.getValue():"";}
+function loadScriptSeq(srcs,done){(function next(i){if(i>=srcs.length){done&&done();return;}var s=document.createElement("script");s.src=srcs[i];s.onload=function(){next(i+1);};s.onerror=function(){next(i+1);};document.head.appendChild(s);})(0);}
+function enableYamlFrontmatter(mde){try{var CM=window.CodeMirror||(mde.codemirror&&mde.codemirror.constructor);if(!CM||!CM.defineMode)return;window.CodeMirror=CM;loadScriptSeq(["vendor/multiplex.js","vendor/yaml.js","vendor/yaml-frontmatter.js"],function(){try{mde.codemirror.setOption("mode",{name:"yaml-frontmatter",base:"markdown"});}catch(e){console.error("yaml mode set failed",e);}});}catch(e){console.error("enableYamlFrontmatter failed",e);}}
+function scheduleAuto(){
+  clearTimeout(saveTimer); clearTimeout(pubTimer);
+  saveTimer=setTimeout(autosave, SAVE_MS);
+  pubTimer=setTimeout(()=>publish(false), PUB_MS);
+}
+function onEdit(){
+  if(!editor||!curPath) return;
+  $("#saveBtn").disabled=(val()===lastPublished);
+  if(val()!==lastSaved){ setStatus("editing...","work"); scheduleAuto(); }
+}
+async function autosave(){
+  if(!curPath||!editor) return;
+  const content=val();
+  if(content===lastSaved) return;
+  try{
+    const r=await fetch("api/file",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:curPath,content,publish:false})});
+    if(r.ok){ lastSaved=content; if(val()===content && content!==lastPublished) setStatus("saved (auto)",""); }
+  }catch(e){}
+}
+async function publish(manual){
+  if(!curPath||!editor) return;
+  const content=val();
+  if(content===lastPublished && !manual) return;
+  clearTimeout(saveTimer); clearTimeout(pubTimer);
+  $("#saveBtn").disabled=true; setStatus("saving...","work");
+  try{
+    const r=await fetch("api/file",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:curPath,content,publish:true})});
+    if(!r.ok){ setStatus("save failed ("+r.status+")","err"); $("#saveBtn").disabled=false; return; }
+    lastSaved=content; lastPublished=content; setStatus("publishing...","work");
+    loadTree(); pollStatus();
+  }catch(e){ setStatus("save error","err"); $("#saveBtn").disabled=false; }
+}
+async function pollStatus(){
+  for(let i=0;i<80;i++){
+    await new Promise(z=>setTimeout(z,1500));
+    try{const d=await (await fetch("api/status")).json();
+      if(d.state==="done"){setStatus("published to agent","ok");return;}
+      if(d.state==="error"){setStatus(d.message||"indexing error","err");return;}
+    }catch(e){}
+  }
+  setStatus("saved (still publishing)","ok");
+}
+function ensureEditor(){
+  if(editor) return;
+  $("#empty").style.display="none"; $("#editor").style.display="";
+  if(window.EasyMDE){
+    try{
+      const mde=new EasyMDE({element:$("#editor"),spellChecker:false,autofocus:true,status:false,
+        toolbar:["bold","italic","heading","|","quote","unordered-list","ordered-list","|","link","|","preview","side-by-side","guide"]});
+      editor={getValue:()=>mde.value(),setValue:v=>mde.value(v)};
+      mde.codemirror.on("change",onEdit);
+      enableYamlFrontmatter(mde);
+      return;
+    }catch(e){ console.error("EasyMDE init failed:",e); }
+  }
+  const ta=$("#editor");
+  ta.style.cssText="display:block;width:100%;max-width:880px;margin:0 auto;min-height:70vh;font:14px/1.6 ui-monospace,Menlo,Consolas,monospace;padding:16px;border:1px solid var(--line);border-radius:12px;background:#fff;";
+  editor={getValue:()=>ta.value,setValue:v=>{ta.value=v;}};
+  ta.addEventListener("input",onEdit);
+  setStatus("editing in plain mode","");
+}
+async function loadTree(){
+  try{
+    const d=await (await fetch("api/tree")).json();
+    const files=d.files||[],groups={};
+    files.forEach(f=>{const top=f.includes("/")?f.split("/")[0]:"(root)";(groups[top]=groups[top]||[]).push(f);});
+    const tree=$("#tree"); tree.innerHTML="";
+    Object.keys(groups).sort().forEach(g=>{
+      const h=document.createElement("div");h.className="grp";h.textContent=g;tree.appendChild(h);
+      groups[g].forEach(f=>{const a=document.createElement("a");a.textContent=f.includes("/")?f.split("/").slice(1).join("/"):f;a.title=f;a.dataset.path=f;a.addEventListener("click",()=>openFile(f));tree.appendChild(a);});
+    });
+    highlight();
+  }catch(e){ setStatus("could not load file list","err"); }
+}
+function highlight(){document.querySelectorAll("#tree a").forEach(a=>a.classList.toggle("active",a.dataset.path===curPath));}
+async function openFile(path){
+  if(curPath && editor){
+    if(val()!==lastSaved) await autosave();
+    if(lastSaved!==lastPublished){ const op=curPath, oc=lastSaved;
+      fetch("api/file",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:op,content:oc,publish:true})}).catch(()=>{}); }
+  }
+  clearTimeout(saveTimer); clearTimeout(pubTimer);
+  setStatus("opening...","work");
+  try{
+    const r=await fetch("api/file?path="+encodeURIComponent(path));
+    if(!r.ok){ setStatus("could not open ("+r.status+")","err"); return; }
+    const d=await r.json();
+    ensureEditor();
+    editor.setValue(d.content); lastSaved=d.content; lastPublished=d.content; curPath=path;
+    $("#curfile").textContent=path; $("#saveBtn").disabled=true; setStatus("",""); highlight();
+  }catch(e){ setStatus("error opening note","err"); }
+}
+function newNote(){
+  let name=prompt("New note path, e.g. faq/new-topic.md  (folders: policies, faq, intents, tickets)");
+  if(!name) return;
+  name=name.trim().replace(/^\/+/,""); if(!name.endsWith(".md")) name+=".md";
+  ensureEditor();
+  editor.setValue("---\ntitle: \ncategory: faq\nstatus: DRAFT\ntags: []\n---\n\n> DRAFT - pending owner (Chaim) confirmation.\n\n## \n\n");
+  curPath=name; lastSaved=" "; lastPublished=" ";
+  $("#curfile").textContent=name+"  (new)"; $("#saveBtn").disabled=false;
+  setStatus("new note - just start typing, it auto-saves","work"); highlight(); scheduleAuto();
+}
+function flushBeacon(){
+  if(!curPath||!editor) return;
+  if(val()===lastPublished) return;
+  try{ navigator.sendBeacon("api/file", new Blob([JSON.stringify({path:curPath,content:val(),publish:true})],{type:"application/json"})); lastSaved=val(); lastPublished=val(); }catch(e){}
+}
+$("#saveBtn").onclick=()=>publish(true);
+$("#newBtn").onclick=newNote;
+window.addEventListener("pagehide",flushBeacon);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") flushBeacon(); });
+loadTree();
+</script>
+</body>
+</html>
