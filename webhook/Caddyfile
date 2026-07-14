@@ -1,0 +1,7 @@
+# RETIRED — DO NOT DEPLOY
+#
+# This component-local file used to proxy every public request to FastAPI and
+# would expose the internal /dashboard/api namespace. The only supported Caddy
+# source is ../deploy/caddy/Caddyfile.redacted, which includes the authenticated
+# console routes and an explicit public /dashboard* deny rule. Restore its
+# placeholders from protected production secrets, validate it, then reload.

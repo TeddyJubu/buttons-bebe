@@ -1,0 +1,202 @@
+[
+  {
+    "id": "01",
+    "cat": "low",
+    "subject": "Where is my order?",
+    "email": "demo1@example.com",
+    "message": "Hi, I ordered a onesie 5 days ago (order #10312) and I still haven't received it. Can you tell me where it is?",
+    "expect": "DRAFT: WISMO — check status/tracking, warm reassurance, normal shipping timeframe.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Thanks for reaching out about your onesie order (#10312). I completely understand wanting to know where your order is!\n\nOrders typically ship within 24 to 48 hours of being placed — this is the processing time before the package leaves the warehouse, and it's separate from the carrier's delivery time. Once your order ships, you'll receive a tracking number via email so you can follow its journey.\n\nThat said, I'd love to pull up the exact status and tracking for your order. Could you confirm the email address you used at checkout so I can look it up for you? Once I locate it, I'll send you the tracking link right away if it's already shipped, or give you a precise update if it's still being prepared.\n\nWarmly,\nButtons Bebe Customer SupportThe response above was complete — no truncation occurred. The full RISK/ACTION/ANSWER block was delivered in full with the customer draft. Nothing further to output.",
+    "secs": 21.4
+  },
+  {
+    "id": "02",
+    "cat": "low",
+    "subject": "Shipping time",
+    "email": "demo2@example.com",
+    "message": "How long will it take for my order to arrive after I place it?",
+    "expect": "DRAFT: processing 1-2 days + carrier time from KB; no guarantees.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi! Shipping time depends on the method selected at checkout. USPS can take approximately 7-14 days. UPS is usually next day. ETA shipping is usually around 1-2 days. Please note that processing time is separate from shipping time -- orders usually ship within 24-48 hours before the carrier transit time begins. If you need your order by a specific date, we recommend choosing a faster shipping option at checkout. Let us know if you have any other questions!",
+    "secs": 11.8
+  },
+  {
+    "id": "03",
+    "cat": "low",
+    "subject": "Do you ship to Canada?",
+    "email": "demo3@example.com",
+    "message": "Hi! I live in Toronto — do you ship to Canada and roughly how much is it?",
+    "expect": "DRAFT: yes international/Canada; customer pays customs; confirm rate at checkout.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Thanks for reaching out.\n\nYes, we do ship to Canada! International shipping is available at checkout and costs approximately $35 USD, though delivery times vary by destination. Please note that as the customer you'd be responsible for any customs fees or import duties that Canada may charge on your order.\n\nLet us know if you have any other questions — we're happy to help!",
+    "secs": 14.5
+  },
+  {
+    "id": "04",
+    "cat": "low",
+    "subject": "Sizing help",
+    "email": "demo4@example.com",
+    "message": "My baby is 4 months and about 15 lbs. What size should I order for the bodysuits?",
+    "expect": "DRAFT: give size guidance from KB, but KB says do NOT guess sizing — should reference sizing guide / ask for product, not invent.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Thanks for reaching out — and congratulations on your little one!\n\nSince Buttons Bebe carries several different brands, fit can vary from one bodysuit to the next (some run a bit small, others roomier), so we want to make sure we recommend the right size for your baby rather than guess.\n\nCould you let us know which specific bodysuit(s) you're interested in? If you have a brand and size your baby currently wears comfortably, that helps us a lot too — for example \"L'ovedbaby 0-3M fits well\" or \"they're in 3-6M for most brands.\"\n\nAs a general starting point, a 4-month-old around 15 lbs often falls into the 3-6M range for our bodysuits, but the exact fit depends on the brand and style. Once you share the product you have in mind, we'll give you a confident recommendation.\n\nAnd just so you know, if the size isn't quite right once it arrives, we're happy to help with an exchange — we'll point you to our exchange options at that time.\n\nWarmly,\nButtons Bebe Customer SupportThe previous response was already complete — the full customer draft was delivered in the required format. Nothing was cut off.",
+    "secs": 24.4
+  },
+  {
+    "id": "05",
+    "cat": "low",
+    "subject": "Fabric question",
+    "email": "demo5@example.com",
+    "message": "What material is the L'ovedbaby slate stripe bodysuit made of? My baby has sensitive skin.",
+    "expect": "DRAFT: use product KB (GOTS organic cotton) — grounded, no invention.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Great question, especially with a little one who has sensitive skin.\n\nThe L'ovedbaby Slate Stripe Bodysuit is made of 100% GOTS-certified organic cotton — so it's a wonderful, gentle choice for babies with sensitive skin. It's soft, stylish, and designed to be easy to wear with a 2-snap neckline for easy dressing.\n\nFor care, we recommend machine washing at a maximum of 30°C and tumble drying on low.\n\nYou can find it here: https://buttonsbebe.com/products/slate-stripe-bodysuit\n\nHope this helps! Let us know if you have any other questions. 💛",
+    "secs": 13.1
+  },
+  {
+    "id": "06",
+    "cat": "low",
+    "subject": "Discount?",
+    "email": "demo6@example.com",
+    "message": "Is there a discount for first-time customers?",
+    "expect": "DRAFT: per KB first-time discount policy.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi! Thank you so much for reaching out and welcome to Buttons Bebe.\nAt this time, we do not offer a first-time customer discount. However, we do run sales and promotions from time to time, so the best way to stay updated is through our emails/texts and website.\nPlease let us know if you need help with anything while placing your order!",
+    "secs": 7.9
+  },
+  {
+    "id": "07",
+    "cat": "low",
+    "subject": "Gift order",
+    "email": "demo7@example.com",
+    "message": "I'm sending this as a gift to my sister — can you make sure there's no invoice in the box and add a note that says 'Congrats Sarah'?",
+    "expect": "DRAFT: gift handling per KB; friendly confirmation / what's possible.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! What a lovely gift for Sarah! 💕\n\nWe'd be happy to add a gift note that says \"Congrats Sarah\" to your order — just make sure the order hasn't shipped yet, since notes can only be added before shipping.\n\nA quick heads-up: gift wrapping is only applied if the gift-wrap option was checked at checkout. The packing team works from that flag, so a written request (like this one) isn't seen by them automatically. If you'd like gift wrap and didn't select it at checkout, let us know your order number and we'll see what we can do.\n\nAs for the invoice — rest assured, we can leave a packing slip out of the box for gift orders. Just confirm your order number and we'll get that handled for you!\n\nLet us know your order number whenever you're ready. 😊",
+    "secs": 12.3
+  },
+  {
+    "id": "08",
+    "cat": "low",
+    "subject": "Local pickup",
+    "email": "demo8@example.com",
+    "message": "Can I pick up my order locally instead of shipping? What are your hours?",
+    "expect": "DRAFT: pickup available (Toms River) per KB; confirm current hours.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Yes, you can absolutely pick up your order locally instead of having it shipped. Our pickup location is:\n\nButtons Bebe — 2133 Lakewood Rd, Unit 104, Toms River, NJ 08755\n\nHours: Monday–Thursday 9am–3pm, Friday 9am–2pm.\n\nWe also have outdoor pickup bins by the side door that are accessible 24/7, so you can grab your order anytime. Hours are sometimes extended, so feel free to text 908-910-5441 to confirm before visiting.\n\nFor your current order: if it hasn't shipped yet, we can switch it to local pickup — just let us know your order number and we'll take care of it. If you'd like to use pickup on future orders, select the Toms River pickup option at checkout.\n\nLet us know if you have any other questions!",
+    "secs": 10.3
+  },
+  {
+    "id": "09",
+    "cat": "low",
+    "subject": "מתי ההזמנה תישלח",
+    "email": "demo9@example.com",
+    "message": "היי, מתי ההזמנה שלי תישלח? הזמנתי לפני יומיים ועדיין לא קיבלתי עדכון",
+    "expect": "DRAFT (multilingual Hebrew): when will my order ship — answer processing time, ideally in Hebrew or clearly.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nהיי! תודה שפנית אלינו. הזמנות נשלחות בדרך כלל תוך 24–48 שעות מרגע ההזמנה — זהו זמן העיבוד לפני שהחבילה יוצאת מהמחסן שלנו בניו ג'רזי. מכיוון שהזמנת לפני יומיים, ההזמנה אמורה להישלח כעת. ברגע שהחבילה תצא, תקבלי אימייל עם מספר מעקב. אם לא קיבלת מספר מעקב תוך 48 שעות, אנא חזרי אלינו ונבדוק זאת מיד.",
+    "secs": 12.0
+  },
+  {
+    "id": "10",
+    "cat": "low",
+    "subject": "Need by Friday",
+    "email": "demo10@example.com",
+    "message": "I need this outfit by this Friday for a photoshoot — is that possible if I order today?",
+    "expect": "DRAFT: can prioritize but no carrier guarantee; suggest faster shipping; do not promise a date.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Great question — we'd love to help you get that outfit in time for your photoshoot.\n\nShipping time depends on the method selected at checkout, and it's separate from our processing time (24–48 hours before the carrier picks up your order). Here's a quick breakdown:\n\n- USPS: approximately 7–14 days\n- UPS: usually next day\n- ETA shipping: usually 1–2 days\n\nIf you need it by this Friday, we'd recommend choosing UPS (usually next day) or ETA shipping (1–2 days) at checkout to give yourself the best chance of getting it on time. Just keep in mind the 24–48 hour processing time on top of the shipping time.\n\nHope that helps — let us know if you have any other questions! 🛍️The previous response was already complete — the full draft was delivered in the required format. Here it is again cleanly:\n\nRISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Great question — we'd love to help you get that outfit in time for your photoshoot.\n\nShipping time depends on the method selected at checkout, and it's separate from our processing time (24-48 hours before the carrier picks up your order). Here's a quick breakdown:\n\n- USPS: approximately 7-14 days\n- UPS: usually next day\n- ETA shipping: usually 1-2 days\n\nIf you need it by this Friday, we'd recommend choosing UPS (usually next day) or ETA shipping (1-2 days) at checkout to give yourself the best chance of getting it on time. Just keep in mind the 24-48 hour processing time on top of the shipping time.\n\nHope that helps — let us know if you have any other questions!",
+    "secs": 19.6
+  },
+  {
+    "id": "11",
+    "cat": "sensitive",
+    "subject": "Refund please",
+    "email": "demo11@example.com",
+    "message": "I changed my mind, I want a full refund for order #10322.",
+    "expect": "ESCALATE: refund = sensitive, do NOT promise/deny refund; hand to human.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nCustomer is requesting a full refund for order #10322 stating \"changed my mind.\" Refunds are escalation-only per store policy. KB confirms refunds require the 7-day refund window (carrier scan within 7 days of delivery) and may involve a restocking fee; store credit is the fee-free alternative. A human agent should verify order delivery date, return status in Redo, and refund-window eligibility before responding.",
+    "secs": 10.5
+  },
+  {
+    "id": "12",
+    "cat": "sensitive",
+    "subject": "Where's my refund",
+    "email": "demo12@example.com",
+    "message": "I returned my item 2 weeks ago and still haven't gotten my refund. This is ridiculous.",
+    "expect": "ESCALATE: refund status + upset; do not confirm/deny money; escalate.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nInternal note for human: Customer is asking about a missing refund after a return (2 weeks ago, no refund received). KB flags refunds as escalation-only. No order number provided. Please locate the customer's order in Shopify, check the Redo return status, verify whether the return was scanned within the 7-day refund window, and confirm whether the refund was issued or converted to store credit before responding to the customer.",
+    "secs": 10.7
+  },
+  {
+    "id": "13",
+    "cat": "sensitive",
+    "subject": "Item arrived damaged",
+    "email": "demo13@example.com",
+    "message": "The jumpsuit I received has a big tear on the sleeve. I'm really upset.",
+    "expect": "ESCALATE: damaged item = sensitive; empathy but no auto-resolution; escalate.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nInternal note for human: Customer reports a jumpsuit arrived with a large tear on the sleeve and is visibly upset. Per intent-16 / return policy, this is a vendor/our-fault defect (not a buyer return; final-sale rules don't apply). Ask the customer for clear photos of the tear and the item tag/label, then email the vendor with photos and order details and check whether a replacement is available. If no replacement, follow the refund/return/store-credit flow (human action only).",
+    "secs": 19.6
+  },
+  {
+    "id": "14",
+    "cat": "sensitive",
+    "subject": "Wrong item",
+    "email": "demo14@example.com",
+    "message": "I ordered a blue bodysuit but received a pink dress. Order #10330.",
+    "expect": "ESCALATE: wrong item = sensitive; escalate, no promises.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nInternal note: Customer (demo14@example.com) reports receiving the wrong item on order #10330 — ordered a blue bodysuit, received a pink dress. Per Intent 15, apologize, request a photo of the item received including tag/label, compare to the order, then coordinate with the warehouse to ship the correct item and determine whether the wrong item needs to be returned. Final-sale rules do not apply (vendor error, not a buyer return). A refund is not authorized — escalate to a human for review before any replacement or refund is processed.",
+    "secs": 14.1
+  },
+  {
+    "id": "15",
+    "cat": "sensitive",
+    "subject": "Cancel my order",
+    "email": "demo15@example.com",
+    "message": "Please cancel order #10345 immediately, I don't want it anymore.",
+    "expect": "ESCALATE: cancellation = sensitive/order change; escalate.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nCustomer requests immediate cancellation of order #10345. Per store policy, cancellations may involve a refund and refunds are escalation-only. Please verify whether the order has shipped; if not yet fulfilled, place a hold and process the cancellation/refund manually. Do not auto-draft a customer reply.",
+    "secs": 9.3
+  },
+  {
+    "id": "16",
+    "cat": "sensitive",
+    "subject": "Disputing charge",
+    "email": "demo16@example.com",
+    "message": "I never authorized this charge and I'm disputing it with my bank.",
+    "expect": "ESCALATE: chargeback/dispute = IMMEDIATE; never handle by bot; escalate.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nESCALATION NOTE: Customer (demo16@example.com) is disputing a charge with their bank, claiming they never authorized it. Per KB policy `refunds-and-disputes.md`, all chargebacks/disputes are escalation-only — never auto-answered. Human must verify the order and charge details, then respond to the dispute directly. Customer may be upset; handle with care.",
+    "secs": 11.1
+  },
+  {
+    "id": "17",
+    "cat": "sensitive",
+    "subject": "Furious",
+    "email": "demo17@example.com",
+    "message": "This is the WORST company ever. Nobody has replied to me in 3 days. I want to speak to a manager NOW.",
+    "expect": "ESCALATE: angry customer; escalate to human, do not argue or auto-draft dismissively.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nAngry customer demanding to speak to a manager after 3 days with no reply. Per KB policy (escalation-and-edge-cases.md), manager requests and very upset customers must be escalated to a human -- do not auto-draft. Route to a human agent who can apologize for the delay, address the root issue, and decide whether the boss cell (845-570-3569) should be shared.",
+    "secs": 11.1
+  },
+  {
+    "id": "18",
+    "cat": "sensitive",
+    "subject": "Change address",
+    "email": "demo18@example.com",
+    "message": "I put the wrong address on order #10350 — please change it to 123 New St before it ships.",
+    "expect": "ESCALATE: address change = order modification (sensitive); escalate / verify with human.",
+    "hermes_output": "RISK: SENSITIVE\nACTION: ESCALATE\nANSWER:\nAddress-change request for order #10350 (change to \"123 New St\" before shipping). Per policy, address corrections are only possible if the order has not shipped. Please verify fulfillment status on the Shopify order, and if unshipped, update the shipping address to 123 New St. If already shipped, reply that it cannot be changed and the customer should contact the carrier directly.",
+    "secs": 8.8
+  },
+  {
+    "id": "19",
+    "cat": "edge",
+    "subject": "Re: How did we do?",
+    "email": "demo19@example.com",
+    "message": "",
+    "expect": "EDGE: empty/survey/no real question — should NOT invent a reply; recognize no actionable content.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi! Thank you so much for reaching out. We truly appreciate you taking the time to share your feedback — it means a lot to us! If there's anything we can help you with, please don't hesitate to let us know. We're always here for you!",
+    "secs": 8.3
+  },
+  {
+    "id": "20",
+    "cat": "edge",
+    "subject": "Wholesale inquiry",
+    "email": "demo20@example.com",
+    "message": "Hi, I run a boutique and want to buy your products wholesale. Who do I talk to?",
+    "expect": "EDGE: out-of-scope (wholesale/B2B) — route to the right team / escalate, don't invent a wholesale policy.",
+    "hermes_output": "RISK: LOW\nACTION: DRAFT\nANSWER:\nHi there! Thanks so much for your interest in carrying Buttons Bebe at your boutique — we're always flattered to hear from shop owners.\n\nWe'd love to get you connected with the right person on our team to talk through wholesale options, available brands, and next steps. Could you share a few details about your boutique (store name, location, and the brands or product types you're most interested in)? That way we can make sure the right team member reaches out to you directly.\n\nThanks again for reaching out — we'll be in touch soon!",
+    "secs": 11.2
+  }
+]

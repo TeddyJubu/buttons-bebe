@@ -1,0 +1,18 @@
+[Unit]
+Description=Buttons Bebe KB MCP server (search_kb tool for Hermes)
+After=network.target
+
+[Service]
+Type=simple
+# Run as an always-on HTTP MCP server on localhost only.
+Environment=KB_MCP_TRANSPORT=streamable-http
+Environment=KB_MCP_HOST=127.0.0.1
+Environment=KB_MCP_PORT=8077
+# /root/kb-mcp-run.sh execs the venv python on scripts/kb_mcp_server.py.
+# It sits at a space-free path because the KB folder name contains a space.
+ExecStart=/root/kb-mcp-run.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

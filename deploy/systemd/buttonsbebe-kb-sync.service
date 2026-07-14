@@ -1,0 +1,11 @@
+[Unit]
+Description=Buttons Bebe KB product sync (Shopify -> KB, then re-index)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Quoted because the path contains a space. The script fetches products,
+# rebuilds the index, and restarts the KB service.
+ExecStart="/root/Buttonsbebe Agent/KB/sync-products.sh"
+TimeoutStartSec=1800

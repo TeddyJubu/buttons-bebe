@@ -1,0 +1,27 @@
+# ── Python ────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Credentials ──────────────
+.env
+
+# ── SQLite data ─────────────
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ── Caddy ───────────────────
+caddy_data/
+caddy_config/
+Caddyfile.local
+
+# ── Logs ────────────────────
+*.log
+logs/

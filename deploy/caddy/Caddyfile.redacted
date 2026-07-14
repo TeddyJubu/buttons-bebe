@@ -1,0 +1,102 @@
+srv1766050.hstgr.cloud {
+	@whatsapp path /connect-whatsapp/<WA_TOKEN> /connect-whatsapp/<WA_TOKEN>/*
+	handle @whatsapp {
+		reverse_proxy 127.0.0.1:8085
+	}
+
+	handle_path /qa/* {
+		root * /var/www/qa
+		file_server
+	}
+
+	@consoleapi path /console/api/*
+	handle @consoleapi {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		uri replace /console/api /dashboard/api
+		reverse_proxy 127.0.0.1:8000 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	@consolewa path /console/waapi/*
+	handle @consolewa {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		uri replace /console/waapi /wa
+		reverse_proxy 127.0.0.1:8085 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle_path /console/kbapi/* {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		reverse_proxy 127.0.0.1:8087 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle_path /console* {
+		basicauth {
+			chaim <CONSOLE_PASSWORD_HASH>
+		}
+		root * /var/www/console
+		file_server
+	}
+
+	@roothome path /
+	handle @roothome {
+		redir * /console/ 302
+	}
+
+	# /dashboard/api is the FastAPI service's internal route namespace. The
+	# authenticated /console/api handler above rewrites to it inside its own
+	# terminal handle. Never let a public request reach these read/write routes
+	# through the catch-all webhook proxy below.
+	@directdashboard path /dashboard /dashboard/*
+	handle @directdashboard {
+		respond "Not found" 404
+	}
+
+	@publicwebhook path /webhook/gorgias/*
+	handle @publicwebhook {
+		reverse_proxy 127.0.0.1:8000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	@health path /health /ready
+	handle @health {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	request_body {
+		max_size 256KB
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+	encode gzip zstd
+	log {
+		output file /var/log/bb-webhook/caddy.log
+		format json
+	}
+}

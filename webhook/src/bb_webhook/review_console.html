@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buttons Bebe — Review & Approve</title>
+<style>
+*{box-sizing:border-box;margin:0}
+:root{--acc:#6d5efc;--acc-soft:#efeaff;--ink:#14161c;--ink2:#5b6472;--ink3:#8a93a3;--bg:#f6f7fb;--card:#fff;--line:#e9ebf1;--green:#12b76a;--green-s:#e7f7ee;--amber:#dc9309;--amber-s:#fdf3e0;--red:#e5484d;--red-s:#fdecec;--radius:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif}
+body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;padding:22px}
+h1{font-size:20px;font-weight:600;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:13px;margin-bottom:18px}
+.bar{display:flex;gap:8px;margin-bottom:16px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:9px;cursor:pointer;font-weight:500;font-size:13px}
+button:hover{background:#f4f5f9}
+button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
+button.primary:disabled{opacity:.45;cursor:not-allowed}
+button.danger{color:var(--red);border-color:#f3c9cb}
+.wrap{display:grid;grid-template-columns:320px 1fr;gap:16px}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;cursor:pointer}
+.item:hover{border-color:var(--acc)}
+.item.on{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-soft)}
+.item b{font-size:13px}
+.pill{display:inline-block;font-size:11px;padding:2px 7px;border-radius:20px;background:#eef0f5;color:var(--ink2);margin:3px 4px 0 0}
+.pill.warn{background:var(--amber-s);color:var(--amber)}
+.detail{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;min-height:340px}
+.detail h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);margin:16px 0 6px}
+.detail h3:first-child{margin-top:0}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:11px;font-size:13px;white-space:pre-wrap;line-height:1.5}
+.warnbox{background:var(--red-s);border:1px solid #f3c9cb;color:#a12a2e;border-radius:9px;padding:11px;font-size:12.5px;margin:12px 0}
+label.chk{display:flex;gap:9px;align-items:flex-start;margin:12px 0;font-size:13px;cursor:pointer}
+textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px;font:inherit;font-size:13px;margin-top:6px;resize:vertical}
+.acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.empty{color:var(--ink3);font-size:14px;padding:30px;text-align:center}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:9px;font-size:13px;opacity:0;transition:.2s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<h1>Review &amp; Approve</h1>
+<div class="sub">Approve good human replies so the AI can learn from them. Nothing goes live until you approve it and edit the exemplar. Private info is masked automatically — but <b>you</b> must check for names.</div>
+<div class="bar">
+  <button onclick="loadList()">↻ Reload</button>
+  <button onclick="doReindex()">Re-index KB (after approvals)</button>
+</div>
+<div class="wrap">
+  <div class="list" id="list"><div class="empty">Loading…</div></div>
+  <div class="detail" id="detail"><div class="empty">Select a ticket on the left to review it.</div></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const API='/dashboard/api/review';
+let current=null;
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+async function loadList(){
+  const r=await fetch(API+'/list');const d=await r.json();const el=document.getElementById('list');
+  const items=d.pending||[];
+  if(!items.length){el.innerHTML='<div class="empty">No packets waiting for review. 🎉</div>';return;}
+  el.innerHTML='';
+  items.forEach(it=>{
+    const div=document.createElement('div');div.className='item';div.onclick=()=>openPacket(it.ticket_id,div);
+    let pills=`<span class="pill">band: ${it.band}</span><span class="pill">lang: ${it.language}</span>`;
+    (it.flags||[]).forEach(f=>pills+=`<span class="pill warn">${f}</span>`);
+    const pk=it.pii&&Object.keys(it.pii).length?Object.keys(it.pii).join(', '):'none';
+    pills+=`<span class="pill ${pk!=='none'?'warn':''}">PII: ${pk}</span>`;
+    div.innerHTML=`<b>Ticket ${it.ticket_id}</b><div>${pills}</div>`;
+    el.appendChild(div);
+  });
+}
+async function openPacket(id,div){
+  document.querySelectorAll('.item').forEach(x=>x.classList.remove('on'));if(div)div.classList.add('on');
+  const r=await fetch(API+'/packet/'+id);
+  if(!r.ok){toast('Could not load packet');return;}
+  const p=await r.json();current=id;
+  const pii=p.pii_reply&&p.pii_reply.by_kind?Object.entries(p.pii_reply.by_kind).map(([k,v])=>k+'×'+v).join(', '):'none detected';
+  document.getElementById('detail').innerHTML=`
+    <h3>Customer situation</h3><div class="box">${esc(p.situation_masked||'(none)')}</div>
+    <h3>Human reply as sent (real text — check for names)</h3><div class="box">${esc(p.reply_raw||'(none)')}</div>
+    <div class="warnbox"><b>Auto-detected private info:</b> ${pii}.<br>The masker does <b>not</b> catch names. Read the reply above and confirm nothing personal remains before approving.</div>
+    <label class="chk"><input type="checkbox" id="chk"> I have personally checked — no names, addresses, or other private info remain.</label>
+    <h3>How it was handled (optional)</h3><textarea id="note" rows="2" placeholder="One line: what pattern does this teach?"></textarea>
+    <h3>Why it's the right answer (optional)</h3><textarea id="why" rows="2" placeholder="Policy / tone this shows"></textarea>
+    <div class="acts">
+      <button class="primary" id="appbtn" disabled onclick="doApprove()">Approve → add to AI's study material</button>
+      <button onclick="doReject(false)">Reject (archive)</button>
+      <button class="danger" onclick="doReject(true)">Reject &amp; delete</button>
+    </div>`;
+  document.getElementById('chk').onchange=e=>{document.getElementById('appbtn').disabled=!e.target.checked;};
+}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+async function doApprove(){
+  const body={pii_cleared:true,note:val('note'),why:val('why')};
+  const r=await fetch(API+'/approve/'+current,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.ok){toast('Approved — draft exemplar created. Edit it, then Re-index.');document.getElementById('detail').innerHTML='<div class="empty">Approved. Select another ticket.</div>';loadList();}
+  else{toast('Refused: '+(d.error||'error'));}
+}
+async function doReject(purge){
+  const r=await fetch(API+'/reject/'+current+(purge?'?purge=true':''),{method:'POST'});
+  const d=await r.json();
+  if(d.ok){toast('Rejected ('+(d.action||'')+').');document.getElementById('detail').innerHTML='<div class="empty">Rejected. Select another ticket.</div>';loadList();}
+  else{toast('Error');}
+}
+async function doReindex(){
+  toast('Re-indexing… this can take a minute.');
+  const r=await fetch(API+'/reindex',{method:'POST'});const d=await r.json();
+  toast(d.ok?'KB re-indexed — approved answers are now live.':'Re-index failed: '+(d.error||d.returncode));
+}
+function val(id){const e=document.getElementById(id);return e?e.value:'';}
+loadList();
+</script>
+</body>
+</html>

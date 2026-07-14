@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buttons Bebe — Support Dashboard</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --card: #1a1d27;
+  --card-hover: #1f2330;
+  --border: #2a2d3a;
+  --text: #e1e4ed;
+  --text-dim: #8a8d9a;
+  --text-bright: #f0f2f8;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --green: #22c55e;
+  --green-bg: rgba(34,197,94,0.12);
+  --orange: #f59e0b;
+  --orange-bg: rgba(245,158,11,0.12);
+  --red: #ef4444;
+  --red-bg: rgba(239,68,68,0.12);
+  --blue: #3b82f6;
+  --blue-bg: rgba(59,130,246,0.12);
+  --purple: #a855f7;
+  --purple-bg: rgba(168,85,247,0.12);
+  --gray: #6b7280;
+  --gray-bg: rgba(107,114,128,0.12);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 24px;
+  min-height: 100vh;
+}
+h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
+.subtitle { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 24px; }
+
+/* Stats bar */
+.stats {
+  display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  min-width: 120px;
+}
+.stat-card .label {
+  color: var(--text-dim); font-size: 0.7rem;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.stat-card .value { font-size: 1.6rem; font-weight: 700; margin-top: 2px; }
+.stat-card.total .value { color: var(--blue); }
+.stat-card.pending .value { color: var(--orange); }
+.stat-card.done .value { color: var(--green); }
+.stat-card.failed .value { color: var(--red); }
+.stat-card.drafted .value { color: var(--green); }
+.stat-card.escalated .value { color: var(--orange); }
+.stat-card.critical .value { color: var(--red); }
+
+/* Controls */
+.controls {
+  display: flex; gap: 12px; align-items: center;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.btn {
+  background: var(--accent); color: #fff; border: none;
+  padding: 8px 16px; border-radius: 8px; font-size: 0.85rem;
+  cursor: pointer; transition: background 0.15s;
+}
+.btn:hover { background: var(--accent-hover); }
+.btn.secondary {
+  background: var(--card); border: 1px solid var(--border);
+}
+.btn.secondary:hover { border-color: var(--accent); }
+.auto-refresh { font-size: 0.78rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.auto-refresh input { cursor: pointer; }
+
+/* Search */
+.search-box {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 14px; font-size: 0.85rem;
+  color: var(--text); min-width: 200px; flex: 1; max-width: 300px;
+}
+.search-box:focus { outline: none; border-color: var(--accent); }
+.search-box::placeholder { color: var(--text-dim); }
+
+/* Live dot */
+.live-dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--green);
+  margin-right: 6px; animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Ticket cards layout */
+.tickets-container { display: flex; flex-direction: column; gap: 16px; }
+
+.ticket-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.ticket-card:hover { border-color: #3a3d4a; }
+
+/* Priority strip on left side */
+.ticket-card.priority-critical { border-left: 4px solid var(--red); }
+.ticket-card.priority-high { border-left: 4px solid var(--orange); }
+.ticket-card.priority-normal { border-left: 4px solid var(--blue); }
+.ticket-card.priority-low { border-left: 4px solid var(--green); }
+.ticket-card.priority-pending { border-left: 4px solid var(--gray); }
+
+/* Card header */
+.ticket-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.ticket-id {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.82rem; color: var(--text-dim);
+}
+.ticket-subject {
+  font-weight: 600; font-size: 0.9rem; color: var(--text-bright);
+  flex: 1; min-width: 150px;
+}
+.ticket-time { font-size: 0.75rem; color: var(--text-dim); }
+
+/* Badges */
+.badge {
+  display: inline-block; padding: 3px 10px;
+  border-radius: 6px; font-size: 0.7rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+.badge-priority-critical { background: var(--red-bg); color: var(--red); }
+.badge-priority-high { background: var(--orange-bg); color: var(--orange); }
+.badge-priority-normal { background: var(--blue-bg); color: var(--blue); }
+.badge-priority-low { background: var(--green-bg); color: var(--green); }
+.badge-priority-pending { background: var(--gray-bg); color: var(--gray); }
+
+.badge-action-drafted { background: var(--green-bg); color: var(--green); }
+.badge-action-sensitive_draft { background: var(--orange-bg); color: var(--orange); }
+.badge-action-escalated { background: var(--orange-bg); color: var(--orange); }
+.badge-action-no_kb_match { background: var(--red-bg); color: var(--red); }
+.badge-status-pending { background: var(--orange-bg); color: var(--orange); }
+.badge-status-processing { background: var(--purple-bg); color: var(--purple); }
+.badge-status-done { background: var(--green-bg); color: var(--green); }
+.badge-status-failed { background: var(--red-bg); color: var(--red); }
+.badge-intent { background: var(--purple-bg); color: var(--purple); margin-right: 4px; }
+
+/* Card body: two-column data tables */
+.ticket-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+@media (max-width: 768px) {
+  .ticket-body { grid-template-columns: 1fr; }
+}
+
+.data-section {
+  padding: 14px 18px;
+}
+.data-section.customer {
+  border-right: 1px solid var(--border);
+}
+@media (max-width: 768px) {
+  .data-section.customer { border-right: none; border-bottom: 1px solid var(--border); }
+}
+
+.data-label {
+  font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-dim);
+  margin-bottom: 6px; font-weight: 600;
+}
+.data-value {
+  font-size: 0.85rem; line-height: 1.5; color: var(--text);
+  word-break: break-word; white-space: pre-wrap;
+}
+.data-value.email { font-size: 0.8rem; color: var(--text-dim); }
+.data-value.message {
+  max-height: 200px; overflow-y: auto;
+  font-size: 0.82rem; line-height: 1.45;
+}
+
+.data-field { margin-bottom: 12px; }
+.data-field:last-child { margin-bottom: 0; }
+
+/* Draft reply section */
+.draft-section {
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  background: rgba(99,102,241,0.03);
+}
+.draft-label {
+  font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--accent-hover);
+  margin-bottom: 6px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+}
+.draft-text {
+  font-size: 0.83rem; line-height: 1.5; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 300px; overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.draft-empty { color: var(--text-dim); font-style: italic; font-size: 0.82rem; }
+
+/* Reason */
+.reason-text {
+  font-size: 0.8rem; color: var(--text-dim);
+  font-style: italic; margin-top: 4px;
+}
+
+/* Intents row */
+.intents-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+/* Gorgias link */
+.gorgias-link {
+  font-size: 0.75rem; color: var(--accent-hover);
+  text-decoration: none; margin-left: auto;
+}
+.gorgias-link:hover { text-decoration: underline; }
+
+/* Empty state */
+.empty {
+  text-align: center; padding: 48px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3d4a; }
+
+/* Toggle switch */
+.toggle-switch {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 14px;
+  cursor: pointer; user-select: none;
+  transition: border-color 0.15s;
+}
+.toggle-switch:hover { border-color: var(--accent); }
+.toggle-switch label { font-size: 0.82rem; color: var(--text); cursor: pointer; }
+.toggle-track {
+  position: relative; width: 36px; height: 20px;
+  background: var(--border); border-radius: 10px;
+  transition: background 0.2s;
+}
+.toggle-track.on { background: var(--green); }
+.toggle-thumb {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; transition: transform 0.2s;
+}
+.toggle-track.on .toggle-thumb { transform: translateX(16px); }
+.toggle-status { font-size: 0.75rem; font-weight: 600; }
+.toggle-status.on { color: var(--green); }
+.toggle-status.off { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<h1>Buttons Bebe — Support Dashboard</h1>
+<p class="subtitle">
+  <span class="live-dot"></span>
+  Customer tickets &amp; AI-generated draft replies
+  &nbsp;|&nbsp; Human review required
+  &nbsp;|&nbsp; Auto-refresh: <span id="refresh-status">on</span>
+</p>
+
+<div class="stats">
+  <div class="stat-card total"><div class="label">Total Tickets</div><div class="value" id="stat-total">—</div></div>
+  <div class="stat-card pending"><div class="label">Pending</div><div class="value" id="stat-pending">—</div></div>
+  <div class="stat-card done"><div class="label">Processed</div><div class="value" id="stat-done">—</div></div>
+  <div class="stat-card drafted"><div class="label">Drafted</div><div class="value" id="stat-drafted">—</div></div>
+  <div class="stat-card escalated"><div class="label">Sensitive Draft</div><div class="value" id="stat-escalated">—</div></div>
+  <div class="stat-card critical"><div class="label">Critical</div><div class="value" id="stat-critical">—</div></div>
+</div>
+
+<div class="controls">
+  <input type="text" class="search-box" id="search" placeholder="Search subject, email, ticket ID, message..." oninput="filterTickets()">
+  <button class="btn" onclick="loadData()">Refresh Now</button>
+  <label class="auto-refresh">
+    <input type="checkbox" id="auto-refresh" checked onchange="toggleAutoRefresh()"> Auto-refresh (5s)
+  </label>
+</div>
+
+<div class="tickets-container" id="tickets-container">
+  <div class="empty">Loading…</div>
+</div>
+
+<script>
+let allTickets = [];
+let autoRefresh = true;
+let refreshTimer = null;
+// ── Auto-refresh toggle ────────────────────────────────────
+function toggleAutoRefresh() {
+  autoRefresh = document.getElementById('auto-refresh').checked;
+  document.getElementById('refresh-status').textContent = autoRefresh ? 'on' : 'off';
+  if (autoRefresh) startTimer(); else stopTimer();
+}
+
+function startTimer() {
+  stopTimer();
+  refreshTimer = setInterval(loadData, 5000);
+}
+function stopTimer() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+}
+
+function priorityClass(p) {
+  if (!p) return 'pending';
+  return p.toLowerCase();
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s ?? '');
+  return d.innerHTML;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch { return iso; }
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const secs = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (secs < 60) return secs + 's ago';
+    if (secs < 3600) return Math.floor(secs/60) + 'm ago';
+    if (secs < 86400) return Math.floor(secs/3600) + 'h ago';
+    return Math.floor(secs/86400) + 'd ago';
+  } catch { return ''; }
+}
+
+function renderTicket(t) {
+  const pri = t.priority || '';
+  const action = t.action || '';
+  const jobStatus = t.job_status || 'pending';
+  const intents = t.intents ? JSON.parse(t.intents) : [];
+  const intentBadges = intents.map(i => `<span class="badge badge-intent">${esc(i)}</span>`).join('');
+
+  // Priority badge
+  let priorityBadge = '';
+  if (pri) {
+    priorityBadge = `<span class="badge badge-priority-${priorityClass(pri)}">${esc(pri)}</span>`;
+  } else {
+    priorityBadge = `<span class="badge badge-priority-pending">Pending</span>`;
+  }
+
+  // Action badge
+  let actionBadge = '';
+  if (action) {
+    actionBadge = `<span class="badge badge-action-${action}">${esc(action.replace(/_/g,' '))}</span>`;
+  }
+
+  // Job status badge
+  let statusBadge = `<span class="badge badge-status-${jobStatus}">${esc(jobStatus)}</span>`;
+
+  // Draft text
+  let draftHtml = '';
+  if (t.draft_text && t.draft_text.trim()) {
+    draftHtml = `<div class="draft-text">${esc(t.draft_text)}</div>`;
+  } else if (action === 'drafted' || action === 'escalated' || action === 'sensitive_draft') {
+    draftHtml = '<div class="draft-empty">Draft posted to Gorgias as internal note — see ticket.</div>';
+  } else if (jobStatus === 'pending' || jobStatus === 'processing') {
+    draftHtml = '<div class="draft-empty">Processing... AI is reading the ticket and searching the KB.</div>';
+  } else if (jobStatus === 'failed') {
+    draftHtml = '<div class="draft-empty">Processing failed — will retry automatically.</div>';
+  } else {
+    draftHtml = '<div class="draft-empty">Not yet processed.</div>';
+  }
+
+  const gorgiasUrl = `https://buttonsbebe.gorgias.com/tickets/${t.ticket_id}`;
+
+  return `<div class="ticket-card priority-${priorityClass(pri)}" data-search="${esc((t.ticket_subject||'') + ' ' + (t.customer_email||'') + ' ' + t.ticket_id + ' ' + (t.message_text||'') + ' ' + (t.draft_text||'') + ' ' + (t.reason||'')).toLowerCase()}">
+    <div class="ticket-header">
+      <span class="ticket-id">#${esc(t.ticket_id)}</span>
+      <span class="ticket-subject">${esc(t.ticket_subject || '(no subject)')}</span>
+      ${priorityBadge}
+      ${actionBadge}
+      ${statusBadge}
+      <span class="ticket-time">${timeAgo(t.received_at)}</span>
+      <a class="gorgias-link" href="${gorgiasUrl}" target="_blank">Open in Gorgias →</a>
+    </div>
+    <div class="ticket-body">
+      <div class="data-section customer">
+        <div class="data-field">
+          <div class="data-label">Customer</div>
+          <div class="data-value email">${esc(t.customer_email || '—')}</div>
+        </div>
+        <div class="data-field">
+          <div class="data-label">Received</div>
+          <div class="data-value">${fmtDate(t.received_at)}</div>
+        </div>
+        <div class="data-field">
+          <div class="data-label">Channel</div>
+          <div class="data-value">${esc(t.channel || '—')}</div>
+        </div>
+        ${intentBadges ? `<div class="data-field"><div class="data-label">Intents</div><div class="intents-row">${intentBadges}</div></div>` : ''}
+        <div class="data-field">
+          <div class="data-label">Customer Message</div>
+          <div class="data-value message">${esc(t.message_text || '—')}</div>
+        </div>
+      </div>
+      <div class="data-section ai">
+        <div class="data-field">
+          <div class="data-label">AI Priority</div>
+          <div class="data-value">${priorityBadge}</div>
+        </div>
+        <div class="data-field">
+          <div class="data-label">AI Action</div>
+          <div class="data-value">${actionBadge || '<span class="data-value">—</span>'}</div>
+        </div>
+        <div class="data-field">
+          <div class="data-label">Processed</div>
+          <div class="data-value">${t.processed_at ? fmtDate(t.processed_at) : '—'}</div>
+        </div>
+        ${t.reason ? `<div class="data-field"><div class="data-label">Reason</div><div class="reason-text">${esc(t.reason)}</div></div>` : ''}
+        <div class="data-field">
+          <div class="data-label">Note Posted to Gorgias</div>
+          <div class="data-value">${t.note_posted ? '✅ Yes' : '❌ No'}</div>
+        </div>
+      </div>
+    </div>
+    <div class="draft-section">
+      <div class="draft-label">
+        📝 AI Draft Reply (internal note — for human review)
+      </div>
+      ${draftHtml}
+    </div>
+  </div>`;
+}
+
+function filterTickets() {
+  const query = document.getElementById('search').value.toLowerCase().trim();
+  const container = document.getElementById('tickets-container');
+  if (!query) {
+    renderTickets(allTickets);
+    return;
+  }
+  const filtered = allTickets.filter(t => {
+    const haystack = (
+      (t.ticket_subject || '') + ' ' +
+      (t.customer_email || '') + ' ' +
+      t.ticket_id + ' ' +
+      (t.message_text || '') + ' ' +
+      (t.draft_text || '') + ' ' +
+      (t.reason || '')
+    ).toLowerCase();
+    return haystack.includes(query);
+  });
+  renderTickets(filtered);
+}
+
+function renderTickets(tickets) {
+  const container = document.getElementById('tickets-container');
+  if (!tickets.length) {
+    container.innerHTML = '<div class="empty">No tickets found. Waiting for Gorgias webhook events…</div>';
+    return;
+  }
+  container.innerHTML = tickets.map(renderTicket).join('');
+}
+
+async function loadData() {
+  try {
+    const [statsRes, ticketsRes] = await Promise.all([
+      fetch('/dashboard/api/stats'),
+      fetch('/dashboard/api/tickets?limit=100'),
+    ]);
+    const stats = await statsRes.json();
+    const tickets = await ticketsRes.json();
+
+    // Update stats
+    document.getElementById('stat-total').textContent = stats.total || 0;
+    document.getElementById('stat-pending').textContent = (stats.pending || 0) + (stats.processing || 0);
+    document.getElementById('stat-done').textContent = stats.done || 0;
+    document.getElementById('stat-drafted').textContent = stats.drafted || 0;
+    document.getElementById('stat-escalated').textContent = (stats.escalated || 0) + (stats.sensitive_draft || 0);
+    document.getElementById('stat-critical').textContent = stats.critical || 0;
+
+    // Update tickets
+    allTickets = tickets;
+    renderTickets(tickets);
+  } catch (e) {
+    console.error('load error', e);
+  }
+}
+
+loadData();
+startTimer();
+</script>
+</body>
+</html>

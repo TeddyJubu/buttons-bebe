@@ -2,27 +2,62 @@
 .env
 .env.*
 !.env.example
+**/.env
+*.env.local
+.env.bak-*
 config.json
 config.local.json
 secrets.json
 *.pem
 *.key
 
+# Ticket exports and confidential KB artifacts
+data/
+exports/
+ticket_contexts/
+backups/
+build/hermes/kb-rag/vault/exemplars/
+
 # Python
 __pycache__/
 *.pyc
+**/*.egg-info/
 .venv/
 venv/
+**/.venv/
+
+# Node
+**/node_modules/
 
 # Runtime data
 *.db
 *.sqlite*
-exports/
-ticket_contexts/
-backups/
 webhook_events.jsonl
 *.jsonl
 *.log
+webhook/data/
+processor/.processor.lock
+kb/.index_kb.lock
+kb/.index_kb.promote.lock
+kb/.products-sync.lock
+kb/tickets/exemplar-learned-*.md
+whatsapp-connect/auth/
+whatsapp-connect/notify.json
+
+# Hermes credentials, conversations, caches, and generated runtime state
+hermes/config.yaml
+hermes/auth.json
+hermes/auth.lock
+hermes/.hermes_history
+hermes/session*/
+hermes/pastes/
+hermes/logs/
+hermes/platforms/
+hermes/*cache*
+hermes/processes.json
+
+# Full VPS backup — contains plaintext secrets, never commit
+_VPS-FULL-BACKUP-*/
 
 # OS / editor
 .DS_Store

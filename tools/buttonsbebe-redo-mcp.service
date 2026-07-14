@@ -1,0 +1,16 @@
+[Unit]
+Description=Buttons Bebe Redo returns MCP tool (for Hermes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=REDO_MCP_TRANSPORT=streamable-http
+Environment=REDO_MCP_HOST=127.0.0.1
+Environment=REDO_MCP_PORT=8078
+ExecStart=/root/redo-mcp-run.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

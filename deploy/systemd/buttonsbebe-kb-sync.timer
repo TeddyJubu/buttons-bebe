@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Buttons Bebe products every 3 days
+
+[Timer]
+# First run 3 days after this timer is enabled, then every 3 days after each run.
+OnActiveSec=3d
+OnUnitActiveSec=3d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Buttons Bebe nightly learning (promote approved replies + reindex)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/Buttonsbebe Agent/KB
+ExecStart=/bin/bash "/root/Buttonsbebe Agent/KB/learn-nightly.sh"

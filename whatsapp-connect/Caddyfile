@@ -1,0 +1,7 @@
+# RETIRED — DO NOT DEPLOY
+#
+# This component-local file predated the authenticated management console and
+# proxied every unmatched public request to FastAPI. That exposed the internal
+# /dashboard/api namespace. Use ../deploy/caddy/Caddyfile.redacted only; it
+# contains the token-scoped WhatsApp route, Basic-Auth console routes, and an
+# explicit public /dashboard* deny rule.
