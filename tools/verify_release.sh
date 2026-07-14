@@ -62,6 +62,12 @@ fi
 "$PYTHON" -m unittest discover -s kb/tests -v
 "$PYTHON" -m unittest discover -s deploy/tests -v
 "$PYTHON" -m unittest tools.test_tool_contracts -v
+PYTHONPATH="$ROOT_DIR/webhook/src${PYTHONPATH:+:$PYTHONPATH}" \
+  "$PYTHON" -m unittest discover -s webhook -p 'test_notifications.py' -v
+if "$PYTHON" -c 'import aiosqlite' >/dev/null 2>&1; then
+  PYTHONPATH="$ROOT_DIR/webhook/src${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" -m unittest discover -s webhook -p 'test_notification_api.py' -v
+fi
 "$PROCESSOR_PYTHON" -m unittest \
   processor.test_whatsapp_notifier \
   processor.test_feedback_retirement \

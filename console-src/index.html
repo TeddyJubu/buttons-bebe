@@ -238,6 +238,7 @@ body{background:#e8e5d8;font-family:Inter,Arial,sans-serif}
 .attention-head{min-width:176px}.attention-head h2{font-size:14px;line-height:20px;font-weight:650}.attention-head p{font-size:11px;line-height:16px;color:rgba(28,28,28,.6)}
 .attention-items{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:8px;flex:1}.attention-btn{display:flex;align-items:center;gap:10px;min-height:42px;padding:8px 12px;border:1px solid rgba(255,255,255,.45);border-radius:16px;background:rgba(255,255,255,.28);color:var(--ink);text-align:left;cursor:pointer}.attention-btn:hover{background:rgba(255,255,255,.52)}.attention-btn strong{font-size:20px;font-weight:500}.attention-btn span{font-size:11px;line-height:14px;color:rgba(28,28,28,.68)}
 .kpi{width:100%;color:var(--ink);text-align:left;cursor:pointer}.kpi:focus-visible,.attention-btn:focus-visible,.activity-link:focus-visible,.risk-link:focus-visible{outline:3px solid rgba(28,28,28,.72);outline-offset:3px}
+.notification-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}.notification-head h2{font-size:18px;line-height:28px;font-weight:600}.notification-head p{margin-top:4px;font-size:12px;line-height:18px;color:rgba(28,28,28,.62)}.notification-list{display:grid;gap:9px}.notification-row{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;padding:15px 16px;border:1px solid rgba(28,28,28,.08);border-radius:18px;background:rgba(255,255,255,.25);color:var(--ink);text-align:left;cursor:pointer}.notification-row:hover{background:rgba(255,255,255,.48)}.notification-row.unread{border-color:rgba(249,161,108,.55);background:rgba(249,161,108,.18)}.notification-kind{min-width:58px;padding:4px 7px;border-radius:999px;background:var(--orange);font-size:10px;font-weight:700;letter-spacing:.04em;text-align:center}.notification-kind.error{background:#f4c8be;color:#7b2923}.notification-copy{min-width:0}.notification-copy b,.notification-copy span{display:block}.notification-copy b{font-size:13px;line-height:18px}.notification-copy .notification-context{margin-top:3px;font-size:11px;line-height:16px;color:rgba(28,28,28,.62);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.notification-copy .notification-detail{margin-top:3px;font-size:11px;line-height:16px;color:rgba(28,28,28,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.notification-time{font-size:10px;line-height:16px;color:rgba(28,28,28,.54);white-space:nowrap}.notification-empty{padding:26px 10px;text-align:center;color:rgba(28,28,28,.62);font-size:13px}.notification-status{margin-top:12px;font-size:12px;color:var(--ink2)}
 .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.view-all{border:0;background:transparent;color:var(--ink);font-size:12px;font-weight:600;cursor:pointer;padding:4px 0;white-space:nowrap}.view-all:hover{text-decoration:underline}
 .risk-link,.activity-link{width:100%;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.risk-link:hover .lab,.activity-link:hover b{text-decoration:underline}.act .activity-link{display:flex}
 .error-banner{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px;padding:14px 16px;border:1px solid rgba(183,67,57,.18);border-radius:18px;background:rgba(244,200,190,.48);font-size:13px}.error-banner strong{display:block}.error-banner span{font-size:12px;color:rgba(28,28,28,.65)}
@@ -248,7 +249,7 @@ body{background:#e8e5d8;font-family:Inter,Arial,sans-serif}
 @keyframes t-badge-slide-in{from{transform:translate(var(--badge-offset-x),var(--badge-offset-y))}to{transform:translate(0,0)}}
 .t-badge{position:absolute;top:-6px;right:-8px;pointer-events:none;will-change:transform}.t-badge[data-open="true"]{animation:t-badge-slide-in var(--badge-slide-dur) var(--badge-slide-ease)}.t-badge-dot{display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#f97316;color:#fff;font-size:10px;font-weight:700;transform-origin:center;transform:scale(1);opacity:1;filter:blur(0);transition:transform var(--badge-pop-dur) var(--badge-pop-ease),opacity var(--badge-fade-dur) var(--badge-pop-ease),filter var(--badge-pop-dur) var(--badge-pop-ease);will-change:transform,opacity,filter}.t-badge[data-open="false"] .t-badge-dot{transform:scale(0);opacity:0;filter:blur(var(--badge-blur));transition:transform var(--badge-pop-close-dur) var(--badge-close-ease),opacity var(--badge-fade-close-dur) var(--badge-close-ease),filter var(--badge-pop-close-dur) var(--badge-close-ease)}
 @media(max-width:1000px){.freshness{display:none}.attention{align-items:flex-start;flex-direction:column;gap:12px}.attention-head{min-width:0;width:100%}.attention-items{width:100%}}
-@media(max-width:600px){.attention{padding:16px}.attention-items{grid-template-columns:1fr}.head-icon.refresh-control{display:grid}.activity-link{padding-left:0!important;padding-right:0!important}}
+@media(max-width:600px){.attention{padding:16px}.attention-items{grid-template-columns:1fr}.notification-head{align-items:flex-start;flex-direction:column;gap:9px}.notification-row{grid-template-columns:1fr;gap:7px}.notification-kind{width:max-content}.notification-time{display:none}.head-icon.refresh-control{display:grid}.activity-link{padding-left:0!important;padding-right:0!important}}
 @media(prefers-reduced-motion:reduce){.side,.nav-scrim{transition:none!important}.t-panel-slide{transition:none!important}.t-digit-group .t-digit{animation:none!important}.t-badge,.t-badge-dot{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -263,6 +264,7 @@ let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
 let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false;
 let noticesData=null,noticeText="",noticeDeadline="",noticeMsg="",noticeBusy=false;
+let notificationData=null,notificationError="",notificationMsg="",notificationBusy=false,notificationPoll=null;
 let lastUpdated=null,loadFailed=false,loadErrors=[],statusMsg="Loading dashboard data",focusHeadingAfterRender=false;
 
 const IC={
@@ -283,25 +285,28 @@ const keyOf=t=>String(t.message_id??t.ticket_id??"");
 const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.now()-new Date(d).getTime())/1000;if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";};
 const digits=v=>{const a=String(v).split("");return `<span class="t-digit-group is-animating">${a.map((ch,i)=>`<span class="t-digit"${i===a.length-2?' data-stagger="1"':(i===a.length-1?' data-stagger="2"':'')}>${esc(ch)}</span>`).join("")}</span>`;};
 const freshText=()=>lastUpdated?"Updated "+lastUpdated.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Updating…";
-const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab==="notices"&&noticeMsg?noticeMsg:tab==="notif"&&waMsg?waMsg:statusMsg;
+const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab==="notices"&&noticeMsg?noticeMsg:tab==="notif"&&(notificationMsg||waMsg)?(notificationMsg||waMsg):statusMsg;
 async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 async function boot(){
- const [s,t,lg,kh]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=60"),jget(API+"/learning"),jget(KBAPI+"/health")]);
+ const [s,t,lg,kh,nd]=await Promise.all([jget(API+"/stats"),jget(API+"/tickets?limit=100"),jget(API+"/learning"),jget(KBAPI+"/health"),jget(API+"/notifications")]);
  loadErrors=[];if(s===null)loadErrors.push("stats");if(t===null)loadErrors.push("tickets");if(lg===null)loadErrors.push("learning");
  loadFailed=loadErrors.length>0;
  if(s!==null)stats=s;if(Array.isArray(t))tickets=t;if(lg!==null)learn=lg;
  if(kh!==null){kbHealth=kh;kbHealthError="";}else{kbHealth=null;kbHealthError="Knowledge-base health data is unavailable";}
+ if(nd!==null){notificationData=nd;notificationError="";}else{notificationError="Live notifications are unavailable. Refresh to retry.";}
  if(!loadFailed)lastUpdated=new Date();statusMsg=loadFailed?"Could not load "+loadErrors.join(", ")+" data; showing last known values":"Dashboard data updated";
+ startNotificationPoll();
  render();
 }
 
-function goTickets(nextFilter="all",ticketKey=null){filter=nextFilter;tab="tickets";openTk=ticketKey==null?null:String(ticketKey);stopWaPoll();render();if(openTk)requestAnimationFrame(()=>{const d=document.querySelector(".detail");if(d)d.focus();});}
+function goTickets(nextFilter="all",ticketKey=null){filter=nextFilter;tab="tickets";openTk=ticketKey==null?null:String(ticketKey);render();if(openTk)requestAnimationFrame(()=>{const d=document.querySelector(".detail");if(d)d.focus();});}
 
 function render(){
  const pages={overview:"Overview",tickets:"Ticket feed",conns:"Connections",kb:"Knowledge base",notices:"Notice Board",notif:"Notifications",settings:"Settings"};
  const subs={overview:"How your AI support agent is performing",tickets:"Every ticket, its AI draft, and what needs you",conns:"Your connected tools and their health",kb:"Edit what your agent knows — policies, FAQs, intents, tickets",notices:"Owner overrides — post info that beats every other answer, with an optional deadline",notif:"Link WhatsApp and choose where alerts go",settings:"Configure your agent"};
- const alertCount=tickets.filter(isEsc).length;
+ const unreadCount=notificationData&&Number.isInteger(notificationData.unread_count)?notificationData.unread_count:null;
+ const notificationLabel=unreadCount===null?"Open notifications — live status unavailable":`Open notifications — ${unreadCount} unread`;
  document.getElementById("app").innerHTML=`
   <aside class="side">
     <div class="logo"><div class="mark">B</div><b>Buttons Bebe</b><span class="tag">Support AI Agent</span></div>
@@ -317,15 +322,15 @@ function render(){
        <span class="freshness">${freshText()}</span>
        <div class="live" role="status"><span class="dot"></span> Agent live</div>
        <button class="head-icon refresh-control" id="refresh" aria-label="Refresh dashboard data" title="Refresh dashboard data">${IC.refresh}</button>
-       <button class="head-icon" id="header-notif" aria-label="Open notifications">${IC.notif}<span class="t-badge" data-open="${alertCount>0}"><span class="t-badge-dot">${alertCount}</span></span></button>
+       <button class="head-icon" id="header-notif" aria-label="${notificationLabel}" title="${notificationLabel}">${IC.notif}${unreadCount===null?'':`<span class="t-badge" data-open="${unreadCount>0}"><span class="t-badge-dot">${unreadCount>99?'99+':unreadCount}</span></span>`}</button>
        <button class="head-avatar" id="header-settings" aria-label="Open settings">B</button>
       </div></header>
     <div class="wrap"><div class="t-panel-slide" data-open="false">${loadFailed?errorBanner():""}${view()}</div></div>
   </div>`;
  const status=document.getElementById("app-status");if(status){status.textContent="";requestAnimationFrame(()=>{status.textContent=liveMessage();});}
- const openTab=k=>{tab=k;openTk=null;focusHeadingAfterRender=true;stopWaPoll();if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"){loadWa();}else if(tab==="notices"){loadNotices();}else{render();}};
+ const openTab=k=>{tab=k;openTk=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
  document.querySelectorAll(".nav a").forEach(a=>{a.onclick=()=>openTab(a.dataset.tab);a.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTab(a.dataset.tab);}};});
- const rf=document.getElementById("refresh");if(rf)rf.onclick=async()=>{rf.classList.add("refreshing");rf.disabled=true;statusMsg="Refreshing dashboard data";if(tab==="kb"){kbData=null;await loadKb();}else if(tab==="notif"){await loadWa();}else if(tab==="notices"){await loadNotices();}else{await boot();}};
+ const rf=document.getElementById("refresh");if(rf)rf.onclick=async()=>{rf.classList.add("refreshing");rf.disabled=true;statusMsg="Refreshing dashboard data";if(tab==="kb"){kbData=null;await loadKb();}else if(tab==="notif"){await loadNotifications();}else if(tab==="notices"){await loadNotices();}else{await boot();}};
  const hn=document.getElementById("header-notif");if(hn)hn.onclick=()=>openTab("notif");
  const hs=document.getElementById("header-settings");if(hs)hs.onclick=()=>openTab("settings");
  const mb=document.getElementById("menu-btn"),side=document.querySelector(".side"),scrim=document.getElementById("nav-scrim");
@@ -336,7 +341,7 @@ function render(){
  const panel=document.querySelector(".t-panel-slide");if(panel)requestAnimationFrame(()=>panel.dataset.open="true");
  if(focusHeadingAfterRender){focusHeadingAfterRender=false;requestAnimationFrame(()=>{const h=document.querySelector(".top h1");if(h)h.focus();});}
 }
-function view(){return tab==="overview"?overview():tab==="tickets"?ticketsView():tab==="conns"?conns():tab==="kb"?kbView():tab==="notices"?noticesView():tab==="notif"?waView():settingsView();}
+function view(){return tab==="overview"?overview():tab==="tickets"?ticketsView():tab==="conns"?conns():tab==="kb"?kbView():tab==="notices"?noticesView():tab==="notif"?notificationsView():settingsView();}
 function errorBanner(){return `<div class="error-banner" role="alert"><div><strong>Could not load ${esc(loadErrors.join(", "))} data.</strong><span>Existing values are shown where available. Refresh to try again.</span></div><button class="btn" id="retry-load">Retry</button></div>`;}
 
 function overview(){
@@ -548,13 +553,11 @@ function pollReindex(){
 
 function waNum(jid){return jid?("+"+String(jid).split("@")[0]):"";}
 let waSig="";
-function waView(){
- if(!waData)return '<div class="ph2">Loading notification settings…</div>';
+function notificationDelivery(){
+ if(!waData)return '<div class="panel"><h3>Alert delivery</h3><div class="ph">Loading WhatsApp delivery status…</div></div>';
  const st=waData.state,conn=st==="connected";
  const n=waData.notify||{mode:"linked",number:""};
  if(waMode===null){waMode=n.mode||"linked";waNumber=n.number||"";}
- const accts=[["Gorgias",true],["Shopify",true],["Redo",true],["WhatsApp",conn],["Knowledge base",true]];
- const strip=accts.map(a=>`<div class="acct"><span class="dot ${a[1]?'':'off'}"></span>${esc(a[0])} <small>${a[1]?'Connected':'Not linked'}</small></div>`).join("");
  let wcard;
  if(conn){
    wcard=`<div class="wc-ok"><div class="ic g">${IC.check}</div><div><b>WhatsApp linked</b><div class="hint">Alerts arrive on ${esc(waNum(waData.owner))}</div></div><button class="btn" id="wa-unlink">Unlink</button></div>`;
@@ -569,33 +572,78 @@ function waView(){
    <input class="numin" id="wa-number" placeholder="e.g. +1 555 123 4567" value="${esc(waNumber)}" ${waMode==='number'?'':'disabled'}>
    <div class="destact"><span class="toast">${esc(waMsg)}</span><button class="btn" id="wa-test" ${conn?'':'disabled'}>Send test alert</button><button class="btn p" id="wa-save">Save destination</button></div>
  </div>`;
- return `<div class="acctstrip">${strip}</div>
-  <div class="grid2b">
+ return `<div class="grid2b">
    <div class="panel"><h3>WhatsApp alerts</h3><div class="ph">Scan once to receive escalation alerts on your phone</div>${wcard}</div>
    <div class="panel"><h3>Where alerts go</h3><div class="ph">Choose the destination for escalation notifications</div>${dest}</div>
   </div>`;
 }
-function stopWaPoll(){if(waPoll){clearTimeout(waPoll);waPoll=null;}}
 function captureWaForm(){const mi=document.querySelector('input[name=wamode]:checked');const ni=document.getElementById("wa-number");if(mi)waMode=mi.value;if(ni)waNumber=ni.value;}
-let waTick=0;
-async function loadWa(){
- waData=await jget(WAAPI+"/status")||{state:"starting",notify:{mode:"linked",number:""}};
- waSig=waData.state+"|"+(waData.owner||"")+"|"+(waData.qr||"");
- waTick=0;
- render();
- stopWaPoll();
- if(tab==="notif")waPoll=setTimeout(loadWaSilent,3000);
-}
-async function loadWaSilent(){
- if(tab!=="notif"){stopWaPoll();return;}
- const d=await jget(WAAPI+"/status");
- if(d){
-   const sig=d.state+"|"+(d.owner||"")+"|"+(d.qr||"");
-   waTick++;
-   // re-render whenever anything changed, and force a full refresh every 30s (10 x 3s)
-   if(sig!==waSig||waTick>=10){captureWaForm();waData=d;waSig=sig;waTick=0;render();}
+function notificationsView(){
+ if(!notificationData){
+   return `<div class="panel" role="alert"><h3>Live notifications are unavailable</h3><div class="ph">${esc(notificationError||"Loading current ticket alerts…")}</div><button class="btn" id="retry-notifications">Retry</button></div><div class="sec-title">Alert delivery</div>${notificationDelivery()}`;
  }
- if(tab==="notif")waPoll=setTimeout(loadWaSilent,3000);
+ const list=Array.isArray(notificationData.notifications)?notificationData.notifications:[];
+ const unread=Number.isInteger(notificationData.unread_count)?notificationData.unread_count:0;
+ const rows=list.map((notification,index)=>{
+   const read=notification.read===true;
+   const kind=notification.kind==="failed"?"Failed":"Review";
+   const context=[notification.customer,notification.subject].filter(Boolean).join(" · ");
+   return `<button class="notification-row ${read?'':'unread'}" data-notification-index="${index}" aria-label="${read?'Read':'Unread'}: ${esc(notification.title||kind)}" ${notificationBusy?'disabled':''}>
+    <span class="notification-kind ${notification.severity==='error'?'error':''}">${kind}</span>
+    <span class="notification-copy"><b>${esc(notification.title||kind)}</b><span class="notification-context">${esc(context)}</span><span class="notification-detail">${esc(notification.detail||"")}</span></span>
+    <time class="notification-time">${esc(ago({processed_at:notification.occurred_at}))}</time>
+   </button>`;
+ }).join("");
+ return `<section class="panel" aria-labelledby="notification-title"><div class="notification-head"><div><h2 id="notification-title">Needs your attention</h2><p>${unread?`${unread} unread item${unread===1?'':'s'} from the live ticket queue.`:"You're caught up on the current ticket alerts."}</p></div><button class="btn" id="mark-all-notifications" ${!unread||notificationBusy?'disabled':''}>Mark all read</button></div>
+  <div class="notification-list">${rows||'<div class="notification-empty">No current ticket alerts. New high-risk tickets and processor failures will appear here automatically.</div>'}</div>
+  ${notificationMsg?`<div class="notification-status">${esc(notificationMsg)}</div>`:''}
+ </section><div class="sec-title">Alert delivery</div>${notificationDelivery()}`;
+}
+async function loadNotifications({renderNow=true}={}){
+ const loadWhatsApp=tab==="notif";
+ const [nextNotifications,nextWhatsApp]=await Promise.all([
+  jget(API+"/notifications"),
+  loadWhatsApp?jget(WAAPI+"/status"):Promise.resolve(null),
+ ]);
+ if(nextNotifications===null){notificationError="Live notifications are unavailable. Refresh to retry.";}
+ else{notificationData=nextNotifications;notificationError="";}
+ if(nextWhatsApp!==null){
+  const nextSig=nextWhatsApp.state+"|"+(nextWhatsApp.owner||"")+"|"+(nextWhatsApp.qr||"");
+  if(nextSig!==waSig){captureWaForm();waData=nextWhatsApp;waSig=nextSig;}
+ }
+ if(renderNow&&tab==="notif")render();
+}
+function startNotificationPoll(){
+ if(notificationPoll)clearTimeout(notificationPoll);
+ const poll=async()=>{
+  if(!document.hidden)await loadNotifications({renderNow:tab==="notif"});
+  notificationPoll=setTimeout(poll,15000);
+ };
+ notificationPoll=setTimeout(poll,15000);
+}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadNotifications({renderNow:tab==="notif"});});
+async function markNotificationsRead(ids,all=false){
+ if(!notificationData)return false;
+ notificationBusy=true;notificationMsg="Marking notifications read…";render();
+ try{
+  const r=await fetch(API+"/notifications/read",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(all?{all:true}:{ids})});
+  const data=await r.json();
+  if(!r.ok)throw new Error(data.error||"request failed");
+  const marked=new Set(all?notificationData.notifications.map(notification=>notification.id):ids);
+  notificationData.notifications.forEach(notification=>{if(marked.has(notification.id))notification.read=true;});
+  notificationData.unread_count=data.unread_count;
+  notificationMsg=all?"All current notifications marked read.":"Notification marked read.";
+  return true;
+ }catch(e){notificationMsg="Could not update notification state.";return false;
+ }finally{notificationBusy=false;}
+}
+async function openDashboardNotification(index){
+ const notification=notificationData&&notificationData.notifications&&notificationData.notifications[index];
+ if(!notification)return;
+ if(!notification.read)await markNotificationsRead([notification.id]);
+ const freshTickets=await jget(API+"/tickets?limit=100");
+ if(Array.isArray(freshTickets))tickets=freshTickets;
+ goTickets(notification.filter||"all",notification.message_id);
 }
 async function saveWa(){
  captureWaForm();waMsg="Saving…";render();
@@ -611,7 +659,7 @@ async function unlinkWa(){
  if(!confirm("Unlink this WhatsApp? You'll need to scan a new QR to receive alerts again."))return;
  waMsg="Unlinking…";render();
  try{await fetch(WAAPI+"/logout",{method:"POST"});}catch(e){}
- waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadWa,1500);render();
+ waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadNotifications,1500);render();
 }
 function fmtWhen(iso){try{return new Date(iso).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}catch(e){return iso;}}
 function noticesView(){
@@ -670,6 +718,9 @@ function bind(){
  document.querySelectorAll("[data-go-filter]").forEach(b=>b.onclick=()=>goTickets(b.dataset.goFilter));
  document.querySelectorAll("[data-go-ticket]").forEach(b=>b.onclick=()=>goTickets("all",b.dataset.goTicket));
  const retry=document.getElementById("retry-load");if(retry)retry.onclick=boot;
+ const retryNotifications=document.getElementById("retry-notifications");if(retryNotifications)retryNotifications.onclick=()=>loadNotifications();
+ const markAllNotifications=document.getElementById("mark-all-notifications");if(markAllNotifications)markAllNotifications.onclick=async()=>{await markNotificationsRead([],true);render();};
+ document.querySelectorAll("[data-notification-index]").forEach(button=>button.onclick=()=>openDashboardNotification(Number(button.dataset.notificationIndex)));
  document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{filter=c.dataset.f;openTk=null;render();});
  document.querySelectorAll(".row[data-tk]").forEach(r=>{r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}};r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();r.click();}};});
  const as=document.getElementById("act-send");if(as)as.onclick=sendReply;
