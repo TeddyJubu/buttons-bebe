@@ -6,8 +6,7 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: pr-review-${{ github.event.pull_request.number }}
@@ -18,8 +17,8 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      # This deliberately does not check out or execute PR code. It is safe to
-      # run with comment-write permission, including for pull requests from forks.
+      # This deliberately does not check out or execute PR code. It keeps a
+      # read-only token and publishes the report to the job summary.
       - name: Summarize change risk and enforce repository guardrails
         uses: actions/github-script@v7
         with:
@@ -90,28 +89,7 @@ jobs:
               `The [verify workflow](${pr.html_url}/checks) runs the executable release checks. This review gate never checks out or executes PR code.`,
             ].join("\n");
 
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              per_page: 100,
-            });
-            const existing = comments.find((comment) => comment.user.type === "Bot" && comment.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body,
-              });
-            }
+            await core.summary.addRaw(body).write();
 
             if (blockers.length) {
               core.setFailed(`PR review gate blocked this pull request: ${blockers.join("; ")}`);

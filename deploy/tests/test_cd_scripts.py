@@ -143,6 +143,15 @@ class DeploymentGuardrailTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn('exec sudo -n "$receiver"', wrapper)
 
+    def test_pr_review_gate_keeps_a_read_only_token(self) -> None:
+        workflow = (ROOT / ".github/workflows/pr-review.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("pull-requests: read", workflow)
+        self.assertNotIn("issues: write", workflow)
+        self.assertNotIn("pull-requests: write", workflow)
+        self.assertIn("core.summary.addRaw(body).write()", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
