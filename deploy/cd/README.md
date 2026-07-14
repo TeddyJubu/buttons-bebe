@@ -16,4 +16,11 @@ Systemd and Caddy configuration are deliberately never copied by CD. Their
 content fingerprints are root-approved in
 `/etc/buttonsbebe-deploy-approved-config.sha256`; a release that changes either
 configuration directory stops safely until the configuration is manually
-reviewed, applied, and re-approved on the VPS.
+reviewed, applied, and re-approved on the VPS. The approval file contains one
+`<relative_path> <sha256>` entry per line, matching the paths consumed by
+`assert_config_approved` (currently `deploy/systemd` and `deploy/caddy`).
+
+Incoming archives are capped at 64 MiB and must contain only bounded regular
+files and directories. Readiness checks retry slow starts and require the
+WhatsApp bridge to report `connected`. After a successful release, the receiver
+keeps the five newest release trees and five newest source backups.
