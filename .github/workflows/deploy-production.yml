@@ -1,0 +1,50 @@
+name: deploy production
+
+on:
+  workflow_run:
+    workflows: [verify]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Send the sealed release to production
+        env:
+          DEPLOY_HOST: ${{ secrets.BB_DEPLOY_HOST }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.BB_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.BB_DEPLOY_SSH_KEY }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_SSH_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
+          archive="$RUNNER_TEMP/buttonsbebe-${RELEASE_SHA}.tar.gz"
+          git archive --format=tar "$RELEASE_SHA" | gzip -n > "$archive"
+          digest="$(sha256sum "$archive" | awk '{print $1}')"
+          ssh -i "$RUNNER_TEMP/deploy_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            "buttons-deploy@$DEPLOY_HOST" "deploy $RELEASE_SHA $digest" < "$archive"
