@@ -17,6 +17,7 @@ const NOTICES_DIR = path.join(KB, "notices");
 const NOTICES_FILE = path.join(NOTICES_DIR, "notices.json");
 const NOTICE_LOCK_DIR = path.join(NOTICES_DIR, ".notices.lock");
 const NOTICE_LOCK_STALE_MS = 60 * 1000;
+const NOTICE_TEXT_MAX = 1200;
 const PRODUCT_FRESH_HOURS = Number(process.env.KB_PRODUCT_FRESH_HOURS || 96);
 
 let reindex = { running: false, ok: null, at: null };
@@ -223,18 +224,24 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && p === "/notices") {
     const now = Date.now();
-    const notices = loadNotices().map((n) => ({ ...n, active: noticeActive(n, now) }));
-    return send(res, 200, { notices, now: new Date(now).toISOString() });
+    try {
+      const notices = loadNoticesStrict().map((n) => ({ ...n, active: noticeActive(n, now) }));
+      return send(res, 200, { notices, now: new Date(now).toISOString() });
+    } catch (e) {
+      return send(res, 503, { error: "notice store unavailable" });
+    }
   }
 
   if (req.method === "POST" && p === "/notices") {
     return readBody(req, (d) => {
       const text = (d && d.text ? String(d.text) : "").trim();
       if (!text) return send(res, 400, { error: "text required" });
+      if (text.length > NOTICE_TEXT_MAX) return send(res, 400, { error: `text must be ${NOTICE_TEXT_MAX} characters or fewer` });
       let expires_at = null;
       if (d.expires_at !== undefined && d.expires_at !== null && d.expires_at !== "") {
         const t = Date.parse(String(d.expires_at));
         if (isNaN(t)) return send(res, 400, { error: "bad deadline" });
+        if (t <= Date.now()) return send(res, 400, { error: "deadline must be in the future" });
         expires_at = new Date(t).toISOString();
       }
       const notice = {
@@ -242,7 +249,7 @@ const server = http.createServer((req, res) => {
         text,
         created_at: new Date().toISOString(),
         expires_at,
-        created_by: d && d.created_by && String(d.created_by).trim() ? String(d.created_by).trim() : "owner",
+        created_by: "owner",
       };
       try {
         withNoticeLock(() => { const items = loadNoticesStrict(); items.push(notice); writeNotices(items); });

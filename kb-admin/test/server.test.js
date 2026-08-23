@@ -98,6 +98,52 @@ test("notice mutation respects the shared Python lock and preserves data", async
   assert.equal(JSON.parse(fs.readFileSync(noticesFile, "utf8")).length, 1);
 });
 
+test("notice creation rejects unsafe length and deadlines without changing the store", async (t) => {
+  const { kb, baseUrl } = await startServer(t);
+  const noticesFile = path.join(kb, "notices", "notices.json");
+
+  const tooLong = await fetch(`${baseUrl}/notices`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "x".repeat(1201), expires_at: null }),
+  });
+  assert.equal(tooLong.status, 400);
+  assert.deepEqual(await tooLong.json(), { error: "text must be 1200 characters or fewer" });
+
+  const past = await fetch(`${baseUrl}/notices`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "Already expired", expires_at: "2000-01-01T00:00:00.000Z" }),
+  });
+  assert.equal(past.status, 400);
+  assert.deepEqual(await past.json(), { error: "deadline must be in the future" });
+  assert.deepEqual(JSON.parse(fs.readFileSync(noticesFile, "utf8")), []);
+});
+
+test("notice creation derives its actor on the server and preserves explicit no-expiry", async (t) => {
+  const { kb, baseUrl } = await startServer(t);
+  const noticesFile = path.join(kb, "notices", "notices.json");
+  const response = await fetch(`${baseUrl}/notices`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "  Confirmed store fact  ", expires_at: null, created_by: "spoofed-user" }),
+  });
+  assert.equal(response.status, 200);
+  const { notice } = await response.json();
+  assert.equal(notice.text, "Confirmed store fact");
+  assert.equal(notice.expires_at, null);
+  assert.equal(notice.created_by, "owner");
+  assert.deepEqual(JSON.parse(fs.readFileSync(noticesFile, "utf8")), [notice]);
+});
+
+test("malformed notice storage is unavailable rather than an empty board", async (t) => {
+  const { kb, baseUrl } = await startServer(t);
+  fs.writeFileSync(path.join(kb, "notices", "notices.json"), JSON.stringify([{ id: "broken" }]));
+  const response = await fetch(`${baseUrl}/notices`);
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "notice store unavailable" });
+});
+
 test("console binds only KB item buttons and disables saving after a load error", () => {
   const html = fs.readFileSync(path.join(ROOT, "console-src", "index.html"), "utf8");
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
@@ -115,6 +161,18 @@ test("console binds only KB item buttons and disables saving after a load error"
   assert.match(html, /noKbDrafts=stats\.no_kb_match\|\|0/);
   assert.match(html, /Raw lessons stay out of search with restricted file permissions/);
   assert.doesNotMatch(html, /Personal details are stripped before anything is saved/);
+  assert.match(html, /<form id="nb-form" class="notice-form" novalidate>/);
+  assert.match(html, /<label class="notice-label" for="nb-text">/);
+  assert.match(html, /Review before publishing/);
+  assert.match(html, /Publish override/);
+  assert.match(html, /No expiry — manual removal/);
+  assert.match(html, /Notice Board status is unavailable/);
+  assert.match(html, /Active overrides may still exist/);
+  assert.match(html, /NOTICE_TEXT_MAX=1200/);
+  assert.match(html, /if\(!noticeReview\|\|noticeBusy\|\|noticesError\)return/);
+  assert.match(html, /noticesData=previous;noticeReview=false/);
+  assert.doesNotMatch(html, /if\(!confirm\("Remove this notice/);
+  assert.doesNotMatch(html, /jget\(KBAPI\+"\/notices"\)\|\|\{notices:\[\]\}/);
 
   const legacyDashboard = fs.readFileSync(path.join(ROOT, "dashboard", "index.html"), "utf8");
   const legacyScripts = [...legacyDashboard.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
