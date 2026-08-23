@@ -171,6 +171,11 @@ test("console binds only KB item buttons and disables saving after a load error"
   assert.match(html, /NOTICE_TEXT_MAX=1200/);
   assert.match(html, /if\(!noticeReview\|\|noticeBusy\|\|noticesError\)return/);
   assert.match(html, /noticesData=previous;noticeReview=false/);
+  assert.match(html, /function bindCompactHeader\(\)/);
+  assert.match(html, /const next=headerCompact\?y>12:y>36/);
+  assert.match(html, /class="main \$\{headerCompact\?'header-compact':''\}"/);
+  assert.match(html, /class="wrap" tabindex="0" aria-label="Dashboard content"/);
+  assert.match(html, /\.main\.header-compact \.header-title \.sub/);
   assert.doesNotMatch(html, /if\(!confirm\("Remove this notice/);
   assert.doesNotMatch(html, /jget\(KBAPI\+"\/notices"\)\|\|\{notices:\[\]\}/);
 
