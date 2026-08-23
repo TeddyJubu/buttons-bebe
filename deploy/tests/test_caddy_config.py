@@ -23,7 +23,7 @@ class CaddyConfigTests(unittest.TestCase):
     def test_console_and_admin_routes_use_cookie_forward_auth(self) -> None:
         self.assertNotIn("basicauth", self.text)
         self.assertIn("@consoleauth path /console/api/auth/*", self.text)
-        self.assertIn("uri replace /console/api /auth", self.text)
+        self.assertIn("uri replace /console/api/auth /auth", self.text)
         self.assertEqual(self.text.count("uri /auth/check"), 3)
         self.assertIn("uri /auth/page-check", self.text)
         self.assertIn("@consolelogin path /console/login /console/login/*", self.text)
