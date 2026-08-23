@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from bb_webhook.console_auth import (
     build_session_token,
@@ -27,6 +28,14 @@ class ConsolePasswordTests(unittest.TestCase):
                 "pbkdf2_sha256$600000$AA$" + "AA" * 43,
             )
         )
+
+    def test_legacy_bcrypt_hash_can_be_verified_during_proxy_migration(self) -> None:
+        bcrypt_hash = "$2b$12$" + "a" * 53
+        with patch("bb_webhook.console_auth.crypt") as legacy_crypt:
+            legacy_crypt.crypt.return_value = bcrypt_hash
+            self.assertTrue(verify_password("correct password", bcrypt_hash))
+            legacy_crypt.crypt.return_value = "$2b$12$wrong"
+            self.assertFalse(verify_password("wrong password", bcrypt_hash))
 
 
 class ConsoleSessionTests(unittest.TestCase):

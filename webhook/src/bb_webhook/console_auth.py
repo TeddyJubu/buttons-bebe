@@ -9,6 +9,11 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
+try:
+    import crypt
+except ImportError:  # pragma: no cover - platform-dependent legacy migration path
+    crypt = None
+
 
 _PASSWORD_SCHEME = "pbkdf2_sha256"
 _PASSWORD_ITERATIONS = 600_000
@@ -42,6 +47,20 @@ def hash_password(password: str, *, salt: bytes | None = None) -> str:
 
 def verify_password(password: str, encoded: str) -> bool:
     """Verify a password without revealing whether the hash is malformed."""
+
+    # The production proxy still owns a bcrypt verifier from the former Basic
+    # Auth setup. Accept only its bounded bcrypt form during the migration so
+    # the app can be switched to a standalone login without handling plaintext
+    # credentials during deployment. New values should use PBKDF2 via
+    # ``hash_password``.
+    if encoded.startswith(("$2a$", "$2b$", "$2y$")):
+        if crypt is None or len(encoded) != 60:
+            return False
+        try:
+            actual = crypt.crypt(password, encoded)
+            return bool(actual) and hmac.compare_digest(actual, encoded)
+        except (TypeError, ValueError, UnicodeError):
+            return False
 
     try:
         scheme, iterations_text, salt_text, digest_text = encoded.split("$", 3)
