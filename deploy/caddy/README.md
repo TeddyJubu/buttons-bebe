@@ -5,7 +5,7 @@ live in `sites/`, one owned fragment per service boundary:
 
 | Fragment | Hostnames owned | Upstream |
 | --- | --- | --- |
-| `sites/support.caddy` | `srv1766050.hstgr.cloud`, `support.buttonsbebe.com` | `127.0.0.1:8000`, `:8085`, `:8087` |
+| `sites/support.caddy` | `hermes.buttonsbebe.com`, `srv1766050.hstgr.cloud`, `support.buttonsbebe.com` | `127.0.0.1:8000`, `:8085`, `:8087`, `:9119` |
 | `sites/exchange.caddy` | `exchange.buttonsbebe.com` | `127.0.0.1:4100` |
 | `sites/warehouse.caddy` | `wh.buttonsbebe.com` | `127.0.0.1:4000` |
 
@@ -17,11 +17,11 @@ real token, password hash, or runtime-only path.
 
 ## Ownership rule
 
-Change a service only in its fragment. A support-console change must modify
-`sites/support.caddy`; it must not rewrite the root entrypoint or copy a
-support-only file over the complete production configuration. Adding a new
-public hostname requires a new reviewed fragment, an explicit import, and a
-hostname inventory review.
+Change a service only in its fragment. A support-console or Hermes-dashboard
+change must modify `sites/support.caddy`; it must not rewrite the root
+entrypoint or copy a support-only file over the complete production
+configuration. Adding a new service boundary requires a new reviewed fragment,
+an explicit import, and a hostname inventory review.
 
 The CD receiver fingerprints `deploy/caddy` and stops for manual approval when
 this configuration changes. That approval is the point at which the matching

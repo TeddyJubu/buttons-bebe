@@ -5,6 +5,32 @@
 #   environment. This source file is an audit/template reference, not a
 #   deployable credential bundle.
 
+hermes.buttonsbebe.com {
+	# Hermes Agent web dashboard. Authentication is enforced by Hermes.
+	reverse_proxy 127.0.0.1:9119 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			read_timeout 300s
+		}
+	}
+
+	request_body {
+		max_size 16MB
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+	encode gzip zstd
+	log {
+		output file /var/log/bb-webhook/caddy-hermes.log
+		format json
+	}
+}
+
 srv1766050.hstgr.cloud, support.buttonsbebe.com {
 	@whatsapp path /connect-whatsapp/<WA_TOKEN> /connect-whatsapp/<WA_TOKEN>/*
 	handle @whatsapp {

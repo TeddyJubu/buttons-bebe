@@ -40,7 +40,11 @@ class CaddyConfigTests(unittest.TestCase):
 
     def test_each_fragment_owns_only_its_declared_hosts(self) -> None:
         expected = {
-            "support": {"srv1766050.hstgr.cloud", "support.buttonsbebe.com"},
+            "support": {
+                "hermes.buttonsbebe.com",
+                "srv1766050.hstgr.cloud",
+                "support.buttonsbebe.com",
+            },
             "exchange": {"exchange.buttonsbebe.com"},
             "warehouse": {"wh.buttonsbebe.com"},
         }
@@ -86,6 +90,12 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertIn("@directdashboard path /dashboard /dashboard/*", text)
         self.assertIn("@health path /health /ready", text)
 
+    def test_support_preserves_hermes_dashboard_route(self) -> None:
+        text = self.fragments["support"]
+        self.assertIn("hermes.buttonsbebe.com {", text)
+        self.assertIn("reverse_proxy 127.0.0.1:9119", text)
+        self.assertIn("output file /var/log/bb-webhook/caddy-hermes.log", text)
+
     def test_warehouse_bypasses_auth_only_for_webhook_path(self) -> None:
         text = self.fragments["warehouse"]
         self.assertIn("@protected not path /api/shopify/webhook/*", text)
@@ -110,6 +120,7 @@ class CaddyConfigTests(unittest.TestCase):
             "127.0.0.1:8000",
             "127.0.0.1:8085",
             "127.0.0.1:8087",
+            "127.0.0.1:9119",
             "127.0.0.1:4100",
             "127.0.0.1:4000",
         ):
