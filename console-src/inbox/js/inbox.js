@@ -514,10 +514,10 @@ export function createInboxOrgan(opts = {}) {
           selectedMacroId = "";
           macrosOpen = false;
         }
-        if (shop.observedHistory && selectedId) {
-          try { selected = withOperatorAssignee(await shop.getTicket({ticketId:selectedId})); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
-        } else if (!selectedId) {
+        if (!selectedId) {
           selected = null;
+        } else if (shop.observedHistory && selectedId === previousId) {
+          try { selected = withOperatorAssignee(await shop.getTicket({ticketId:selectedId})); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
         }
         if (selectedId !== previousId) {
           await refreshThread();
