@@ -120,9 +120,9 @@ test('channel control hides when no ticket carries a channel',async()=>{
  assert.doesNotMatch(result.html,/data-list-channel/);
  assert.match(result.html,/data-ticket="t-email"/);
 });
-test('views funnel hides when only one observed view exists',async()=>{
+test('views funnel shows when the observed history offers several views',async()=>{
  const result=await createInboxOrgan({shop:channelShop(channelTickets)}).ready();
- assert.doesNotMatch(result.html,/data-list-filter/);
+ assert.match(result.html,/data-list-filter/);
  assert.match(result.html,/data-list-inbox/);
  assert.match(result.html,/data-view="all"/);
 });

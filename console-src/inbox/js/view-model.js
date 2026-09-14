@@ -5,6 +5,8 @@ export const views = [
   { id: "all", label: "All" },
   { id: "snoozed", label: "Snoozed" },
   { id: "closed", label: "Closed" },
+  { id: "trash", label: "Trash" },
+  { id: "spam", label: "Spam" },
 ];
 
 // Single source for the view-id set (report 10, action 7): the menu above,
@@ -12,8 +14,13 @@ export const views = [
 export const VIEW_IDS = Object.freeze(views.map((view) => view.id));
 
 
+/** Trash and spam are observed flags, not status strings, and never leak into
+ * the working views. A ticket whose status was never observed is only in All. */
 export function ticketInView(ticket, viewId) {
+  if (viewId === "trash") return ticket.trashed === true;
+  if (viewId === "spam") return ticket.spam === true;
   if (viewId === "all") return true;
+  if (ticket.trashed === true || ticket.spam === true) return false;
   if (viewId === "open") return ticket.status === "open";
   if (viewId === "mine") return ticket.assignee === "me" && ticket.status === "open";
   if (viewId === "unassigned") return ticket.assignee == null && ticket.status === "open";

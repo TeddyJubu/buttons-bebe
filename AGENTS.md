@@ -275,15 +275,16 @@ as current work.
 - Explicit Shopify catalog/seed requests count as naming a write; still no refunds, cancels, or `customerCreate` unless named.
 - Prefers kid-simple architecture explanations using the organ/tissue analogy; use Excalidraw or the click-to-enter 3D sim; keep organs and wires accurate to this demo, not production Hermes (no Gorgias, Redo, or KB as peer organs).
 - Prefers Surge (`*.surge.sh`) for quick public static hosting; do not use Cloudflare tunnels for that.
-- Prefers inbox chrome in the live preview (browser element select + screenshots) over design canvases; folds view filters into the ticket list (no separate views column); list and rail both collapse to thin strips with a clear expand control.
+- Prefers inbox chrome in the live preview (browser element select + screenshots) over design canvases; folds Gorgias-style Views filters (Assigned to me, Unassigned, All, Snoozed, Closed, Trash, Spam) into the ticket list toolbar (no separate views column); list and rail both collapse to thin strips with a clear expand control.
 - Prefers the conversation pane to keep the reply box visible: bottom-anchored composer, compact expandable attachment thumbs, and a full-width AI draft strip with Use draft / Regenerate / Dismiss under the text.
 - Prefers AI drafts that answer the ticket’s actual ask or request type; mismatched draft content undermines trust.
 - Wants the detachable Gorgias bridge left off until credentials are added and they explicitly activate it.
 - When contributing to the original/upstream repo, omit credentials and demo data; keep Shopify read-only; keep Send disconnected so a click shows “Activate the send access.”
+- Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
 
 ## Learned Workspace Facts
 
-- Inbox preview: local `console-src/inbox/run-review.sh` → `http://127.0.0.1:8766/` (`INBOX_PORT`); interim VPS serves `https://helpdesk.teddyonfriday.com/` (systemd `helpdesk-inbox` → `:8766`).
+- Inbox preview: local `console-src/inbox/run-review.sh` → `http://127.0.0.1:8766/` (`INBOX_PORT`). Production public face is `https://support.buttonsbebe.com/` (`/inbox/`, `/console/` on the same Hostinger box as `srv1766050.hstgr.cloud`).
 - Final client host is a Hostinger VPS; treat cutover as fresh install + DNS/proxy + webhook URL change, not a lift-and-shift of this box.
 - `helpdesk.pull_mailbox` needs Python package `agentmail` plus `AGENTMAIL_API_KEY`; if the package is missing it can fall back to fixtures and never ingest live mail.
 - Live tickets use the real intake From display name as `customerName` (e.g. the human’s Gmail), not the Ada/Sam scenario labels.
@@ -295,3 +296,4 @@ as current work.
 - Organ/tissue architecture: Excalidraw at `docs/tissues/organ-tissue.excalidraw`; click-to-enter 3D sim at `docs/tissues/architecture-3d-sim.html` (world in `architecture-world.js`): LEGO-house organs, inside-Inbox list/thread/rail wireframe, info card off by default; mail → helpdesk intake, Shopify look-only; Send is human-only and fail-closed on the isolated preview until send access is activated.
 - This demo’s look-up path is Shopify Admin GraphQL only (`get_customer` / `get_order` / `get_returns` / `list_past_orders`); Redo and KB belong to production Hermes. Gorgias is an optional detachable bridge sidecar (`console-src/helpdesk-agent/bridge/`, `deploy/GORGIAS-BRIDGE-SETUP.md`), not a peer organ; defaults `GORGIAS_BRIDGE_ENABLED=0` / `HELPDESK_OUTBOUND_ENABLED=0`; intake tickets persist in the SQLite single-snapshot store (`HELPDESK_DB_FILE`, production default `/var/lib/buttonsbebe-inbox/inbox.sqlite3`), with legacy `HELPDESK_STORE_FILE` JSON as an explicit fallback.
 - Surge CLI is installed globally on this VPS (`surge` on PATH); publish a folder that contains `index.html`.
+- Production inbox Views need real Gorgias ticket state from allowlisted webhook `raw_payload` fields (status/assignee/snooze/spam/trash) after the HTTP Integration template includes them; never invent those fields or export `assignee: "me"` — map “Assigned to me” via `INBOX_OPERATOR_GORGIAS_EMAIL` on the inbox service.

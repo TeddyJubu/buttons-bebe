@@ -220,9 +220,7 @@ export function createListTissue({ mailbox }) {
     const on = ticket.id === selectedId;
     const unread = unreadIds.includes(ticket.id);
     const status = ticket.status || "";
-    const statusWord = ticket.projectionSource
-      ? (status && status !== "unknown" ? screenStatus(status) : "")
-      : (status === "open" ? "" : screenStatus(status));
+    const statusWord = status === "open" || status === "unknown" ? "" : screenStatus(status);
     const typeWord = requestTypeLabel(ticket.requestType);
     const severityWord = severityLabel(ticket.severity);
     const statusHtml = statusWord

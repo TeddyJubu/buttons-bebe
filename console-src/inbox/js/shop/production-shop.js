@@ -11,9 +11,16 @@ export function createHelpdeskShop(opts = {}) {
     return result;
   }
   const shop = {
-    id: 'shop', shop: '', client, observedHistory: true,
+    id: 'shop', shop: '', client, observedHistory: true, operatorEmail: '',
     capabilities: Object.fromEntries(['draftReply','summarizeThread','searchMacros','applyMacro','escalateTicket','markPrivacyHandled','markUnsubscribed','markBugHandled','customerDetails','sendReply'].map(key => [key, false])),
-    getCapabilities: async () => (await read('helpdesk.capabilities')).capabilities,
+    getCapabilities: async () => {
+      // Only the inbox service knows the operator. Clearing first means a
+      // failed refresh leaves "Assigned to me" empty instead of stale.
+      shop.operatorEmail = '';
+      const result = await read('helpdesk.capabilities');
+      shop.operatorEmail = typeof result.operatorEmail === 'string' ? result.operatorEmail : '';
+      return result.capabilities;
+    },
     listTickets: async args => {
       const result = await read('helpdesk.list_tickets', args);
       shop.projection = result.projection;

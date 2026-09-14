@@ -47,6 +47,24 @@ CAPABILITIES = {
 STATIC_FILES = frozenset(json.loads((INBOX / "static-manifest.json").read_text()))
 
 
+def operator_email(value):
+    """The operator's own Gorgias address, used only to resolve "Assigned to me".
+
+    A missing or malformed value stays empty, so that view reports nothing
+    rather than claiming an unrelated agent's tickets.
+    """
+    address = (value or "").strip()
+    if not 0 < len(address) <= 320 or not address.isascii() or not address.isprintable():
+        return ""
+    if address.count("@") != 1 or " " in address:
+        return ""
+    local, _, domain = address.partition("@")
+    return address.lower() if local and "." in domain.strip(".") else ""
+
+
+OPERATOR_EMAIL = operator_email(os.environ.get("INBOX_OPERATOR_GORGIAS_EMAIL"))
+
+
 class Invocation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tool: StrictStr = Field(min_length=1, max_length=100)
@@ -151,7 +169,7 @@ async def invoke(request: Request):
             return error(403, "capability_unavailable", "This action is not available in this inbox.")
         args = schema.model_validate(invocation.arguments).model_dump()
         if invocation.tool == "helpdesk.capabilities":
-            return {"ok": True, "capabilities": CAPABILITIES}
+            return {"ok": True, "capabilities": CAPABILITIES, "operatorEmail": OPERATOR_EMAIL}
         if invocation.tool in {"helpdesk.list_tickets", "helpdesk.get_ticket", "helpdesk.projection_status"}:
             return await run_in_threadpool(projection_query, invocation.tool, args)
         # All exposed operations are bounded local state operations; external

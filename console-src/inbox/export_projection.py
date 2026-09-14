@@ -19,6 +19,37 @@ def text(value):
     return value[:20000],len(value)>20000
 
 
+# Gorgias HTTP Integration templates render every value as a string: booleans
+# arrive as "True"/"False", absent values as "None", objects as JSON via
+# `| tojson`. The webhook parser normalizes these at ingest into bounded
+# ticket_* columns; the exporter reads only those columns. The readers below
+# serve customer identity only.
+
+
+def event_ticket(row, raw):
+    """Ticket object from one bounded canonical event.
+
+    Returns ``(ticket, mismatch)``: the ticket dict when the payload is usable
+    and names this row's ticket, otherwise ``None`` plus whether the payload
+    explicitly named a different ticket.
+    """
+    if not isinstance(raw,str) or len(raw.encode('utf-8')) > 65536: return None,False
+    try: payload=json.loads(raw)
+    except (ValueError,TypeError,RecursionError): return None,False
+    if not isinstance(payload,dict): return None,False
+    data=payload.get('data')
+    ticket=payload.get('ticket',data.get('ticket',{}) if isinstance(data,dict) else {})
+    if not isinstance(ticket,dict) or ticket.get('id') is None: return None,False
+    if str(ticket.get('id')) != str(row['ticket_id']): return None,True
+    return ticket,False
+
+
+def rendered_decimal(value, limit):
+    if isinstance(value,bool) or not isinstance(value,(str,int)): return None
+    digits=str(value)
+    return digits if digits.isascii() and digits.isdecimal() and len(digits)<=limit else None
+
+
 def identity_context(row, raw):
     """Only explicit customer fields from the same canonical event; no inference."""
     def field(value, limit):
@@ -27,34 +58,20 @@ def identity_context(row, raw):
     result = {'source':'canonical_webhook','observedAt':row.get('received_at'),
               'identity':{'name':None,'email':email,'phone':None,'id':None},
               'status':'observed' if email else 'unknown','conflict':False}
-    if not isinstance(raw,str) or len(raw.encode('utf-8')) > 65536:
-        return result
-    try:
-        payload=json.loads(raw)
-        if not isinstance(payload,dict): return result
-        data=payload.get('data')
-        ticket=payload.get('ticket',data.get('ticket',{}) if isinstance(data,dict) else {})
-        if not isinstance(ticket,dict): return result
-        if ticket.get('id') is None: return result
-        if str(ticket.get('id')) != str(row['ticket_id']):
-            result.update(status='conflict',conflict=True); return result
-        customer=ticket.get('customer')
-        if not isinstance(customer,dict): return result
-        observed_email=field(customer.get('email'),320)
-        if email and observed_email and email.casefold()!=observed_email.casefold():
-            result.update(status='conflict',conflict=True); return result
-        customer_id=customer.get('id')
-        if isinstance(customer_id,bool) or not isinstance(customer_id,(str,int)):
-            customer_id=None
-        else:
-            customer_id=str(customer_id)
-            if not customer_id.isascii() or not customer_id.isdecimal() or len(customer_id)>20:
-                customer_id=None
-        result['identity'].update(name=field(customer.get('name'),200),
-                                  email=email or observed_email,
-                                  phone=field(customer.get('phone'),80),id=customer_id)
-        result['status']='observed' if any(result['identity'].values()) else 'unknown'
-    except (ValueError,TypeError,RecursionError): pass
+    ticket,mismatch=event_ticket(row,raw)
+    if mismatch:
+        result.update(status='conflict',conflict=True); return result
+    if ticket is None: return result
+    customer=ticket.get('customer')
+    if not isinstance(customer,dict): return result
+    observed_email=field(customer.get('email'),320)
+    if email and observed_email and email.casefold()!=observed_email.casefold():
+        result.update(status='conflict',conflict=True); return result
+    result['identity'].update(name=field(customer.get('name'),200),
+                              email=email or observed_email,
+                              phone=field(customer.get('phone'),80),
+                              id=rendered_decimal(customer.get('id'),20))
+    result['status']='observed' if any(result['identity'].values()) else 'unknown'
     return result
 
 
@@ -133,9 +150,15 @@ def build(rows):
         gorgias_spam = latest.get('ticket_spam') == 1
         gorgias_trashed = latest.get('ticket_trashed') == 1
         gorgias_snoozed = latest.get('ticket_snoozed') == 1
+        # Views read these as observed flags (trash/spam buckets, snooze view),
+        # so the same parsed columns are exposed under the view contract names.
+        # Status stays the observed string or "unknown" — never guessed.
+        view_status = 'snoozed' if gorgias_snoozed else (observed_status or 'unknown')
+        # The exporter holds no operator identity, so it exports the observed
+        # assignee address as-is; only the inbox service decides "me".
         ticket={'id':f'gorgias:{ticket_id}','subject':subject,'customerName':latest['customer_email'] or 'Customer',
           'customerContext':latest.get('customer_context',identity_context(latest,None)),
-          'fromEmail':latest['customer_email'] or '', 'status':observed_status or 'unknown','assignee':observed_assignee or None,'channel':channel,'updatedAt':latest['received_at'],
+          'fromEmail':latest['customer_email'] or '', 'status':view_status,'assignee':observed_assignee or None,'channel':channel,'updatedAt':latest['received_at'],
           'snippet':messages[-1]['body'][:240], 'messages':messages,'statusEvents':[], 'projectionSource':True,
           'historyIncomplete':True,'truncated':bool(truncated),'observedMessageCount':latest['observed_count'],
           'tags':observed_tags,
@@ -146,6 +169,9 @@ def build(rows):
         ticket['gorgiasTrashed']=bool(gorgias_trashed)
         ticket['gorgiasSnoozed']=bool(gorgias_snoozed)
         ticket['gorgiasPriority']=gorgias_priority or None
+        ticket['spam']=bool(gorgias_spam)
+        ticket['trashed']=bool(gorgias_trashed)
+        ticket['assigneeEmail']=observed_assignee or None
         if ticket['customerContext']['identity']['name'] and not ticket['customerContext']['conflict']:
             ticket['customerName']=ticket['customerContext']['identity']['name']
         tickets.append(ticket)

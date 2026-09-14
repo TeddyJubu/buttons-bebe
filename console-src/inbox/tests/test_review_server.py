@@ -61,6 +61,18 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.client.get("/ready").status_code, 503)
 
 
+    def test_operator_email_is_validated_and_never_widens_capabilities(self):
+        body = self.post({"tool": "helpdesk.capabilities"}).json()
+        self.assertEqual(body["operatorEmail"], server.OPERATOR_EMAIL)
+        self.assertEqual(server.operator_email(os.environ.get("INBOX_OPERATOR_GORGIAS_EMAIL")), server.OPERATOR_EMAIL)
+        self.assertEqual(server.operator_email("Operator.Name@Example.Test "), "operator.name@example.test")
+        # A malformed address leaves "Assigned to me" empty instead of matching.
+        for value in (None, "", "   ", "not-an-email", "a@b", "two@@at.test", "@example.test", "owner@.test",
+                      "owner@example.test extra", "owner@ex\u00e1mple.test", "owner\n@example.test", "x" * 318 + "@e.test"):
+            self.assertEqual(server.operator_email(value), "", value)
+        self.assertFalse(body["capabilities"]["sendReply"])
+        self.assertNotIn("operatorEmail", body["capabilities"])
+
     def test_symlink_and_path_traversal_cannot_serve_private_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
