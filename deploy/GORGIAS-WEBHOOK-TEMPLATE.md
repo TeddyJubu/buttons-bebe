@@ -69,7 +69,8 @@ SELECT ticket_id,
        json_extract(raw_payload,'\$.ticket.status') IS NOT NULL   AS has_status,
        json_extract(raw_payload,'\$.ticket.snooze_datetime') IS NOT NULL AS has_snooze,
        json_extract(raw_payload,'\$.ticket.spam') IS NOT NULL     AS has_spam,
-       json_extract(raw_payload,'\$.ticket.trashed_datetime') IS NOT NULL AS has_trash,
+       (json_extract(raw_payload,'\$.ticket.trashed_datetime') IS NOT NULL
+        OR json_extract(raw_payload,'\$.ticket.trashed') IS NOT NULL) AS has_trash,
        json_extract(raw_payload,'\$.ticket.assignee_user') IS NOT NULL AS has_assignee
 FROM webhook_events ORDER BY received_at DESC LIMIT 1;"
 ```

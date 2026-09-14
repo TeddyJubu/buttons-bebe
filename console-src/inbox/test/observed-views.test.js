@@ -7,7 +7,7 @@ const OPERATOR = 'operator@example.test';
 
 function projected(id, state) {
   return {id:`gorgias:${id}`,projectionSource:true,historyIncomplete:true,subject:`Subject ${id}`,
-    customerName:`customer${id}@example.test`,snippet:'Observed',updatedAt:`2026-09-0${id}T00:00:00Z`,
+    customerName:`customer${id}@example.test`,snippet:'Observed',updatedAt:`2026-09-${String(id).padStart(2,'0')}T00:00:00Z`,
     status:'unknown',assignee:null,assigneeEmail:null,assigneeUserId:null,spam:false,trashed:false,
     messages:[],statusEvents:[],customerContext:null,...state};
 }

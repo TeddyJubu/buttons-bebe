@@ -503,8 +503,26 @@ export function createInboxOrgan(opts = {}) {
     if ((!bridgeStatus.gorgiasEnabled && !shop.observedHistory) || pinnedCatalog) return;
     bridgePollTimer = setInterval(() => {
       refreshList().then(async () => {
+        const previousId = selectedId;
+        ensureSelection();
+        if (selectedId !== previousId) {
+          selected = null;
+          body = "";
+          strip = "";
+          summarizeText = "";
+          discarded = false;
+          selectedMacroId = "";
+          macrosOpen = false;
+        }
         if (shop.observedHistory && selectedId) {
           try { selected = withOperatorAssignee(await shop.getTicket({ticketId:selectedId})); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
+        } else if (!selectedId) {
+          selected = null;
+        }
+        if (selectedId !== previousId) {
+          await refreshThread();
+          await refreshRail();
+          await refreshComposer();
         }
         paintMounted?.();
       }).catch(() => {});

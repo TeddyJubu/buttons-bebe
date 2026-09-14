@@ -21,6 +21,27 @@ test('production client rejects a stale fixture response', async () => {
  const shop=createHelpdeskShop({client:{invoke:async () => ({ok:true,source:'sample',tickets:[{id:'t-ada-track'}]})}});
  await assert.rejects(shop.listTickets({}),/Preview data/);
 });
+test('helpdesk.capabilities wires operatorEmail and clears on failure', async () => {
+  const client = {invoke: async (tool) => {
+    if (tool === 'helpdesk.capabilities') return {ok:true, source:'inbox', operatorEmail:'Agent@Buttons.test', capabilities:{}};
+    return {ok:true, source:'inbox', tickets:[], projection:{generatedAt:'one', stale:false}};
+  }};
+  const shop = createHelpdeskShop({client});
+  await shop.getCapabilities();
+  assert.equal(shop.operatorEmail, 'Agent@Buttons.test');
+  client.invoke = async (tool) => {
+    if (tool === 'helpdesk.capabilities') return {ok:true, source:'inbox', capabilities:{}};
+    return {ok:true, source:'inbox', tickets:[]};
+  };
+  await shop.getCapabilities();
+  assert.equal(shop.operatorEmail, '');
+  client.invoke = async (tool) => {
+    if (tool === 'helpdesk.capabilities') throw new Error('offline');
+    return {ok:true, source:'inbox', tickets:[]};
+  };
+  await assert.rejects(shop.getCapabilities(), /offline/);
+  assert.equal(shop.operatorEmail, '');
+});
 
 const localTicket = {id:'t-in-test',customerName:'Local test',subject:'Privacy request',snippet:'Test',status:'open',updatedAt:'2026-09-07T00:00:00Z',messages:[],statusEvents:[],requestType:'privacy_request'};
 
