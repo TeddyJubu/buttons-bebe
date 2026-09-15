@@ -190,7 +190,7 @@ export function createListTissue({ mailbox }) {
         </div>
         <div class="list-tools" role="group" aria-label="List tools">
           <div class="list-filter-wrap">
-            <button type="button" class="list-tool-btn" data-list-filter title="Views" aria-label="Views" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen ? "true" : "false"}">${ICON_FILTER}</button>
+            ${(next.views || []).length > 1 ? `<button type="button" class="list-tool-btn" data-list-filter title="Views" aria-label="Views" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen ? "true" : "false"}">${ICON_FILTER}</button>` : ""}
             ${renderViewMenu(next)}
           </div>
           ${(next.channels || []).length ? `<div class="list-filter-wrap">
