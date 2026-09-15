@@ -30,6 +30,9 @@ Each flag goes webhook-template (if needed) -> parse -> DB -> export_projection 
 
 ## Deploy record 2026-09-15
 
+- Task 10 follow-up (views-funnel hide, 55c72c1): 1 new JS regression test, 181 JS inbox tests green locally, full verify_release.sh gate EXIT 0, pushed; CI verify success; deploy success. Live verified: deployed list.js carries the conditional on the VPS, inbox /ready ok (sendAccessEnabled false), reloaded live UI shows only the Channel funnel in the toolbar.
+
+
 - Task 9 (filter-bar QA, 61aab62): 6 new JS composition/reset tests, 180 JS inbox tests green locally, review-server smoke HTTP 200 with send locked, full verify_release.sh gate EXIT 0, pushed; CI verify success; deploy success. Live verified: queue drained (8579 done, 0 failed), webhook + inbox /ready ok (sendAccessEnabled false), Send lock intact, projection fresh (3353 tickets), new QA tests present in deployed bundle.
 
 
