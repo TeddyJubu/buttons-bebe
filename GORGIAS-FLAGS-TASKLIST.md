@@ -34,6 +34,11 @@ Each flag goes webhook-template (if needed) -> parse -> DB -> export_projection 
   drained (8579 done, 0 failed), webhook + inbox `/ready` ok, Send lock exact,
   projection fresh (3353 tickets), assignee badge/filter/menu code live.
 
+- Task 6 (tags, `70e8380`): gate passed locally, pushed; CI verify success
+  (one slow attempt, completed on its own); deploy success. Live verified:
+  all three flag columns present, queue drained, `/ready` ok, Send lock exact,
+  projection fresh (3353 tickets), tag badge/menu code live.
+
 - Gate passed locally (EXIT 0), committed `d8f7f5a`, pushed; CI verify success.
 - CD initially refused (exit 78): `deploy/systemd` hash drifted since approval.
   Review found only: helpdesk-inbox `+SHOP_RAIL_PATH` / `-INBOX_OPERATOR_GORGIAS_EMAIL`
