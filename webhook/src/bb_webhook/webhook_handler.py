@@ -423,7 +423,10 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
 
     # Observed Gorgias ticket status (open/closed/snoozed…). Optional: the
     # template only started sending it recently, so older rows have none.
-    ticket_status = _normalize_ticket_status(ticket.get("status")) if ticket else None
+    raw_status = ticket.get("status") if ticket else None
+    if raw_status in (None, ""):
+        raw_status = payload.get("status") or payload.get("ticket_status")
+    ticket_status = _normalize_ticket_status(raw_status)
     raw_assignee = (ticket.get("assignee") or ticket.get("assignee_user")) if ticket else None
     ticket_assignee = _normalize_ticket_assignee(raw_assignee)
     ticket_tags = _normalize_ticket_tags(ticket.get("tags")) if ticket else []

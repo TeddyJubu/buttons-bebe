@@ -12,6 +12,11 @@ import { esc, formatWeekday, formatWhen, initials, requestTypeChrome, safeWebUrl
  * Attachment images are small thumbs; click opens a simple lightbox.
  */
 export function createThreadTissue({ mailbox }) {
+  function observedTicketStatus(ticket) {
+    const status = typeof ticket?.status === "string" ? ticket.status.trim().toLowerCase() : "";
+    if (!status || status === "unknown") return ticket?.projectionSource ? "Status unknown" : screenStatus(ticket?.status);
+    return screenStatus(status);
+  }
   let model = { ticket: null };
   let lightbox = null;
   let host = null;
@@ -138,7 +143,7 @@ export function createThreadTissue({ mailbox }) {
           ${typeLine}
         </div>
         <div class="thread-head-actions">
-          <span class="status-badge" title="Ticket status">${esc(ticket.projectionSource ? "Status unknown" : screenStatus(ticket.status))}</span>
+          <span class="status-badge" title="Ticket status">${esc(observedTicketStatus(ticket))}</span>
           ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-badge" title="Gorgias priority">${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
           ${ticket.gorgiasSpam ? `<span class="status-badge" title="Marked as spam in Gorgias">Spam</span>` : ""}
           ${ticket.gorgiasTrashed ? `<span class="status-badge" title="Trashed in Gorgias">Trashed</span>` : ""}

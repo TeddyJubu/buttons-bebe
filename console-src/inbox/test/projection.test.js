@@ -17,3 +17,14 @@ test('observed history and readonly drafts escape customer text and label unknow
   assert.match(html,/Snapshot is stale/);
   assert.doesNotMatch(html,/data-escalate=/);
 });
+
+
+test('observed history thread shows Gorgias status when it was stored', () => {
+  const tissue = createThreadTissue({mailbox:{publish(){}}});
+  const html=tissue.render({capabilities:{summarizeThread:false,escalateTicket:false},ticket:{
+    id:'gorgias:1',projectionSource:true,customerName:'Customer',subject:'Hello',status:'open',statusEvents:[],
+    messages:[{id:'m1',from:'customer',body:'Hi',at:'2026-01-01'}]
+  }});
+  assert.match(html,/title="Ticket status">Open<\/span>/);
+  assert.doesNotMatch(html,/>Status unknown</);
+});

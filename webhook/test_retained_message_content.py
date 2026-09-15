@@ -34,6 +34,10 @@ class RetainedContentTests(unittest.TestCase):
                 'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
         self.assertEqual(parse({'id':123, 'status':'closed'})['ticket_status'], 'closed')
         self.assertEqual(parse({'id':123, 'status':' Open '})['ticket_status'], 'open')
+        top = parse_event(json.dumps({'event':'ticket-message-created','status':'closed',
+            'ticket':{'id':123}, 'message':{'id':456, 'from_agent':False,
+            'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
+        self.assertEqual(top['ticket_status'], 'closed')
         for bad in (None, 123, '', 'x'*31, '<script>', 'open; DROP TABLE x'):
             payload = {'id':123} if bad is None else {'id':123, 'status':bad}
             self.assertIsNone(parse(payload)['ticket_status'])
