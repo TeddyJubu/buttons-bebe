@@ -26,9 +26,13 @@ Each flag goes webhook-template (if needed) -> parse -> DB -> export_projection 
 
 - [x] 10. Follow-up from live QA: hide the views funnel when only one view exists. Observed-history mode rendered a duplicate filter icon (views funnel + channel funnel) even though the views menu offers a single scope. The funnel now hides when views.length <= 1, matching the other fail-closed controls; the Inbox scope button stays the single source of truth. Verified: 181 JS inbox tests pass (1 new: funnel hides, scope button + view menu remain), full verify_release.sh gate EXIT 0. Done 2026-09-15.
 
+- [x] 11. Follow-up from live QA: thread header shows stored Gorgias status. Observed-history tickets were badged “Status unknown” even when `ticket.status` was already stored as open/closed. The header now uses the stored value and only says Status unknown when it is missing; webhook parse also keeps top-level `status` / `ticket_status`. Verified: focused webhook + JS tests pass, full verify_release.sh gate EXIT 0. Done 2026-09-15.
+
 ## Notes
 
 ## Deploy record 2026-09-15
+
+- Status-header follow-up (stored Gorgias status, b72f3d9): thread header no longer forces Status unknown on observed-history tickets; webhook parse keeps top-level status/ticket_status. Focused tests green, full verify_release.sh gate EXIT 0, pushed; CI verify success; deploy success. Live verified: /opt inbox thread.js serves observedTicketStatus on :8766, webhook parse has top-level status fallback, inbox /ready ok (sendAccessEnabled false), Send lock exact, queue drained (8579 done, 0 failed), projection fresh (3353 tickets, 3336 with known status), sample ticket gorgias:210111041 returns status closed.
 
 - Task 10 follow-up (views-funnel hide, 55c72c1): 1 new JS regression test, 181 JS inbox tests green locally, full verify_release.sh gate EXIT 0, pushed; CI verify success; deploy success. Live verified: deployed list.js carries the conditional on the VPS, inbox /ready ok (sendAccessEnabled false), reloaded live UI shows only the Channel funnel in the toolbar.
 
