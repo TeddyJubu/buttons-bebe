@@ -346,3 +346,96 @@ test('no state flags means no state badges and no invented value',async()=>{
  assert.doesNotMatch(result.html,/Marked as spam in Gorgias/);
  assert.match(result.html,/data-ticket="t-vip"/);
 });
+const filterBarTickets=[
+ {id:'t-vip',customerName:'Vip Customer',subject:'Vip question',snippet:'Hi',status:'open',updatedAt:'2026-09-14T00:00:00Z',channel:'email',assignee:'amy@example.com',tags:['vip','urgent'],messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-urgent',customerName:'Urgent Customer',subject:'Urgent question',snippet:'Hey',status:'open',updatedAt:'2026-09-13T00:00:00Z',channel:'chat',assignee:'bo@example.com',tags:['urgent'],messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-plain',customerName:'Plain Customer',subject:'Plain question',snippet:'Yo',status:'closed',updatedAt:'2026-09-12T00:00:00Z',channel:'email',assignee:'amy@example.com',tags:[],messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-other',customerName:'Other Customer',subject:'Other question',snippet:'Ho',status:'open',updatedAt:'2026-09-11T00:00:00Z',channel:'email',assignee:'amy@example.com',tags:['vip'],messages:[],statusEvents:[],projectionSource:true},
+];
+test('filter bar offers channel status assignee and tag together',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(filterBarTickets)}).ready();
+ assert.match(result.html,/data-list-channel/);
+ assert.match(result.html,/data-list-status/);
+ assert.match(result.html,/data-list-assignee/);
+ assert.match(result.html,/data-list-tag/);
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/data-ticket="t-urgent"/);
+ assert.match(result.html,/data-ticket="t-plain"/);
+ assert.match(result.html,/data-ticket="t-other"/);
+});
+test('all four filters compose to a single ticket',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(filterBarTickets)});
+ await organ.ready();
+ await organ.selectChannel('email');
+ await organ.selectStatus('open');
+ await organ.selectAssignee('amy@example.com');
+ const result=await organ.selectTag('urgent');
+ assert.equal(result.channelId,'email');
+ assert.equal(result.statusId,'open');
+ assert.equal(result.assigneeId,'amy@example.com');
+ assert.equal(result.tagId,'urgent');
+ assert.equal(result.selectedId,'t-vip');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-urgent"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-plain"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-other"/);
+});
+test('impossible four-filter combo fails closed with an honest empty list',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(filterBarTickets)});
+ await organ.ready();
+ await organ.selectChannel('email');
+ await organ.selectStatus('closed');
+ await organ.selectAssignee('bo@example.com');
+ const result=await organ.selectTag('vip');
+ assert.equal(result.selectedId,null);
+ assert.match(result.html,/No tickets yet/);
+ assert.doesNotMatch(result.html,/data-ticket="t-/);
+});
+test('clearing all four filters restores every loaded row',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(filterBarTickets)});
+ await organ.ready();
+ await organ.selectChannel('email');
+ await organ.selectStatus('open');
+ await organ.selectAssignee('amy@example.com');
+ await organ.selectTag('urgent');
+ await organ.selectChannel('');
+ await organ.selectStatus('');
+ await organ.selectAssignee('');
+ const result=await organ.selectTag('');
+ assert.equal(result.channelId,'');
+ assert.equal(result.statusId,'');
+ assert.equal(result.assigneeId,'');
+ assert.equal(result.tagId,'');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/data-ticket="t-urgent"/);
+ assert.match(result.html,/data-ticket="t-plain"/);
+ assert.match(result.html,/data-ticket="t-other"/);
+});
+test('switching views resets channel status assignee and tag',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(filterBarTickets)});
+ await organ.ready();
+ await organ.selectChannel('email');
+ await organ.selectStatus('open');
+ await organ.selectAssignee('amy@example.com');
+ await organ.selectTag('urgent');
+ const result=await organ.selectView('all');
+ assert.equal(result.channelId,'');
+ assert.equal(result.statusId,'');
+ assert.equal(result.assigneeId,'');
+ assert.equal(result.tagId,'');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/data-ticket="t-urgent"/);
+ assert.match(result.html,/data-ticket="t-plain"/);
+ assert.match(result.html,/data-ticket="t-other"/);
+});
+test('flagged tickets stay visible under status assignee and tag filters',async()=>{
+ const flagged=[{...filterBarTickets[0],gorgiasSpam:true,gorgiasTrashed:false,gorgiasSnoozed:true}];
+ const organ=createInboxOrgan({shop:channelShop(flagged)});
+ await organ.ready();
+ await organ.selectStatus('open');
+ await organ.selectAssignee('amy@example.com');
+ const result=await organ.selectTag('vip');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/ticket-gorgias-spam/);
+ assert.match(result.html,/ticket-gorgias-snoozed/);
+});
