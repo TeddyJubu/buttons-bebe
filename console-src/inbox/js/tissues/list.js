@@ -45,10 +45,12 @@ export function createListTissue({ mailbox }) {
     selectedViewId: "mine",
     channels: [],
     selectedChannelId: "",
+    statuses: [],
+    selectedStatusId: "",
     collapsed: false,
     unreadIds: [],
   };
-  let ui = { sort: "default", filterOpen: false, channelOpen: false };
+  let ui = { sort: "default", filterOpen: false, channelOpen: false, statusOpen: false };
   let host = null;
 
   function project(input) {
@@ -63,6 +65,8 @@ export function createListTissue({ mailbox }) {
       selectedViewId: input.selectedViewId || "mine",
       channels: Array.isArray(input.channels) ? input.channels : [],
       selectedChannelId: typeof input.selectedChannelId === "string" ? input.selectedChannelId : "",
+      statuses: Array.isArray(input.statuses) ? input.statuses : [],
+      selectedStatusId: typeof input.selectedStatusId === "string" ? input.selectedStatusId : "",
       collapsed: Boolean(input.collapsed),
       unreadIds: Array.isArray(input.unreadIds) ? input.unreadIds : [],
     };
@@ -111,6 +115,24 @@ export function createListTissue({ mailbox }) {
       ${items}
     </div>`;
   }
+  function renderStatusMenu(next) {
+    const statuses = next.statuses || [];
+    if (!statuses.length) return "";
+    const allOn = !next.selectedStatusId;
+    const items = [`<button type="button" class="list-menu-item${allOn ? " is-selected" : ""}" data-status-pick="" role="option" aria-selected="${allOn ? "true" : "false"}">
+        <span class="list-menu-label">All statuses</span>
+      </button>`,
+      ...statuses.map((entry) => {
+        const on = entry.id === next.selectedStatusId;
+        return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-status-pick="${esc(entry.id)}" role="option" aria-selected="${on ? "true" : "false"}">
+        <span class="list-menu-label">${esc(screenStatus(entry.label || entry.id))}</span>
+        <span class="list-menu-count">${esc(entry.count ?? 0)}</span>
+      </button>`;
+      })].join("");
+    return `<div class="list-scope-menu list-status-menu${ui.statusOpen ? " is-open" : ""}" role="listbox" ${ui.statusOpen ? "" : "hidden"}>
+      ${items}
+    </div>`;
+  }
 
   function renderToolbar(next = model) {
     return `<header class="pane-head list-toolbar">
@@ -130,6 +152,10 @@ export function createListTissue({ mailbox }) {
           ${(next.channels || []).length ? `<div class="list-filter-wrap">
             <button type="button" class="list-tool-btn" data-list-channel title="Channel" aria-label="Channel" aria-haspopup="listbox" aria-expanded="${ui.channelOpen ? "true" : "false"}" aria-pressed="${ui.channelOpen ? "true" : "false"}">${ICON_FILTER}</button>
             ${renderChannelMenu(next)}
+          </div>` : ""}
+          ${(next.statuses || []).length ? `<div class="list-filter-wrap">
+            <button type="button" class="list-tool-btn" data-list-status title="Status" aria-label="Status" aria-haspopup="listbox" aria-expanded="${ui.statusOpen ? "true" : "false"}" aria-pressed="${ui.statusOpen ? "true" : "false"}">${ICON_FILTER}</button>
+            ${renderStatusMenu(next)}
           </div>` : ""}
           <button type="button" class="list-tool-btn" data-list-sort title="Sort ${ui.sort === "oldest" ? "newest first" : ui.sort === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
           <button type="button" class="list-tool-btn" data-list-collapse title="Collapse list" aria-label="Collapse ticket list">${ICON_CLOSE}</button>
@@ -216,38 +242,50 @@ export function createListTissue({ mailbox }) {
       if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
       const viewPick = event.target.closest("[data-view]");
       if (viewPick) {
-        ui = { ...ui, filterOpen: false, channelOpen: false };
+        ui = { ...ui, filterOpen: false, channelOpen: false, statusOpen: false };
         paint();
         mailbox.publish(MAILBOX_TOPICS.VIEW_SELECTED, { viewId: viewPick.dataset.view });
         return;
       }
       if (event.target.closest("[data-list-filter]")) {
-        ui = { ...ui, filterOpen: !ui.filterOpen, channelOpen: false };
+        ui = { ...ui, filterOpen: !ui.filterOpen, channelOpen: false, statusOpen: false };
         paint();
         return;
       }
       const channelPick = event.target.closest("[data-channel]");
       if (channelPick) {
-        ui = { ...ui, channelOpen: false };
+        ui = { ...ui, channelOpen: false, statusOpen: false };
         paint();
         mailbox.publish(MAILBOX_TOPICS.CHANNEL_SELECTED, { channelId: channelPick.dataset.channel || "" });
         return;
       }
       if (event.target.closest("[data-list-channel]")) {
-        ui = { ...ui, channelOpen: !ui.channelOpen, filterOpen: false };
+        ui = { ...ui, channelOpen: !ui.channelOpen, filterOpen: false, statusOpen: false };
+        paint();
+        return;
+      }
+      const statusPick = event.target.closest("[data-status-pick]");
+      if (statusPick) {
+        ui = { ...ui, statusOpen: false };
+        paint();
+        mailbox.publish(MAILBOX_TOPICS.STATUS_SELECTED, { statusId: statusPick.dataset.statusPick || "" });
+        return;
+      }
+      if (event.target.closest("[data-list-status]")) {
+        ui = { ...ui, statusOpen: !ui.statusOpen, filterOpen: false, channelOpen: false };
         paint();
         return;
       }
       if (event.target.closest("[data-list-inbox]")) {
         // Title affordance — views live under the filter control.
-        ui = { ...ui, filterOpen: !ui.filterOpen };
+        ui = { ...ui, filterOpen: !ui.filterOpen, channelOpen: false, statusOpen: false };
         paint();
         return;
       }
       if (event.target.closest("[data-list-sort]")) {
         const nextSort =
           ui.sort === "default" ? "newest" : ui.sort === "newest" ? "oldest" : "default";
-        ui = { ...ui, sort: nextSort, filterOpen: false, channelOpen: false };
+        ui = { ...ui, sort: nextSort, filterOpen: false, channelOpen: false, statusOpen: false };
         paint();
         return;
       }

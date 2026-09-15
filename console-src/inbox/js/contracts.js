@@ -178,6 +178,7 @@
  *
  * `view/selected`        { viewId }
  * `channel/selected`     { channelId } — observed-history channel filter; never Send
+ * `status/selected`      { statusId } — observed-history status filter; never Send
  * `list/selected`        { ticketId }
  * `list/collapsed`       { collapsed: boolean }
  * `rail/collapsed`       { collapsed: boolean }
@@ -209,6 +210,7 @@
 export const MAILBOX_TOPICS = Object.freeze({
   VIEW_SELECTED: "view/selected",
   CHANNEL_SELECTED: "channel/selected",
+  STATUS_SELECTED: "status/selected",
   LIST_SELECTED: "list/selected",
   LIST_COLLAPSED: "list/collapsed",
   RAIL_COLLAPSED: "rail/collapsed",

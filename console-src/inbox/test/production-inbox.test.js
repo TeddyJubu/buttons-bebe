@@ -126,3 +126,59 @@ test('observed status renders a badge only when known',async()=>{
  assert.match(result.html,/<span class="ticket-status">Closed<\/span>/);
  assert.doesNotMatch(result.html,/ticket-status">Unknown/);
 });
+const statusTickets=[
+ {id:'t-open',customerName:'Open Customer',subject:'Open question',snippet:'Hi',status:'open',updatedAt:'2026-09-14T00:00:00Z',channel:'email',messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-closed',customerName:'Closed Customer',subject:'Closed question',snippet:'Hey',status:'closed',updatedAt:'2026-09-13T00:00:00Z',channel:'chat',messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-unknown',customerName:'Unknown Customer',subject:'Mystery',snippet:'Yo',status:'unknown',updatedAt:'2026-09-12T00:00:00Z',channel:'email',messages:[],statusEvents:[],projectionSource:true},
+];
+test('status menu lists known statuses but never unknown',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(statusTickets)}).ready();
+ assert.match(result.html,/data-status-pick="open"/);
+ assert.match(result.html,/data-status-pick="closed"/);
+ assert.match(result.html,/All statuses/);
+ assert.doesNotMatch(result.html,/data-status-pick="unknown"/);
+});
+test('selectStatus filters the observed list to that status',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(statusTickets)});
+ await organ.ready();
+ const result=await organ.selectStatus('closed');
+ assert.equal(result.statusId,'closed');
+ assert.equal(result.selectedId,'t-closed');
+ assert.match(result.html,/data-ticket="t-closed"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-open"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-unknown"/);
+});
+test('unknown status fails closed with an empty list',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(statusTickets)});
+ await organ.ready();
+ const result=await organ.selectStatus('snoozed');
+ assert.equal(result.statusId,'snoozed');
+ assert.equal(result.selectedId,null);
+ assert.match(result.html,/No tickets yet/);
+ assert.doesNotMatch(result.html,/data-ticket="t-/);
+});
+test('clearing the status restores every loaded row',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(statusTickets)});
+ await organ.ready();
+ await organ.selectStatus('closed');
+ const result=await organ.selectStatus('');
+ assert.equal(result.statusId,'');
+ assert.match(result.html,/data-ticket="t-closed"/);
+ assert.match(result.html,/data-ticket="t-open"/);
+ assert.match(result.html,/data-ticket="t-unknown"/);
+});
+test('status control hides when every ticket is unknown',async()=>{
+ const tickets=statusTickets.map(t=>({...t,status:'unknown'}));
+ const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
+ assert.doesNotMatch(result.html,/data-list-status/);
+ assert.match(result.html,/data-ticket="t-open"/);
+});
+test('channel and status filters compose',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(statusTickets)});
+ await organ.ready();
+ await organ.selectChannel('email');
+ const result=await organ.selectStatus('open');
+ assert.match(result.html,/data-ticket="t-open"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-closed"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-unknown"/);
+});

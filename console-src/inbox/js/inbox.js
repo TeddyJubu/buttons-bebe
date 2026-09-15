@@ -87,6 +87,21 @@ export function createInboxOrgan(opts = {}) {
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([id, count]) => ({ id, label: id, count }));
   }
+  let statusId = "";
+  function normalizeStatus(value) {
+    return typeof value === "string" ? value.trim().slice(0, 30) : "";
+  }
+  function statusFacets() {
+    const countsByStatus = new Map();
+    for (const ticket of listRows) {
+      const status = normalizeStatus(ticket?.status);
+      if (!status || status === "unknown") continue;
+      countsByStatus.set(status, (countsByStatus.get(status) || 0) + 1);
+    }
+    return [...countsByStatus.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([id, count]) => ({ id, label: id, count }));
+  }
   let selectedId = opts.ticketId || null;
   let body = "";
   let strip = "";
@@ -150,8 +165,9 @@ export function createInboxOrgan(opts = {}) {
   }
 
   function visibleTickets() {
-    if (!channelId) return listRows;
-    return listRows.filter((ticket) => normalizeChannel(ticket?.channel) === channelId);
+    return listRows.filter((ticket) =>
+      (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
+      (!statusId || normalizeStatus(ticket?.status) === statusId));
   }
 
   function selectedTicket() {
@@ -520,6 +536,8 @@ export function createInboxOrgan(opts = {}) {
       selectedViewId: viewId,
       channels: channelFacets(),
       selectedChannelId: channelId,
+      statuses: statusFacets(),
+      selectedStatusId: statusId,
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
     };
@@ -558,6 +576,7 @@ export function createInboxOrgan(opts = {}) {
       railCollapsed,
       viewId,
       channelId,
+      statusId,
       selectedId,
       unreadIds: [...unreadIds],
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
@@ -699,6 +718,7 @@ export function createInboxOrgan(opts = {}) {
     mailbox.subscribe(MAILBOX_TOPICS.VIEW_SELECTED, ({ viewId: next }) => {
       viewId = next;
       channelId = "";
+      statusId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -713,6 +733,18 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.CHANNEL_SELECTED, ({ channelId: next }) => {
       channelId = normalizeChannel(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.STATUS_SELECTED, ({ statusId: next }) => {
+      statusId = normalizeStatus(next);
       selectedId = null;
       body = "";
       strip = "";
@@ -880,6 +912,7 @@ export function createInboxOrgan(opts = {}) {
     selectView(next) {
       viewId = next;
       channelId = "";
+      statusId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -894,6 +927,18 @@ export function createInboxOrgan(opts = {}) {
     },
     selectChannel(next) {
       channelId = normalizeChannel(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    },
+    selectStatus(next) {
+      statusId = normalizeStatus(next);
       selectedId = null;
       body = "";
       strip = "";
