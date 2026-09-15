@@ -39,6 +39,14 @@ Each flag goes webhook-template (if needed) -> parse -> DB -> export_projection 
   all three flag columns present, queue drained, `/ready` ok, Send lock exact,
   projection fresh (3353 tickets), tag badge/menu code live.
 
+ - Tasks 7+8 (priority proper + spam/trashed/snoozed, `7fa087c`): gate passed
+   locally (EXIT 0, prepared venv interpreters), pushed; CI verify success;
+   deploy success. Live verified: `ticket_spam` + `ticket_trashed` +
+   `ticket_snoozed` columns present, queue drained (8579 done, 0 failed),
+   webhook + inbox `/ready` ok (sendAccessEnabled false), Send lock exact,
+   projection fresh (3353 tickets, generated 16:11 UTC), spam/trashed/snoozed
+   badges + thread Gorgias-priority code live.
+
 - Gate passed locally (EXIT 0), committed `d8f7f5a`, pushed; CI verify success.
 - CD initially refused (exit 78): `deploy/systemd` hash drifted since approval.
   Review found only: helpdesk-inbox `+SHOP_RAIL_PATH` / `-INBOX_OPERATOR_GORGIAS_EMAIL`
