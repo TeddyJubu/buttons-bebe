@@ -186,6 +186,23 @@ def _normalize_ticket_tags(val: Any) -> list[str]:
     return tags
 
 
+def _normalize_ticket_priority(val: Any) -> str | None:
+    """Keep a short observed Gorgias ticket priority, or None.
+
+    This is Gorgias's own ticket priority, stored separately from the AI
+    draft priority in ticket_results.priority. Malformed values fail
+    closed to None rather than being guessed or defaulted.
+    """
+    if not isinstance(val, str):
+        return None
+    priority = val.strip().lower()
+    if not priority or len(priority) > 20:
+        return None
+    if not all(ch.isalnum() or ch in ("_", "-") for ch in priority):
+        return None
+    return priority
+
+
 # ── Signature verification ─────────────────────────────────
 
 def verify_signature(
@@ -264,6 +281,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             ticket_status: str | None,
             ticket_assignee: str | None,
             ticket_tags: list[str],
+            ticket_priority: str | None,
             customer_email: str | None,
             intents: list[dict],       # parsed Gorgias intent objects
             is_customer_message: bool, # True only for inbound customer messages
@@ -373,6 +391,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
     raw_assignee = (ticket.get("assignee") or ticket.get("assignee_user")) if ticket else None
     ticket_assignee = _normalize_ticket_assignee(raw_assignee)
     ticket_tags = _normalize_ticket_tags(ticket.get("tags")) if ticket else []
+    ticket_priority = _normalize_ticket_priority(ticket.get("priority")) if ticket else None
 
     # ── Customer email ─────────────────────────────────────
     customer_email = None
@@ -411,6 +430,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         "ticket_status": ticket_status,
         "ticket_assignee": ticket_assignee,
         "ticket_tags": ticket_tags,
+        "ticket_priority": ticket_priority,
         "customer_email": customer_email,
         "intents": intents,
         "is_customer_message": is_customer_message,

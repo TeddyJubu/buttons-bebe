@@ -69,7 +69,7 @@ def extract(source, now):
             COUNT(*) OVER(PARTITION BY ticket_id) observed_count
             FROM parsed_messages WHERE received_at>=?)
             SELECT p.ticket_id,p.message_id,p.author_type,p.author_email,p.customer_email,p.ticket_subject,
-            p.channel,p.ticket_status,p.ticket_assignee,p.ticket_tags,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
+            p.channel,p.ticket_status,p.ticket_assignee,p.ticket_tags,p.ticket_priority,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
             substr(p.message_text,1,20001) message_text, substr(r.draft_text,1,20001) draft_text,
             r.priority,r.action,substr(r.reason,1,20001) reason,r.processed_at
             FROM ranked p LEFT JOIN ticket_results r ON r.ticket_id=p.ticket_id AND r.message_id=p.message_id
@@ -126,6 +126,8 @@ def build(rows):
         except (ValueError,TypeError):
             parsed_tags=[]
         observed_tags=[tag for tag in parsed_tags if isinstance(tag,str) and tag.strip()][:12]
+        gorgias_priority = latest.get('ticket_priority') if isinstance(latest.get('ticket_priority'), str) else ''
+        gorgias_priority = gorgias_priority.strip()[:20] if gorgias_priority else ''
         ticket={'id':f'gorgias:{ticket_id}','subject':subject,'customerName':latest['customer_email'] or 'Customer',
           'customerContext':latest.get('customer_context',identity_context(latest,None)),
           'fromEmail':latest['customer_email'] or '', 'status':observed_status or 'unknown','assignee':observed_assignee or None,'channel':channel,'updatedAt':latest['received_at'],
@@ -135,6 +137,7 @@ def build(rows):
           'readonlyDraft':draft_text,'draftReason':reason,'draftSuperseded':superseded,
           'draftSourceMessageId':draft['message_id'] if draft else None,'draftSourceMessageAt':(draft['created_at'] or draft['received_at']) if draft else None,'draftProcessedAt':draft['processed_at'] if draft else None,
           'priority':draft['priority'] if draft else None,'draftAction':draft['action'] if draft else None}
+        ticket['gorgiasPriority']=gorgias_priority or None
         if ticket['customerContext']['identity']['name'] and not ticket['customerContext']['conflict']:
             ticket['customerName']=ticket['customerContext']['identity']['name']
         tickets.append(ticket)

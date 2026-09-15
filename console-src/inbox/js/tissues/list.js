@@ -246,6 +246,10 @@ export function createListTissue({ mailbox }) {
     const tagBadges = ticketTagList.slice(0, 3)
       .map((tag) => `<span class="ticket-badge ticket-tag">${esc(tag)}</span>`).join("");
     const tagOverflow = ticketTagList.length > 3 ? `<span class="ticket-badge ticket-tag-more">+${ticketTagList.length - 3}</span>` : "";
+    const gorgiasPriority = typeof ticket.gorgiasPriority === "string" ? ticket.gorgiasPriority.trim().slice(0, 20) : "";
+    const gorgiasPriorityHtml = gorgiasPriority
+      ? `<span class="ticket-badge ticket-gorgias-priority" title="Gorgias priority">${esc(gorgiasPriority)}</span>`
+      : "";
     const deviceAttr = ticket.device ? ` data-device="${esc(ticket.device)}"` : "";
     const unreadClass = unread ? " is-unread" : "";
     return `<button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
@@ -259,6 +263,7 @@ export function createListTissue({ mailbox }) {
           ${assigneeHtml}
           ${tagBadges}
           ${tagOverflow}
+          ${gorgiasPriorityHtml}
           ${statusHtml}
           <time class="ticket-time" datetime="${esc(ticket.updatedAt || "")}" title="${esc(formatWhen(ticket.updatedAt))}">${esc(formatWhen(ticket.updatedAt, { relative: true }))}</time>
         </span>

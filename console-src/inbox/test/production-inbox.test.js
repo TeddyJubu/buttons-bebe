@@ -301,3 +301,14 @@ test('row shows at most three tags with a plus-N overflow badge',async()=>
  assert.doesNotMatch(result.html,/ticket-tag">d<\/span>/);
  assert.match(result.html,/ticket-tag-more">\+2<\/span>/);
 });
+test('gorgias priority badge renders without touching AI priority',async()=>{
+ const withGorgias=[{...tagTickets[0],gorgiasPriority:'urgent',severity:'normal',tags:[]}];
+ const result=await createInboxOrgan({shop:channelShop(withGorgias)}).ready();
+ assert.match(result.html,/ticket-gorgias-priority" title="Gorgias priority">urgent<\/span>/);
+ assert.doesNotMatch(result.html,/ticket-severity/);
+});
+test('no gorgias priority means no badge and no invented value',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(tagTickets)}).ready();
+ assert.doesNotMatch(result.html,/ticket-gorgias-priority/);
+ assert.doesNotMatch(result.html,/Gorgias priority/);
+});

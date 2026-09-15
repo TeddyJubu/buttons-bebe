@@ -73,3 +73,18 @@ class RetainedContentTests(unittest.TestCase):
             self.assertTrue(isinstance(tags, list))
             self.assertNotIn('<b>vip</b>', tags)
             self.assertNotIn('x'*41, tags)
+
+    @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
+    def test_webhook_parser_keeps_bounded_ticket_priority(self, settings):
+        import json
+        from bb_webhook.webhook_handler import parse_event
+        def parse(ticket):
+            return parse_event(json.dumps({'event':'ticket-message-created',
+                'ticket':ticket, 'message':{'id':456, 'from_agent':False,
+                'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
+        self.assertEqual(parse({'id':123, 'priority':'urgent'})['ticket_priority'], 'urgent')
+        self.assertEqual(parse({'id':123, 'priority':' High '})['ticket_priority'], 'high')
+        self.assertEqual(parse({'id':123, 'priority':'level-2'})['ticket_priority'], 'level-2')
+        for bad in (None, 123, '', 'x'*21, '<b>high</b>', 'high; DROP', 'high priority'):
+            payload = {'id':123} if bad is None else {'id':123, 'priority':bad}
+            self.assertIsNone(parse(payload)['ticket_priority'])
