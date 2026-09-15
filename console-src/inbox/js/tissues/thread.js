@@ -139,6 +139,10 @@ export function createThreadTissue({ mailbox }) {
         </div>
         <div class="thread-head-actions">
           <span class="status-badge" title="Ticket status">${esc(ticket.projectionSource ? "Status unknown" : screenStatus(ticket.status))}</span>
+          ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-badge" title="Gorgias priority">${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
+          ${ticket.gorgiasSpam ? `<span class="status-badge" title="Marked as spam in Gorgias">Spam</span>` : ""}
+          ${ticket.gorgiasTrashed ? `<span class="status-badge" title="Trashed in Gorgias">Trashed</span>` : ""}
+          ${ticket.gorgiasSnoozed ? `<span class="status-badge" title="Snoozed in Gorgias">Snoozed</span>` : ""}
           ${escalateControl}
         </div>
       </header>

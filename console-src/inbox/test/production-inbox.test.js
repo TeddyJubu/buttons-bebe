@@ -312,3 +312,37 @@ test('no gorgias priority means no badge and no invented value',async()=>{
  assert.doesNotMatch(result.html,/ticket-gorgias-priority/);
  assert.doesNotMatch(result.html,/Gorgias priority/);
 });
+test('thread header shows gorgias priority without touching AI priority',async()=>{
+ const withGorgias=[{...tagTickets[0],gorgiasPriority:'urgent',severity:'normal',tags:[]}];
+ const result=await createInboxOrgan({shop:channelShop(withGorgias)}).ready();
+ assert.match(result.html,/status-badge" title="Gorgias priority">urgent<\/span>/);
+ assert.doesNotMatch(result.html,/ticket-severity/);
+});
+test('spam trashed and snoozed tickets badge but are never hidden',async()=>{
+ const flagged=[{...tagTickets[0],gorgiasSpam:true,gorgiasTrashed:true,gorgiasSnoozed:true}];
+ const result=await createInboxOrgan({shop:channelShop(flagged)}).ready();
+ assert.match(result.html,/ticket-gorgias-spam" title="Marked as spam in Gorgias">Spam<\/span>/);
+ assert.match(result.html,/ticket-gorgias-trashed" title="Trashed in Gorgias">Trashed<\/span>/);
+ assert.match(result.html,/ticket-gorgias-snoozed" title="Snoozed in Gorgias">Snoozed<\/span>/);
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/status-badge" title="Marked as spam in Gorgias">Spam<\/span>/);
+ assert.match(result.html,/status-badge" title="Trashed in Gorgias">Trashed<\/span>/);
+ assert.match(result.html,/status-badge" title="Snoozed in Gorgias">Snoozed<\/span>/);
+});
+test('flagged tickets stay visible under a matching channel filter',async()=>{
+ const flagged=[{...tagTickets[0],gorgiasSpam:true,gorgiasTrashed:false,gorgiasSnoozed:true}];
+ const organ=createInboxOrgan({shop:channelShop(flagged)});
+ await organ.ready();
+ const result=await organ.selectChannel('email');
+ assert.equal(result.channelId,'email');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/ticket-gorgias-spam/);
+});
+test('no state flags means no state badges and no invented value',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(tagTickets)}).ready();
+ assert.doesNotMatch(result.html,/ticket-gorgias-spam/);
+ assert.doesNotMatch(result.html,/ticket-gorgias-trashed/);
+ assert.doesNotMatch(result.html,/ticket-gorgias-snoozed/);
+ assert.doesNotMatch(result.html,/Marked as spam in Gorgias/);
+ assert.match(result.html,/data-ticket="t-vip"/);
+});

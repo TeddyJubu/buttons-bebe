@@ -203,6 +203,39 @@ def _normalize_ticket_priority(val: Any) -> str | None:
     return priority
 
 
+def _normalize_ticket_spam(val: Any) -> int:
+    """Keep an observed Gorgias spam flag as 1/0; malformed fails closed to 0.
+
+    The ticket itself is always kept; only the badge is withheld.
+    """
+    return 1 if _coerce_bool(val) is True else 0
+
+
+def _normalize_ticket_trashed(val: Any) -> int:
+    """Keep an observed Gorgias trashed flag as 1/0; malformed fails closed to 0.
+
+    A valid trashed_datetime timestamp means trashed. A plain boolean
+    trashed alias is accepted for template variants. The ticket itself
+    is always kept; only the badge is withheld.
+    """
+    if isinstance(val, str) and val.strip():
+        return 1 if _normalize_timestamp(val) is not None else 0
+    return 1 if _coerce_bool(val) is True else 0
+
+
+def _normalize_ticket_snoozed(val: Any) -> int:
+    """Keep an observed Gorgias snoozed flag as 1/0; malformed fails closed to 0.
+
+    A valid snooze_datetime timestamp means a snooze is scheduled. A plain
+    boolean snoozed alias is accepted for template variants. A snoozed status
+    already badges via the status path; this covers a scheduled snooze while
+    the status still reads open. The ticket itself is always kept.
+    """
+    if isinstance(val, str) and val.strip():
+        return 1 if _normalize_timestamp(val) is not None else 0
+    return 1 if _coerce_bool(val) is True else 0
+
+
 # ── Signature verification ─────────────────────────────────
 
 def verify_signature(
@@ -282,6 +315,9 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             ticket_assignee: str | None,
             ticket_tags: list[str],
             ticket_priority: str | None,
+            ticket_spam: int,            # 1/0 observed Gorgias spam flag
+            ticket_trashed: int,         # 1/0 observed Gorgias trashed flag
+            ticket_snoozed: int,         # 1/0 observed Gorgias snooze flag
             customer_email: str | None,
             intents: list[dict],       # parsed Gorgias intent objects
             is_customer_message: bool, # True only for inbound customer messages
@@ -392,6 +428,9 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
     ticket_assignee = _normalize_ticket_assignee(raw_assignee)
     ticket_tags = _normalize_ticket_tags(ticket.get("tags")) if ticket else []
     ticket_priority = _normalize_ticket_priority(ticket.get("priority")) if ticket else None
+    ticket_spam = _normalize_ticket_spam(ticket.get("spam")) if ticket else 0
+    ticket_trashed = _normalize_ticket_trashed(ticket.get("trashed_datetime") or ticket.get("trashed")) if ticket else 0
+    ticket_snoozed = _normalize_ticket_snoozed(ticket.get("snooze_datetime") or ticket.get("snoozed")) if ticket else 0
 
     # ── Customer email ─────────────────────────────────────
     customer_email = None
@@ -431,6 +470,9 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         "ticket_assignee": ticket_assignee,
         "ticket_tags": ticket_tags,
         "ticket_priority": ticket_priority,
+        "ticket_spam": ticket_spam,
+        "ticket_trashed": ticket_trashed,
+        "ticket_snoozed": ticket_snoozed,
         "customer_email": customer_email,
         "intents": intents,
         "is_customer_message": is_customer_message,

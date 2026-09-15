@@ -250,6 +250,15 @@ export function createListTissue({ mailbox }) {
     const gorgiasPriorityHtml = gorgiasPriority
       ? `<span class="ticket-badge ticket-gorgias-priority" title="Gorgias priority">${esc(gorgiasPriority)}</span>`
       : "";
+    const gorgiasSpamHtml = ticket.gorgiasSpam
+      ? `<span class="ticket-badge ticket-gorgias-spam" title="Marked as spam in Gorgias">Spam</span>`
+      : "";
+    const gorgiasTrashedHtml = ticket.gorgiasTrashed
+      ? `<span class="ticket-badge ticket-gorgias-trashed" title="Trashed in Gorgias">Trashed</span>`
+      : "";
+    const gorgiasSnoozedHtml = ticket.gorgiasSnoozed
+      ? `<span class="ticket-badge ticket-gorgias-snoozed" title="Snoozed in Gorgias">Snoozed</span>`
+      : "";
     const deviceAttr = ticket.device ? ` data-device="${esc(ticket.device)}"` : "";
     const unreadClass = unread ? " is-unread" : "";
     return `<button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
@@ -263,6 +272,9 @@ export function createListTissue({ mailbox }) {
           ${assigneeHtml}
           ${tagBadges}
           ${tagOverflow}
+          ${gorgiasSpamHtml}
+          ${gorgiasTrashedHtml}
+          ${gorgiasSnoozedHtml}
           ${gorgiasPriorityHtml}
           ${statusHtml}
           <time class="ticket-time" datetime="${esc(ticket.updatedAt || "")}" title="${esc(formatWhen(ticket.updatedAt))}">${esc(formatWhen(ticket.updatedAt, { relative: true }))}</time>

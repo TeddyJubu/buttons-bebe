@@ -88,3 +88,25 @@ class RetainedContentTests(unittest.TestCase):
         for bad in (None, 123, '', 'x'*21, '<b>high</b>', 'high; DROP', 'high priority'):
             payload = {'id':123} if bad is None else {'id':123, 'priority':bad}
             self.assertIsNone(parse(payload)['ticket_priority'])
+
+    @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
+    def test_webhook_parser_keeps_observed_state_flags_without_dropping(self, settings):
+        import json
+        from bb_webhook.webhook_handler import parse_event
+        def parse(ticket):
+            return parse_event(json.dumps({'event':'ticket-message-created',
+                'ticket':ticket, 'message':{'id':456, 'from_agent':False,
+                'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
+        self.assertEqual(parse({'id':123, 'spam':True})['ticket_spam'], 1)
+        self.assertEqual(parse({'id':123, 'spam':'True'})['ticket_spam'], 1)
+        self.assertEqual(parse({'id':123, 'trashed_datetime':'2026-09-07T01:00:00Z'})['ticket_trashed'], 1)
+        self.assertEqual(parse({'id':123, 'trashed':True})['ticket_trashed'], 1)
+        self.assertEqual(parse({'id':123, 'snooze_datetime':'2026-09-08T01:00:00Z'})['ticket_snoozed'], 1)
+        self.assertEqual(parse({'id':123, 'snoozed':True})['ticket_snoozed'], 1)
+        flagged = parse({'id':123, 'spam':True, 'trashed_datetime':'2026-09-07T01:00:00Z'})
+        self.assertEqual((flagged['ticket_spam'], flagged['ticket_trashed'], flagged['ticket_snoozed']), (1, 1, 0))
+        for ticket in ({'id':123}, {'id':123, 'spam':'maybe'}, {'id':123, 'trashed_datetime':'not-a-time'},
+                {'id':123, 'snooze_datetime':'not-a-time'}, {'id':123, 'spam':'<b>yes</b>'}):
+            parsed = parse(ticket)
+            self.assertIsNotNone(parsed)
+            self.assertEqual((parsed['ticket_spam'], parsed['ticket_trashed'], parsed['ticket_snoozed']), (0, 0, 0))
