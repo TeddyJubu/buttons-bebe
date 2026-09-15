@@ -182,3 +182,57 @@ test('channel and status filters compose',async()=>{
  assert.doesNotMatch(result.html,/data-ticket="t-closed"/);
  assert.doesNotMatch(result.html,/data-ticket="t-unknown"/);
 });
+const assigneeTickets=[
+ {id:'t-amy',customerName:'Amy Customer',subject:'Amy question',snippet:'Hi',status:'open',updatedAt:'2026-09-14T00:00:00Z',channel:'email',assignee:'amy@example.com',messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-bo',customerName:'Bo Customer',subject:'Bo question',snippet:'Hey',status:'open',updatedAt:'2026-09-13T00:00:00Z',channel:'email',assignee:'Bo Ex',messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-none',customerName:'Nobody Customer',subject:'Mystery',snippet:'Yo',status:'open',updatedAt:'2026-09-12T00:00:00Z',channel:'email',assignee:null,messages:[],statusEvents:[],projectionSource:true},
+];
+test('assignee menu lists people plus Unassigned',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(assigneeTickets)}).ready();
+ assert.match(result.html,/data-assignee-pick="amy@example.com"/);
+ assert.match(result.html,/data-assignee-pick="Bo Ex"/);
+ assert.match(result.html,/data-assignee-pick="unassigned"/);
+ assert.match(result.html,/Unassigned/);
+ assert.match(result.html,/Everyone/);
+ assert.match(result.html,/ticket-assignee/);
+});
+test('selectAssignee filters to that person',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(assigneeTickets)});
+ await organ.ready();
+ const result=await organ.selectAssignee('amy@example.com');
+ assert.equal(result.assigneeId,'amy@example.com');
+ assert.equal(result.selectedId,'t-amy');
+ assert.match(result.html,/data-ticket="t-amy"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-bo"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-none"/);
+});
+test('Unassigned filter shows only blank assignees',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(assigneeTickets)});
+ await organ.ready();
+ const result=await organ.selectAssignee('unassigned');
+ assert.match(result.html,/data-ticket="t-none"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-amy"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-bo"/);
+});
+test('unknown assignee fails closed with an empty list',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(assigneeTickets)});
+ await organ.ready();
+ const result=await organ.selectAssignee('ghost@example.com');
+ assert.equal(result.selectedId,null);
+ assert.match(result.html,/No tickets yet/);
+});
+test('clearing the assignee restores every loaded row',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(assigneeTickets)});
+ await organ.ready();
+ await organ.selectAssignee('unassigned');
+ const result=await organ.selectAssignee('');
+ assert.equal(result.assigneeId,'');
+ assert.match(result.html,/data-ticket="t-amy"/);
+ assert.match(result.html,/data-ticket="t-none"/);
+});
+test('assignee control hides when every ticket is blank',async()=>{
+ const tickets=assigneeTickets.map(t=>({...t,assignee:null}));
+ const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
+ assert.doesNotMatch(result.html,/data-list-assignee/);
+ assert.match(result.html,/data-ticket="t-amy"/);
+});

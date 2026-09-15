@@ -16,10 +16,10 @@ class ProjectionTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.source=self.root/'source.db';self.dest=self.root/'projection.sqlite3';self.now=time.time()
         with sqlite3.connect(self.source) as db:
-            db.execute('CREATE TABLE parsed_messages(ticket_id INTEGER,message_id TEXT,author_type TEXT,author_email TEXT,customer_email TEXT,ticket_subject TEXT,channel TEXT,ticket_status TEXT,created_at TEXT,received_at TEXT,is_customer_message INTEGER,message_text TEXT)')
+            db.execute('CREATE TABLE parsed_messages(ticket_id INTEGER,message_id TEXT,author_type TEXT,author_email TEXT,customer_email TEXT,ticket_subject TEXT,channel TEXT,ticket_status TEXT,ticket_assignee TEXT,created_at TEXT,received_at TEXT,is_customer_message INTEGER,message_text TEXT)')
             db.execute('CREATE TABLE webhook_events(ticket_id INTEGER,message_id TEXT,raw_payload TEXT)')
             db.execute('CREATE TABLE ticket_results(ticket_id INTEGER,message_id TEXT,draft_text TEXT,priority TEXT,action TEXT,reason TEXT,processed_at TEXT)')
-            db.execute("INSERT INTO parsed_messages VALUES(1,'m1','customer','qa@example.com','qa@example.com','<script>title</script>','email','closed','2099-01-01','2099-01-01',1,?)",('<img onerror=alert(1)>'+('x'*21000),))
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m1','customer','qa@example.com','qa@example.com','<script>title</script>','email','closed','agent@example.com','2099-01-01','2099-01-01',1,?)",('<img onerror=alert(1)>'+('x'*21000),))
             db.execute("INSERT INTO ticket_results VALUES(1,'m1','Draft only','high','sensitive_draft','Review','2099-01-01')")
     def tearDown(self):self.tmp.cleanup()
     def test_identity_allowlist_from_same_event_never_exports_other_payload_fields(self):
@@ -41,7 +41,7 @@ class ProjectionTests(unittest.TestCase):
     def test_latest_event_does_not_inherit_prior_customer_identity(self):
         with sqlite3.connect(self.source) as db:
             db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,'m1',json.dumps({'ticket':{'id':1,'customer':{'name':'Earlier customer','email':'qa@example.com'}}})))
-            db.execute("INSERT INTO parsed_messages VALUES(1,'m2','customer','new@example.com','new@example.com','New message','email',NULL,'2099-02-01','2099-02-01',1,'Hello')")
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m2','customer','new@example.com','new@example.com','New message','email',NULL,NULL,'2099-02-01','2099-02-01',1,'Hello')")
         export(self.source,self.dest,now=self.now)
         context=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']['customerContext']
         self.assertEqual(context['identity']['email'],'new@example.com')
@@ -76,16 +76,18 @@ class ProjectionTests(unittest.TestCase):
         finally:db.close()
     def test_observed_status_uses_latest_event(self):
         with sqlite3.connect(self.source) as db:
-            db.execute("INSERT INTO parsed_messages VALUES(1,'m3','customer','new@example.com','new@example.com','New message','sms','snoozed','2099-03-01','2099-03-01',1,'Hello')")
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m3','customer','new@example.com','new@example.com','New message','sms','snoozed','agent@example.com','2099-03-01','2099-03-01',1,'Hello')")
         export(self.source,self.dest,now=self.now)
         ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
         self.assertEqual(ticket['status'],'snoozed')
         self.assertEqual(ticket['channel'],'sms')
+        self.assertEqual(ticket['assignee'],'agent@example.com')
         with sqlite3.connect(self.source) as db:
-            db.execute("INSERT INTO parsed_messages VALUES(1,'m4','customer','new@example.com','new@example.com','New message','sms',NULL,'2099-04-01','2099-04-01',1,'Hello')")
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m4','customer','new@example.com','new@example.com','New message','sms',NULL,NULL,'2099-04-01','2099-04-01',1,'Hello')")
         export(self.source,self.dest,now=self.now)
         ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
         self.assertEqual(ticket['status'],'unknown')
+        self.assertIsNone(ticket['assignee'])
     def test_atomic_publish_old_readers_and_failed_export_keep_previous(self):
         export(self.source,self.dest,now=self.now)
         db=connect(self.dest);db.execute('BEGIN');db.execute('SELECT * FROM tickets').fetchall()
@@ -100,9 +102,9 @@ class ProjectionTests(unittest.TestCase):
     def test_ticket_and_message_windows_are_bounded(self):
         with sqlite3.connect(self.source) as db:
             for number in range(2,503):
-                db.execute("INSERT INTO parsed_messages VALUES(?,?,'customer','','','Subject','email',NULL,'2099-01-01','2099-01-01',1,'Hello')",(number,f'm{number}'))
+                db.execute("INSERT INTO parsed_messages VALUES(?,?,'customer','','','Subject','email',NULL,NULL,'2099-01-01','2099-01-01',1,'Hello')",(number,f'm{number}'))
             for number in range(102):
-                db.execute("INSERT INTO parsed_messages VALUES(1,?,'customer','','','Subject','email',NULL,'2099-02-01','2099-02-01',1,'Hello')",(f'extra{number}',))
+                db.execute("INSERT INTO parsed_messages VALUES(1,?,'customer','','','Subject','email',NULL,NULL,'2099-02-01','2099-02-01',1,'Hello')",(f'extra{number}',))
         meta=export(self.source,self.dest,now=self.now)
         self.assertEqual(meta['ticketCount'],502);self.assertFalse(meta['truncated']);self.assertIsNone(meta['ticketLimit'])
         ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
@@ -111,7 +113,7 @@ class ProjectionTests(unittest.TestCase):
 
     def test_draft_lineage_withholds_superseded_customer_reply(self):
         with sqlite3.connect(self.source) as db:
-            db.execute("INSERT INTO parsed_messages VALUES(1,'newer','customer','','','Followup','email',NULL,'2099-03-01','2099-03-01',1,'New question')")
+            db.execute("INSERT INTO parsed_messages VALUES(1,'newer','customer','','','Followup','email',NULL,NULL,'2099-03-01','2099-03-01',1,'New question')")
         export(self.source,self.dest,now=self.now)
         ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
         self.assertEqual(ticket['readonlyDraft'],'')

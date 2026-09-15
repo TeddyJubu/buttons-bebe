@@ -102,6 +102,35 @@ export function createInboxOrgan(opts = {}) {
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([id, count]) => ({ id, label: id, count }));
   }
+  let assigneeId = "";
+  function normalizeAssignee(value) {
+    return typeof value === "string" ? value.trim().slice(0, 120) : "";
+  }
+  // A literal assignee of "unassigned" filters exactly like a blank one,
+  // so the reserved id can never hide or misroute a real person.
+  const UNASSIGNED_ID = "unassigned";
+  function assigneeMatches(ticket, selected) {
+    const assignee = normalizeAssignee(ticket?.assignee);
+    if (!selected) return true;
+    if (selected === UNASSIGNED_ID) return !assignee || assignee === UNASSIGNED_ID;
+    return assignee === selected;
+  }
+  function assigneeFacets() {
+    const countsByAssignee = new Map();
+    let unassigned = 0;
+    for (const ticket of listRows) {
+      const assignee = normalizeAssignee(ticket?.assignee);
+      if (!assignee || assignee === UNASSIGNED_ID) unassigned += 1;
+      else countsByAssignee.set(assignee, (countsByAssignee.get(assignee) || 0) + 1);
+    }
+    const facets = [...countsByAssignee.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([id, count]) => ({ id, label: id, count }));
+    // Unassigned is only offered alongside named people; alone it would
+    // duplicate Everyone and imply knowledge we do not have.
+    if (unassigned && facets.length) facets.unshift({ id: UNASSIGNED_ID, label: "Unassigned", count: unassigned });
+    return facets;
+  }
   let selectedId = opts.ticketId || null;
   let body = "";
   let strip = "";
@@ -167,7 +196,8 @@ export function createInboxOrgan(opts = {}) {
   function visibleTickets() {
     return listRows.filter((ticket) =>
       (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
-      (!statusId || normalizeStatus(ticket?.status) === statusId));
+      (!statusId || normalizeStatus(ticket?.status) === statusId) &&
+      assigneeMatches(ticket, assigneeId));
   }
 
   function selectedTicket() {
@@ -538,6 +568,8 @@ export function createInboxOrgan(opts = {}) {
       selectedChannelId: channelId,
       statuses: statusFacets(),
       selectedStatusId: statusId,
+      assignees: assigneeFacets(),
+      selectedAssigneeId: assigneeId,
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
     };
@@ -577,6 +609,7 @@ export function createInboxOrgan(opts = {}) {
       viewId,
       channelId,
       statusId,
+      assigneeId,
       selectedId,
       unreadIds: [...unreadIds],
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
@@ -719,6 +752,7 @@ export function createInboxOrgan(opts = {}) {
       viewId = next;
       channelId = "";
       statusId = "";
+      assigneeId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -745,6 +779,18 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.STATUS_SELECTED, ({ statusId: next }) => {
       statusId = normalizeStatus(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.ASSIGNEE_SELECTED, ({ assigneeId: next }) => {
+      assigneeId = normalizeAssignee(next);
       selectedId = null;
       body = "";
       strip = "";
@@ -913,6 +959,7 @@ export function createInboxOrgan(opts = {}) {
       viewId = next;
       channelId = "";
       statusId = "";
+      assigneeId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -939,6 +986,18 @@ export function createInboxOrgan(opts = {}) {
     },
     selectStatus(next) {
       statusId = normalizeStatus(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    },
+    selectAssignee(next) {
+      assigneeId = normalizeAssignee(next);
       selectedId = null;
       body = "";
       strip = "";

@@ -37,3 +37,20 @@ class RetainedContentTests(unittest.TestCase):
         for bad in (None, 123, '', 'x'*31, '<script>', 'open; DROP TABLE x'):
             payload = {'id':123} if bad is None else {'id':123, 'status':bad}
             self.assertIsNone(parse(payload)['ticket_status'])
+
+    @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
+    def test_webhook_parser_keeps_bounded_ticket_assignee(self, settings):
+        import json
+        from bb_webhook.webhook_handler import parse_event
+        def parse(ticket):
+            return parse_event(json.dumps({'event':'ticket-message-created',
+                'ticket':ticket, 'message':{'id':456, 'from_agent':False,
+                'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
+        self.assertEqual(parse({'id':123, 'assignee':{'email':'agent@example.com', 'name':'Agent'}})['ticket_assignee'], 'agent@example.com')
+        self.assertEqual(parse({'id':123, 'assignee':{'name':'Agent Only'}})['ticket_assignee'], 'Agent Only')
+        self.assertEqual(parse({'id':123, 'assignee':'{"email":"json@example.com"}'})['ticket_assignee'], 'json@example.com')
+        self.assertEqual(parse({'id':123, 'assignee':'agent@example.com'})['ticket_assignee'], 'agent@example.com')
+        self.assertEqual(parse({'id':123, 'assignee_user':{'email':'alias@example.com'}})['ticket_assignee'], 'alias@example.com')
+        for bad in (None, 123, '', {}, {'id':7}, 'x'*121, '<b>Agent</b>', 'a;b'):
+            payload = {'id':123} if bad is None else {'id':123, 'assignee':bad}
+            self.assertIsNone(parse(payload)['ticket_assignee'])

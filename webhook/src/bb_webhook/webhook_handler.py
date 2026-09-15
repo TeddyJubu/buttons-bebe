@@ -125,6 +125,34 @@ def _normalize_ticket_status(val: Any) -> str | None:
     return status
 
 
+def _normalize_ticket_assignee(val: Any) -> str | None:
+    """Keep a short observed Gorgias assignee identity, or None.
+
+    The template renders assignee with |tojson, so this may arrive as a dict
+    (prefer email, then name), a plain string, or nothing when unassigned.
+    Unknown shapes fail closed to None (unassigned), never a guess.
+    """
+    raw: Any = val
+    if isinstance(val, str):
+        raw = _maybe_json_parse(val)
+    if isinstance(raw, dict):
+        for key in ("email", "name"):
+            candidate = raw.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                raw = candidate
+                break
+        else:
+            return None
+    if not isinstance(raw, str):
+        return None
+    assignee = raw.strip()
+    if not assignee or len(assignee) > 120:
+        return None
+    if not all(ch.isalnum() or ch in (" ", ".", "_", "-", "+", "@") for ch in assignee):
+        return None
+    return assignee
+
+
 # ── Signature verification ─────────────────────────────────
 
 def verify_signature(
@@ -201,6 +229,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             message_text: str | None,
             ticket_subject: str | None,
             ticket_status: str | None,
+            ticket_assignee: str | None,
             customer_email: str | None,
             intents: list[dict],       # parsed Gorgias intent objects
             is_customer_message: bool, # True only for inbound customer messages
@@ -307,6 +336,8 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
     # Observed Gorgias ticket status (open/closed/snoozed…). Optional: the
     # template only started sending it recently, so older rows have none.
     ticket_status = _normalize_ticket_status(ticket.get("status")) if ticket else None
+    raw_assignee = (ticket.get("assignee") or ticket.get("assignee_user")) if ticket else None
+    ticket_assignee = _normalize_ticket_assignee(raw_assignee)
 
     # ── Customer email ─────────────────────────────────────
     customer_email = None
@@ -343,6 +374,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         "message_text": message_text,
         "ticket_subject": ticket_subject,
         "ticket_status": ticket_status,
+        "ticket_assignee": ticket_assignee,
         "customer_email": customer_email,
         "intents": intents,
         "is_customer_message": is_customer_message,
