@@ -416,6 +416,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--projection', default=os.environ.get('INBOX_PROJECTION_PATH', PROJECTION_PATH))
     parser.add_argument('--destination', default=os.environ.get('SHOP_RAIL_PATH', shop_rail.DEFAULT_PATH))
-    parser.add_argument('--env-file', default=os.environ.get('SHOP_RAIL_ENV_FILE', '/root/Buttonsbebe Agent/.env'))
+    # No code default: the operator passes --env-file or SHOP_RAIL_ENV_FILE
+    # explicitly (the systemd unit does). Falling back to a hardcoded
+    # /root path would break the "no /root traversal" story for local dev
+    # and hide a missing-config deployment as a confusing read error.
+    parser.add_argument('--env-file', default=os.environ.get('SHOP_RAIL_ENV_FILE', ''))
     args = parser.parse_args()
+    if not args.env_file:
+        raise SystemExit('SHOP_RAIL_ENV_FILE or --env-file is required')
     print(json.dumps(export(args.projection, args.destination, args.env_file)))
