@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     support_store_name: str = Field(default="Buttons Bebe", alias="SUPPORT_STORE_NAME")
     feedback_kb_root: str = Field(default="", alias="FEEDBACK_KB_ROOT")
     hermes_profile: str = Field(default="", alias="HERMES_PROFILE")
-    hermes_rewrite_toolsets: str = Field(default="todo", alias="HERMES_REWRITE_TOOLSETS")
+    hermes_rewrite_toolsets: str = Field(default="", alias="HERMES_REWRITE_TOOLSETS")
     hermes_ignore_rules: bool = Field(default=False, alias="HERMES_IGNORE_RULES")
 
     # ── Logging ───────────────────────────────────────────
@@ -149,8 +149,8 @@ class Settings(BaseSettings):
             errors.append("FEEDBACK_KB_ROOT must be the approved demo KB directory")
         if self.hermes_profile != "cutethingsdemo":
             errors.append("HERMES_PROFILE must be cutethingsdemo")
-        if self.hermes_rewrite_toolsets != "todo":
-            errors.append("HERMES_REWRITE_TOOLSETS must be todo")
+        if self.hermes_rewrite_toolsets.strip().lower() == "todo":
+            errors.append("HERMES_REWRITE_TOOLSETS must not be the retired 'todo' placeholder")
         if not self.hermes_ignore_rules:
             errors.append("HERMES_IGNORE_RULES must be enabled in demo mode")
         if self.support_store_name != "Cute Things":

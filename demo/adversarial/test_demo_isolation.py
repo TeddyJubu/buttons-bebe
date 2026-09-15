@@ -50,7 +50,7 @@ WEBHOOK_DEMO = {
     "WEBHOOK_DB_PATH": "./data/cute-things-demo-webhook.db",
     "FEEDBACK_KB_ROOT": "./demo/data/kb",
     "HERMES_PROFILE": "cutethingsdemo",
-    "HERMES_REWRITE_TOOLSETS": "todo",
+    "HERMES_REWRITE_TOOLSETS": "",
     "HERMES_IGNORE_RULES": True,
     "SUPPORT_STORE_NAME": "Cute Things",
 }
@@ -84,6 +84,7 @@ class DemoIsolationTests(unittest.TestCase):
             ("FEEDBACK_KB_ROOT", "./kb"),
             ("FEEDBACK_KB_ROOT", "../client-data/demo-kb"),
             ("HERMES_REWRITE_TOOLSETS", "terminal"),
+            ("HERMES_REWRITE_TOOLSETS", "todo"),
         ):
             unsafe = {**WEBHOOK_DEMO, key: value}
             with self.subTest(key=key), self.assertRaises(ValidationError):

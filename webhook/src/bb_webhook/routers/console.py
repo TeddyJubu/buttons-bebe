@@ -28,7 +28,10 @@ logger = get_logger(__name__)
 _HERMES_BIN = _os.environ.get("HERMES_BIN", "/usr/local/bin/hermes")
 _HERMES_HOME = _os.environ.get("HERMES_OS_HOME", "/root")
 _HERMES_PROFILE = _os.environ.get("HERMES_PROFILE", "").strip()
-_HERMES_REWRITE_TOOLSETS = _os.environ.get("HERMES_REWRITE_TOOLSETS", "todo").strip()
+_HERMES_REWRITE_TOOLSETS = _os.environ.get("HERMES_REWRITE_TOOLSETS", "").strip()
+# Empty means: invoke Hermes with no -t flag (model default tools). A bogus
+# name like the old "todo" default would silently drop tools, so only
+# non-empty values are passed through (see action_rewrite below).
 _HERMES_IGNORE_RULES = _os.environ.get("HERMES_IGNORE_RULES", "").strip().lower() in {
     "1",
     "true",
