@@ -27,6 +27,12 @@ Each flag goes webhook-template (if needed) -> parse -> DB -> export_projection 
 
 ## Deploy record 2026-09-15
 
+- Task 5 (assignee, `f444a7d`): gate passed locally, pushed; CI verify
+  succeeded after one cancelled hung attempt (rerun clean); deploy success.
+  Live verified: `ticket_assignee` + `ticket_status` columns present, queue
+  drained (8579 done, 0 failed), webhook + inbox `/ready` ok, Send lock exact,
+  projection fresh (3353 tickets), assignee badge/filter/menu code live.
+
 - Gate passed locally (EXIT 0), committed `d8f7f5a`, pushed; CI verify success.
 - CD initially refused (exit 78): `deploy/systemd` hash drifted since approval.
   Review found only: helpdesk-inbox `+SHOP_RAIL_PATH` / `-INBOX_OPERATOR_GORGIAS_EMAIL`
