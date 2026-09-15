@@ -69,7 +69,7 @@ def extract(source, now):
             COUNT(*) OVER(PARTITION BY ticket_id) observed_count
             FROM parsed_messages WHERE received_at>=?)
             SELECT p.ticket_id,p.message_id,p.author_type,p.author_email,p.customer_email,p.ticket_subject,
-            p.channel,p.ticket_status,p.ticket_assignee,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
+            p.channel,p.ticket_status,p.ticket_assignee,p.ticket_tags,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
             substr(p.message_text,1,20001) message_text, substr(r.draft_text,1,20001) draft_text,
             r.priority,r.action,substr(r.reason,1,20001) reason,r.processed_at
             FROM ranked p LEFT JOIN ticket_results r ON r.ticket_id=p.ticket_id AND r.message_id=p.message_id
@@ -120,11 +120,18 @@ def build(rows):
         observed_status = observed_status.strip()[:30] if observed_status else ''
         observed_assignee = latest.get('ticket_assignee') if isinstance(latest.get('ticket_assignee'), str) else ''
         observed_assignee = observed_assignee.strip()[:120] if observed_assignee else ''
+        raw_tags=latest.get('ticket_tags')
+        try:
+            parsed_tags=json.loads(raw_tags) if isinstance(raw_tags,str) and raw_tags.strip() else []
+        except (ValueError,TypeError):
+            parsed_tags=[]
+        observed_tags=[tag for tag in parsed_tags if isinstance(tag,str) and tag.strip()][:12]
         ticket={'id':f'gorgias:{ticket_id}','subject':subject,'customerName':latest['customer_email'] or 'Customer',
           'customerContext':latest.get('customer_context',identity_context(latest,None)),
           'fromEmail':latest['customer_email'] or '', 'status':observed_status or 'unknown','assignee':observed_assignee or None,'channel':channel,'updatedAt':latest['received_at'],
           'snippet':messages[-1]['body'][:240], 'messages':messages,'statusEvents':[], 'projectionSource':True,
           'historyIncomplete':True,'truncated':bool(truncated),'observedMessageCount':latest['observed_count'],
+          'tags':observed_tags,
           'readonlyDraft':draft_text,'draftReason':reason,'draftSuperseded':superseded,
           'draftSourceMessageId':draft['message_id'] if draft else None,'draftSourceMessageAt':(draft['created_at'] or draft['received_at']) if draft else None,'draftProcessedAt':draft['processed_at'] if draft else None,
           'priority':draft['priority'] if draft else None,'draftAction':draft['action'] if draft else None}

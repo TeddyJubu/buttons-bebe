@@ -236,3 +236,68 @@ test('assignee control hides when every ticket is blank',async()=>{
  assert.doesNotMatch(result.html,/data-list-assignee/);
  assert.match(result.html,/data-ticket="t-amy"/);
 });
+const tagTickets=[
+ {id:'t-vip',customerName:'Vip Customer',subject:'Vip question',snippet:'Hi',status:'open',updatedAt:'2026-09-14T00:00:00Z',channel:'email',assignee:'amy@example.com',tags:['vip','urgent'],messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-urgent',customerName:'Urgent Customer',subject:'Urgent question',snippet:'Hey',status:'open',updatedAt:'2026-09-13T00:00:00Z',channel:'email',assignee:'bo@example.com',tags:['urgent'],messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-plain',customerName:'Plain Customer',subject:'Plain question',snippet:'Yo',status:'open',updatedAt:'2026-09-12T00:00:00Z',channel:'email',assignee:'amy@example.com',tags:[],messages:[],statusEvents:[],projectionSource:true},
+];
+test('tag menu lists observed tags with counts',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(tagTickets)}).ready();
+ assert.match(result.html,/data-tag-pick="vip"/);
+ assert.match(result.html,/All tags/);
+ assert.doesNotMatch(result.html,/data-tag-pick="ghost"/);
+ assert.match(result.html,/ticket-tag">urgent<\/span>/);
+});
+test('selectTag filters to tickets carrying the tag',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(tagTickets)});
+ await organ.ready();
+ const result=await organ.selectTag('vip');
+ assert.equal(result.tagId,'vip');
+ assert.equal(result.selectedId,'t-vip');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-urgent"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-plain"/);
+});
+test('tag filter composes with assignee and status',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(tagTickets)});
+ await organ.ready();
+ await organ.selectAssignee('amy@example.com');
+ const result=await organ.selectTag('urgent');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-urgent"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-plain"/);
+});
+test('unknown tag fails closed with an empty list',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(tagTickets)});
+ await organ.ready();
+ const result=await organ.selectTag('ghost');
+ assert.equal(result.selectedId,null);
+ assert.match(result.html,/No tickets yet/);
+});
+test('clearing the tag restores every loaded row',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(tagTickets)});
+ await organ.ready();
+ await organ.selectTag('vip');
+ const result=await organ.selectTag('');
+ assert.equal(result.tagId,'');
+ assert.match(result.html,/data-ticket="t-vip"/);
+ assert.match(result.html,/data-ticket="t-urgent"/);
+ assert.match(result.html,/data-ticket="t-plain"/);
+});
+test('tag control hides and rows stay clean when no tags exist',async()=>{
+ const tickets=tagTickets.map(t=>({...t,tags:[]}));
+ const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
+ assert.doesNotMatch(result.html,/data-list-tag/);
+ assert.doesNotMatch(result.html,/ticket-tag/);
+ assert.match(result.html,/data-ticket="t-vip"/);
+});
+test('row shows at most three tags with a plus-N overflow badge',async()=>
+{
+ const many=[...tagTickets.map(t=>({...t,tags:['a','b','c','d','e']}))][0];
+ const result=await createInboxOrgan({shop:channelShop([many])}).ready();
+ assert.match(result.html,/ticket-tag">a<\/span>/);
+ assert.match(result.html,/ticket-tag">b<\/span>/);
+ assert.match(result.html,/ticket-tag">c<\/span>/);
+ assert.doesNotMatch(result.html,/ticket-tag">d<\/span>/);
+ assert.match(result.html,/ticket-tag-more">\+2<\/span>/);
+});

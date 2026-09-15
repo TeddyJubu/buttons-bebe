@@ -54,3 +54,22 @@ class RetainedContentTests(unittest.TestCase):
         for bad in (None, 123, '', {}, {'id':7}, 'x'*121, '<b>Agent</b>', 'a;b'):
             payload = {'id':123} if bad is None else {'id':123, 'assignee':bad}
             self.assertIsNone(parse(payload)['ticket_assignee'])
+
+    @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
+    def test_webhook_parser_keeps_bounded_ticket_tags(self, settings):
+        import json
+        from bb_webhook.webhook_handler import parse_event
+        def parse(ticket):
+            return parse_event(json.dumps({'event':'ticket-message-created',
+                'ticket':ticket, 'message':{'id':456, 'from_agent':False,
+                'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
+        self.assertEqual(parse({'id':123, 'tags':['vip','Refund Requested']})['ticket_tags'], ['vip','Refund Requested'])
+        self.assertEqual(parse({'id':123, 'tags':'["vip"]'})['ticket_tags'], ['vip'])
+        self.assertEqual(parse({'id':123, 'tags':[{'name':'vip'}, {'name':'vip'}, 'vip']})['ticket_tags'], ['vip'])
+        self.assertEqual(parse({'id':123, 'tags':[f'tag{i}' for i in range(20)]})['ticket_tags'], [f'tag{i}' for i in range(12)])
+        for bad in (None, 123, '', 'not json', {'id':7}, ['x'*41, 'ok'], ['<b>vip</b>', 'ok'], [None, 123, {'id':7}], '[]extra'):
+            payload = {'id':123} if bad is None else {'id':123, 'tags':bad}
+            tags = parse(payload)['ticket_tags']
+            self.assertTrue(isinstance(tags, list))
+            self.assertNotIn('<b>vip</b>', tags)
+            self.assertNotIn('x'*41, tags)

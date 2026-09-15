@@ -153,6 +153,39 @@ def _normalize_ticket_assignee(val: Any) -> str | None:
     return assignee
 
 
+def _normalize_ticket_tags(val: Any) -> list[str]:
+    """Keep bounded observed Gorgias ticket tags, or an empty list.
+
+    The template renders tags with |tojson, so this may arrive as a JSON
+    string, a plain list of names, or a list of tag objects with a "name".
+    Unknown shapes fail closed to no tags; no tag is ever inferred from
+    message text or subject.
+    """
+    raw: Any = val
+    if isinstance(val, str):
+        raw = _maybe_json_parse(val)
+    if not isinstance(raw, list):
+        return []
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if isinstance(item, dict):
+            item = item.get("name")
+        if not isinstance(item, str):
+            continue
+        tag = item.strip()
+        if not tag or len(tag) > 40:
+            continue
+        if not all(ch.isalnum() or ch in (" ", "_", "-") for ch in tag):
+            continue
+        if tag.lower() not in seen:
+            seen.add(tag.lower())
+            tags.append(tag)
+        if len(tags) >= 12:
+            break
+    return tags
+
+
 # ── Signature verification ─────────────────────────────────
 
 def verify_signature(
@@ -230,6 +263,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             ticket_subject: str | None,
             ticket_status: str | None,
             ticket_assignee: str | None,
+            ticket_tags: list[str],
             customer_email: str | None,
             intents: list[dict],       # parsed Gorgias intent objects
             is_customer_message: bool, # True only for inbound customer messages
@@ -338,6 +372,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
     ticket_status = _normalize_ticket_status(ticket.get("status")) if ticket else None
     raw_assignee = (ticket.get("assignee") or ticket.get("assignee_user")) if ticket else None
     ticket_assignee = _normalize_ticket_assignee(raw_assignee)
+    ticket_tags = _normalize_ticket_tags(ticket.get("tags")) if ticket else []
 
     # ── Customer email ─────────────────────────────────────
     customer_email = None
@@ -375,6 +410,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         "ticket_subject": ticket_subject,
         "ticket_status": ticket_status,
         "ticket_assignee": ticket_assignee,
+        "ticket_tags": ticket_tags,
         "customer_email": customer_email,
         "intents": intents,
         "is_customer_message": is_customer_message,

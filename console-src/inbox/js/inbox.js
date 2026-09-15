@@ -131,6 +131,24 @@ export function createInboxOrgan(opts = {}) {
     if (unassigned && facets.length) facets.unshift({ id: UNASSIGNED_ID, label: "Unassigned", count: unassigned });
     return facets;
   }
+  let tagId = "";
+  function normalizeTag(value) {
+    return typeof value === "string" ? value.trim().slice(0, 40) : "";
+  }
+  function ticketTags(ticket) {
+    return Array.isArray(ticket?.tags) ? ticket.tags.map(normalizeTag).filter(Boolean) : [];
+  }
+  function tagFacets() {
+    const countsByTag = new Map();
+    for (const ticket of listRows) {
+      for (const tag of ticketTags(ticket)) {
+        countsByTag.set(tag, (countsByTag.get(tag) || 0) + 1);
+      }
+    }
+    return [...countsByTag.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([id, count]) => ({ id, label: id, count }));
+  }
   let selectedId = opts.ticketId || null;
   let body = "";
   let strip = "";
@@ -197,7 +215,8 @@ export function createInboxOrgan(opts = {}) {
     return listRows.filter((ticket) =>
       (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
       (!statusId || normalizeStatus(ticket?.status) === statusId) &&
-      assigneeMatches(ticket, assigneeId));
+      assigneeMatches(ticket, assigneeId) &&
+      (!tagId || ticketTags(ticket).includes(tagId)));
   }
 
   function selectedTicket() {
@@ -570,6 +589,8 @@ export function createInboxOrgan(opts = {}) {
       selectedStatusId: statusId,
       assignees: assigneeFacets(),
       selectedAssigneeId: assigneeId,
+      tags: tagFacets(),
+      selectedTagId: tagId,
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
     };
@@ -610,6 +631,7 @@ export function createInboxOrgan(opts = {}) {
       channelId,
       statusId,
       assigneeId,
+      tagId,
       selectedId,
       unreadIds: [...unreadIds],
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
@@ -753,6 +775,7 @@ export function createInboxOrgan(opts = {}) {
       channelId = "";
       statusId = "";
       assigneeId = "";
+      tagId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -791,6 +814,18 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.ASSIGNEE_SELECTED, ({ assigneeId: next }) => {
       assigneeId = normalizeAssignee(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.TAG_SELECTED, ({ tagId: next }) => {
+      tagId = normalizeTag(next);
       selectedId = null;
       body = "";
       strip = "";
@@ -960,6 +995,7 @@ export function createInboxOrgan(opts = {}) {
       channelId = "";
       statusId = "";
       assigneeId = "";
+      tagId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -998,6 +1034,18 @@ export function createInboxOrgan(opts = {}) {
     },
     selectAssignee(next) {
       assigneeId = normalizeAssignee(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    },
+    selectTag(next) {
+      tagId = normalizeTag(next);
       selectedId = null;
       body = "";
       strip = "";
