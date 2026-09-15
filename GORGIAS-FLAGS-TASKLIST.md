@@ -28,6 +28,9 @@ Each flag goes webhook-template (if needed) -> parse -> DB -> export_projection 
 
 ## Deploy record 2026-09-15
 
+- Task 9 (filter-bar QA, 61aab62): 6 new JS composition/reset tests, 180 JS inbox tests green locally, review-server smoke HTTP 200 with send locked, full verify_release.sh gate EXIT 0, pushed; CI verify success; deploy success. Live verified: queue drained (8579 done, 0 failed), webhook + inbox /ready ok (sendAccessEnabled false), Send lock intact, projection fresh (3353 tickets), new QA tests present in deployed bundle.
+
+
 - Task 5 (assignee, `f444a7d`): gate passed locally, pushed; CI verify
   succeeded after one cancelled hung attempt (rerun clean); deploy success.
   Live verified: `ticket_assignee` + `ticket_status` columns present, queue
