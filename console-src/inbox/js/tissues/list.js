@@ -43,10 +43,12 @@ export function createListTissue({ mailbox }) {
     views: [],
     counts: {},
     selectedViewId: "mine",
+    channels: [],
+    selectedChannelId: "",
     collapsed: false,
     unreadIds: [],
   };
-  let ui = { sort: "default", filterOpen: false };
+  let ui = { sort: "default", filterOpen: false, channelOpen: false };
   let host = null;
 
   function project(input) {
@@ -59,6 +61,8 @@ export function createListTissue({ mailbox }) {
       views: input.views || [],
       counts: input.counts || {},
       selectedViewId: input.selectedViewId || "mine",
+      channels: Array.isArray(input.channels) ? input.channels : [],
+      selectedChannelId: typeof input.selectedChannelId === "string" ? input.selectedChannelId : "",
       collapsed: Boolean(input.collapsed),
       unreadIds: Array.isArray(input.unreadIds) ? input.unreadIds : [],
     };
@@ -89,6 +93,24 @@ export function createListTissue({ mailbox }) {
       ${items}
     </div>`;
   }
+  function renderChannelMenu(next) {
+    const channels = next.channels || [];
+    if (!channels.length) return "";
+    const allOn = !next.selectedChannelId;
+    const items = [`<button type="button" class="list-menu-item${allOn ? " is-selected" : ""}" data-channel="" role="option" aria-selected="${allOn ? "true" : "false"}">
+        <span class="list-menu-label">All channels</span>
+      </button>`,
+      ...channels.map((channel) => {
+        const on = channel.id === next.selectedChannelId;
+        return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-channel="${esc(channel.id)}" role="option" aria-selected="${on ? "true" : "false"}">
+        <span class="list-menu-label">${esc(channel.label || channel.id)}</span>
+        <span class="list-menu-count">${esc(channel.count ?? 0)}</span>
+      </button>`;
+      })].join("");
+    return `<div class="list-scope-menu list-channel-menu${ui.channelOpen ? " is-open" : ""}" role="listbox" ${ui.channelOpen ? "" : "hidden"}>
+      ${items}
+    </div>`;
+  }
 
   function renderToolbar(next = model) {
     return `<header class="pane-head list-toolbar">
@@ -105,6 +127,10 @@ export function createListTissue({ mailbox }) {
             <button type="button" class="list-tool-btn" data-list-filter title="Views" aria-label="Views" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen ? "true" : "false"}">${ICON_FILTER}</button>
             ${renderViewMenu(next)}
           </div>
+          ${(next.channels || []).length ? `<div class="list-filter-wrap">
+            <button type="button" class="list-tool-btn" data-list-channel title="Channel" aria-label="Channel" aria-haspopup="listbox" aria-expanded="${ui.channelOpen ? "true" : "false"}" aria-pressed="${ui.channelOpen ? "true" : "false"}">${ICON_FILTER}</button>
+            ${renderChannelMenu(next)}
+          </div>` : ""}
           <button type="button" class="list-tool-btn" data-list-sort title="Sort ${ui.sort === "oldest" ? "newest first" : ui.sort === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
           <button type="button" class="list-tool-btn" data-list-collapse title="Collapse list" aria-label="Collapse ticket list">${ICON_CLOSE}</button>
         </div>
@@ -116,7 +142,9 @@ export function createListTissue({ mailbox }) {
     const on = ticket.id === selectedId;
     const unread = unreadIds.includes(ticket.id);
     const status = ticket.status || "";
-    const statusWord = status === "open" || ticket.projectionSource ? "" : screenStatus(status);
+    const statusWord = ticket.projectionSource
+      ? (status && status !== "unknown" ? screenStatus(status) : "")
+      : (status === "open" ? "" : screenStatus(status));
     const typeWord = requestTypeLabel(ticket.requestType);
     const severityWord = severityLabel(ticket.severity);
     const statusHtml = statusWord
@@ -130,6 +158,8 @@ export function createListTissue({ mailbox }) {
       : "";
     const typeAttr = typeWord ? ` data-request-type="${esc(ticket.requestType)}"` : "";
     const severityAttr = severityWord ? ` data-severity="${esc(ticket.severity)}"` : "";
+    const channelWord = typeof ticket.channel === "string" ? ticket.channel.trim().slice(0, 40) : "";
+    const channelHtml = channelWord ? `<span class="ticket-badge ticket-channel">${esc(channelWord)}</span>` : "";
     const deviceAttr = ticket.device ? ` data-device="${esc(ticket.device)}"` : "";
     const unreadClass = unread ? " is-unread" : "";
     return `<button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
@@ -139,6 +169,7 @@ export function createListTissue({ mailbox }) {
         <span class="ticket-meta">
           ${typeHtml}
           ${severityHtml}
+          ${channelHtml}
           ${statusHtml}
           <time class="ticket-time" datetime="${esc(ticket.updatedAt || "")}" title="${esc(formatWhen(ticket.updatedAt))}">${esc(formatWhen(ticket.updatedAt, { relative: true }))}</time>
         </span>
@@ -185,13 +216,25 @@ export function createListTissue({ mailbox }) {
       if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
       const viewPick = event.target.closest("[data-view]");
       if (viewPick) {
-        ui = { ...ui, filterOpen: false };
+        ui = { ...ui, filterOpen: false, channelOpen: false };
         paint();
         mailbox.publish(MAILBOX_TOPICS.VIEW_SELECTED, { viewId: viewPick.dataset.view });
         return;
       }
       if (event.target.closest("[data-list-filter]")) {
-        ui = { ...ui, filterOpen: !ui.filterOpen };
+        ui = { ...ui, filterOpen: !ui.filterOpen, channelOpen: false };
+        paint();
+        return;
+      }
+      const channelPick = event.target.closest("[data-channel]");
+      if (channelPick) {
+        ui = { ...ui, channelOpen: false };
+        paint();
+        mailbox.publish(MAILBOX_TOPICS.CHANNEL_SELECTED, { channelId: channelPick.dataset.channel || "" });
+        return;
+      }
+      if (event.target.closest("[data-list-channel]")) {
+        ui = { ...ui, channelOpen: !ui.channelOpen, filterOpen: false };
         paint();
         return;
       }
@@ -204,7 +247,7 @@ export function createListTissue({ mailbox }) {
       if (event.target.closest("[data-list-sort]")) {
         const nextSort =
           ui.sort === "default" ? "newest" : ui.sort === "newest" ? "oldest" : "default";
-        ui = { ...ui, sort: nextSort, filterOpen: false };
+        ui = { ...ui, sort: nextSort, filterOpen: false, channelOpen: false };
         paint();
         return;
       }

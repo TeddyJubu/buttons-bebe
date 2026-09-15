@@ -109,6 +109,22 @@ def _normalize_timestamp(val: Any) -> str | None:
     return parsed.isoformat()
 
 
+def _normalize_ticket_status(val: Any) -> str | None:
+    """Keep a short observed Gorgias ticket status, or None.
+
+    Unknown shapes fail closed to None so the projection keeps 'unknown'
+    instead of storing an unbounded or misleading value.
+    """
+    if not isinstance(val, str):
+        return None
+    status = val.strip().lower()
+    if not status or len(status) > 30:
+        return None
+    if not all(ch.isalnum() or ch in (" ", "_", "-") for ch in status):
+        return None
+    return status
+
+
 # ── Signature verification ─────────────────────────────────
 
 def verify_signature(
@@ -184,6 +200,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             created_at: str,            # ISO 8601 timestamp from the event
             message_text: str | None,
             ticket_subject: str | None,
+            ticket_status: str | None,
             customer_email: str | None,
             intents: list[dict],       # parsed Gorgias intent objects
             is_customer_message: bool, # True only for inbound customer messages
@@ -287,6 +304,10 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
 
     ticket_subject = ticket.get("subject") if ticket else None
 
+    # Observed Gorgias ticket status (open/closed/snoozed…). Optional: the
+    # template only started sending it recently, so older rows have none.
+    ticket_status = _normalize_ticket_status(ticket.get("status")) if ticket else None
+
     # ── Customer email ─────────────────────────────────────
     customer_email = None
     if ticket:
@@ -321,6 +342,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         "created_at": created_at,
         "message_text": message_text,
         "ticket_subject": ticket_subject,
+        "ticket_status": ticket_status,
         "customer_email": customer_email,
         "intents": intents,
         "is_customer_message": is_customer_message,

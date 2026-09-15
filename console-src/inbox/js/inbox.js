@@ -72,6 +72,21 @@ export function createInboxOrgan(opts = {}) {
 
   let viewId = shop.observedHistory ? "all" : (opts.viewId || "mine");
   const availableViews = shop.observedHistory ? [{id:"all",label:"Observed history"}] : views;
+  let channelId = "";
+  function normalizeChannel(value) {
+    return typeof value === "string" ? value.trim().slice(0, 40) : "";
+  }
+  function channelFacets() {
+    const countsByChannel = new Map();
+    for (const ticket of listRows) {
+      const channel = normalizeChannel(ticket?.channel);
+      if (!channel) continue;
+      countsByChannel.set(channel, (countsByChannel.get(channel) || 0) + 1);
+    }
+    return [...countsByChannel.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([id, count]) => ({ id, label: id, count }));
+  }
   let selectedId = opts.ticketId || null;
   let body = "";
   let strip = "";
@@ -135,7 +150,8 @@ export function createInboxOrgan(opts = {}) {
   }
 
   function visibleTickets() {
-    return listRows;
+    if (!channelId) return listRows;
+    return listRows.filter((ticket) => normalizeChannel(ticket?.channel) === channelId);
   }
 
   function selectedTicket() {
@@ -163,7 +179,7 @@ export function createInboxOrgan(opts = {}) {
           const rows = await readObservedTickets(shop, Math.max(100, listRows.length));
           listRows = rows;
           counts = {all:shop.projection?.ticketCount ?? rows.length};
-          projectionNotice = shop.projection?.stale ? "Observed history is stale; refresh is delayed." : "Observed history · last 90 days. Status and assignment are unknown.";
+          projectionNotice = shop.projection?.stale ? "Observed history is stale; refresh is delayed." : "Observed history · last 90 days. Status is as last observed; assignment is unknown.";
           return;
         }
         const [rows, ...viewRows] = await Promise.all([
@@ -502,6 +518,8 @@ export function createInboxOrgan(opts = {}) {
       views: availableViews,
       counts,
       selectedViewId: viewId,
+      channels: channelFacets(),
+      selectedChannelId: channelId,
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
     };
@@ -539,6 +557,7 @@ export function createInboxOrgan(opts = {}) {
       listCollapsed,
       railCollapsed,
       viewId,
+      channelId,
       selectedId,
       unreadIds: [...unreadIds],
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
@@ -679,6 +698,7 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.VIEW_SELECTED, ({ viewId: next }) => {
       viewId = next;
+      channelId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -690,6 +710,18 @@ export function createInboxOrgan(opts = {}) {
         ensureSelection();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.CHANNEL_SELECTED, ({ channelId: next }) => {
+      channelId = normalizeChannel(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SELECTED, ({ ticketId }) => {
       selectedId = ticketId;
@@ -847,6 +879,7 @@ export function createInboxOrgan(opts = {}) {
     loadMore,
     selectView(next) {
       viewId = next;
+      channelId = "";
       selectedId = null;
       body = "";
       strip = "";
@@ -858,6 +891,18 @@ export function createInboxOrgan(opts = {}) {
         ensureSelection();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    },
+    selectChannel(next) {
+      channelId = normalizeChannel(next);
+      selectedId = null;
+      body = "";
+      strip = "";
+      summarizeText = "";
+      discarded = false;
+      selectedMacroId = "";
+      macrosOpen = false;
+      ensureSelection();
+      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     selectTicket(id) {
       selectedId = id;

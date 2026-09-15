@@ -69,7 +69,7 @@ def extract(source, now):
             COUNT(*) OVER(PARTITION BY ticket_id) observed_count
             FROM parsed_messages WHERE received_at>=?)
             SELECT p.ticket_id,p.message_id,p.author_type,p.author_email,p.customer_email,p.ticket_subject,
-            p.channel,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
+            p.channel,p.ticket_status,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
             substr(p.message_text,1,20001) message_text, substr(r.draft_text,1,20001) draft_text,
             r.priority,r.action,substr(r.reason,1,20001) reason,r.processed_at
             FROM ranked p LEFT JOIN ticket_results r ON r.ticket_id=p.ticket_id AND r.message_id=p.message_id
@@ -114,9 +114,13 @@ def build(rows):
         draft_text,cut=text(draft['draft_text'] if draft and not superseded else '');truncated|=cut
         reason,reason_cut=text(draft['reason'] if draft else '');truncated|=reason_cut
         subject,subject_cut=text(latest['ticket_subject']);truncated|=subject_cut
+        raw_channel = latest.get('channel') if isinstance(latest.get('channel'), str) else ''
+        channel = raw_channel.strip()[:40]
+        observed_status = latest.get('ticket_status') if isinstance(latest.get('ticket_status'), str) else ''
+        observed_status = observed_status.strip()[:30] if observed_status else ''
         ticket={'id':f'gorgias:{ticket_id}','subject':subject,'customerName':latest['customer_email'] or 'Customer',
           'customerContext':latest.get('customer_context',identity_context(latest,None)),
-          'fromEmail':latest['customer_email'] or '', 'status':'unknown','assignee':None,'updatedAt':latest['received_at'],
+          'fromEmail':latest['customer_email'] or '', 'status':observed_status or 'unknown','assignee':None,'channel':channel,'updatedAt':latest['received_at'],
           'snippet':messages[-1]['body'][:240], 'messages':messages,'statusEvents':[], 'projectionSource':True,
           'historyIncomplete':True,'truncated':bool(truncated),'observedMessageCount':latest['observed_count'],
           'readonlyDraft':draft_text,'draftReason':reason,'draftSuperseded':superseded,

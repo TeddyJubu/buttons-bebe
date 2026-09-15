@@ -177,6 +177,7 @@
  * Mailbox topics. Tissues publish and subscribe; they do not import each other.
  *
  * `view/selected`        { viewId }
+ * `channel/selected`     { channelId } — observed-history channel filter; never Send
  * `list/selected`        { ticketId }
  * `list/collapsed`       { collapsed: boolean }
  * `rail/collapsed`       { collapsed: boolean }
@@ -207,6 +208,7 @@
 
 export const MAILBOX_TOPICS = Object.freeze({
   VIEW_SELECTED: "view/selected",
+  CHANNEL_SELECTED: "channel/selected",
   LIST_SELECTED: "list/selected",
   LIST_COLLAPSED: "list/collapsed",
   RAIL_COLLAPSED: "rail/collapsed",

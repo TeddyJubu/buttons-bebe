@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS parsed_messages (
     channel           TEXT,
     customer_email    TEXT,
     ticket_subject    TEXT,
+    ticket_status     TEXT,
     message_text      TEXT,
     intents           TEXT,             -- JSON array of intent names
     is_customer_message INTEGER NOT NULL DEFAULT 0,
@@ -124,6 +125,13 @@ async def init_db(db_path: Path | None = None) -> None:
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA busy_timeout=5000")  # 5 s SQLite-level wait
         await conn.executescript(_SCHEMA)
+        # Additive migration for pre-existing databases: older webhook DBs
+        # lack ticket_status (account-side template started sending it later).
+        # Runs at every startup; a no-op once the column exists.
+        cursor = await conn.execute("PRAGMA table_info(parsed_messages)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        if "ticket_status" not in columns:
+            await conn.execute("ALTER TABLE parsed_messages ADD COLUMN ticket_status TEXT")
         await conn.commit()
 
     logger.info("Database initialized (WAL mode) at %s", db_path)
@@ -228,12 +236,12 @@ async def ingest_event(
         await conn.execute(
             """INSERT INTO parsed_messages
                (message_id, ticket_id, event_type, author_type, author_email,
-                channel, customer_email, ticket_subject, message_text, intents,
+                channel, customer_email, ticket_subject, ticket_status, message_text, intents,
                 is_customer_message, created_at, received_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (message_id, event["ticket_id"], event["event_type"], event["author_type"],
              event.get("author_email"), event.get("channel"), event.get("customer_email"),
-             event.get("ticket_subject"), event.get("message_text"), intent_names,
+             event.get("ticket_subject"), event.get("ticket_status"), event.get("message_text"), intent_names,
              int(customer), event.get("created_at"), now),
         )
         # Preserve the legacy enqueue helper's dedupe if an operator previously
@@ -547,6 +555,7 @@ async def record_parsed_message(
     intents: list[dict],
     is_customer_message: bool,
     created_at: str | None,
+    ticket_status: str | None = None,
     db_path: Path | None = None,
 ) -> None:
     """Insert or replace a parsed message row for the dashboard."""
@@ -557,11 +566,11 @@ async def record_parsed_message(
     await db.execute(
         """INSERT OR REPLACE INTO parsed_messages
            (message_id, ticket_id, event_type, author_type,
-            author_email, channel, customer_email, ticket_subject,
+            author_email, channel, customer_email, ticket_subject, ticket_status,
             message_text, intents, is_customer_message, created_at, received_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (message_id, ticket_id, event_type, author_type,
-         author_email, channel, customer_email, ticket_subject,
+         author_email, channel, customer_email, ticket_subject, ticket_status,
          message_text, intent_names, int(is_customer_message), created_at, now),
         operation="record_parsed_message",
     )

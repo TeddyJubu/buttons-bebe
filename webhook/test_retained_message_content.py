@@ -23,3 +23,17 @@ class RetainedContentTests(unittest.TestCase):
             'body_html':None, 'headers':None}}).encode())
         self.assertEqual(parsed['message_text'], 'Current & retained')
         self.assertTrue(parsed['is_customer_message'])
+
+    @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
+    def test_webhook_parser_keeps_bounded_ticket_status(self, settings):
+        import json
+        from bb_webhook.webhook_handler import parse_event
+        def parse(ticket):
+            return parse_event(json.dumps({'event':'ticket-message-created',
+                'ticket':ticket, 'message':{'id':456, 'from_agent':False,
+                'created_datetime':'2026-09-07T00:00:00Z'}}).encode())
+        self.assertEqual(parse({'id':123, 'status':'closed'})['ticket_status'], 'closed')
+        self.assertEqual(parse({'id':123, 'status':' Open '})['ticket_status'], 'open')
+        for bad in (None, 123, '', 'x'*31, '<script>', 'open; DROP TABLE x'):
+            payload = {'id':123} if bad is None else {'id':123, 'status':bad}
+            self.assertIsNone(parse(payload)['ticket_status'])

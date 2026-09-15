@@ -67,3 +67,62 @@ test('stale empty projection announces delayed history without invented rows',as
  assert.match(result.html,/No tickets yet/);
  assert.equal(result.selectedId,null);
 });
+const channelTickets=[
+ {id:'t-email',customerName:'Email Customer',subject:'Email question',snippet:'Hi',status:'unknown',updatedAt:'2026-09-14T00:00:00Z',channel:'email',messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-chat',customerName:'Chat Customer',subject:'Chat question',snippet:'Hey',status:'unknown',updatedAt:'2026-09-13T00:00:00Z',channel:'chat',messages:[],statusEvents:[],projectionSource:true},
+ {id:'t-blank',customerName:'No Channel',subject:'Mystery',snippet:'Yo',status:'unknown',updatedAt:'2026-09-12T00:00:00Z',messages:[],statusEvents:[],projectionSource:true},
+];
+function channelShop(tickets){
+ return createHelpdeskShop({client:{invoke:async (tool,args)=>{
+  if(tool==='helpdesk.get_ticket')return {ok:true,source:'inbox',ticket:tickets.find(t=>t.id===args?.ticketId)||null};
+  return {ok:true,source:'inbox',tickets,projection:{generatedAt:'2026-09-15T00:00:00Z',stale:false,ticketCount:tickets.length}};
+ }}});
+}
+test('channel menu lists loaded channels with counts',async()=>{
+ const result=await createInboxOrgan({shop:channelShop(channelTickets)}).ready();
+ assert.match(result.html,/data-channel="email"/);
+ assert.match(result.html,/data-channel="chat"/);
+ assert.match(result.html,/All channels/);
+ assert.doesNotMatch(result.html,/data-channel="sms"/);
+});
+test('selectChannel filters the observed list to that channel',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(channelTickets)});
+ await organ.ready();
+ const result=await organ.selectChannel('chat');
+ assert.equal(result.channelId,'chat');
+ assert.equal(result.selectedId,'t-chat');
+ assert.match(result.html,/data-ticket="t-chat"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-email"/);
+ assert.doesNotMatch(result.html,/data-ticket="t-blank"/);
+});
+test('unknown channel fails closed with an empty list',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(channelTickets)});
+ await organ.ready();
+ const result=await organ.selectChannel('sms');
+ assert.equal(result.channelId,'sms');
+ assert.equal(result.selectedId,null);
+ assert.match(result.html,/No tickets yet/);
+ assert.doesNotMatch(result.html,/data-ticket="t-/);
+});
+test('clearing the channel restores every loaded row',async()=>{
+ const organ=createInboxOrgan({shop:channelShop(channelTickets)});
+ await organ.ready();
+ await organ.selectChannel('chat');
+ const result=await organ.selectChannel('');
+ assert.equal(result.channelId,'');
+ assert.match(result.html,/data-ticket="t-chat"/);
+ assert.match(result.html,/data-ticket="t-email"/);
+ assert.match(result.html,/data-ticket="t-blank"/);
+});
+test('channel control hides when no ticket carries a channel',async()=>{
+ const plain=channelTickets.map(({channel,...rest})=>rest);
+ const result=await createInboxOrgan({shop:channelShop(plain)}).ready();
+ assert.doesNotMatch(result.html,/data-list-channel/);
+ assert.match(result.html,/data-ticket="t-email"/);
+});
+test('observed status renders a badge only when known',async()=>{
+ const tickets=[{...channelTickets[0],id:'t-closed',status:'closed'},channelTickets[2]];
+ const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
+ assert.match(result.html,/<span class="ticket-status">Closed<\/span>/);
+ assert.doesNotMatch(result.html,/ticket-status">Unknown/);
+});
