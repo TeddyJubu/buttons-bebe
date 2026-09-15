@@ -1,15 +1,23 @@
-"""Gorgias write-back client — posts internal notes and updates tickets.
+"""Gorgias write-back client — RETIRED, fail-closed.
 
-Uses the Gorgias REST API to write data back to tickets:
-  - Post internal notes (draft replies, escalation notes)
-  - Add tags to tickets (e.g. "escalated", "ai-drafted")
-  - Update ticket status
-
-This is the WRITE side of the Gorgias integration. The webhook's
-gorgias_client.py is the READ side.
+Nothing in the live pipeline imports this module: the processor never writes
+to Gorgias and the console's human-gated send/note path lives in
+``webhook/src/bb_webhook/gorgias_client.py``. Importing this module raises
+``RuntimeError`` unless the operator explicitly opts in with
+``BUTTONSBEBE_ALLOW_GORGIAS_WRITER=1``. Do not re-wire without revisiting
+the safety model (AGENTS.md section 2).
 """
 
 from __future__ import annotations
+
+import os as _os
+
+if _os.environ.get("BUTTONSBEBE_ALLOW_GORGIAS_WRITER") != "1":
+    raise RuntimeError(
+        "processor.gorgias_writer is retired and fail-closed: Gorgias writes "
+        "are human-gated via webhook/src/bb_webhook/gorgias_client.py only. "
+        "Set BUTTONSBEBE_ALLOW_GORGIAS_WRITER=1 to import for inspection."
+    )
 
 import json
 from typing import Any
