@@ -9,7 +9,8 @@ claim executable without importing both implementations into one interpreter:
 * only ``(priority, sensitive, should_notify_owner)`` crosses the process
   boundary; and
 * a shim supplied as ``--old`` is replaced with the newest non-shim
-  ``processor/classifier.py`` found in local Git history.
+  ``processor/classifier.py`` found in local Git history (pre-rename path;
+  the working-tree shim is now ``processor/classifier_shim.py``).
 
 The Git lookup is deliberately limited to local ``log`` and ``show`` reads.
 The classifier workers receive a scrubbed environment, run with ``DEMO_MODE=1``
@@ -20,7 +21,7 @@ not a live or VPS test.
 The plan's command works from the repository root::
 
     python tools/compare_classifier.py \
-      --old processor/classifier.py \
+      --old processor/classifier_shim.py \
       --new processor/classifier/__init__.py \
       --samples 10000
 """
@@ -258,22 +259,35 @@ def _historical_classifier(
             f"--old shim must be inside --repo for local history lookup: {shim_path}"
         ) from exc
 
+    # Follow renames so the pre-rename processor/classifier.py history is
+    # found even when the working-tree shim has a new name.
     commits = _run_git(
         repo_root,
-        ["log", "--format=%H", "--follow", "--", relative_path],
+        ["log", "--format=%H", "--follow", "--find-renames=40%", "--", relative_path],
     ).splitlines()
     if not commits:
         raise ParityError(f"no local Git history found for {relative_path}")
 
+    checked_paths = [relative_path]
+    parent = str(Path(relative_path).parent)
+    for candidate in (f"{parent}/classifier.py", "processor/classifier.py"):
+        if candidate not in checked_paths:
+            checked_paths.append(candidate)
     for commit in commits:
-        try:
-            source = _run_git(
-                repo_root,
-                ["show", "--no-ext-diff", "--no-textconv", f"{commit}:{relative_path}"],
-            )
-        except ParityError:
-            # A rename or deletion can leave a path in the log that is not
-            # present in that particular tree. Continue to the next revision.
+        source = None
+        for candidate in checked_paths:
+            try:
+                source = _run_git(
+                    repo_root,
+                    ["show", "--no-ext-diff", "--no-textconv", f"{commit}:{candidate}"],
+                )
+                if source:
+                    break
+            except ParityError:
+                # A rename or deletion can leave a path in the log that is not
+                # present in that particular tree. Continue to the next revision.
+                continue
+        if not source:
             continue
         if _looks_like_shim(source) or "def classify(" not in source:
             continue
@@ -600,7 +614,7 @@ def _parser() -> argparse.ArgumentParser:
             "access is performed."
         ),
     )
-    parser.add_argument("--old", help="old classifier file, usually processor/classifier.py")
+    parser.add_argument("--old", help="old classifier file, usually processor/classifier_shim.py")
     parser.add_argument("--new", help="new classifier package entry point")
     parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)

@@ -218,7 +218,7 @@ echo "release gate: processor tests -> ${processor_tests[*]}"
 if [[ -f processor/classifier/__init__.py ]]; then
   echo "release gate: classifier parity -> 10000 synthetic samples"
   "$PROCESSOR_PYTHON" tools/compare_classifier.py \
-    --old processor/classifier.py \
+    --old processor/classifier_shim.py \
     --new processor/classifier/__init__.py \
     --samples 10000
 else
