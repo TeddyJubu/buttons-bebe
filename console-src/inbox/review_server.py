@@ -1,7 +1,7 @@
 """Isolated production inbox ASGI service. Authentication belongs to Caddy.
 
-No credentials are loaded here. The HTTP capability allowlist deliberately does
-not expose intake or external integrations. Send remains unconditionally locked.
+No credentials are loaded here. Shopify customer/order lookup is a local snapshot
+written by a separate exporter. Send remains unconditionally locked.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ class Arguments(BaseModel):
 class ListArguments(Arguments):
     view: StrictStr = Field(default="open", max_length=30)
     limit: StrictInt = Field(default=20, ge=1, le=100)
-    offset: StrictInt = Field(default=0, ge=0, le=500)
+    offset: StrictInt = Field(default=0, ge=0, le=10000)
 
 
 class TicketArguments(Arguments):
@@ -98,7 +98,7 @@ async def headers(request, call_next):
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     return response
 
 

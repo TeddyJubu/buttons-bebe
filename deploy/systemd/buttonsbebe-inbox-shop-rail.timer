@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh Shopify customer/order rail snapshot
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30
+Persistent=true
+Unit=buttonsbebe-inbox-shop-rail.service
+
+[Install]
+WantedBy=timers.target

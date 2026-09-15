@@ -64,20 +64,16 @@ def extract(source, now):
         deadline=time.monotonic()+5
         db.set_progress_handler(lambda:int(time.monotonic()>deadline),10000)
         db.execute('BEGIN')
-        ids=[r[0] for r in db.execute('SELECT ticket_id FROM parsed_messages WHERE received_at>=? GROUP BY ticket_id ORDER BY MAX(received_at) DESC,ticket_id LIMIT 501',(cutoff,))]
-        truncated=len(ids)>500;ids=ids[:500]
-        if not ids:return [],truncated
-        marks=','.join('?' for _ in ids)
-        cursor=db.execute(f'''WITH ranked AS (
+        cursor=db.execute('''WITH ranked AS (
             SELECT *,ROW_NUMBER() OVER(PARTITION BY ticket_id ORDER BY received_at DESC,message_id DESC) n,
             COUNT(*) OVER(PARTITION BY ticket_id) observed_count
-            FROM parsed_messages WHERE ticket_id IN ({marks}) AND received_at>=?)
+            FROM parsed_messages WHERE received_at>=?)
             SELECT p.ticket_id,p.message_id,p.author_type,p.author_email,p.customer_email,p.ticket_subject,
             p.channel,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
             substr(p.message_text,1,20001) message_text, substr(r.draft_text,1,20001) draft_text,
             r.priority,r.action,substr(r.reason,1,20001) reason,r.processed_at
             FROM ranked p LEFT JOIN ticket_results r ON r.ticket_id=p.ticket_id AND r.message_id=p.message_id
-            WHERE p.n<=100 ORDER BY p.ticket_id,p.received_at,p.message_id''',(*ids,cutoff))
+            WHERE p.n<=100 ORDER BY p.ticket_id,p.received_at,p.message_id''',(cutoff,))
         rows=[];size=0
         for row in cursor:
             record=dict(row);size+=sum(len(v.encode('utf-8')) for v in record.values() if isinstance(v,str))
@@ -96,7 +92,7 @@ def extract(source, now):
                 if event:
                     raw=event[0];identity_bytes+=len(raw.encode('utf-8')) if isinstance(raw,str) else 0
             record['customer_context']=identity_context(record,raw)
-        return rows,truncated
+        return rows,False
 
 
 def build(rows):
@@ -146,7 +142,7 @@ def export(source, destination, *, now=None, group=None):
             db.execute('CREATE TABLE tickets(id TEXT PRIMARY KEY,observed_at TEXT NOT NULL,summary TEXT NOT NULL,detail TEXT NOT NULL)')
             db.execute('CREATE INDEX ticket_order ON tickets(observed_at DESC,id)')
             metadata={'version':VERSION,'generatedAtEpoch':now,'generatedAt':datetime.fromtimestamp(now,timezone.utc).isoformat(),
-                      'ticketCount':len(tickets),'windowDays':90,'ticketLimit':500,'messageLimit':100,'truncated':truncated,'historyIncomplete':True,
+                      'ticketCount':len(tickets),'windowDays':90,'ticketLimit':None,'messageLimit':100,'truncated':truncated,'historyIncomplete':True,
                       'sourceWatermark':max((t['updatedAt'] for t in tickets),default=None)}
             db.execute('INSERT INTO metadata VALUES(1,?)',(json.dumps(metadata),))
             for ticket in tickets:

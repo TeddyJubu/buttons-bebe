@@ -50,7 +50,7 @@ export function projectReturns(record) {
   };
 }
 
-export function renderReturns(model, { open } = {}) {
+export function renderReturns(model, { open, compact = false, orderName = "" } = {}) {
   const isOpen = open == null ? !model.collapsedDefault : open;
   const rec = model.record;
   let body = `<p class="tissue-empty">No returns</p>`;
@@ -62,10 +62,18 @@ export function renderReturns(model, { open } = {}) {
       <p>Status ${esc(rec.status ? statusLabel(rec.status) : "—")}</p>
       <p>Refund ${esc(formatMoney(rec.refundTotal, "—"))} · Credit ${esc(formatMoney(rec.creditTotal, "—"))}</p>`;
   }
-  return `<section class="rail-card" data-tissue="returns" data-open="${isOpen ? "true" : "false"}">
+  const snapshotPeek = compact && !rec?.items?.length && rec?.returns.nodes.length
+    ? `${statusLabel(rec.status)} · ${rec.returns.nodes.length} return${rec.returns.nodes.length === 1 ? "" : "s"}` : model.peek;
+  if (compact && rec?.returns.nodes.length) {
+    body = `${orderName ? `<p class="mute">Order ${esc(orderName)}</p>` : ""}
+      ${rec.items.length ? `<ul class="return-items">${rec.items.map(item => `<li>${esc(item.title)}</li>`).join("")}</ul>` : `<p class="mute">Return on file. Item details unavailable.</p>`}
+      ${rec.refundTotal ? `<p>Refund ${esc(formatMoney(rec.refundTotal))}</p>` : ""}
+      ${rec.creditTotal ? `<p>Credit ${esc(formatMoney(rec.creditTotal))}</p>` : ""}`;
+  }
+  return `<section class="rail-card${compact && model.inProgress ? " return-active" : ""}" data-tissue="returns" data-open="${isOpen ? "true" : "false"}">
     <button type="button" class="rail-toggle" data-toggle="returns" aria-expanded="${isOpen ? "true" : "false"}">
       <h2>Returns</h2>
-      <span class="peek">${esc(model.peek)}</span>
+      <span class="peek">${esc(snapshotPeek)}</span>
     </button>
     <div class="rail-body"${isOpen ? "" : " hidden"}>${body}</div>
   </section>`;

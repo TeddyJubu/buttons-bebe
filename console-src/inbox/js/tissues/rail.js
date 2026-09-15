@@ -1,9 +1,13 @@
 import { MAILBOX_TOPICS } from "../contracts.js";
-import { esc, formatOrderCount } from "../util.js";
+import { esc, formatOrderCount, formatWhen } from "../util.js";
 import { createCustomerTissue, renderCustomer } from "./customer.js";
+import { projectCustomer } from "./customer.js";
 import { createOrderHistoryTissue, renderOrderHistory } from "./order-history.js";
+import { projectOrderHistory } from "./order-history.js";
 import { createOrderTissue, renderOrder } from "./order.js";
+import { projectOrder } from "./order.js";
 import { createReturnsTissue, renderReturns } from "./returns.js";
+import { projectReturns } from "./returns.js";
 
 /** Locked first-paint defaults. Addresses and past orders never start open. */
 export const RAIL_DEFAULTS = Object.freeze({
@@ -33,6 +37,7 @@ export function createRailOrgan({ shop, mailbox }) {
   const open = { ...RAIL_DEFAULTS };
 
   let models = {
+    fromSnapshot: false,
     customer: { ok: false, peek: "Customer", record: null },
     order: { ok: false, peek: "This order", record: null },
     returns: { ok: true, peek: "No returns", collapsedDefault: true, record: null },
@@ -83,14 +88,17 @@ export function createRailOrgan({ shop, mailbox }) {
   }
 
   function render() {
-    if (shop.observedHistory) return `<div class="pane-inner"><h2>Context</h2><p class="mute">This view contains observed webhook messages and review drafts. Live customer, order, return, assignment and ticket status details are not connected.</p></div>`;
+    if (shop.observedHistory && !models.fromSnapshot) {
+      return `<div class="pane-inner"><h2>Context</h2><p class="mute">This view contains observed webhook messages and review drafts. Live customer, order, return, assignment and ticket status details are not connected.</p></div>`;
+    }
     const customerHtml = models.customer.error
       ? renderError("customer", "Customer", models.customer.peek)
-      : renderCustomer(models.customer, { open: open.customer, giftCardsOpen: open.giftCards });
+      : renderCustomer(models.customer, { open: open.customer, giftCardsOpen: open.giftCards, compact: models.fromSnapshot });
     const orderHtml = models.order.error
       ? renderError("order", "This order", models.order.peek)
       : renderOrder(models.order, {
         open: open.order,
+        compact: models.fromSnapshot,
         addressesOpen: open.addresses,
         shipmentOpen: open.shipment,
         discountsOpen: open.discounts,
@@ -98,9 +106,11 @@ export function createRailOrgan({ shop, mailbox }) {
         warrantyOpen: open.warranty,
         etaOpen: open.eta,
       });
-    const returnsHtml = models.returns.error
+    const returnsHtml = models.fromSnapshot && !models.order.ok
+      ? `<section class="rail-card"><h2>Returns</h2><p class="mute">Select a ticket with a matching order to see its returns.</p></section>`
+      : models.returns.error
       ? renderError("returns", "Returns", models.returns.peek)
-      : renderReturns(models.returns, { open: open.returns });
+      : renderReturns(models.returns, { open: open.returns, compact: models.fromSnapshot, orderName: models.order.record?.name });
     const historyRows = (models.history.rows || []).filter((row) => row.id !== currentOrderId);
     const historyView = models.history.error
       ? models.history
@@ -108,8 +118,9 @@ export function createRailOrgan({ shop, mailbox }) {
     const historyHtml = models.history.error
       ? renderError("order-history", "Past orders", models.history.peek)
       : renderOrderHistory(historyView, { open: open["order-history"], peekedId: peekedHistoryId });
-    return `<div class="pane-inner">
+    return `<div class="pane-inner${models.fromSnapshot ? " rail-snapshot" : ""}">
       <div class="rail-toolbar">
+        <span class="rail-heading">Customer details</span>
         <button type="button" class="list-tool-btn" data-rail-collapse title="Collapse customer rail" aria-label="Collapse customer rail">
           <svg class="list-tool-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M4.25 4.25l7.5 7.5M11.75 4.25l-7.5 7.5"/>
@@ -117,9 +128,9 @@ export function createRailOrgan({ shop, mailbox }) {
         </button>
       </div>
       <div class="rail-inner">
+        ${models.fromSnapshot ? `<p class="mute customer-source">${esc(models.snapshotNotice)}</p>` : ""}
         ${customerHtml}
-        ${orderHtml}
-        ${returnsHtml}
+        ${models.fromSnapshot && models.returns.inProgress ? returnsHtml + orderHtml : orderHtml + returnsHtml}
         ${historyHtml}
       </div>
     </div>`;
@@ -160,6 +171,7 @@ export function createRailOrgan({ shop, mailbox }) {
       loadTissue("order-history", lastLoad),
     ]);
     models = {
+      fromSnapshot: false,
       customer: customerModel,
       order: orderModel,
       returns: returnsModel,
@@ -169,6 +181,27 @@ export function createRailOrgan({ shop, mailbox }) {
     for (const [tissueId, model] of Object.entries({ customer: customerModel, order: orderModel, returns: returnsModel, "order-history": historyModel })) {
       if (model.error) mailbox.publish(MAILBOX_TOPICS.TISSUE_ERROR, { tissueId, message: model.error });
     }
+    return models;
+  }
+
+  function loadSnapshot(rail, ticketId) {
+    const snapshot = rail || {};
+    models = {
+      fromSnapshot: true,
+      snapshotNotice: `Shopify snapshot${snapshot.fetchedAt ? " · " + formatWhen(snapshot.fetchedAt) : ""}${snapshot.stale ? " · Refresh delayed; details may be outdated." : ""}`,
+      customer: projectCustomer(snapshot.customer || null),
+      order: projectOrder(snapshot.order || null),
+      returns: projectReturns(snapshot.returns || null),
+      history: projectOrderHistory(snapshot.history || []),
+    };
+    currentOrderId = snapshot.orderId || snapshot.order?.id || null;
+    currentTicketKey = ticketKey({
+      ticketId,
+      customerId: snapshot.customerId,
+      orderId: currentOrderId,
+    });
+    peekedHistoryId = null;
+    applyLockDefaults(models.returns, models.order, models.customer);
     return models;
   }
 
@@ -217,14 +250,19 @@ export function createRailOrgan({ shop, mailbox }) {
       const toggle = event.target.closest("[data-toggle]");
       if (!toggle) return;
       const key = toggle.dataset.toggle;
+      const scrollTop = el.querySelector?.(".rail-inner")?.scrollTop || 0;
       open[key] = !open[key];
       el.innerHTML = render();
+      const scroll = el.querySelector?.(".rail-inner");
+      if (scroll) scroll.scrollTop = scrollTop;
+      el.querySelector?.(`[data-toggle="${key}"]`)?.focus({ preventScroll: true });
     };
   }
 
   return {
     id: "rail",
     load,
+    loadSnapshot,
     render,
     mount,
     toggle(key) {

@@ -54,6 +54,7 @@ export function createListTissue({ mailbox }) {
       tickets: input.tickets || [],
       error: input.error || "",
       notice: input.notice || "",
+      pagination: input.pagination || null,
       selectedTicketId: input.selectedTicketId || null,
       views: input.views || [],
       counts: input.counts || {},
@@ -165,6 +166,10 @@ export function createListTissue({ mailbox }) {
       ${renderToolbar(next)}
       ${next.notice ? `<p class="history-notice" role="status">${esc(next.notice)}</p>` : ""}
       <div class="ticket-list" role="list">${rows}</div>
+      ${next.pagination && tickets.length ? `<div class="list-pagination">
+        <p role="status">${esc(next.pagination.error || `Showing ${next.pagination.loaded} of ${next.pagination.total} tickets`)}</p>
+        ${next.pagination.loaded < next.pagination.total || next.pagination.error ? `<button type="button" class="btn-hairline" data-load-more ${next.pagination.loading ? 'disabled aria-busy="true"' : ""}>${next.pagination.loading ? "Loading…" : next.pagination.error ? "Try again" : "Load more"}</button>` : `<p class="mute">All available tickets loaded</p>`}
+      </div>` : ""}
     </div>`;
   }
 
@@ -177,6 +182,7 @@ export function createListTissue({ mailbox }) {
     host = el;
     paint();
     el.onclick = (event) => {
+      if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
       const viewPick = event.target.closest("[data-view]");
       if (viewPick) {
         ui = { ...ui, filterOpen: false };

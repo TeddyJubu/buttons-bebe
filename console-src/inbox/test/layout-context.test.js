@@ -14,7 +14,7 @@ test('observed identity is escaped, labelled and never presented as order lookup
  assert.match(html,/&lt;img src=x onerror=alert\(1\)&gt;/);
  assert.doesNotMatch(html,/<img src=x/);
  assert.match(html,/Source: observed Gorgias webhook/);
- assert.match(html,/Order and return details are not available/);
+ assert.match(html,/Shopify details are awaiting refresh/);
  assert.match(html,/class="ticket-name">averylong/);
  assert.doesNotMatch(html,/class="ticket-status">Unknown/);
  assert.match(html,/Activate the send access\./);

@@ -102,8 +102,9 @@ root:bb-inbox. The inbox account must have read-only access to this directory;
 do not put it inside its writable StateDirectory.
 
 The root exporter opens the canonical webhook database read-only/query_only and
-runs no network/provider calls. A consistent snapshot includes at most500 recent
-tickets from90days,100 observed messages each,20000characters per text field.
+runs no network/provider calls. A consistent snapshot includes all observed tickets from90days,100 observed
+messages each,20000characters per text field. The browser initially loads100
+tickets and offers Load more in batches of100; there is no500-ticket cap.
 Source SQL is interrupted after5seconds rather than holding a long read snapshot.
 A temporary SQLite database is validated and fsynced before atomic replacement;
 readers already using the old inode complete normally. Failure retains previous
@@ -117,3 +118,88 @@ The latest stored processor draft is displayed read-only and explicitly not sent
 All workflow mutations and Send remain disabled. No intake route is changed.
 After staging these files, the operator must manually apply the units, inspect
 export counts, verify permissions as bb-inbox, and update approved config hashes.
+
+## Shopify customer and order panel
+
+The separate `export_shop_rail.py` exporter reads Shopify through fixed GraphQL
+queries and publishes `shop-rail.sqlite3` alongside the ticket projection. The
+inbox only reads that local snapshot; its network restrictions and Send lock
+remain in place. The exporter needs the existing app to have `read_customers`,
+`read_orders`, and `read_returns`. Product-only access cannot populate this panel.
+Older orders remain subject to Shopify's granted order-history access window.
+
+The new `buttonsbebe-inbox-shop-rail.service` and timer are operator-installed
+units. Install only after verifying the required Shopify permissions. Run as
+root:bb-inbox; publish files as 0640 in the existing root:bb-inbox 0750 projection
+directory. The service reads the existing root environment; credentials never
+enter the inbox service or browser. It does not change any Shopify records.
+
+Each run makes at most 25 GraphQL requests and prioritizes recent tickets.
+The timer retries every minute, gradually filling older tickets. Successful
+matches are cached for six hours, misses for thirty minutes; skipped or failed
+refreshes retain their original timestamps. Order names must match exactly and
+the order must match the ticket customer's email or Shopify customer ID.
+Conflicting identities are not joined. Customer, order, returns, and history
+render from one snapshot, with its refresh time and stale state visible.
+
+2026-09-08 pre-install validation: the existing app returned `ACCESS_DENIED` for
+both customer and order reads. Its granted scopes were `read_products` and
+`write_products`. A private staged run produced no usable matches. The live
+inbox and its service configuration were not changed by this validation.
+
+The identified app is **Aside Catalog Reader**. Pending operator approval is
+limited to adding `read_customers`, `read_orders`, and `read_returns`; no new
+write scope is requested. Panel rendering and lookup regression tests passed.
+All offline release checks passed on an isolated working-source snapshot, with
+classifier parity and the final JavaScript suites completed separately after
+attaching the original Git history required by the parity test. No commit or
+push was made to the user's checkout, and no live service was installed.
+
+2026-09-08 completion: the user approved those three read scopes. Released
+`inbox-read-context-20260908` (version 1119418777601) for Aside Catalog Reader
+and accepted the store's permission update. A fresh token confirmed all three
+scopes. The bounded validation export loaded nine customers and nine orders,
+including two with returns. Installed six inbox runtime files and the new
+snapshot service/timer under the deployment lock with hash checks and rollback
+backup `/opt/buttonsbebe/backups/shop-rail-20260907T220436Z`; recorded runtime
+hashes and approved unit hashes. Browser verification showed the selected
+order 10319148, customer profile, product images, shipment tracking, and open
+return. Inbox readiness and webhook health passed; Send returned
+`send_access_inactive`. The snapshot timer is active and warms further tickets
+in bounded batches. Source changes remain uncommitted in this checkout.
+
+### Customer rail UI update — 2026-09-08
+
+The live Shopify snapshot rail now uses a compact customer profile, two-column
+order/spend summary, active return context before the order, separate payment
+and fulfillment badges, and tracking above products. Unfetched gift-card,
+invoice, warranty and empty monetary rows are omitted. A return record without
+line-item details is labelled as a return, not an inferred item count. Section
+toggles keep keyboard focus and rail scroll position.
+
+Installed five static UI files under the deployment lock; rollback copies are
+at `/opt/buttonsbebe/backups/rail-ux-20260907T221653Z`. The source manifest records
+the updated hashes. No Git commit or push was made. Validation: 141 inbox JS
+tests passed, `git diff --check` passed, live inbox readiness and webhook health
+returned 200, and the live browser rendered the populated rail without console
+errors at 1117px. The browser viewport override did not change the actual width,
+so additional responsive breakpoints were not verified. Send access remains
+false and the Shopify snapshot timer remains active.
+
+
+### Load more — 2026-09-09
+
+Removed the 500-ticket export and API offset caps. The list initially loads100
+and offers a persistent Load more control with loaded/total counts, busy state,
+retry on failure, and an explicit end state. Each expansion re-reads the desired
+prefix, retrying once if the snapshot generation changes; it never mixes pages
+from different generations. Only the list repaints, preserving reply text and
+the conversation pane. The 90-day window,100 messages per ticket,32MB export
+size guard,5second SQL deadline and read-only source access remain in place.
+
+Private production export succeeded with2979 tickets. Five runtime files were
+installed under the deployment lock with backup
+`/opt/buttonsbebe/backups/load-more-20260908T211328Z`; source-manifest hashes were
+updated. Inbox readiness and webhook health returned200. The projection timer
+was restarted.143 inbox JS tests and17 Python projection/Shopify tests passed;
+no Git commit or push was made.

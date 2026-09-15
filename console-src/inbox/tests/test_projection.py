@@ -91,7 +91,7 @@ class ProjectionTests(unittest.TestCase):
             for number in range(102):
                 db.execute("INSERT INTO parsed_messages VALUES(1,?,'customer','','','Subject','email','2099-02-01','2099-02-01',1,'Hello')",(f'extra{number}',))
         meta=export(self.source,self.dest,now=self.now)
-        self.assertEqual(meta['ticketCount'],500);self.assertTrue(meta['truncated'])
+        self.assertEqual(meta['ticketCount'],502);self.assertFalse(meta['truncated']);self.assertIsNone(meta['ticketLimit'])
         ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
         self.assertEqual(len(ticket['messages']),100);self.assertTrue(ticket['truncated'])
         self.assertEqual(ticket['observedMessageCount'],103)

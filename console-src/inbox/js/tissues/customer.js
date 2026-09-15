@@ -77,10 +77,10 @@ function renderGiftCards(model, giftCardsOpen) {
   </div>`;
 }
 
-export function renderCustomer(model, { open = true, giftCardsOpen } = {}) {
+export function renderCustomer(model, { open = true, giftCardsOpen, compact = false } = {}) {
   const record = model.record;
   const cardsOpen = giftCardsOpen == null ? Boolean(model.hasGiftCards) : giftCardsOpen;
-  const body = !model.ok || !record
+  let body = !model.ok || !record
     ? `<div class="rail-empty-next">
         <p class="tissue-empty">No customer</p>
         <button type="button" class="btn-hairline" data-customer-join-gate-open title="Find customer stays locked. No live join yet.">Find customer</button>
@@ -94,10 +94,20 @@ export function renderCustomer(model, { open = true, giftCardsOpen } = {}) {
         <div><dt>Tags</dt><dd>${esc((record.tags || []).join(", ") || "—")}</dd></div>
       </dl>
       ${renderGiftCards(model, cardsOpen)}`;
+  if (compact && model.ok && record) {
+    body = `<p class="customer-email">${esc(record.defaultEmailAddress?.emailAddress || "Email unavailable")}</p>
+      <dl class="customer-stats">
+        <div><dt>Orders</dt><dd>${esc(record.numberOfOrders ?? "—")}</dd></div>
+        <div><dt>Total spent</dt><dd>${esc(formatMoney(record.amountSpent, "—"))}</dd></div>
+      </dl>
+      ${record.createdAt ? `<p class="customer-since mute">Customer since ${esc(formatWhen(record.createdAt).split(",")[0])}</p>` : ""}
+      ${record.tags?.length ? `<p class="customer-tags mute">${esc(record.tags.join(" · "))}</p>` : ""}
+      ${model.hasGiftCards ? renderGiftCards(model, cardsOpen) : ""}`;
+  }
   return `<section class="rail-card" data-tissue="customer" data-open="${open ? "true" : "false"}">
     <button type="button" class="rail-toggle" data-toggle="customer" aria-expanded="${open ? "true" : "false"}">
-      <h2>Customer</h2>
-      <span class="peek">${esc(model.peek)}</span>
+      <h2>${compact && model.ok ? esc(model.peek) : "Customer"}</h2>
+      ${compact && model.ok ? "" : `<span class="peek">${esc(model.peek)}</span>`}
     </button>
     <div class="rail-body">${body}</div>
   </section>`;

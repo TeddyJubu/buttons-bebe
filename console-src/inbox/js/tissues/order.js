@@ -113,7 +113,7 @@ function renderTrackingCopy(tracking) {
   return `<p class="ship-track">${copy}${track}</p>`;
 }
 
-function renderShipment(model, shipOpen) {
+function renderShipment(model, shipOpen, compact = false) {
   const tracking = model.tracking;
   const shipLines = (model.record?.fulfillments || []).flatMap((fulfillment) =>
     (fulfillment.fulfillmentLineItems?.nodes || []).map((item) => {
@@ -131,7 +131,7 @@ function renderShipment(model, shipOpen) {
         <button type="button" class="rail-sub-toggle" data-toggle="shipment" aria-expanded="${shipOpen ? "true" : "false"}"><h3>Shipment</h3>${peek}</button>
         <div class="rail-sub-body"${shipOpen ? "" : " hidden"}>
           ${renderTrackingCopy(tracking)}
-          ${shipLines}
+          ${compact ? "" : shipLines}
         </div>
       </div>`;
   }
@@ -255,7 +255,7 @@ function renderAddress(label, address) {
   return `<div class="addr"><h4>${esc(label)}</h4>${lines.map((line) => `<p>${esc(line)}</p>`).join("")}</div>`;
 }
 
-export function renderOrder(model, { open = true, addressesOpen = false, shipmentOpen, discountsOpen, invoiceOpen, warrantyOpen, etaOpen } = {}) {
+export function renderOrder(model, { open = true, addressesOpen = false, shipmentOpen, discountsOpen, invoiceOpen, warrantyOpen, etaOpen, compact = false } = {}) {
   const record = model.record;
   const gateHairline = record
     ? `<div class="order-gate">
@@ -305,26 +305,27 @@ export function renderOrder(model, { open = true, addressesOpen = false, shipmen
       </div>
     </li>`;
   }).join("");
-  const shipment = renderShipment(model, shipOpen);
+  const shipment = renderShipment(model, shipOpen, compact);
   return `<section class="rail-card" data-tissue="order" data-open="${open ? "true" : "false"}">
     <button type="button" class="rail-toggle" data-toggle="order" aria-expanded="${open ? "true" : "false"}">
-      <h2>This order</h2>
-      <span class="peek">${esc(model.peek)}</span>
+      <h2>${compact ? `Order ${esc(record.name)}` : "This order"}</h2>
+      ${compact ? "" : `<span class="peek">${esc(model.peek)}</span>`}
     </button>
     <div class="rail-body">
-      <p class="mono order-name">${esc(record.name)}</p>
+      ${compact ? `<div class="order-statuses">${[record.displayFinancialStatus, record.displayFulfillmentStatus].filter(Boolean).map(status => `<span class="order-status">${esc(statusLabel(status))}</span>`).join("")}</div>` : `<p class="mono order-name">${esc(record.name)}</p>`}
       <p class="mute">${esc(formatWhen(record.createdAt))}</p>
+      ${compact ? shipment : ""}
       <ul class="lines">${items}</ul>
       <dl class="totals">
-        <div><dt>Subtotal</dt><dd class="mono">${esc(formatMoney(record.currentSubtotalPriceSet, "—"))}</dd></div>
-        <div><dt>Shipping</dt><dd class="mono">${esc(formatMoney(record.totalShippingPriceSet, "—"))}</dd></div>
-        <div><dt>Tax</dt><dd class="mono">${esc(formatMoney(record.totalTaxSet, "—"))}</dd></div>
+        ${!compact || record.currentSubtotalPriceSet ? `<div><dt>Subtotal</dt><dd class="mono">${esc(formatMoney(record.currentSubtotalPriceSet, "—"))}</dd></div>` : ""}
+        ${!compact || record.totalShippingPriceSet ? `<div><dt>Shipping</dt><dd class="mono">${esc(formatMoney(record.totalShippingPriceSet, "—"))}</dd></div>` : ""}
+        ${!compact || record.totalTaxSet ? `<div><dt>Tax</dt><dd class="mono">${esc(formatMoney(record.totalTaxSet, "—"))}</dd></div>` : ""}
         <div><dt>Total</dt><dd class="mono">${esc(formatMoney(record.currentTotalPriceSet, "—"))}</dd></div>
       </dl>
       ${gateHairline}
-      ${renderDiscounts(model, codesOpen)}
-      ${renderInvoice(model, invoiceIsOpen)}
-      ${renderWarranty(model, warrantyIsOpen)}
+      ${!compact || model.hasDiscounts ? renderDiscounts(model, codesOpen) : ""}
+      ${!compact || model.hasInvoice ? renderInvoice(model, invoiceIsOpen) : ""}
+      ${!compact || model.hasWarranty ? renderWarranty(model, warrantyIsOpen) : ""}
       <div class="rail-sub" data-open="${addressesOpen ? "true" : "false"}">
         <button type="button" class="rail-sub-toggle" data-toggle="addresses" aria-expanded="${addressesOpen ? "true" : "false"}">
           <h3>Addresses</h3> <span class="peek">${esc(model.addressPeek)}</span>
@@ -334,8 +335,8 @@ export function renderOrder(model, { open = true, addressesOpen = false, shipmen
           ${renderAddress("Billing", record.billingAddress)}
         </div>
       </div>
-      ${renderEta(model, etaIsOpen)}
-      ${shipment}
+      ${!compact || model.hasEta ? renderEta(model, etaIsOpen) : ""}
+      ${compact ? "" : shipment}
     </div>
   </section>`;
 }

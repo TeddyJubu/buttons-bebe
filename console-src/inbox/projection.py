@@ -7,6 +7,8 @@ import sqlite3
 import time
 from contextlib import closing
 
+from shop_rail import attach as attach_shop_rail
+
 DEFAULT_PATH = '/var/lib/buttonsbebe-inbox-projection/projection.sqlite3'
 VERSION = 1
 class ProjectionUnavailable(Exception): pass
@@ -43,6 +45,7 @@ def query(tool, args, path=None):
             row=db.execute('SELECT detail FROM tickets WHERE id=?',(args['ticketId'],)).fetchone()
             if not row: return {'ok':False,'error':'ticket_not_found','message':'Ticket is not in the observed history window.'}
             ticket=json.loads(row[0]);ticket['projection']=meta
+            attach_shop_rail(ticket)
             return {'ok':True,'source':'canonical_projection','ticket':ticket,'projection':meta}
     except (sqlite3.Error,ValueError,KeyError,OSError) as exc:
         raise ProjectionUnavailable('Canonical ticket projection is unavailable') from exc

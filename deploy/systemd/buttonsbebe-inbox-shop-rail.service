@@ -1,0 +1,31 @@
+[Unit]
+Description=Export read-only Shopify customer/order rail snapshot
+After=network-online.target buttonsbebe-inbox-projection.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONNOUSERSITE=1
+Environment=INBOX_PROJECTION_PATH=/var/lib/buttonsbebe-inbox-projection/projection.sqlite3
+Environment=SHOP_RAIL_PATH=/var/lib/buttonsbebe-inbox-projection/shop-rail.sqlite3
+Environment=SHOP_RAIL_ENV_FILE=/root/Buttonsbebe Agent/.env
+User=root
+Group=bb-inbox
+UMask=0027
+WorkingDirectory=/opt/buttonsbebe/inbox/console-src/inbox
+ExecStart=/opt/buttonsbebe/inbox/venv/bin/python /opt/buttonsbebe/inbox/console-src/inbox/export_shop_rail.py --projection /var/lib/buttonsbebe-inbox-projection/projection.sqlite3 --destination /var/lib/buttonsbebe-inbox-projection/shop-rail.sqlite3 --env-file "/root/Buttonsbebe Agent/.env"
+TimeoutStartSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/buttonsbebe-inbox-projection
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=256M
+TasksMax=16

@@ -77,6 +77,8 @@ class SourceRecoveryTests(unittest.TestCase):
         expected = {
             'inbox/console-src/inbox/projection.py',
             'inbox/console-src/inbox/export_projection.py',
+            'inbox/console-src/inbox/shop_rail.py',
+            'inbox/console-src/inbox/export_shop_rail.py',
             'app/processor/hermes_runner/process.py',
         }
         self.assertTrue(expected.issubset(journal['files']))

@@ -3,18 +3,18 @@ import { ACTIVATE_SEND_MESSAGE } from "./send-access.js";
 import { ticketInView, viewCounts, views } from "./view-model.js";
 // A refresh can atomically publish a new snapshot between pages. Retry once,
 // starting from zero; never combine generations or retry unrelated API errors.
-export async function readObservedTickets(shop) {
+export async function readObservedTickets(shop, count = 100) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const rows = [];
     let generation;
     let changed = false;
-    for (let offset = 0; offset < 500; offset += 100) {
+    for (let offset = 0; offset < count; offset += 100) {
       const page = await shop.listTickets({view: "all", limit: 100, offset});
       const nextGeneration = shop.projection?.generatedAt;
       if (offset && generation !== nextGeneration) { changed = true; break; }
       generation = nextGeneration;
       rows.push(...page);
-      if (page.length < 100) break;
+      if (page.length < 100 || rows.length >= shop.projection?.ticketCount) break;
     }
     if (!changed) return rows;
   }
@@ -111,6 +111,9 @@ export function createInboxOrgan(opts = {}) {
   let marketingGateOpen = Boolean(opts.marketingGate);
   let listError = "";
   let projectionNotice = "";
+  let loadingMore = false;
+  let moreError = "";
+  let paintListOnly = null;
   let listRows = pinnedCatalog ? pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId)) : [];
   let selected = pinnedCatalog?.find((ticket) => ticket.id === selectedId) || null;
   let counts = pinnedCatalog ? viewCounts(pinnedCatalog) : viewCounts(fixtureTickets);
@@ -157,10 +160,10 @@ export function createInboxOrgan(opts = {}) {
     if (typeof shop.listTickets === "function") {
       try {
         if (shop.observedHistory) {
-          const rows = await readObservedTickets(shop);
+          const rows = await readObservedTickets(shop, Math.max(100, listRows.length));
           listRows = rows;
-          counts = {all:rows.length};
-          projectionNotice = shop.projection?.stale ? "Observed history is stale; refresh is delayed." : "Observed history · last 90 days · up to 500 tickets. Status and assignment are unknown.";
+          counts = {all:shop.projection?.ticketCount ?? rows.length};
+          projectionNotice = shop.projection?.stale ? "Observed history is stale; refresh is delayed." : "Observed history · last 90 days. Status and assignment are unknown.";
           return;
         }
         const [rows, ...viewRows] = await Promise.all([
@@ -469,11 +472,32 @@ export function createInboxOrgan(opts = {}) {
     };
   }
 
+  async function loadMore() {
+    if (!shop.observedHistory || loadingMore) return;
+    loadingMore = true;
+    moreError = "";
+    paintListOnly?.();
+    try {
+      // Re-read the visible prefix so a newly published snapshot cannot cause
+      // duplicates or skipped tickets at an offset boundary.
+      const rows = await readObservedTickets(shop, listRows.length + 100);
+      listRows = rows;
+      counts = {all: shop.projection?.ticketCount ?? rows.length};
+    } catch {
+      moreError = "Could not load more tickets. Try again.";
+    } finally {
+      loadingMore = false;
+      paintListOnly?.();
+    }
+    return snapshot();
+  }
+
   function listInput() {
     return {
       tickets: visibleTickets(),
       error: listError,
       notice: projectionNotice,
+      pagination: shop.observedHistory ? {total: counts.all ?? listRows.length, loaded: listRows.length, loading: loadingMore, error: moreError, loadMore} : null,
       selectedTicketId: selectedId,
       views: availableViews,
       counts,
@@ -483,13 +507,26 @@ export function createInboxOrgan(opts = {}) {
     };
   }
 
+  function shopifyRailSnapshot(ticket) {
+    const snapshot = ticket?.shopifyRail;
+    if (!snapshot || typeof snapshot !== "object") return null;
+    return snapshot.customer || snapshot.order ? snapshot : null;
+  }
+
+  function showsCustomerRail(ticket) {
+    if (!ticket) return false;
+    if (shopifyRailSnapshot(ticket)) return true;
+    if (ticket.projectionSource || capabilities.customerDetails === false) return false;
+    return true;
+  }
+
   function snapshot() {
     ensureSelection();
     const ticket = selectedTicket();
     const listModel = listTissue.update(listInput());
     const threadModel = threadTissue.update({ ticket, capabilities });
     const composerModel = composerTissue.update(composerInput(ticket));
-    const railHtml = (!ticket || ticket.projectionSource || capabilities.customerDetails === false) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
+    const railHtml = !showsCustomerRail(ticket) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
     const html = `<div class="inbox" data-organ="inbox">
       <a class="skip-link" href="#inbox-thread">Skip to thread.</a>
       <section class="pane pane-list${listCollapsed ? " is-collapsed" : ""}" data-pane="list">${listTissue.render(listModel)}</section>
@@ -538,7 +575,7 @@ export function createInboxOrgan(opts = {}) {
       return `<div class="empty-pane observed-customer"><strong>Customer details</strong>
         ${fields ? `<dl>${fields}</dl>` : `<p>${context?.conflict ? "Conflicting customer details were observed; identity needs review." : "Customer identity was not included in the observed history."}</p>`}
         <p class="customer-source">Source: observed Gorgias webhook${context?.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. ${ticket.projection?.stale ? "Snapshot is stale." : "This is a snapshot, not a live customer lookup."}</p>
-        <strong>Orders and returns</strong><p>Order and return details are not available in this inbox.</p>
+        <strong>Orders and returns</strong><p>${ticket.shopifyRail?.status === "missing" ? "No matching Shopify customer or order was found." : ticket.shopifyRail?.status === "error" ? "Shopify details could not be refreshed. We will retry automatically." : "Shopify details are awaiting refresh. They will appear here when available."}</p>
       </div>`;
     }
     return `<div class="empty-pane"><strong>Customer details</strong><p>${capabilities.customerDetails === false ? "Customer and order lookup is not connected to this inbox." : "Select a conversation to see customer and order details."}</p></div>`;
@@ -546,7 +583,16 @@ export function createInboxOrgan(opts = {}) {
 
   async function refreshRail() {
     const ticket = selectedTicket();
-    if (!ticket || ticket.projectionSource || capabilities.customerDetails === false) { toEmail = ticket?.fromEmail || ""; return; }
+    const snapshotRail = shopifyRailSnapshot(ticket);
+    if (snapshotRail) {
+      rail.loadSnapshot(snapshotRail, ticket.id);
+      toEmail = rail.snapshot().models.customer?.record?.defaultEmailAddress?.emailAddress || ticket?.fromEmail || "";
+      return;
+    }
+    if (!ticket || ticket.projectionSource || capabilities.customerDetails === false) {
+      toEmail = ticket?.fromEmail || "";
+      return;
+    }
     await rail.load({
       shop: shopHost,
       customerId: ticket?.customerId,
@@ -585,6 +631,14 @@ export function createInboxOrgan(opts = {}) {
     await refreshBridgeStatus();
     startBridgePoll();
 
+    paintListOnly = () => {
+      const scrollTop = panes.list?.querySelector?.(".ticket-list")?.scrollTop || 0;
+      const focused = panes.list?.querySelector?.("[data-load-more]") === panes.list?.ownerDocument?.activeElement;
+      safeMount(listTissue, panes.list, listInput());
+      const scroll = panes.list?.querySelector?.(".ticket-list");
+      if (scroll) scroll.scrollTop = scrollTop;
+      if (focused) panes.list?.querySelector?.("[data-load-more]")?.focus({preventScroll:true});
+    };
     const paint = () => {
       const ticket = selectedTicket();
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
@@ -593,7 +647,7 @@ export function createInboxOrgan(opts = {}) {
       const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
-        if (!ticket || ticket.projectionSource || capabilities.customerDetails === false) {
+        if (!showsCustomerRail(ticket)) {
           panes.rail.innerHTML = emptyRailHtml();
         } else if (railCollapsed) {
           panes.rail.innerHTML = railCollapsedHtml();
@@ -790,6 +844,7 @@ export function createInboxOrgan(opts = {}) {
     shop,
     mount,
     snapshot,
+    loadMore,
     selectView(next) {
       viewId = next;
       selectedId = null;
