@@ -18,6 +18,10 @@ ticket_contexts/
 backups/
 build/hermes/kb-rag/vault/exemplars/
 
+# QA run outputs (synthetic scenarios but live-model replies; regenerate via testing/)
+testing/results-*.json
+qa-run/results.json
+
 # Python
 __pycache__/
 *.pyc
