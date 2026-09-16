@@ -276,7 +276,6 @@ def process_ticket_with_hermes(
             gorgias_priority_set=parsed["gorgias_priority_set"],
             note_posted=parsed["note_posted"],
         )
-        parsed["_raw_output_preview"] = stdout[:500]
         return final_review_result(parsed)
 
     except subprocess.TimeoutExpired:

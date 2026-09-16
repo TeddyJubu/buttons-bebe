@@ -14,10 +14,8 @@ if __package__ in (None, ""):
 from . import compat as _compat, data, engine, matching, patterns, selftest, views
 from .engine import (Any, HIGH, IMMEDIATE, NORMAL, Priority, classify,
                      get_logger, get_settings, logger, log_event, re)
-from .guards import browsing, order_context, problem
 
-_MODULES = (engine, data, matching, patterns, views, browsing, order_context,
-            problem, selftest)
+_MODULES = (engine, data, matching, patterns, views, selftest)
 
 
 def __getattr__(name: str):
