@@ -25,25 +25,6 @@ def _clean(value: str) -> str:
     return value.strip().strip("\"'").replace("\r", "")
 
 
-def _key_present() -> bool:
-    """True when a key exists. Never returns or prints the value."""
-    override = os.environ.get(_KEY_NAME, "").strip()
-    if override:
-        return True
-    root = Path(__file__).resolve().parents[3]
-    env_path = root / ".env"
-    if not env_path.is_file():
-        return False
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        text = line.strip()
-        if not text or text.startswith("#") or "=" not in text:
-            continue
-        key, raw = text.split("=", 1)
-        if key.strip() == _KEY_NAME and _clean(raw):
-            return True
-    return False
-
-
 def _load_key_into_environ() -> bool:
     """Ensure AgentMail() can read the key from the process env. Never log it."""
     if os.environ.get(_KEY_NAME, "").strip():
@@ -232,8 +213,6 @@ def _normalize(message: Any) -> dict[str, Any] | None:
 
 
 def _live_messages(limit: int) -> list[dict[str, Any]] | None:
-    if not _key_present():
-        return None
     try:
         if not _load_key_into_environ():
             return None
