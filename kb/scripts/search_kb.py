@@ -9,8 +9,10 @@ relevance score and the file's risk label.
 """
 import os
 import fcntl
+import glob
 import re
 import sys
+import tempfile
 from contextlib import contextmanager
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -98,11 +100,41 @@ def _index_read_lock():
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
+def _heal_missing_index() -> str | None:
+    """Restore the newest promote-crash backup when DB_DIR is gone (3.9).
+
+    Returns the restored backup name, or None when there is nothing to heal.
+    Crash-mid-swap leaves DB_DIR missing with a `.lancedb-backup-*` sibling;
+    without this, search fails hard until a human re-runs ./update.sh.
+    """
+    if DB_DIR.exists():
+        return None
+    backups = sorted(glob.glob(str(DB_DIR.parent / ".lancedb-backup-*")))
+    if not backups:
+        return None
+    # ponytail: newest backup wins; restore is one rename, logged loudly by the caller.
+    newest = backups[-1]
+    staging = tempfile.mkdtemp(prefix=".lancedb-heal-", dir=DB_DIR.parent)
+    os.rmdir(staging)
+    os.replace(newest, str(DB_DIR))
+    return newest.rsplit("/", 1)[-1]
+
+
 def search(query: str, k: int = K) -> list[dict]:
     candidate_pool = max(POOL, k * 20)
     with _index_read_lock():
-        db = lancedb.connect(str(DB_DIR))
-        table = db.open_table(TABLE)
+        healed = _heal_missing_index()
+        if healed:
+            print(f"search_kb: restored crash-mid-swap backup {healed}; run ./update.sh to rebuild clean",
+                  file=sys.stderr)
+        try:
+            db = lancedb.connect(str(DB_DIR))
+            table = db.open_table(TABLE)
+        except Exception as exc:
+            # ponytail: friendly fail-closed, never a raw LanceDB traceback to Hermes.
+            print(f"search_kb: index unavailable ({exc}); run ./update.sh to rebuild",
+                  file=sys.stderr)
+            return []
 
         # 1) meaning search (vectors)
         qv = embed_query(query)

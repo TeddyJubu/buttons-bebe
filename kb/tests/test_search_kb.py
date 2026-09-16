@@ -218,5 +218,44 @@ class SearchDiversificationTests(unittest.TestCase):
         self.assertEqual(self._search(rows, k=0), [])
 
 
+@contextmanager
+def _no_lock():
+    yield
+
+
+class MissingIndexSelfHealTests(unittest.TestCase):
+    """3.9: crash-mid-swap heals from backup; first-run fails friendly, never raw."""
+
+    def test_missing_index_without_backup_returns_empty(self) -> None:
+        with patch.object(search_kb, "_index_read_lock") as lock, patch.object(
+            search_kb, "_notice_results", return_value=[]
+        ):
+            lock.side_effect = _no_lock
+            with patch.object(
+                search_kb.lancedb, "connect", side_effect=FileNotFoundError("gone")
+            ), patch.object(search_kb, "DB_DIR", Path("/tmp/bb-no-such-index-xyz")):
+                self.assertEqual(search_kb.search("shipping"), [])
+
+    def test_missing_index_restores_newest_backup(self) -> None:
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp(prefix="bb-heal-"))
+        self.addCleanup(__import__("shutil").rmtree, tmp, True)
+        (tmp / ".lancedb-backup-1").mkdir()
+        newest = tmp / ".lancedb-backup-2"
+        newest.mkdir()
+        table = FakeTable([hit("shipping", "policies/shipping.md")], [])
+
+        with patch.object(search_kb, "_index_read_lock") as lock, patch.object(
+            search_kb, "_notice_results", return_value=[]
+        ), patch.object(search_kb, "DB_DIR", tmp / "lancedb"), patch.object(
+            search_kb.lancedb, "connect", return_value=FakeDB(table)
+        ):
+            lock.side_effect = _no_lock
+            search_kb.search("shipping", k=1)
+        self.assertTrue((tmp / "lancedb").is_dir())
+        self.assertFalse(newest.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
