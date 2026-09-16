@@ -114,6 +114,7 @@ P1, 3 LOC).
 2. **566 LOC of untracked ops scripts** (`tools/ops/backfill_ticket_status.py`,
    `reparse_ticket_tags.py` + their synthetic tests) — invisible to CI and
    review; the gate would run them once tracked (`verify_release.sh:171`).
+   **[Done — Wave 1, PR #28 committed them; they now run in the gate.]**
    Commit or delete; committing is likely right (the backfill is live schema
    work) (13-2, P1).
 3. **whatsapp-connect's two root test files** (`qs-security.test.js`,
@@ -199,9 +200,11 @@ counted separately), with the B.1/B.2 resolutions applied:
 | **P2 — care + tests** | unit copies ×10 (−144); root hygiene `env.example`/`server-fixes.sh`/`gw_backup_cleanup.sh` (−148); legacy gate retirement if approved (−491); `resetUiState` (−85); composer dedupe+table (−40); gorgias-client `_request` helper (−25); context-check dedupe (−20); pydantic result model (−35); guards/ fold (−36); rate-limiter collapse (−18); SPA/AGENTS doc fixes (±3); missing-index self-heal (+12); mirror-drift check (+15); manifest guard (+20); XSS render tests (+25); npm ci + gate glob (+5) | **≈ −1,000** |
 | **P3 — later/optional** | GraphQL lexer share (−120); v1 token removal (−20); trio deletion (−293); inbox view-id unification (±5); dead CSS/litter (−30); pairing-page retirement (−150, owner UX); caddy-in-CI (+1 word); unit hardening ×8 (+80) | **≈ −500** |
 
-**Headline: ≈ −3,700 LOC net (P1+P2), of which ~−3,000 is pure deletion of
-verified-dead code, for ~+100 LOC of reliability fixes and ~+130 LOC of new
-tests.** No new dependencies. No architecture changes.
+**Headline: ≈ −2,835 LOC net (P1+P2) — the −3,700 figure in earlier drafts
+double-counted the ±566 ops-visibility row (now resolved as +566 *tracked*
+LOC, a visibility win, not a deletion) — of which ~−2,200 is pure deletion
+of verified-dead code, for ~+100 LOC of reliability fixes and ~+130 LOC of
+new tests.** No new dependencies. No architecture changes.
 
 ## D. Execution order
 
@@ -301,6 +304,8 @@ skipped, and any future revisit should start from the reports' evidence:
 
 ---
 
-**Status:** analysis complete; no production code has been modified. Waves
-1–2 are ready to execute on approval — say the word and I'll start with
-Wave 1, one commit per row, gate green before each push.
+**Status:** **Wave 1 (11 P1 reliability rows) executed on branch `refactor`,
+PR #28 — one commit per row, gate green before each push; the follow-up
+review on that PR fixed a further ~20 findings in the same files.** Waves
+2–4 remain analysis-only; no production code beyond Wave 1 has been
+modified.

@@ -271,7 +271,13 @@ class MarkerContractTests(unittest.TestCase):
 
         for marker in ("Processor idle heartbeat", "Job completed"):
             with self.subTest(marker=marker):
-                self.assertIn(f'"{marker}"', orchestrator)
+                # The orchestrator writes log_event(logger, "INFO", "marker", ...);
+                # accept either quote style so the test pins the string, not the
+                # formatting choice.
+                self.assertTrue(
+                    f'"{marker}"' in orchestrator or f"'{marker}'" in orchestrator,
+                    f"marker {marker!r} not found in orchestrator.py",
+                )
                 self.assertIn(marker, heartbeat)
                 self.assertIn(marker, monitor)
 

@@ -90,6 +90,17 @@ vs other modules:
 
 ## Reliability risks
 
+**Status (2026-09-16, after Wave 1 of this plan landed in PR #28): R2, R3 and
+the reachable-cap half of R1 shipped — `state` regresses to `"connecting"` on
+non-loggedOut close; the reconnect loop resets its failure counter only on a
+live `connection === "open"` and reschedules itself after a failed attempt
+(so the counter is now a reachable cap that hands control back to systemd's
+`Restart=on-failure`); `sendWithRetry` clamps its sleeps to the advertised
+`maxWaitMs` deadline and never sleeps past it. R1's durable spool and R4–R7
+are still open. The row-429 / `server.js` line numbers below are the
+pre-Wave-1 snapshot and now drift; re-check against the file before citing
+them.**
+
 R1 — **Alert lost to a Baileys reconnect window (alert-loss first).**
 Scenario: notifier itself documents that the bridge "disconnects and
 reconnects every ~2.5 minutes" (`processor/whatsapp_notifier.py:88–91`). An
@@ -179,9 +190,9 @@ alerts so correlated failures retry (`processor/heartbeat.sh:89–120,166–173`
 
 | # | Action | Files | LOC Δ | Risk | Priority | Longevity gain |
 |---|---|---|---|---|---|---|
-| 1 | Reset `state` on non-loggedOut close (R2) | `whatsapp-connect/server.js:138–141` | +1 | Very low | P1 | Truthful status for console + sendAlert guard |
+| 1 | **LANDED (Wave 1, PR #28).** Reset `state` on non-loggedOut close (R2) — plus the R3 counter reset/reschedule discipline | `whatsapp-connect/server.js:138–141` | +1 | Very low | P1 | Truthful status for console + sendAlert guard |
 | 2 | Bounded hold-and-retry in `/send` during reconnect windows (R1) | `whatsapp-connect/server.js:187–196,223–239` | +12 | Low | P1 | Closes the known ~2.5-min-flap alert-loss gap |
-| 3 | Cap reconnect attempts → non-zero exit so systemd restarts (R3) | `whatsapp-connect/server.js:137–141` | +5 | Low | P1 | No silent zombie alert path |
+| 3 | **LANDED (Wave 1, PR #28).** Cap reconnect attempts → non-zero exit so systemd restarts (R3) — failure counter now resets only on `connection === "open"` and the failure path always reschedules, so the cap is reachable | `whatsapp-connect/server.js:137–141` | +5 | Low | P1 | No silent zombie alert path |
 | 4 | Offline gate runs the two root test files, not just `test/` (guard on `node_modules`) | `tools/verify_release.sh:229` | +2 | Low | P2 | Gate matches CI's `npm test` discovery |
 | 5 | Add `npm ci` (or documented VPS step) for whatsapp-connect deploys; verify qs 6.16.0 live (R4) | `deploy/cd/buttonsbebe-deploy-receive.sh` or ENV runbook | +3 | Low | P2 | Lock actually describes production |
 | 6 | Decide bridge Hermes toolset posture: add the processor's `-t` read-only allow-list, or document that owner bridge sessions intentionally run cli toolsets (see below) | `whatsapp-connect/server.js:167–171`; `processor/hermes_runner/runner.py:35–56` | +1 | Medium (UX/safety decision) | P2 | Safety model symmetry, documented |

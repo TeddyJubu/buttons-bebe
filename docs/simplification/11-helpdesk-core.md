@@ -122,7 +122,11 @@ Vs other modules (named, not merged):
 
 ## Reliability risks
 
-1. **Non-atomic legacy JSON writes brick the dev boot.** Scenario: `?pull=1` ingests a
+1. **Non-atomic legacy JSON writes brick the dev boot. [Fixed in Wave 1, PR #28:
+   `_atomic_write_text` now writes to a unique `tempfile.mkstemp` sibling (0600,
+   collision-free), adopts the existing file's mode on replace, and cleans up the
+   tmp on failure — hardening the original tmp+rename fix against the same-second
+   re-save and mode-relaxation holes.]** Scenario: `?pull=1` ingests a
    ticket → `_persist_store()` `write_text` (`tickets.py:378`) is interrupted (crash,
    full disk) → `intake_tickets.json` truncated → next boot `_load_persisted_store`
    raises `StoreUnavailable` (`tickets.py:388-389`) and the preview refuses to start

@@ -28,7 +28,7 @@ shared contract with `kb/scripts/notices_lib.py:1-15`. Reindex shells out to
 console list, read, edit, and create KB markdown files, trigger a reindex, and
 post/remove owner-override notices. All routing, body parsing, path
 validation, atomic save, and locking are hand-rolled on Node stdlib. The
-release gate syntax-checks it and runs its 8-test suite
+release gate syntax-checks it and runs its 10-test suite
 (`tools/verify_release.sh:231-232`).
 
 ## Reinvented wheels
@@ -122,6 +122,8 @@ console feature (product freshness), not a reinvented wheel.
 Each: scenario → consequence → minimal fix (evidence).
 
 **R1 — Process crash on malformed request line (P1, security/reliability).**
+**[Fixed in Wave 1, PR #28: the handler now try/catches the URL parse and
+answers 400 instead of dying.]** Original finding, kept for the record:
 Scenario: any client that can reach :8087 sends `GET // HTTP/1.1` (or any
 req.url that is an invalid WHATWG URL: `//`, `http://`, `*` variants). Line
 `const u = new URL(req.url, "http://x")` (`server.js:206`) throws
@@ -157,7 +159,10 @@ backups into `KB/.backups/` (dot-prefixed → invisible to indexer and
 these are VPS-side runtime edits, not in git, so backups ARE the recovery
 path; a 20-deep ring is enough). ~10 LOC change in `atomicSave`.
 
-**R3 — `/reindex` child stdout/stderr pipes can fill (P2).** Scenario: owner
+**R3 — `/reindex` child stdout/stderr pipes can fill (P2).**
+**[Fixed in Wave 1, PR #28: the spawn now detaches stdio
+(`["ignore","ignore","ignore"]`), so the child can never block on a full
+pipe.]** Original finding, kept for the record: Scenario: owner
 clicks reindex; `spawn("/bin/bash", [KB/update.sh], { cwd: KB })`
 (`server.js:261`) with default stdio (pipe) — but no `data` listener is ever
 attached to `ch.stdout`/`ch.stderr`. Consequence: if `index_kb.py` prints
@@ -327,6 +332,11 @@ Weaknesses found (all labeled, none exploitable given localhost+Caddy, all
 with the same root): the pre-checks use `lstat`/`realpath` at request time —
 a local attacker who can write to KB already wins regardless (it's the same
 trust domain); no path in the reachable threat model defeats it. The
+remaining TOCTOU window for *existing* files (between `safePath` pre-check
+and the `O_NOFOLLOW` rename in `atomicSave`) is real but bounded: the swap
+candidate must win the race against the check sequence, and any winner is
+already inside the KB trust domain, so the worst case is a corrupted KB file
+recoverable from its `.bak-*` sibling — not a traversal or a read outside KB. The
 `p.includes("..")` line alone would be a string-matching hack; **the charset
 allowlist at `:31` is what actually makes it provable** — candidate names are
 drawn from a finite charset that cannot encode traversal. I would sign off

@@ -131,18 +131,18 @@ DESIGN-CRITIQUE.md §1 ("All user text is escaped", written against the Fable co
 remains true of this SPA, but with the same caveat: discipline, not enforcement.
 
 **R2 — Session expiry mid-session is swallowed as a data error (question c).**
-`jget()` returns `null` on any non-OK response including 401 (`index.html:412`); `boot()`
-turns that into "Could not load tickets data; showing last known values"
-(`index.html:466-470,476`) and the retry button re-runs the same 401-ing calls
-(`index.html:508`). The only 401-aware surface is the ops card, which special-cases
+**[Fixed in Wave 1, PR #28: `jget` records 401 as a `sessionExpired` flag and the sign-in
+banner renders on every tab, not just the overview.]** Original finding, kept for the
+record: `jget()` returned `null` on any non-OK response including 401 (`index.html:412`);
+`boot()` turned that into "Could not load tickets data; showing last known values"
+(`index.html:466-470,476`) and the retry button re-ran the same 401-ing calls
+(`index.html:508`). The only 401-aware surface was the ops card, which special-cased
 `response.status===401` into a "Sign in to view system health" state with a login link
-(`index.html:447`, tested in `ops-health.test.js`). **Scenario: session expires while the
-tab sits open → every refresh shows a generic load-failure banner → the human keeps
-reviewing and can still act on stale drafts believing they're live.** (Initial load is
+(`index.html:447`, tested in `ops-health.test.js`). **Scenario: session expired while the
+tab sat open → every refresh showed a generic load-failure banner → the human kept
+reviewing and could still act on stale drafts believing they were live.** (Initial load is
 safe — Caddy `forward_auth` page-check redirects to login, `support.caddy:126-129`,
-`auth.py:150-165`.) Minimal fix: make `jget`/`boot` distinguish 401 (a `sessionExpired`
-flag → error banner renders "Your session needs renewal — Sign in again" link, reusing
-the ops-card pattern). ~8 app LOC.
+`auth.py:150-165`.)
 
 **R3 — Stale-draft guard compares against the same stale snapshot.** `submitAction`
 refuses to send if `actSourceDraft!==(t.draft_text||"")` (`index.html:661`), but `t`
