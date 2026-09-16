@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, StrictBool, field_validator
 
 from .. import deps
 
@@ -41,6 +44,64 @@ async def dashboard_tickets_api(limit: int = 100, offset: int = 0) -> JSONRespon
     return JSONResponse(content=tickets)
 
 
+class ResultPayload(BaseModel):
+    """Declarative contract for the processor result seam (3.6).
+
+    Error keys stay byte-identical to the hand validation this replaces:
+    the processor treats any non-ok acknowledgement as fatal, and the
+    adversarial console suite pins missing_fields/invalid_* strings.
+    """
+
+    model_config = {"extra": "ignore"}
+
+    ticket_id: int = Field(gt=0, le=9_223_372_036_854_775_807)
+    message_id: str | int = Field(max_length=128)
+    job_id: int | None = Field(default=None, gt=0)
+    priority: Literal["critical", "high", "normal", "low"]
+    action: Literal["drafted", "sensitive_draft", "escalated", "no_kb_match", "no_draft_needed"]
+    reason: str = Field(default="", max_length=2_000)
+    draft_text: str | None = Field(default=None, max_length=100_000)
+    notify_owner: StrictBool = False
+    gorgias_priority_set: StrictBool = False
+    note_posted: StrictBool = False
+
+    @field_validator("ticket_id", "job_id", mode="before")
+    @classmethod
+    def _reject_non_int_id(cls, value):
+        # Legacy hand validation accepted only type(value) is int
+        # (job_id additionally allows absent/None).
+        if value is None:
+            return None
+        if type(value) is not int:
+            raise ValueError("not an id")
+        return value
+
+    @field_validator("message_id", mode="before")
+    @classmethod
+    def _coerce_message_id(cls, value):
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            raise ValueError("invalid_message_id")
+        text = str(value)
+        if not text.strip() or len(text) > 128:
+            raise ValueError("invalid_message_id")
+        return text
+
+
+# pydantic field name -> the legacy error key the suite pins.
+_FIELD_ERRORS = {
+    "ticket_id": "invalid_ticket_id",
+    "message_id": "invalid_message_id",
+    "job_id": "invalid_job_id",
+    "priority": "invalid_priority",
+    "action": "invalid_action",
+    "reason": "invalid_reason",
+    "draft_text": "invalid_draft_text",
+    "notify_owner": "invalid_notify_owner",
+    "gorgias_priority_set": "invalid_gorgias_priority_set",
+    "note_posted": "invalid_note_posted",
+}
+
+
 @router.post("/results")
 async def record_result_api(request: Request) -> JSONResponse:
     """Record a Hermes result posted by the processor."""
@@ -55,65 +116,28 @@ async def record_result_api(request: Request) -> JSONResponse:
     if not required.issubset(body.keys()):
         return JSONResponse(
             status_code=400,
-            content={"error": "missing_fields", "required": list(required)},
+            content={"error": "missing_fields", "required": sorted(required)},
         )
 
-    ticket_id = body.get("ticket_id")
-    message_id_raw = body.get("message_id")
-    job_id = body.get("job_id")
-    priority = body.get("priority")
-    action = body.get("action")
-    reason = body.get("reason", "")
-    draft_text = body.get("draft_text")
-    if (
-        not isinstance(ticket_id, int)
-        or isinstance(ticket_id, bool)
-        or ticket_id <= 0
-        or ticket_id > 9_223_372_036_854_775_807
-    ):
-        return JSONResponse(status_code=400, content={"error": "invalid_ticket_id"})
-    if (
-        isinstance(message_id_raw, bool)
-        or not isinstance(message_id_raw, (str, int))
-        or not str(message_id_raw).strip()
-        or len(str(message_id_raw)) > 128
-    ):
-        return JSONResponse(status_code=400, content={"error": "invalid_message_id"})
-    if job_id is not None and (
-        not isinstance(job_id, int) or isinstance(job_id, bool) or job_id <= 0
-    ):
-        return JSONResponse(status_code=400, content={"error": "invalid_job_id"})
-    if not isinstance(priority, str) or priority not in {"critical", "high", "normal", "low"}:
-        return JSONResponse(status_code=400, content={"error": "invalid_priority"})
-    if not isinstance(action, str) or action not in {
-        "drafted",
-        "sensitive_draft",
-        "escalated",
-        "no_kb_match",
-        "no_draft_needed",
-    }:
-        return JSONResponse(status_code=400, content={"error": "invalid_action"})
-    if not isinstance(reason, str) or len(reason) > 2_000:
-        return JSONResponse(status_code=400, content={"error": "invalid_reason"})
-    if draft_text is not None and (
-        not isinstance(draft_text, str) or len(draft_text) > 100_000
-    ):
-        return JSONResponse(status_code=400, content={"error": "invalid_draft_text"})
-    for field in ("notify_owner", "gorgias_priority_set", "note_posted"):
-        if field in body and not isinstance(body[field], bool):
-            return JSONResponse(status_code=400, content={"error": f"invalid_{field}"})
+    try:
+        payload = ResultPayload.model_validate(body)
+    except Exception as exc:
+        first = exc.errors()[0] if hasattr(exc, "errors") else {}
+        field = str(first.get("loc", [""])[0] if first.get("loc") else "")
+        key = _FIELD_ERRORS.get(field, f"invalid_{field}" if field else "invalid_request")
+        return JSONResponse(status_code=400, content={"error": key})
 
     await deps.database_function("record_ticket_result")(
-        ticket_id=ticket_id,
-        message_id=str(message_id_raw),
-        job_id=job_id,
-        priority=priority,
-        action=action,
-        reason=reason,
-        notify_owner=bool(body.get("notify_owner", False)),
-        gorgias_priority_set=bool(body.get("gorgias_priority_set", False)),
-        note_posted=bool(body.get("note_posted", False)),
-        draft_text=draft_text,
+        ticket_id=payload.ticket_id,
+        message_id=str(payload.message_id),
+        job_id=payload.job_id,
+        priority=payload.priority,
+        action=payload.action,
+        reason=payload.reason,
+        notify_owner=payload.notify_owner,
+        gorgias_priority_set=payload.gorgias_priority_set,
+        note_posted=payload.note_posted,
+        draft_text=payload.draft_text,
     )
     return JSONResponse(content={"status": "ok"})
 
