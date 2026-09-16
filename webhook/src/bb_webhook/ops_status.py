@@ -21,7 +21,7 @@ def summary(now=None):
         if not STATUS.is_file():return {**unavailable,'status':'missing'}
         if STATUS.is_symlink() or STATUS.stat().st_size>16384:return unavailable
         data=json.loads(STATUS.read_text())
-        when=datetime.fromisoformat(data['checked_at'].replace('Z','+00:00'))
+        when=datetime.fromisoformat(data['checked_at'])
         if when.tzinfo is None:return unavailable
         age=((now or datetime.now(timezone.utc))-when).total_seconds()
         if age < -30:return unavailable

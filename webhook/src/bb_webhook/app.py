@@ -23,9 +23,9 @@ from .routers import (
 # Keep the established app-module patch surface without making routers import
 # this composition root. deps.resolve() consults these facades at call time.
 _DATABASE_NAMES = {"dashboard_ticket_exists", "enqueue_job", "get_dashboard_tickets",
-                   "get_parsed_messages", "get_parsed_stats", "get_result_stats",
+                   "get_parsed_messages", "get_result_stats",
                    "get_setting", "init_db", "ingest_event", "is_duplicate", "record_event",
-                   "record_parsed_message", "record_ticket_result", "set_setting"}
+                   "record_ticket_result", "set_setting"}
 _CONSOLE_NAMES = {"_GClient", "_HERMES_BIN", "_HERMES_HOME", "_HERMES_IGNORE_RULES",
                   "_HERMES_PROFILE", "_HERMES_REWRITE_TOOLSETS", "_SUPPORT_STORE_NAME",
                   "_asyncio", "_ledger", "_record_lesson", "action_note", "action_rewrite",

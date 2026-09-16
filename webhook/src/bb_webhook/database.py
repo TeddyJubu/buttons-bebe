@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 import aiosqlite
 
@@ -145,25 +144,6 @@ async def init_db(db_path: Path | None = None) -> None:
         await conn.commit()
 
     logger.info("Database initialized (WAL mode) at %s", db_path)
-
-
-async def _with_retry(
-    operation: str,
-    sql: str,
-    params: tuple,
-    db_path: Path,
-    *,
-    fetch: bool = False,
-    return_rowcount: bool = False,
-) -> Any | None:  # noqa: F401 -- Any imported via aiosqlite.Row
-    """Compatibility seam for callers that used the old module helper."""
-    return await Database(db_path).execute(
-        sql,
-        params,
-        operation=operation,
-        fetch=fetch,
-        return_rowcount=return_rowcount,
-    )
 
 
 async def is_duplicate(message_id: str, db_path: Path | None = None) -> bool:
@@ -339,42 +319,6 @@ async def get_intake_integrity_stats(db_path: Path | None = None) -> list[dict]:
         operation="intake_integrity_stats",
     )
     return [dict(row) for row in rows]
-
-
-async def get_pending_jobs(
-    limit: int = 10,
-    db_path: Path | None = None,
-) -> list[dict]:
-    """Fetch pending customer-message jobs for the orchestrator."""
-    db = Database(db_path)
-    rows = await db.fetch(
-        """SELECT * FROM job_queue
-           WHERE status = 'pending' AND is_customer_message = 1
-           ORDER BY created_at ASC
-           LIMIT ?""",
-        (limit,),
-        operation="get_pending_jobs",
-    )
-
-    return [dict(row) for row in (rows or [])]
-
-
-async def get_pending_agent_jobs(
-    limit: int = 10,
-    db_path: Path | None = None,
-) -> list[dict]:
-    """Fetch pending agent-message jobs for the feedback loop."""
-    db = Database(db_path)
-    rows = await db.fetch(
-        """SELECT * FROM job_queue
-           WHERE status = 'pending' AND is_customer_message = 0
-           ORDER BY created_at ASC
-           LIMIT ?""",
-        (limit,),
-        operation="get_pending_agent_jobs",
-    )
-
-    return [dict(row) for row in (rows or [])]
 
 
 async def get_next_pending_job(db_path: Path | None = None) -> dict | None:
@@ -556,50 +500,6 @@ async def get_job_stats(db_path: Path | None = None) -> dict:
     return stats
 
 
-async def record_parsed_message(
-    message_id: str,
-    ticket_id: int,
-    event_type: str,
-    author_type: str,
-    author_email: str | None,
-    channel: str | None,
-    customer_email: str | None,
-    ticket_subject: str | None,
-    message_text: str | None,
-    intents: list[dict],
-    is_customer_message: bool,
-    created_at: str | None,
-    ticket_status: str | None = None,
-    ticket_assignee: str | None = None,
-    ticket_tags: list[str] | None = None,
-    ticket_priority: str | None = None,
-    ticket_spam: int = 0,
-    ticket_trashed: int = 0,
-    ticket_snoozed: int = 0,
-    db_path: Path | None = None,
-) -> None:
-    """Insert or replace a parsed message row for the dashboard."""
-    db = Database(db_path)
-    now = datetime.now(timezone.utc).isoformat()
-    intent_names = json.dumps([i.get("name") for i in intents if isinstance(i, dict) and i.get("name")])
-
-    await db.execute(
-            """INSERT OR REPLACE INTO parsed_messages
-           (message_id, ticket_id, event_type, author_type,
-            author_email, channel, customer_email, ticket_subject, ticket_status, ticket_assignee, ticket_tags, ticket_priority,
-            ticket_spam, ticket_trashed, ticket_snoozed,
-            message_text, intents, is_customer_message, created_at, received_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (message_id, ticket_id, event_type, author_type,
-         author_email, channel, customer_email, ticket_subject, ticket_status, ticket_assignee,
-         json.dumps(ticket_tags or []),
-         ticket_priority,
-         int(ticket_spam or 0), int(ticket_trashed or 0), int(ticket_snoozed or 0),
-          message_text, intent_names, int(is_customer_message), created_at, now),
-        operation="record_parsed_message",
-    )
-
-
 async def get_parsed_messages(
     limit: int = 50,
     offset: int = 0,
@@ -682,21 +582,6 @@ async def finish_owner_alert(job_id: int, accepted: bool, db_path: Path | None =
         ("accepted" if accepted else "uncertain", datetime.now(timezone.utc).isoformat(), job_id),
         operation="finish_owner_alert",
     )
-
-
-async def get_ticket_results(
-    limit: int = 50,
-    offset: int = 0,
-    db_path: Path | None = None,
-) -> list[dict]:
-    """Fetch ticket processing results, newest first."""
-    db = Database(db_path)
-    rows = await db.fetch(
-        """SELECT * FROM ticket_results ORDER BY processed_at DESC LIMIT ? OFFSET ?""",
-        (limit, offset),
-        operation="get_ticket_results",
-    )
-    return [dict(row) for row in (rows or [])]
 
 
 async def get_dashboard_tickets(
@@ -844,37 +729,3 @@ async def set_setting(key: str, value: str, db_path: Path | None = None) -> None
         (key, value, now),
         operation="set_setting",
     )
-
-
-async def get_all_settings(db_path: Path | None = None) -> dict:
-    """Get all settings as a dict."""
-    db = Database(db_path)
-    rows = await db.fetch(
-        "SELECT key, value FROM app_settings",
-        (),
-        operation="get_all_settings",
-    )
-    return {row["key"]: row["value"] for row in (rows or [])}
-
-
-async def get_parsed_stats(db_path: Path | None = None) -> dict:
-    """Return aggregate stats for the dashboard."""
-    db = Database(db_path)
-    rows = await db.fetch(
-        """SELECT
-             COUNT(*) as total,
-             SUM(is_customer_message) as customer_count,
-             SUM(CASE WHEN is_customer_message = 0 THEN 1 ELSE 0 END) as agent_count
-           FROM parsed_messages""",
-        (),
-        operation="get_parsed_stats",
-    )
-
-    if rows:
-        row = rows[0]
-        return {
-            "total": row["total"] or 0,
-            "customer": row["customer_count"] or 0,
-            "agent": row["agent_count"] or 0,
-        }
-    return {"total": 0, "customer": 0, "agent": 0}

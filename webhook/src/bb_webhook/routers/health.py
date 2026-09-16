@@ -22,7 +22,7 @@ def _age(value):
     if not value:
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return max(0, int((datetime.now(timezone.utc) - parsed).total_seconds()))
