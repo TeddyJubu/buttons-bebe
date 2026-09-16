@@ -306,6 +306,11 @@ skipped, and any future revisit should start from the reports' evidence:
 
 **Status:** **Wave 1 (11 P1 reliability rows) executed on branch `refactor`,
 PR #28 — one commit per row, gate green before each push; the follow-up
-review on that PR fixed a further ~20 findings in the same files.** Waves
-2–4 remain analysis-only; no production code beyond Wave 1 has been
-modified.
+review on that PR fixed a further ~20 findings in the same files.**
+**Wave 2 (8 verified-dead deletion rows) executed on the same branch —
+one commit per row, gate green before each commit (rows 2.3 and 2.8
+resolved B-conflicts per the resolutions above; row 2.1 also dropped the
+kb-admin legacyDashboard test block that pinned the deleted HTML; row
+2.3's dead helpers are referenced by the already-broken, gate-orphaned
+`demo/adversarial/` suite, left broken by owner decision).** Waves 3–4
+remain analysis-only.
