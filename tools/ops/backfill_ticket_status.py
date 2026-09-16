@@ -12,6 +12,10 @@ import sys
 import time
 from pathlib import Path
 
+# The shared normalizer lives in the webhook package; make it importable when
+# this script is invoked directly (its tests add the same path).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "webhook" / "src"))
+
 import httpx
 import sqlite3
 
