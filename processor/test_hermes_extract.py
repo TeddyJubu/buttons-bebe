@@ -276,6 +276,20 @@ class SideEffectSafetyTests(unittest.TestCase):
             result["reason"], "use {size} from order {123} not {id} — see {policy}"
         )
 
+    def test_deeply_nested_payload_fails_closed_without_recursion_error(self):
+        # The bounded window must keep absurdly nested payloads from reaching
+        # raw_decode at full length: they surface as JSONDecodeError (window
+        # truncated) or RecursionError (window still deep), both skipped —
+        # never a RecursionError escaping _extract_json_block.
+        payload = '{"deep": ' + "[" * 20_000 + "]" * 20_000 + "}"
+        output = f"JSON_RESULT[{TOKEN}]: {payload}"
+        blocks, marker_count, _echoes = _valid_verdicts(output, None, TOKEN)
+        result = _parse_json_result(output, None, TOKEN)
+        self.assertEqual(marker_count, 1)
+        self.assertEqual(blocks, [])
+        self.assertTrue(result["no_draft"])
+        self.assertEqual(result["action"], "sensitive_draft")
+
 
 if __name__ == "__main__":
     unittest.main()

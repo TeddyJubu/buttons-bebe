@@ -2,10 +2,12 @@
 
 Live system: `AGENTS.md` (sole root source of truth; `CLAUDE.md` was merged
 into it and removed). The paths below are retired or
-superseded. They stay in the repo for history only — no live code imports
-them, the release gate does not syntax-check them, and the deploy manifest
-does not ship them. Do not "fix" them back to life or copy patterns from
-them without revisiting the safety model.
+superseded. Those still on disk stay in the repo for history only — no live
+code imports them, the release gate does not syntax-check them, and the
+deploy manifest does not ship them. Rows marked **Deleted** no longer exist
+in the tree at all; their history is in git only. Do not "fix" any of them
+back to life or copy patterns from them without revisiting the safety
+model.
 
 | Path | Status |
 |---|---|

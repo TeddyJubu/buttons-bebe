@@ -1,6 +1,6 @@
 # AGENTS.md — Buttons Bebe AI Support Agent
 
-> Reflects the live system as of **2026-07-14**. This file is the sole root
+> Reflects the live system as of **2026-09-17**. This file is the sole root
 > source of truth (`CLAUDE.md` was merged into it and removed on 2026-09-16 —
 > its KB/locks, learning-loop, and Fable-port background sections now live in
 > §11–§12 below). Any doc describing `/root/gorgias-webhook`, "shadow mode",

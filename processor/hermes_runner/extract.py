@@ -56,21 +56,22 @@ def _draft_tag_re(token: str | None) -> re.Pattern[str]:
 def _extract_json_block(text: str, start_pos: int) -> str | None:
     """Extract one bounded balanced JSON object from a marker.
 
-    Slices to the size bound first, so a truncated block raises
-    ``JSONDecodeError`` in the caller and the candidate is skipped —
-    the same fail-closed path as before.
+    Slices to the size bound first, so an oversized or truncated block
+    raises ``JSONDecodeError`` and the candidate is skipped — and deeply
+    nested payloads never reach ``raw_decode`` at full length, so they
+    fail as ``JSONDecodeError``/``RecursionError`` instead of blowing
+    past the old scanner's bounded window.
     """
 
+    window = text[start_pos : start_pos + _MAX_JSON_BLOCK]
     decoder = json.JSONDecoder()
     try:
-        parsed, end_index = decoder.raw_decode(text, start_pos)
-    except json.JSONDecodeError:
+        parsed, end_index = decoder.raw_decode(window)
+    except (json.JSONDecodeError, RecursionError):
         return None
     if not isinstance(parsed, dict):
         return None
-    if end_index - start_pos > _MAX_JSON_BLOCK:
-        return None
-    return text[start_pos:end_index]
+    return window[:end_index]
 
 
 def _as_bool(value: Any) -> bool:
