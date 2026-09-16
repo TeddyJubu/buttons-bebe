@@ -29,6 +29,11 @@ __pycache__/
 .venv/
 venv/
 **/.venv/
+# CI-named gate venvs (see .github/workflows/ci.yml)
+.gate-venv/
+.inbox-venv/
+.qa-venv/
+.tools-venv/
 
 # Node
 **/node_modules/

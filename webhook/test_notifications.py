@@ -18,6 +18,7 @@ class DashboardNotificationTests(unittest.TestCase):
             },
             {
                 "message_id": "review",
+                "ticket_id": 12,
                 "job_status": "done",
                 "priority": "high",
                 "ticket_subject": "Where is my order?",
@@ -25,6 +26,7 @@ class DashboardNotificationTests(unittest.TestCase):
             },
             {
                 "message_id": "failed",
+                "ticket_id": 7,
                 "job_status": "failed",
                 "priority": "critical",
                 "ticket_subject": "Refund request",
@@ -32,9 +34,62 @@ class DashboardNotificationTests(unittest.TestCase):
             },
         ])
 
-        self.assertEqual([item["id"] for item in notifications], ["failed:failed", "review:review"])
+        self.assertEqual(
+            [item["id"] for item in notifications],
+            ["failed:failed:7", "review:review:12"],
+        )
         self.assertEqual(notifications[0]["filter"], "failed")
         self.assertEqual(notifications[1]["title"], "High-priority ticket needs review")
+
+    def test_tickets_sharing_a_message_id_get_distinct_notification_ids(self) -> None:
+        """Two failed tickets on one message_id must not collide on read-state.
+
+        The legacy store shape lets distinct tickets share a message_id; with a
+        shared id, marking one as read silently suppressed the other's badge.
+        """
+        notifications = dashboard_notifications([
+            {
+                "message_id": "shared",
+                "ticket_id": 1,
+                "job_status": "failed",
+                "ticket_subject": "First failure",
+            },
+            {
+                "message_id": "shared",
+                "ticket_id": 2,
+                "job_status": "failed",
+                "ticket_subject": "Second failure",
+            },
+        ])
+
+        self.assertEqual(
+            [item["id"] for item in notifications],
+            ["failed:shared:1", "failed:shared:2"],
+        )
+
+    def test_review_tickets_sharing_a_message_id_get_distinct_notification_ids(self) -> None:
+        """The review feed has the same collision; same fix, same proof."""
+        notifications = dashboard_notifications([
+            {
+                "message_id": "shared-review",
+                "ticket_id": 3,
+                "job_status": "done",
+                "priority": "high",
+                "ticket_subject": "First review",
+            },
+            {
+                "message_id": "shared-review",
+                "ticket_id": 4,
+                "job_status": "done",
+                "action": "escalated",
+                "ticket_subject": "Second review",
+            },
+        ])
+
+        self.assertEqual(
+            [item["id"] for item in notifications],
+            ["review:shared-review:3", "review:shared-review:4"],
+        )
 
     def test_escalation_is_shown_as_a_sensitive_review(self) -> None:
         notifications = dashboard_notifications([

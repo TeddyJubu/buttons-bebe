@@ -98,7 +98,14 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
     def test_real_production_runner_prompt_and_extraction_are_used(self):
         executable=self.root/"synthetic-hermes"
-        executable.write_text('#!'+sys.executable+'''\nimport sys,re,json
+        # A shebang cannot quote; the space in this repo's directory name splits
+        # it. exec via /bin/sh instead, quoting the interpreter path explicitly:
+        # shlex.quote would leave a spaceless path (CI) bare, and Python would
+        # then parse `"exec" /usr/bin/python3` as division — a SyntaxError.
+        # Always-quoted, the line is a no-op string expression in Python.
+        # ponytail: an apostrophe in the path would break the polyglot; not a
+        # realistic venv location.
+        executable.write_text('#!/bin/sh\n"exec" \''+sys.executable+'\' "$0" "$@"'+'''\nimport sys,re,json
 assert '--yolo' not in sys.argv
 import os
 assert os.environ['HERMES_HOME']==os.environ['HOME']+'/.hermes'

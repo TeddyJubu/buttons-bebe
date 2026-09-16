@@ -203,7 +203,8 @@ function noticeActive(n, now) {
 }
 
 const server = http.createServer((req, res) => {
-  const u = new URL(req.url, "http://x");
+  let u;
+  try { u = new URL(req.url, "http://x"); } catch { return send(res, 400, { error: "bad url" }); }
   const p = u.pathname;
 
   if (req.method === "GET" && p === "/health") {
@@ -258,7 +259,7 @@ const server = http.createServer((req, res) => {
   if (req.method === "POST" && p === "/reindex") {
     if (reindex.running) return send(res, 200, { started: false, reindex });
     reindex = { running: true, ok: null, at: new Date().toISOString() };
-    const ch = spawn("/bin/bash", [path.join(KB, "update.sh")], { cwd: KB });
+    const ch = spawn("/bin/bash", [path.join(KB, "update.sh")], { cwd: KB, stdio: ["ignore", "ignore", "ignore"] });
     ch.on("close", (code) => { reindex = { running: false, ok: code === 0, at: new Date().toISOString() }; });
     ch.on("error", () => { reindex = { running: false, ok: false, at: new Date().toISOString() }; });
     return send(res, 200, { started: true, reindex: { running: true } });

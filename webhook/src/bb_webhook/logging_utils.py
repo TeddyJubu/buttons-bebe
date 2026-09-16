@@ -92,9 +92,15 @@ def log_event(
     **extra,
 ) -> None:
     """Log an event with structured extra fields."""
+    resolved_level = getattr(logging, level.upper())
+    # isEnabledFor first: log_event is called per-message on the hot path, and
+    # building a LogRecord (plus the caller's f-string payload) is wasted work
+    # when the level is filtered out anyway.
+    if not logger.isEnabledFor(resolved_level):
+        return
     record = logging.LogRecord(
         name=logger.name,
-        level=getattr(logging, level.upper()),
+        level=resolved_level,
         pathname="",
         lineno=0,
         msg=message,

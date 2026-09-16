@@ -81,8 +81,9 @@ helpers as separate intake API operations.
 ```
 python -m unittest discover -s console-src/helpdesk-agent/tests
 node --test console-src/inbox/test/*.test.js
-# Use requirements-test.lock in a clean CI virtualenv for this test.
-python console-src/inbox/test/test_review_server.py
+# The server tests now run with inbox discovery (requirements-test.lock
+# venv for httpx/fastapi):
+python -m unittest discover -s console-src/inbox/tests -p 'test_*.py'
 ```
 
 Tests cover restart persistence, operation/commit failure, simultaneous writers,

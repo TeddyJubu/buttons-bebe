@@ -37,8 +37,20 @@ async def _current_notifications() -> tuple[list[dict[str, Any]], dict[str, str]
     read_state = _read_notification_state(
         await deps.database_function("get_setting")(_NOTIFICATION_READ_STATE_KEY, "{}")
     )
+    # ids gained a :{ticket_id} suffix to stay unique per ticket; an ack
+    # recorded under the old unsuffixed key still covers the message, so honor
+    # it rather than resurrecting every previously-read alert.
+    legacy_read = {
+        tuple(notification_id.split(":", 1))
+        for notification_id in read_state
+        if notification_id.startswith(("failed:", "review:"))
+        and notification_id.count(":") == 1
+    }
     for notification in notifications:
-        notification["read"] = notification["id"] in read_state
+        notification["read"] = (
+            notification["id"] in read_state
+            or (notification["kind"], notification["message_id"]) in legacy_read
+        )
     return notifications, read_state
 
 
@@ -84,6 +96,11 @@ async def mark_dashboard_notifications_read(request: Request) -> JSONResponse:
         for notification_id, read_at in read_state.items()
         if notification_id in active_ids
     }
+    for notification in notifications:
+        if notification["read"] and notification["id"] not in next_read_state:
+            # read only via a legacy unsuffixed key, which the prune above
+            # drops: migrate the ack to the new id so it survives.
+            next_read_state[notification["id"]] = now
     for notification_id in ids_to_mark:
         next_read_state[notification_id] = now
     await deps.database_function("set_setting")(

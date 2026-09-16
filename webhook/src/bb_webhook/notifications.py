@@ -40,8 +40,12 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
         customer = str(ticket.get("customer_email") or "Customer")
 
         if job_status == "failed":
+            # message_id can fall back to ticket_id above, and distinct tickets
+            # share a message_id across jobs in the legacy store shape —
+            # suffixing the job's ticket_id keeps ids unique so one ticket's
+            # read-state can never suppress another's badge.
             notifications.append({
-                "id": f"failed:{message_id}",
+                "id": f"failed:{message_id}:{ticket.get('ticket_id')}",
                 "kind": "failed",
                 "severity": "error",
                 "title": "Ticket processing failed",
@@ -62,7 +66,10 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
                 else "High-priority ticket needs review"
             )
             notifications.append({
-                "id": f"review:{message_id}",
+                # Same collision as failed ids above: suffix the ticket_id so
+                # distinct review tickets sharing a message_id cannot have one
+                # ticket's read-state suppress the other's badge.
+                "id": f"review:{message_id}:{ticket.get('ticket_id')}",
                 "kind": "review",
                 "severity": "warning",
                 "title": title,

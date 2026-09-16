@@ -157,12 +157,21 @@ dead once rotated.)
 
 ## Part 5 — Close it out in the docs
 
-Only after every service has been green for 24 hours:
+Only after every service has been green for 24 hours — and sweep *every*
+remaining reference, not just the obvious ones:
 
-- Remove the `.env` bullet from **`CLAUDE.md` → Known limitations**.
-- Update `CLAUDE.md` §"Where things live" to list one `.env`, not two.
-- Update `AGENTS.md` and `HANDOVER/02-live-architecture.md` §271 the same way.
+- Remove the legacy-`webhook/.env` bullet from **`AGENTS.md` §7**.
+- Update `AGENTS.md` to list one `.env`, not two — including any later-added
+  paragraph elsewhere in the file that still describes the two-file split.
+- Note the same in `HANDOVER/02-live-architecture.md` §271 (historical doc —
+  annotate, don't rewrite).
 - Note the rotation date in `DEV-ISSUES.md` #9 and mark it resolved.
+- Update the deploy-file entry that still records the legacy split (this
+  runbook's own §"What people say" row and snapshot/rollback blocks above are
+  procedure, not status — leave those; they describe the transition).
+- Grep the repo for `webhook/.env` afterwards; any hit outside this runbook's
+  procedure sections and historical archives means the close-out is
+  incomplete.
 
 ---
 

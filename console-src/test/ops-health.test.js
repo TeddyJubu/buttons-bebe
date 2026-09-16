@@ -14,7 +14,7 @@ function harness(fetch){
  vm.runInContext('const API="/console/api";let opsData=null,opsState="loading",opsPoll=null,opsBusy=false;\n'+html.slice(start,end),context);
  return {context,card,set(data,state='loaded'){vm.runInContext(`opsData=${JSON.stringify(data)};opsState=${JSON.stringify(state)};paintOps();`,context);},timeout:()=>timeout()};
 }
-const checkNames=['buttonsbebe-webhook','buttonsbebe-processor','processor_progress','webhook_readiness','helpdesk-inbox','buttonsbebe-inbox-projection_timer','buttonsbebe-inbox-projection_result','inbox_readiness','buttonsbebe-backup_timer','buttonsbebe-backup_result','backup_freshness','buttonsbebe-kb-mcp','buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect','buttonsbebe-kb-admin','kb_socket','redo_socket','gorgias_socket','whatsapp_socket','kb_admin_socket','disk_space'];
+const checkNames=['buttonsbebe-webhook','buttonsbebe-processor','processor_progress','webhook_readiness','buttonsbebe-heartbeat_timer','buttonsbebe-heartbeat_result','helpdesk-inbox','buttonsbebe-inbox-projection_timer','buttonsbebe-inbox-projection_result','inbox_readiness','buttonsbebe-backup_timer','buttonsbebe-backup_result','backup_freshness','buttonsbebe-kb-mcp','buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect','buttonsbebe-kb-admin','kb_socket','redo_socket','gorgias_socket','whatsapp_socket','kb_admin_socket','disk_space'];
 const fresh=()=>({status:'ok',checked_at:new Date().toISOString(),checks:Object.fromEntries(checkNames.map(key=>[key,'ok']))});
 
 test('rendered card distinguishes healthy, missing, stale and failed checks',()=>{

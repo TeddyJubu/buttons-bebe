@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buttons Bebe — LEGO Organs (kid-simple architecture)</title>
+<style>
+:root{--bg:#f7f4ef;--ink:#222;--mut:#625951;--line:#ded6cc;--card:#fff;--acc:#7a3347;--acc-soft:#f2e7e9;}
+*{box-sizing:border-box}
+body{font-family:Jost,"Avenir Next",Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header,main,footer{max-width:1100px;margin:0 auto;padding-left:24px;padding-right:24px}
+header{padding-top:28px}header h1{color:var(--acc);font-weight:500;margin:0 0 6px}
+header p{color:var(--mut);max-width:70ch}
+main{padding-top:12px;padding-bottom:40px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 20px;font-size:13px;color:var(--mut)}
+.legend span{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.organ{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;cursor:pointer}
+.organ h2{margin:0 0 2px;font-size:17px}
+.organ .job{font-size:13px;color:var(--mut);margin:0 0 10px}
+.brick{display:inline-block;font-size:12px;font-weight:600;border-radius:8px;padding:3px 9px;margin:0 6px 6px 0;border:1px solid var(--line);background:var(--acc-soft)}
+.brick.look{background:#e7f2e9}.brick.human{background:#fff1db}.brick.off{background:#fbeaec}
+.wires{font-size:13px;margin:8px 0 0;padding-left:18px}
+.detail{display:none;font-size:13px;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+.organ.open .detail{display:block}
+.flow{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:18px 0}
+.flow ol{margin:8px 0 0;padding-left:20px}
+footer{padding-bottom:40px;color:var(--mut);font-size:12px}
+code{font-size:12px}
+</style>
+</head>
+<body>
+<header>
+<h1>🧱 Buttons Bebe — LEGO Organs</h1>
+<p>Think of the help desk as a body made of LEGO organs. Each organ does <b>one job</b>.
+Wires carry messages between organs. <b>Green</b> bricks only look, <b>orange</b> bricks need a human,
+<b>red</b> bricks are locked off. Click any organ for details.</p>
+<div class="legend"><span>🟩 look-only</span><span>🟧 human-only</span><span>🟥 locked / retired</span><span>click an organ 👆</span></div>
+</header>
+<main>
+<div class="flow"><b>One ticket's journey (follow the wires):</b>
+<ol>
+<li>📬 <b>Mailbox</b> (Gorgias) gets a customer message → knocks on the <b>Front Door</b>.</li>
+<li>🚪 <b>Front Door</b> (:8000) checks the secret handshake, writes the job on a <b>sticky note</b> (SQLite queue).</li>
+<li>🧠 <b>Brain</b> picks up one sticky note, asks three <b>Library</b> organs for facts, writes a <b>draft letter</b>. Never sends.</li>
+<li>👀 <b>Review Desk</b> shows the draft to a human, who clicks Send, Note, or Rewrite — the <b>only</b> way anything reaches Gorgias. (The 🔔 Alarm can still send its own automated owner alerts by WhatsApp.)</li>
+<li>📝 <b>Memory</b> saves approved replies so future drafts get smarter. 🔔 <b>Alarm</b> taps the owner for urgent tickets.</li>
+</ol></div>
+<div class="grid">
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>🚪 Front Door — webhook receiver</h2>
+<p class="job">Takes mail in, checks ID, queues work. Port :8000.</p>
+<span class="brick">HMAC handshake</span><span class="brick">dedupe</span><span class="brick">SQLite queue</span>
+<ul class="wires"><li>wire in: Gorgias <code>POST /webhook/gorgias/*</code></li><li>wire out: sticky notes → Brain</li></ul>
+<div class="detail">Code: <code>webhook/src/bb_webhook/</code> (FastAPI). DB <code>webhook/data/webhook.db</code>, table <code>job_queue</code>, WAL mode. Rejects bad signatures (401), duplicates, too-old/future events. Unit: <code>buttonsbebe-webhook</code>.</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>🧠 Brain — processor + Hermes</h2>
+<p class="job">Reads one sticky note, thinks, writes a draft. Never sends.</p>
+<span class="brick">1 job at a time</span><span class="brick">run-token draft tags</span><span class="brick">draft cleaner</span>
+<ul class="wires"><li>wires out: asks Library x3, draft → Review Desk</li><li>wire out: urgent → Alarm</li></ul>
+<div class="detail">Loop <code>processor/orchestrator.py</code> (~2s poll, timeout + retry + stale recovery). Thinks via <code>hermes -t buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias -z …</code> (glm-5.2). Run-token proves the draft is Hermes'; injected markers fail closed. Cleaner only shortens. Verdicts forced <code>false,false</code>. Unit: <code>buttonsbebe-processor</code>.</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>📚 Library x3 — KB, Redo, Gorgias readers</h2>
+<p class="job">Answer-facts only. All look, none touch.</p>
+<span class="brick look">KB :8077</span><span class="brick look">Redo :8078</span><span class="brick look">Gorgias :8079</span>
+<ul class="wires"><li>wire in: Brain asks</li><li>wire out: facts back, never writes</li></ul>
+<div class="detail">KB: <code>kb/</code> LanceDB hybrid search (intents/faq/policies/tickets/products). Redo: <code>tools/redo_mcp.py</code>. Gorgias: <code>tools/gorgias_mcp.py</code> (GET only).</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>👀 Review Desk — human console</h2>
+<p class="job">Human reads the draft, clicks what happens next.</p>
+<span class="brick human">Send (confirm)</span><span class="brick human">Note</span><span class="brick human">Rewrite</span>
+<ul class="wires"><li>wire in: drafts from Brain</li><li>wire out: only Send reaches Gorgias; Note writes the record, Rewrite returns a fresh draft</li></ul>
+<div class="detail">Source <code>console-src/index.html</code>. API <code>POST /console/api/ticket/{id}/send|note|rewrite</code>. Login + session + Caddy gate. Isolated preview <code>console-src/inbox/</code> :8766 has Send hard-locked.</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>🛍️ Snapshot Cart — Shopify rail</h2>
+<p class="job">Fetches order facts into a photo album. Inbox only looks at photos.</p>
+<span class="brick look">read-only</span><span class="brick look">email-match guard</span><span class="brick look">stale flag</span>
+<ul class="wires"><li>wire out: snapshot → Review Desk rail</li></ul>
+<div class="detail">Exporter runs OUTSIDE the sandbox (5-min timer, explicit <code>SHOP_RAIL_ENV_FILE</code>). Inbox opens snapshot read-only. <code>SHOPIFY_MUTATIONS_ENABLED=0</code> always.</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>🔔 Alarm — WhatsApp bridge :8085</h2>
+<p class="job">Taps the owner for urgent tickets. Never messages customers.</p>
+<span class="brick">HIGH/CRITICAL only</span>
+<ul class="wires"><li>wire in: Brain alerts</li><li>wire out: WhatsApp to owner</li></ul>
+<div class="detail"><code>whatsapp-connect/server.js</code> (Baileys). Distinct non-placeholder secrets, QR pairing.</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>📝 Memory — learning + KB admin :8087</h2>
+<p class="job">Remembers approved replies, files them safely.</p>
+<span class="brick look">raw lessons never indexed</span><span class="brick look">PII-masked</span>
+<ul class="wires"><li>wire in: human Send + approval</li><li>wire out: masked examples → Library</li></ul>
+<div class="detail"><code>webhook/.../learning.py</code> to <code>KB/learned/</code> (0600). Nightly promotion. Editor <code>kb-admin/server.js</code>.</div>
+</div>
+<div class="organ" onclick="this.classList.toggle('open')">
+<h2>🛡️ Front Gate — Caddy + guards</h2>
+<p class="job">Bouncer: checks passes, blocks back doors.</p>
+<span class="brick">forward_auth</span><span class="brick off">direct /dashboard -&gt; 404</span><span class="brick off">writer retired</span>
+<ul class="wires"><li>guards /console/*, /inbox/*, waapi, kbapi</li><li>public: webhooks, /health, /ready</li></ul>
+<div class="detail">Source <code>deploy/caddy/Caddyfile.redacted</code>. Push to <code>main</code> + green CI auto-deploys. Retired paths: <code>RETIRED.md</code>.</div>
+</div>
+</div>
+</main>
+<footer>Buttons Bebe LEGO organs · kid-simple map of the live system · Full wire list verified against repo 2026-09-15 · Retired organs in RETIRED.md stay out of this picture.</footer>
+<script>document.querySelectorAll('.organ').forEach(o=>{o.setAttribute('tabindex','0');o.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();o.classList.toggle('open');}});});</script>
+</body>
+</html>

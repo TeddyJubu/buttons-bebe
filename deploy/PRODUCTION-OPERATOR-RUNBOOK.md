@@ -138,8 +138,13 @@ rollback must not become an implicit database restore.
 
 The local monitor emits no external messages. Whole-host/network failure needs
 an independently configured off-host monitor and approved notification route.
-The legacy WhatsApp heartbeat shares the host/bridge failure domain; do not count
-its transport acknowledgment as proof the owner received an alert.
+The WhatsApp heartbeat dead-man's switch (`buttonsbebe-heartbeat.timer`,
+`deploy/HEARTBEAT-INSTALL.md`) is installable but not yet verified active on
+the VPS — the readiness evidence does not establish that its unit and timer are
+installed and enabled. Verify `systemctl is-enabled buttonsbebe-heartbeat.timer`
+before counting on alert coverage. Even once live it shares the host/bridge
+failure domain; do not count its transport acknowledgment as proof the owner
+received an alert.
 
 Keep the inbox Send lock until a separately reviewed activation decision verifies
 real provider identity/routing, exact recipient/context binding, duplicate and
@@ -151,3 +156,12 @@ integration before rotation. Coordinate authenticated receiving provider ingress
 before allowing `/webhooks/redo` publicly. Do not reopen the state-changing
 reconciliation GET simply because the old UI calls it. These are recorded
 operational limitations, not permission to bypass controls.
+
+The live Hermes brain loads its `SOUL.md` from its home directory,
+`/root/.hermes/SOUL.md` — the file the process actually consumes. The
+`/root/Buttonsbebe Agent/SOUL.md` checkout copy is a hand-managed mirror of
+the repo's `hermes/SOUL.md` (CD does not deploy `hermes/`). The repo copy now
+points the "single source of truth" at `AGENTS.md` (CLAUDE.md was merged into
+it); at the next Hermes maintenance, apply the same one-line re-point to
+**both** VPS copies — `/root/.hermes/SOUL.md` first, then the checkout mirror —
+so the live brain is not left pointing at the deleted `CLAUDE.md`.

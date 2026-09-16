@@ -43,11 +43,12 @@ stale. A missing/corrupt status file is explicit, never a healthy empty result.
 
 This provides **local visibility only**. A dead VPS/network or disabled monitor
 cannot notify anyone by itself; the authenticated summary will be unreachable or
-stale. Existing `processor/heartbeat.sh` is a separate legacy WhatsApp notifier
-and remains disabled unless separately reviewed/enabled. Its local bridge shares
-the same host failure domain and transport acceptance is not proof of owner
-receipt. Do not enable it merely to make a checklist green. Off-host monitoring
-and a reviewed notification destination remain an operational follow-up.
+stale. `processor/heartbeat.sh` is the **live** dead-man's switch
+(`buttonsbebe-heartbeat.timer`, every 5 min; see `deploy/HEARTBEAT-INSTALL.md`)
+that alerts the owner's WhatsApp when the processor hangs or dies. It shares
+the same host failure domain as this monitor, and transport acceptance is not
+proof of owner receipt. Off-host monitoring and a reviewed notification
+destination remain an operational follow-up.
 
 Runtime secret boundaries improved: inbox runs as its dedicated account with no
 root environment, owner cookies/Authorization stripped after proxy auth, and a

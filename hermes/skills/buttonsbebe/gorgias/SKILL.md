@@ -14,6 +14,7 @@ metadata:
 
 Hermes may read Gorgias only through the `buttonsbebe_gorgias` MCP server:
 
+- `list_recent_tickets`
 - `get_ticket`
 - `get_ticket_messages`
 - `get_customer`

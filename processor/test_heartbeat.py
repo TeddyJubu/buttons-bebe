@@ -253,5 +253,34 @@ class HeartbeatTestCase(unittest.TestCase):
         self.assertIn("systemctl not available", proc.stderr)
 
 
+class MarkerContractTests(unittest.TestCase):
+    """Pin the journal marker strings producer to consumers.
+
+    orchestrator.py emits "Processor idle heartbeat" / "Job completed";
+    heartbeat.sh and tools/ops/monitor.py grep the journal for them (and the
+    heartbeat tests stub journalctl with fixed strings, so a reworded marker
+    in the orchestrator would pass every test while both watchdog readers go
+    silently blind). A source-shape check is the only offline guard for that.
+    """
+
+    def test_orchestrator_marker_strings_are_the_ones_watchdogs_grep_for(self) -> None:
+        processor_dir = Path(__file__).resolve().parent
+        orchestrator = (processor_dir / "orchestrator.py").read_text(encoding="utf-8")
+        heartbeat = (processor_dir / "heartbeat.sh").read_text(encoding="utf-8")
+        monitor = (processor_dir.parent / "tools" / "ops" / "monitor.py").read_text(encoding="utf-8")
+
+        for marker in ("Processor idle heartbeat", "Job completed"):
+            with self.subTest(marker=marker):
+                # The orchestrator writes log_event(logger, "INFO", "marker", ...);
+                # accept either quote style so the test pins the string, not the
+                # formatting choice.
+                self.assertTrue(
+                    f'"{marker}"' in orchestrator or f"'{marker}'" in orchestrator,
+                    f"marker {marker!r} not found in orchestrator.py",
+                )
+                self.assertIn(marker, heartbeat)
+                self.assertIn(marker, monitor)
+
+
 if __name__ == "__main__":
     unittest.main()
