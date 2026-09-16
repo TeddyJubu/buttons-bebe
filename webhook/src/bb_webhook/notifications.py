@@ -66,7 +66,10 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
                 else "High-priority ticket needs review"
             )
             notifications.append({
-                "id": f"review:{message_id}",
+                # Same collision as failed ids above: suffix the ticket_id so
+                # distinct review tickets sharing a message_id cannot have one
+                # ticket's read-state suppress the other's badge.
+                "id": f"review:{message_id}:{ticket.get('ticket_id')}",
                 "kind": "review",
                 "severity": "warning",
                 "title": title,
