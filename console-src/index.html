@@ -387,7 +387,7 @@ let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw
 const NOTICE_TEXT_MAX=1200;
 let noticesData=null,noticesError="",noticeText="",noticeDeadline=defaultNoticeDeadline(),noticeNoExpiry=false,noticeMsg="",noticeError="",noticeErrorField="",noticeBusy=false,noticeReview=false,noticeRemoveId=null,noticeDeletingId=null;
 let notificationData=null,notificationError="",notificationMsg="",notificationBusy=false,notificationPoll=null;
-let lastUpdated=null,loadFailed=false,loadErrors=[],statusMsg="Loading dashboard data",focusHeadingAfterRender=false,headerCompact=false,headerScrollFrame=0;
+let lastUpdated=null,loadFailed=false,loadErrors=[],statusMsg="Loading dashboard data",focusHeadingAfterRender=false,headerCompact=false,headerScrollFrame=0,sessionExpired=false;
 
 const IC={
  overview:'<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M530-600v-220h290v220H530ZM140-460v-360h290v360H140Zm390 320v-360h290v360H530Zm-390 0v-220h290v220H140Zm60-380h170v-240H200v240Zm390 320h170v-240H590v240Zm0-460h170v-100H590v100ZM200-200h170v-100H200v100Zm170-320Zm220-140Zm0 220ZM370-300Z"/></svg>',
@@ -409,7 +409,7 @@ const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.
 const digits=v=>{const a=String(v).split("");return `<span class="t-digit-group is-animating">${a.map((ch,i)=>`<span class="t-digit"${i===a.length-2?' data-stagger="1"':(i===a.length-1?' data-stagger="2"':'')}>${esc(ch)}</span>`).join("")}</span>`;};
 const freshText=()=>lastUpdated?"Updated "+lastUpdated.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Updating…";
 const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab==="notices"&&(noticeError||noticeMsg)?(noticeError||noticeMsg):tab==="notif"&&(notificationMsg||waMsg)?(notificationMsg||waMsg):statusMsg;
-async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)return null;return await r.json();}catch(e){return null;}}
+async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(r.status===401)sessionExpired=true;if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 function opsHealthSummary(data,state,now=Date.now()){
  if(state==="auth")return {title:"Sign in to view system health",detail:"Your session needs to be renewed.",healthy:false,auth:true,issues:[]};
@@ -519,7 +519,7 @@ function render(){
  if(focusHeadingAfterRender){focusHeadingAfterRender=false;requestAnimationFrame(()=>{const h=document.querySelector(".top h1");if(h)h.focus();});}
 }
 function view(){return tab==="overview"?overview():tab==="tickets"?ticketsView():tab==="conns"?conns():tab==="kb"?kbView():tab==="notices"?noticesView():tab==="notif"?notificationsView():settingsView();}
-function errorBanner(){return `<div class="error-banner" role="alert"><div><strong>Could not load ${esc(loadErrors.join(", "))} data.</strong><span>Existing values are shown where available. Refresh to try again.</span></div><button class="btn" id="retry-load">Retry</button></div>`;}
+function errorBanner(){if(sessionExpired)return `<div class="error-banner" role="alert"><div><strong>Your session has expired.</strong><span>Sign in again to load live dashboard data.</span></div><a class="btn" href="/console/login">Sign in again</a></div>`;return `<div class="error-banner" role="alert"><div><strong>Could not load ${esc(loadErrors.join(", "))} data.</strong><span>Existing values are shown where available. Refresh to try again.</span></div><button class="btn" id="retry-load">Retry</button></div>`;}
 
 function ownerAlertWarning(count){return Number(count)>0?`<div class="warn owner-alert-warning" role="alert">${Number(count)} owner alert${Number(count)===1?'':'s'} need review. WhatsApp acknowledgement or delivery is uncertain; inspect the affected ticket. No automatic resend was attempted.</div>`:"";}
 function overview(){
