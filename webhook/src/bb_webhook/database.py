@@ -157,36 +157,6 @@ async def is_duplicate(message_id: str, db_path: Path | None = None) -> bool:
     return bool(rows) and len(rows) > 0
 
 
-async def record_event(
-    message_id: str,
-    tenant_id: str,
-    ticket_id: int,
-    event_type: str,
-    author_type: str,
-    raw_payload: str,
-    db_path: Path | None = None,
-) -> bool:
-    """Persist a webhook event for dedup and audit.
-
-    Returns ``True`` only for the request that inserted the idempotency row.
-    Concurrent duplicate deliveries therefore have one unambiguous winner.
-    """
-    db = Database(db_path)
-    now = datetime.now(timezone.utc).isoformat()
-
-    inserted = await db.execute(
-        """INSERT OR IGNORE INTO webhook_events
-           (message_id, tenant_id, ticket_id, event_type,
-            author_type, raw_payload, received_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (message_id, tenant_id, ticket_id, event_type,
-         author_type, raw_payload, now),
-        operation="record_event",
-        return_rowcount=True,
-    )
-    return inserted == 1
-
-
 async def ingest_event(
     event: dict,
     raw_payload: str,

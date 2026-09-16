@@ -6,6 +6,7 @@ Loads from the same .env as the webhook receiver.
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -46,12 +47,6 @@ class ProcessorSettings(BaseSettings):
 
     # ── KB MCP ────────────────────────────────────────────
     kb_mcp_url: str = Field(default="http://127.0.0.1:8077/mcp", alias="KB_MCP_URL")
-
-    # ── LLM ───────────────────────────────────────────────
-    # Ollama Cloud (same model Hermes uses) or any OpenAI-compatible endpoint
-    llm_base_url: str = Field(default="http://localhost:11434/v1", alias="LLM_BASE_URL")
-    llm_model: str = Field(default="glm-5.2", alias="LLM_MODEL")
-    llm_api_key: str = Field(default="", alias="LLM_API_KEY")
 
     # ── Shopify (client-credentials grant) ───────────────
     shopify_shop: str = Field(default="buttonsbebe", alias="SHOPIFY_SHOP")
@@ -160,11 +155,6 @@ class ProcessorSettings(BaseSettings):
     def shopify_configured(self) -> bool:
         return bool(self.shopify_client_id and self.shopify_client_secret)
 
-_settings: ProcessorSettings | None = None
-
-
+@lru_cache(maxsize=1)
 def get_settings() -> ProcessorSettings:
-    global _settings
-    if _settings is None:
-        _settings = ProcessorSettings()
-    return _settings
+    return ProcessorSettings()
