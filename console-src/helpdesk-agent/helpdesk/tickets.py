@@ -338,7 +338,19 @@ def _persist_seen(message_id: str) -> None:
     if not path:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(sorted(_seen_messages)), encoding="utf-8")
+    _atomic_write_text(path, json.dumps(sorted(_seen_messages)))
+
+
+def _atomic_write_text(path, text: str) -> None:
+    """Write text to path via tmp + os.replace so readers never see a torn file.
+
+    Same pattern as export_projection.py / export_shop_rail.py; a crash or
+    concurrent reader mid-write must not corrupt the legacy JSON state.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(tmp, path)
 
 
 def _dedupe_key_to_list(key: tuple) -> list:
@@ -375,7 +387,7 @@ def _persist_store() -> None:
             ],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def _load_persisted_store() -> None:
