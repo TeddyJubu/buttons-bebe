@@ -7,8 +7,9 @@ STATUS=Path('/var/lib/buttonsbebe/ops-status.json')
 CHECKS={'buttonsbebe-webhook','buttonsbebe-processor','buttonsbebe-kb-mcp',
         'buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect',
         'buttonsbebe-kb-admin','helpdesk-inbox','buttonsbebe-backup_timer',
-        'buttonsbebe-inbox-projection_timer','buttonsbebe-backup_result',
-        'buttonsbebe-inbox-projection_result','kb_socket','redo_socket','gorgias_socket',
+        'buttonsbebe-inbox-projection_timer','buttonsbebe-heartbeat_timer',
+        'buttonsbebe-backup_result','buttonsbebe-inbox-projection_result',
+        'buttonsbebe-heartbeat_result','kb_socket','redo_socket','gorgias_socket',
         'whatsapp_socket','kb_admin_socket','processor_progress','webhook_readiness',
         'inbox_readiness','backup_freshness','disk_space'}
 VALUES={'ok','attention','missing','stale','unavailable'}
