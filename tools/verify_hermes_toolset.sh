@@ -139,7 +139,39 @@ PY
     esac
 fi
 
-# ── 5. a real one-shot with the new flags still reaches the KB ───────────
+# ── 5. the live brain loads the same SOUL/skills the repo ships ──────────
+say "5. Hermes home mirror matches the repo"
+REPO_HERMES="$(cd "$(dirname "$0")/.." && pwd)/hermes"
+LIVE_HERMES="${HERMES_HOME:-${HOME:-/root}/.hermes}"
+if [ ! -d "$LIVE_HERMES" ]; then
+    note "no live Hermes home at $LIVE_HERMES — skipping (set HERMES_HOME to point at it)"
+elif [ ! -d "$REPO_HERMES" ]; then
+    bad "repo hermes/ mirror missing at $REPO_HERMES — cannot compare"
+else
+    set +e
+    MIRROR_DIFF="$(diff -r -x '*.pyc' -x '__pycache__' "$REPO_HERMES" "$LIVE_HERMES" 2>&1)"
+    MIRROR_STATUS=$?
+    set -e
+    # diff exits 1 on any difference, 2 on trouble (missing dir, permissions).
+    # Only regular-file content drift fails the check; extra live-only files
+    # (config.yaml, credentials, logs) are expected and ignored.
+    if [ "$MIRROR_STATUS" -eq 0 ]; then
+        ok "live Hermes home matches the repo mirror"
+    elif [ "$MIRROR_STATUS" -eq 1 ]; then
+        DRIFT="$(printf '%s\n' "$MIRROR_DIFF" | grep -E '^(diff|Only in .*hermes)' | grep -v 'Only in .*: config.yaml' | head -10)"
+        if [ -z "$DRIFT" ]; then
+            ok "live Hermes home matches the repo mirror (live-only files ignored)"
+        else
+            bad "Hermes home has drifted from the repo mirror:"
+            printf '%s\n' "$DRIFT" | sed 's/^/     /'
+            bad "sync the direction the runbook names (SOUL.md: live first, then checkout mirror)"
+        fi
+    else
+        bad "could not compare Hermes home ($MIRROR_DIFF)"
+    fi
+fi
+
+# ── 6. a real one-shot with the new flags still reaches the KB ───────────
 say "5. Smoke test — one read-only prompt with the new flags"
 if [ "$FAILED" -ne 0 ]; then
     bad "skipping the live run: a check above failed, so the lockdown is unproven"
