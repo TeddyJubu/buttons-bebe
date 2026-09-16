@@ -20,6 +20,7 @@ const fs = require("fs");
 const { execFile } = require("child_process");
 const P = require("pino");
 const { clientAddress, createSendAuth, isAuthorized, validateSecret } = require("./security");
+const { nextStateOnClose, sendWithRetry } = require("./connection");
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -40,10 +41,11 @@ const NOTIFY_FILE = process.env.WA_NOTIFY_FILE || "./notify.json";
 const HERMES_BIN = process.env.HERMES_BIN || "hermes";
 const BASE = `/connect-whatsapp/${TOKEN}`;
 
-let state = "starting"; // starting | qr | connected
+let state = "starting"; // starting | connecting | qr | connected
 let qrDataUrl = null;
 let ownerJid = null;
 let sock = null;
+let reconnectFailures = 0; // consecutive startSock() failures; cap → exit for systemd restart
 const botSentIds = new Set(); // ids of messages we sent, so we don't reply to ourselves
 
 function audit(event, detail = {}) {
@@ -82,6 +84,7 @@ function destJid() {
 
 async function startSock() {
   const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  reconnectFailures = 0; // we got a socket; the previous failure recovered
   let version;
   try {
     ({ version } = await fetchLatestBaileysVersion());
@@ -124,6 +127,7 @@ async function startSock() {
         state = "qr";
         ownerJid = null;
         qrDataUrl = null;
+        reconnectFailures = 0; // user action fixed the problem; give reconnect a fresh budget
         // The saved credentials are now invalid. If we reconnect with them we
         // just get logged out again — an infinite loop that never shows a QR.
         // Wipe the auth folder so Baileys starts fresh and emits a new QR.
@@ -134,10 +138,11 @@ async function startSock() {
           console.error("auth wipe error", e);
         }
         console.log("logged out — cleared stale creds, generating a fresh QR");
-        setTimeout(() => startSock().catch((e) => console.error(e)), 1500);
+        setTimeout(() => startSock().catch((e) => onReconnectFailed(e)), 1500);
       } else {
+        state = nextStateOnClose(code, DisconnectReason.loggedOut); // "connecting" — console shows "Connecting"
         console.log("connection closed, reconnecting...");
-        setTimeout(() => startSock().catch((e) => console.error(e)), 2000);
+        setTimeout(() => startSock().catch((e) => onReconnectFailed(e)), 2000);
       }
     }
   });
@@ -163,6 +168,19 @@ async function startSock() {
   });
 }
 
+// A scheduled reconnect itself failed. A few of these are normal (network
+// blips), but a streak means the process is stuck in a loop it can't fix —
+// count them and bail out non-zero so systemd Restart=on-failure takes over
+// (fresh process, fresh auth state) instead of looping forever.
+function onReconnectFailed(e) {
+  console.error("reconnect failed", e);
+  reconnectFailures += 1;
+  if (reconnectFailures >= 5) {
+    console.error(`${reconnectFailures} consecutive reconnect failures — exiting for systemd restart`);
+    process.exit(1);
+  }
+}
+
 function forwardToHermes(text, jid) {
   execFile(
     HERMES_BIN,
@@ -184,10 +202,14 @@ function forwardToHermes(text, jid) {
 }
 
 // Deliver an alert to the configured destination. Returns a promise.
+// The pre-check rejection is tagged retryable: it never touched the wire, so
+// callers may hold the request and retry through a brief reconnect window.
 function sendAlert(text) {
   const jid = destJid();
   if (state !== "connected" || !jid) {
-    return Promise.reject(new Error("whatsapp not connected / no destination"));
+    const e = new Error("whatsapp not connected / no destination");
+    e.retryable = true;
+    return Promise.reject(e);
   }
   return sock.sendMessage(jid, { text: String(text).slice(0, 4000) }).then((sent) => {
     if (sent && sent.key && sent.key.id) botSentIds.add(sent.key.id);
@@ -227,7 +249,9 @@ app.post(`${BASE}/send`, requireSendAuth, (req, res) => {
     return res.status(400).json({ error: "text required" });
   }
   audit("whatsapp_alert_send_requested");
-  sendAlert(text)
+  // Hold and retry through a brief reconnect window (~2s per cycle) instead of
+  // dropping the escalation. Safe: only pre-wire failures are tagged retryable.
+  sendWithRetry(() => sendAlert(text))
     .then((jid) => {
       audit("whatsapp_alert_send_succeeded");
       return res.json({ ok: true, to: jid });
@@ -267,7 +291,7 @@ app.put("/wa/notify", (req, res) => {
 
 // Send a test alert to the current destination so the owner can confirm delivery.
 app.post("/wa/test", (req, res) => {
-  sendAlert("✅ Test alert from your Buttons Bebe support console. If you can read this, escalation notifications are working.")
+  sendWithRetry(() => sendAlert("✅ Test alert from your Buttons Bebe support console. If you can read this, escalation notifications are working."))
     .then((jid) => res.json({ ok: true, to: jid }))
     .catch((e) => res.status(409).json({ error: String(e.message || e) }));
 });
