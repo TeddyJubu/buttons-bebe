@@ -88,7 +88,7 @@ Gorgias webhook
 | `kb/` | KB markdown (`intents/ faq/ policies/ tickets/ products/ shopify/` — `shopify/` is shopify.dev platform background), LanceDB index/sync scripts, MCP server, systemd units/timers, `search.sh`. |
 | `tools/` | Read-only Redo + Gorgias MCP modules, `run-gorgias.sh` / `run-redo.sh`, `verify_release.sh`, `verify_hermes_toolset.sh`. |
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
-| `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). |
+| `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). Lock changes deploy manually (`npm ci` runbook: `deploy/DEPENDENCY-READINESS.md`) — CD refuses dependency mutation. |
 | `console-src/index.html` | **THE** console SPA source (includes Notice Board tab); deployed to the web root by CD. |
 | ~~`dashboard/index.html`~~ | Deleted 2026-09-17 (Wave 2) — there is exactly one console surface now. |
 | `deploy/` | Only supported Caddy config (`caddy/Caddyfile.redacted`), CD receive script (`cd/`), systemd units, ENV-consolidation + heartbeat runbooks, tests. |
@@ -156,8 +156,9 @@ Gate facts (each exists because something slipped once):
   with the marker line `# offline-gate: skip` (`test_e2e.py` hits a real VPS
   this way).
 - Runs unittest suites in `kb/tests`, `deploy/tests`, `tools.test_tool_contracts`,
-  webhook notification tests, feedback tests; `node --test` for
-  whatsapp-connect security tests and kb-admin.
+  webhook notification tests, feedback tests; `node --test` for every
+  whatsapp-connect test (incl. the root qs/startup-lock files, skipped only
+  when `node_modules` is absent) and kb-admin.
 - **Fails on any active `twilio` reference** — escalation is the local
   WhatsApp bridge now; do not reintroduce Twilio.
 - Enforces exactly **48** unique-id scenarios in `testing/scenarios.json`.

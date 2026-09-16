@@ -19,6 +19,11 @@ const QRCode = require("qrcode");
 const fs = require("fs");
 const { execFile } = require("child_process");
 const P = require("pino");
+// One logging convention: pino for every service log (Baileys gets a silent
+// child; nothing parses our stdout today, but level/logger/msg JSON is what
+// the processor's monitor already understands).
+const log = P({ level: process.env.WA_LOG_LEVEL || "info" });
+const SILENT = P({ level: "silent" });
 const { clientAddress, createSendAuth, isAuthorized, validateSecret } = require("./security");
 const { nextStateOnClose, sendWithRetry } = require("./connection");
 const {
@@ -49,7 +54,7 @@ let reconnectFailures = 0; // consecutive startSock() failures; cap → exit for
 const botSentIds = new Set(); // ids of messages we sent, so we don't reply to ourselves
 
 function audit(event, detail = {}) {
-  console.log(JSON.stringify({ at: new Date().toISOString(), event, ...detail }));
+  log.info(detail, event);
 }
 
 // ---------------- notification destination config ----------------
@@ -95,7 +100,7 @@ async function startSock() {
     auth: authState,
     printQRInTerminal: false,
     browser: Browsers.ubuntu("Chrome"),
-    logger: P({ level: "silent" }),
+    logger: SILENT,
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -107,7 +112,7 @@ async function startSock() {
       try {
         qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
       } catch (e) {
-        console.error("qr render error", e);
+        log.error({ err: e }, "qr render error");
       }
     }
     if (connection === "open") {
@@ -116,7 +121,7 @@ async function startSock() {
       reconnectFailures = 0; // a live connection is the only proof the streak recovered
       const raw = sock.user && sock.user.id ? sock.user.id.split(":")[0] : null;
       ownerJid = raw ? `${raw}@s.whatsapp.net` : null;
-      console.log("WhatsApp connected as", ownerJid);
+      log.info({ owner: ownerJid }, "WhatsApp connected");
     }
     if (connection === "close") {
       const code =
@@ -135,13 +140,13 @@ async function startSock() {
           fs.rmSync(AUTH_DIR, { recursive: true, force: true });
           fs.mkdirSync(AUTH_DIR, { recursive: true });
         } catch (e) {
-          console.error("auth wipe error", e);
+          log.error({ err: e }, "auth wipe error");
         }
-        console.log("logged out — cleared stale creds, generating a fresh QR");
+        log.info("logged out — cleared stale creds, generating a fresh QR");
         setTimeout(() => startSock().catch((e) => onReconnectFailed(e)), 1500);
       } else {
         state = nextStateOnClose(code, DisconnectReason.loggedOut); // "connecting" — console shows "Connecting"
-        console.log("connection closed, reconnecting...");
+        log.info("connection closed, reconnecting");
         setTimeout(() => startSock().catch((e) => onReconnectFailed(e)), 2000);
       }
     }
@@ -163,7 +168,7 @@ async function startSock() {
       if (!text) return;
       forwardToHermes(text, msg.key.remoteJid);
     } catch (e) {
-      console.error("incoming msg error", e);
+      log.error({ err: e }, "incoming msg error");
     }
   });
 }
@@ -173,10 +178,10 @@ async function startSock() {
 // count them and bail out non-zero so systemd Restart=on-failure takes over
 // (fresh process, fresh auth state) instead of looping forever.
 function onReconnectFailed(e) {
-  console.error("reconnect failed", e);
+  log.error({ err: e }, "reconnect failed");
   reconnectFailures += 1;
   if (reconnectFailures >= 5) {
-    console.error(`${reconnectFailures} consecutive reconnect failures — exiting for systemd restart`);
+    log.error({ reconnectFailures }, "consecutive reconnect failures — exiting for systemd restart");
     process.exit(1);
   }
   // The scheduled startSock() rejected, so nothing else will retry: schedule
@@ -198,7 +203,7 @@ function forwardToHermes(text, jid) {
           .then((sent) => {
             if (sent && sent.key && sent.key.id) botSentIds.add(sent.key.id);
           })
-          .catch((e) => console.error("reply send error", e));
+          .catch((e) => log.error({ err: e }, "reply send error"));
       }
     }
   );
@@ -271,7 +276,9 @@ app.post(`${BASE}/send`, requireSendAuth, (req, res) => {
 
 app.get("/wa/status", (req, res) => {
   const n = readNotify();
-  res.json({ state, qr: qrDataUrl, owner: ownerJid, notify: n });
+  // qs is pinned by package-lock + the qs-security tests; this echo is how an
+  // operator confirms the LIVE node_modules match the lock without shell access.
+  res.json({ state, qr: qrDataUrl, owner: ownerJid, notify: n, qs: require("qs/package.json").version });
 });
 
 app.get("/wa/notify", (req, res) => res.json(readNotify()));
@@ -317,11 +324,20 @@ app.get(`${BASE}/`, requireAuth, (req, res) => res.type("html").send(PAGE));
 app.get(`${BASE}`, (req, res) => res.redirect(`${BASE}/`));
 app.get("/connect-whatsapp/*", (req, res) => res.status(404).send("Not found"));
 
+// Backstop for any future handler that throws synchronously: a generic 500,
+// never express's default stack-trace response (publicly reachable via the
+// token path when NODE_ENV is unset).
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  log.error({ err, path: req.path }, "unhandled route error");
+  res.status(500).json({ error: "internal error" });
+});
+
 app.listen(PORT, "127.0.0.1", () =>
-  console.log(`whatsapp-connect listening on 127.0.0.1:${PORT}`)
+  log.info("whatsapp-connect listening on 127.0.0.1:%d", PORT)
 );
 
-startSock().catch((e) => console.error("startSock error", e));
+startSock().catch((e) => log.error({ err: e }, "startSock error"));
 
 const PAGE = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

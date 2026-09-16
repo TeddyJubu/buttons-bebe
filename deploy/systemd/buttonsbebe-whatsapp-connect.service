@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/root/Buttonsbebe Agent/whatsapp-connect
 Environment=WA_PORT=8085
+Environment=NODE_ENV=production
 Environment=WA_TOKEN=<REDACTED>
 Environment="WA_AUTH_DIR=/root/Buttonsbebe Agent/whatsapp-connect/auth"
 Environment=HERMES_BIN=/usr/local/bin/hermes

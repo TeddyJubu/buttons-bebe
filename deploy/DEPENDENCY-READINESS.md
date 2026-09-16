@@ -22,3 +22,22 @@ The lock contains qs 6.15.3, Express 4.22.2, body-parser 1.20.6, and Baileys 6.7
 - Maintainer advisory [GHSA-4mjr-xmp4-gh2g](https://github.com/ljharb/qs/security/advisories/GHSA-4mjr-xmp4-gh2g): hostile constructor.isBuffer can throw during stringify after certain parse configurations; fixed in 6.16.0. No application qs stringify sink was found. Express query parsing alone does not establish this exploit chain.
 
 Recommended bounded follow-up: a scoped qs 6.16.0 override, regenerated lock, clean isolated npm ci and current HTTP/security tests plus advisory regression cases. Do not use broad npm audit fix or change Baileys major versions; pairing/auth behavior needs separate review. The approved follow-up adds only the qs 6.16.0 override: the regenerated lock changes only that package. Clean isolated npm ci with scripts disabled and all 10 WhatsApp tests passed, including the two advisory regression cases and normal query compatibility. The post-change metadata audit reports zero advisories. Production node_modules remain untouched; root must prepare and review a candidate before switching.
+
+## Deploying whatsapp-connect dependency changes (owner runbook)
+
+CD never installs or mutates live dependencies
+(`deploy/cd/source_release.py` classifies `package.json`/`package-lock.json` as
+dependency material and refuses deploys that change them), so after any
+whatsapp-connect lock change is merged, root applies it manually on the VPS:
+
+```bash
+cd "/root/Buttonsbebe Agent/whatsapp-connect"
+npm ci --ignore-scripts          # installs exactly the committed lock
+node --test                       # 15 tests incl. the two qs regression cases
+systemctl restart buttonsbebe-whatsapp-connect
+curl -s http://127.0.0.1:8085/wa/status   # "qs" must echo the locked version (6.16.0)
+```
+
+The `qs` field in `/wa/status` is the live-parity proof: it reports the
+version actually loaded, closing the gap where CI-green tests describe a
+lockfile the VPS never installed. Verify it before considering the deploy done.
