@@ -90,7 +90,7 @@ Gorgias webhook
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
 | `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). |
 | `console-src/index.html` | **THE** console SPA source (includes Notice Board tab); deployed to the web root by CD. |
-| `dashboard/index.html` | Older console snapshot without Notice Board — superseded, kept for reference. |
+| ~~`dashboard/index.html`~~ | Deleted 2026-09-17 (Wave 2) — there is exactly one console surface now. |
 | `deploy/` | Only supported Caddy config (`caddy/Caddyfile.redacted`), CD receive script (`cd/`), systemd units, ENV-consolidation + heartbeat runbooks, tests. |
 | `testing/` | 48-scenario suite (`scenarios.json`), TEST-PLAN, judging rubric, HOW-TO-RUN. |
 | `feedback/` | PII masking library + retired-poller tests. |
