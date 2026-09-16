@@ -57,6 +57,23 @@ class ActionConflict(Exception):
         super().__init__(error)
 
 
+def _checked_context(source, *, draft_revision: str | None = None,
+                     expected_recipient: str | None = None) -> tuple[str, str, str]:
+    """One definition of stale-draft / changed-recipient (3.5).
+
+    Shared by review_context and reserve: both fetch the same source row and
+    must reject a changed draft or recipient identically.
+    """
+    draft = source["draft_text"] or ""
+    revision = _hash(draft)
+    recipient = (source["customer_email"] or "").strip().lower()
+    if draft_revision is not None and draft_revision != revision:
+        raise ActionConflict("draft_changed_refresh_ticket")
+    if expected_recipient is not None and expected_recipient.strip().lower() != recipient:
+        raise ActionConflict("recipient_changed_refresh_ticket")
+    return draft, revision, recipient
+
+
 class IntentStore:
     def __init__(self, path: Path | str):
         self.db = Database(path)
@@ -75,12 +92,9 @@ class IntentStore:
             async with conn.execute("SELECT message_id FROM parsed_messages WHERE ticket_id=? AND is_customer_message=1 ORDER BY COALESCE(NULLIF(created_at,''),received_at) DESC,received_at DESC,message_id DESC LIMIT 1",(ticket_id,)) as cursor:
                 latest=await cursor.fetchone()
             if latest['message_id']!=source_message_id:raise ActionConflict('new_customer_message_refresh_ticket')
-            draft=source['draft_text'] or ''
-            revision=_hash(draft)
-            recipient=(source['customer_email'] or '').strip().lower()
+            draft,revision,recipient=_checked_context(
+                source,draft_revision=expected_revision,expected_recipient=expected_recipient)
             channel=source['channel'] or ''
-            if expected_revision is not None and expected_revision!=revision:raise ActionConflict('draft_changed_refresh_ticket')
-            if expected_recipient is not None and expected_recipient.strip().lower()!=recipient:raise ActionConflict('recipient_changed_refresh_ticket')
             pending=[]
             async with conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='console_action_intents'") as cursor:
                 has_intents=await cursor.fetchone()
@@ -133,12 +147,9 @@ class IntentStore:
             await cursor.close()
             if not context:
                 raise ActionConflict('source_message_not_in_console', 404)
-            recipient = (context['customer_email'] or '').strip().lower()
+            ai_draft, _revision, recipient = _checked_context(context, draft_revision=draft_revision)
             if kind == 'send' and not recipient:
                 raise ActionConflict('recipient_unavailable', 409)
-            ai_draft = context['draft_text'] or ''
-            if _hash(ai_draft) != draft_revision:
-                raise ActionConflict('draft_changed_refresh_ticket')
             semantic = _hash(json.dumps([kind, ticket_id, source_message_id, recipient,
                                         _hash(ai_draft), text_hash], separators=(',', ':')))
             cursor = await conn.execute('SELECT * FROM console_action_intents WHERE semantic_hash=?', (semantic,))
