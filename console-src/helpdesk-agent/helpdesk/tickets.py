@@ -11,6 +11,7 @@ import copy
 import json
 import os
 import re
+import tempfile
 import threading
 import sqlite3
 from contextlib import contextmanager
@@ -345,12 +346,23 @@ def _atomic_write_text(path, text: str) -> None:
     """Write text to path via tmp + os.replace so readers never see a torn file.
 
     Same pattern as export_projection.py / export_shop_rail.py; a crash or
-    concurrent reader mid-write must not corrupt the legacy JSON state.
+    concurrent reader mid-write must not corrupt the legacy JSON state. The
+    tmp name is unique per call (two writers sharing a legacy JSON path must
+    not clobber each other's tmp) and adopts the existing file's mode so a
+    0600 state file can't get relaxed to the umask default by the replace.
     """
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(text)
-    os.replace(tmp, path)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        try:
+            os.chmod(tmp_name, os.stat(path).st_mode & 0o777)
+        except FileNotFoundError:
+            pass  # first write: keep mkstemp's private 0600
+        os.replace(tmp_name, path)
+    except BaseException:
+        os.unlink(tmp_name)
+        raise
 
 
 def _dedupe_key_to_list(key: tuple) -> list:
