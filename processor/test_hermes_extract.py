@@ -261,6 +261,21 @@ class SideEffectSafetyTests(unittest.TestCase):
         self.assertTrue(result["notify_owner"])
         self.assertEqual(result["priority"], "high")
 
+    def test_braced_reason_with_trailing_text_yields_one_full_verdict(self):
+        # Braces inside a JSON string plus non-JSON text after the object on
+        # the same line: exactly one valid block, and the reason survives intact.
+        output = (
+            _verdict(reason="use {size} from order {123} not {id} — see {policy}")
+            + " trailing words after the object"
+        )
+        blocks, marker_count, _echoes = _valid_verdicts(output, None, TOKEN)
+        self.assertEqual(marker_count, 1)
+        self.assertEqual(len(blocks), 1)
+        result = _parse_json_result(output, None, TOKEN)
+        self.assertEqual(
+            result["reason"], "use {size} from order {123} not {id} — see {policy}"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
