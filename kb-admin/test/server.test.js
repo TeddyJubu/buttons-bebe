@@ -220,3 +220,16 @@ test("interrupted atomic publication preserves old document and file mode",()=>{
   assert.equal(fs.statSync(fp).mode & 0o777,0o640);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test("saves back up into KB/.backups/ with a bounded ring, not beside documents",async(t)=>{
+ const {baseUrl,kb}=await startServer(t);
+ const fp=path.join(kb,'intents','shipping.md');
+ for(let i=0;i<25;i+=1)
+  await fetch(baseUrl+'/save',{method:'POST',body:JSON.stringify({path:'intents/shipping.md',content:'rev '+i})});
+ const docDir=fs.readdirSync(path.join(kb,'intents'));
+ assert.equal(docDir.some(name=>name.includes('.bak-')),false);      // old behavior: sibling backups
+ const ring=fs.readdirSync(path.join(kb,'.backups')).filter(name=>name.startsWith('intents__shipping.md.bak-'));
+ assert.equal(ring.length,20);                                       // retention cap holds
+ assert.ok(ring.every(name=>fs.statSync(path.join(kb,'.backups',name)).size>0));
+ assert.equal(fs.readFileSync(fp,'utf8'),'rev 24');                  // publication unaffected
+});

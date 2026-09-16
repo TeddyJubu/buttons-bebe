@@ -36,6 +36,22 @@ function safePath(p) {
   } catch (_) { return null; }
   return candidate;
 }
+const BACKUP_DIR = path.join(KB, ".backups");
+const BACKUP_KEEP = 20;
+// Backups live in KB/.backups/, not beside the documents: dot-prefix keeps them
+// invisible to the indexer and /list, and the ring caps unbounded growth.
+function backupFile(fp) {
+  const rel = path.relative(KB, fp).split(path.sep).join("/");
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const backup = path.join(BACKUP_DIR, `${rel.replace("/", "__")}.bak-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  fs.copyFileSync(fp, backup, fs.constants.COPYFILE_EXCL);
+  const backupFd = fs.openSync(backup, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { fs.fsyncSync(backupFd); } finally { fs.closeSync(backupFd); }
+  const prefix = `${rel.replace("/", "__")}.bak-`;
+  const ring = fs.readdirSync(BACKUP_DIR).filter((n) => n.startsWith(prefix)).sort();
+  while (ring.length > BACKUP_KEEP) fs.unlinkSync(path.join(BACKUP_DIR, ring.shift()));
+  return backup;
+}
 function atomicSave(fp, content) {
   const rel=path.relative(KB,fp).split(path.sep).join("/");
   if(safePath(rel)!==fp)throw new Error("unsafe KB path");
@@ -48,12 +64,7 @@ function atomicSave(fp, content) {
     fs.fchmodSync(fd,mode);
     fs.writeFileSync(fd,content,"utf8");fs.fsyncSync(fd);fs.closeSync(fd);fd=undefined;
     if(safePath(rel)!==fp)throw new Error("KB path changed during save");
-    if(existing){
-      const backup=fp+".bak-"+Date.now()+"-"+Math.random().toString(16).slice(2);
-      fs.copyFileSync(fp,backup,fs.constants.COPYFILE_EXCL);
-      const backupFd=fs.openSync(backup,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
-      try {fs.fsyncSync(backupFd);} finally {fs.closeSync(backupFd);}
-    }
+    if(existing) backupFile(fp);
     if(existing)fs.renameSync(tmp,fp);
     else {fs.linkSync(tmp,fp);fs.unlinkSync(tmp);} // Exclusive new-file publication.
     const directory=fs.openSync(path.dirname(fp),fs.constants.O_RDONLY);
@@ -157,10 +168,6 @@ function readNotices(strict) {
   if (strict && valid.length !== d.length) throw new Error("notice store contains malformed entries");
   return valid;
 }
-function loadNotices() {
-  try { return readNotices(false); }
-  catch (e) { return []; }
-}
 function loadNoticesStrict() {
   return fs.existsSync(NOTICES_FILE) ? readNotices(true) : [];
 }
@@ -251,6 +258,8 @@ const server = http.createServer((req, res) => {
       try {
         if (d.content != null && typeof d.content !== "string") return send(res,400,{error:"content must be text"});
         atomicSave(fp,d.content || "");
+        // One-line audit per write: goes to journald via stdout (08-5/R4).
+        console.log(JSON.stringify({ event: "kb-save", path: rel, size: Buffer.byteLength(d.content || ""), ts: new Date().toISOString() }));
         return send(res, 200, { ok: true, path: rel });
       } catch (e) { return send(res, 500, { error: String(e) }); }
     });
