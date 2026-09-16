@@ -332,6 +332,60 @@ class SendReplyTests(unittest.TestCase):
         self.assertIn("email", route_label({"source": "agentmail", "fromEmail": "a@b.c"}))
 
 
+class GorgiasApiAdapterTests(unittest.TestCase):
+    """Direct adapter tests — offline; the bridge stays dormant unless flagged."""
+
+    def setUp(self) -> None:
+        os.environ["GORGIAS_SUBDOMAIN"] = "demo"
+        os.environ["GORGIAS_API_EMAIL"] = "agent@example.com"
+        os.environ["GORGIAS_API_KEY"] = "key"
+        os.environ["GORGIAS_BRIDGE_ENABLED"] = "1"
+
+    def tearDown(self) -> None:
+        for key in ("GORGIAS_SUBDOMAIN", "GORGIAS_API_EMAIL", "GORGIAS_API_KEY", "GORGIAS_BRIDGE_ENABLED"):
+            os.environ.pop(key, None)
+
+    def test_body_html_matches_production_escaping(self) -> None:
+        import html as html_mod
+
+        import bridge.gorgias_api as api
+
+        captured = {}
+        fake_message = {"data": [
+            {"from_agent": False, "channel": "email", "sender": {"email": "cust@example.com"}}]}
+
+        def fake_request(method, path, *, body=None, retries=1):
+            if "limit=" in path:
+                return fake_message
+            if method == "POST" and path == "/tickets/4242/messages":
+                captured["body"] = body
+                return {"id": 4243}
+            if path == "/tickets/4242/messages/4243":
+                return {"id": 4243, "sent_datetime": "2026-09-17T00:00:00Z"}
+            raise AssertionError(f"unexpected _request call {method} {path}")
+
+        with patch("helpdesk.send_access.send_access_enabled", lambda: True), \
+             patch.object(api, "_request", side_effect=fake_request):
+            result = api.send_public_reply("4242", "R&D <ship> & go\nline two")
+        text = "R&D <ship> & go\nline two"
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(captured["body"]["body_html"], html_mod.escape(text).replace("\n", "<br>"))
+
+    def test_unreachable_api_raises_structured_runtime_error(self) -> None:
+        import urllib.error
+
+        import bridge.gorgias_api as api
+
+        def raise_urlerror(*args, **kwargs):
+            raise urllib.error.URLError("connect EPERM")
+
+        with patch("urllib.request.urlopen", side_effect=raise_urlerror):
+            with self.assertRaises(RuntimeError) as ctx:
+                api._request("GET", "/tickets/1")
+        self.assertIn("unreachable", str(ctx.exception))
+        self.assertNotIsInstance(ctx.exception, urllib.error.URLError)
+
+
 class LiveToolCountTests(unittest.TestCase):
     def test_seventeen_live_tools(self) -> None:
         self.assertEqual(len(TOOL_NAMES), 17)
