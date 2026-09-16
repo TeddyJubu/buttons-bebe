@@ -29,8 +29,7 @@ _DATABASE_NAMES = {"dashboard_ticket_exists", "enqueue_job", "get_dashboard_tick
 _CONSOLE_NAMES = {"_GClient", "_HERMES_BIN", "_HERMES_HOME", "_HERMES_IGNORE_RULES",
                   "_HERMES_PROFILE", "_HERMES_REWRITE_TOOLSETS", "_SUPPORT_STORE_NAME",
                   "_asyncio", "_ledger", "_record_lesson", "action_note", "action_rewrite",
-                  "action_send", "learning_stats", "review_approve", "review_list",
-                  "review_packet", "review_reindex", "review_reject"}
+                  "action_send", "learning_stats"}
 _DASHBOARD_NAMES = {"dashboard_messages", "dashboard_stats", "dashboard_tickets_api",
                     "record_result_api"}
 _NOTIFICATION_NAMES = {"_NOTIFICATION_READ_STATE_KEY", "_current_notifications",

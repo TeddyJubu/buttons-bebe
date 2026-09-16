@@ -203,6 +203,10 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 - `processor/feedback_collector.py` — superseded poller; rollback only via
   `FEEDBACK_LEGACY_OPT_IN=1` for a bounded test.
 - `processor/gorgias_writer.py` — dormant (§4).
+- Legacy v1 human gate (`kb/scripts/review_learned.py`, `feedback/review.py`,
+  console `/dashboard/api/review/*`) — **deleted 2026-09-17** (Wave 3.10, owner
+  decision). It operated on `ticket-*.md` packets nothing writes; live writes
+  `lesson-*.md` and promotes nightly (§11). History in git.
 
 **Doc trust order:** this file (sole root source of truth) → `HANDOVER/`
 (good onboarding, but dated 2026-07-13 *before* the Fable port: its

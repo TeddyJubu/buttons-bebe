@@ -21,3 +21,4 @@ them without revisiting the safety model.
 | `processor/gorgias_writer.py` | Retired, fail-closed (import raises unless `BUTTONSBEBE_ALLOW_GORGIAS_WRITER=1`). Live Gorgias writes are human-gated via `webhook/src/bb_webhook/gorgias_client.py`. |
 | `processor/feedback_collector.py` | Superseded poller; rollback only via `FEEDBACK_LEGACY_OPT_IN=1` for a bounded test. Live learning path is `webhook/.../learning.py`. |
 | `processor/classifier_shim.py` | Renamed shim; canonical classifier is `processor/classifier/`. Exists for parity-history lookup only. |
+| `kb/scripts/review_learned.py` + `feedback/review.py` + console `/dashboard/api/review/*` (+ `webhook/test_legacy_review_auth.py`) | Legacy v1 human gate on extinct `ticket-*.md` packets (live writes `lesson-*.md`, nightly auto-promotion). **Deleted 2026-09-17** (Wave 3.10, owner decision "retire all three"); history in git. |
