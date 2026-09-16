@@ -84,6 +84,34 @@ class GorgiasClientSendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["sender"], {"email": "agent@buttonsbebe.com"})
         self.assertEqual(payload["source"]["from"]["address"], "support@buttonsbebe.com")
 
+    async def test_history_429_then_200_sends_with_two_gets(self) -> None:
+        # 3.4: the extracted _request helper keeps the 429-then-success policy.
+        class FlakyHistory(_FakeAsyncClient):
+            def __init__(self, **kwargs: object) -> None:
+                super().__init__(**kwargs)
+                self.attempts = 0
+
+            async def get(self, url: str, **kwargs: object) -> httpx.Response:
+                if url.endswith("/api/messages"):
+                    self.attempts += 1
+                    if self.attempts == 1:
+                        self.calls.append(("GET", url, kwargs))
+                        return httpx.Response(429, headers={"Retry-After": "0"}, request=httpx.Request("GET", url))
+                    return await _FakeAsyncClient.get(self, url, **kwargs)
+                return await super().get(url, **kwargs)
+
+        FlakyHistory.calls = []
+        with patch("bb_webhook.gorgias_client.get_settings", return_value=SimpleNamespace(demo_mode=False)), patch("bb_webhook.gorgias_client.httpx.AsyncClient", FlakyHistory), patch("bb_webhook.gorgias_client.asyncio.sleep", return_value=None):
+            result = await GorgiasClient(
+                subdomain="buttons-bebe",
+                email="agent@buttonsbebe.com",
+                api_key="test-key",
+                base_url="https://buttons-bebe.gorgias.com",
+            ).send_public_reply(123, "Your order is on the way.")
+        self.assertEqual(result["delivery_status"], "sent")
+        gets = [call for call in FlakyHistory.calls if call[0] == "GET" and call[1].endswith("/api/messages")]
+        self.assertEqual(len(gets), 2)
+
     async def test_recipient_or_source_change_fails_before_post(self):
         for expected in ({"expected_recipient": "different@example.com"}, {"expected_source_message_id": "45"}):
             _FakeAsyncClient.calls=[]
