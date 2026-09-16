@@ -8,25 +8,26 @@ from unittest.mock import patch
 import httpx
 
 from bb_webhook import app as app_module
-from bb_webhook.middleware.rate_limit import SlidingWindowRateLimiter
+from bb_webhook.middleware import rate_limit
 
 
-class SlidingWindowRateLimiterTests(unittest.TestCase):
+class CheckRateLimitTests(unittest.TestCase):
+    def setUp(self) -> None:
+        rate_limit._rate_window.clear()
+
     def test_window_expires_and_other_ips_are_independent(self) -> None:
         now = [100.0]
-        limiter = SlidingWindowRateLimiter(
-            max_requests=2,
-            window_seconds=10.0,
-            clock=lambda: now[0],
-        )
+        with patch.object(rate_limit.time, "monotonic", lambda: now[0]):
+            self.assertTrue(rate_limit._check_rate_limit("198.51.100.10", max_requests=2))
+            self.assertTrue(rate_limit._check_rate_limit("198.51.100.10", max_requests=2))
+            self.assertFalse(rate_limit._check_rate_limit("198.51.100.10", max_requests=2))
+            self.assertTrue(rate_limit._check_rate_limit("198.51.100.11", max_requests=2))
 
-        self.assertTrue(limiter.allow("198.51.100.10"))
-        self.assertTrue(limiter.allow("198.51.100.10"))
-        self.assertFalse(limiter.allow("198.51.100.10"))
-        self.assertTrue(limiter.allow("198.51.100.11"))
+            now[0] = 160.01
+            self.assertTrue(rate_limit._check_rate_limit("198.51.100.10", max_requests=2))
 
-        now[0] = 110.01
-        self.assertTrue(limiter.allow("198.51.100.10"))
+    def test_zero_limit_fails_closed(self) -> None:
+        self.assertFalse(rate_limit._check_rate_limit("198.51.100.10", max_requests=0))
 
 
 class RateLimitRouteTests(unittest.IsolatedAsyncioTestCase):
