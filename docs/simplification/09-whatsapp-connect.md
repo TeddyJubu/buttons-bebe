@@ -90,16 +90,17 @@ vs other modules:
 
 ## Reliability risks
 
-**Status (2026-09-16, after Wave 1 of this plan landed in PR #28): R2, R3 and
-the reachable-cap half of R1 shipped — `state` regresses to `"connecting"` on
-non-loggedOut close; the reconnect loop resets its failure counter only on a
-live `connection === "open"` and reschedules itself after a failed attempt
-(so the counter is now a reachable cap that hands control back to systemd's
-`Restart=on-failure`); `sendWithRetry` clamps its sleeps to the advertised
-`maxWaitMs` deadline and never sleeps past it. R1's durable spool and R4–R7
-are still open. The row-429 / `server.js` line numbers below are the
-pre-Wave-1 snapshot and now drift; re-check against the file before citing
-them.**
+**Status (2026-09-16, after Wave 1 of this plan landed in PR #28): R1's
+hold-and-retry, R2 and R3 all shipped — the `/send` handler retries retryable
+reconnect failures within its window (and `sendWithRetry` now clamps every
+sleep to the advertised `maxWaitMs` deadline and rechecks before the next
+attempt); `state` regresses to `"connecting"` on non-loggedOut close; the
+reconnect loop resets its failure counter only on a live
+`connection === "open"` and reschedules itself after a failed attempt (so
+the cap is reachable and hands control back to systemd's
+`Restart=on-failure`). R1's optional durable spool and R4–R7 are still open.
+The row-429 / `server.js` line numbers below are the pre-Wave-1 snapshot and
+now drift; re-check against the file before citing them.**
 
 R1 — **Alert lost to a Baileys reconnect window (alert-loss first).**
 Scenario: notifier itself documents that the bridge "disconnects and
