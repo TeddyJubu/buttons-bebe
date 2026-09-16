@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import shlex
 import socket
 import subprocess
 import sys
@@ -98,7 +99,10 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
     def test_real_production_runner_prompt_and_extraction_are_used(self):
         executable=self.root/"synthetic-hermes"
-        executable.write_text('#!'+sys.executable+'''\nimport sys,re,json
+        # A shebang cannot quote; the space in this repo's directory name splits
+        # it. exec via /bin/sh so shlex.quote can handle the interpreter path.
+        # "exec" stays the sh builtin but parses as a string expression in Python.
+        executable.write_text('#!/bin/sh\n"exec" '+shlex.quote(sys.executable)+' "$0" "$@"'+'''\nimport sys,re,json
 assert '--yolo' not in sys.argv
 import os
 assert os.environ['HERMES_HOME']==os.environ['HOME']+'/.hermes'
