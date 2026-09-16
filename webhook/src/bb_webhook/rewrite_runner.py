@@ -9,6 +9,12 @@ import signal
 
 from processor.draft_cleaner import clean_draft
 
+try:  # processor/ on sys.path (VPS webhook unit) — shared marker contract (3.2)
+    from processor.hermes_runner.prompt import neutralize_draft_tags
+except ImportError:  # pragma: no cover - webhook venv: namespace pkg, no flat deps
+    def neutralize_draft_tags(text: str) -> str:
+        return re.sub(r"</?DRAFT[^>]*>", "[untrusted draft marker]", str(text or ""), flags=re.I)
+
 _slots = asyncio.Semaphore(1)
 
 
@@ -19,7 +25,8 @@ class RewriteFailure(Exception):
 
 
 def neutralize(text):
-    return re.sub(r'</?DRAFT[^>]*>', '[untrusted draft marker]', text, flags=re.I)
+    # ponytail: marker contract shared with hermes_runner (3.2); regex lives there.
+    return neutralize_draft_tags(text)
 
 
 def validated_reply(output: bytes, token: str) -> str:

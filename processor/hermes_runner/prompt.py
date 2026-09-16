@@ -8,21 +8,31 @@ from .constants import _make_run_token
 
 
 # ADR-015 §2.4 — neutralize input markers; token auth covers echoed tool text.
+# ponytail: marker contract lives here; webhook neutralize() reuses it (3.2).
+# Precompiled once — the old per-call re.compile relied on re's cache doing it anyway.
 _MARKER_SUBSTITUTIONS = (
-    ("JSON_RESULT", "JSON-RESULT"),
-    ("<DRAFT>", "[DRAFT]"),
-    ("</DRAFT>", "[/DRAFT]"),
-    ("AGENT NOTE", "AGENT-NOTE"),
+    (re.compile(re.escape("JSON_RESULT"), re.IGNORECASE), "JSON-RESULT"),
+    (re.compile(re.escape("<DRAFT>"), re.IGNORECASE), "[DRAFT]"),
+    (re.compile(re.escape("</DRAFT>"), re.IGNORECASE), "[/DRAFT]"),
+    (re.compile(re.escape("AGENT NOTE"), re.IGNORECASE), "AGENT-NOTE"),
 )
+
+_DRAFT_TAG_RE = re.compile(r"</?DRAFT[^>]*>", re.IGNORECASE)
 
 
 def _neutralise_markers(text: str) -> str:
     """Defang processor control markers in untrusted ticket text."""
 
     out = str(text or "")
-    for marker, replacement in _MARKER_SUBSTITUTIONS:
-        out = re.compile(re.escape(marker), re.IGNORECASE).sub(replacement, out)
+    for pattern, replacement in _MARKER_SUBSTITUTIONS:
+        out = pattern.sub(replacement, out)
     return out
+
+
+def neutralize_draft_tags(text: str, *, _tag_re=_DRAFT_TAG_RE) -> str:
+    """Strip forged <DRAFT...> tags from untrusted rewrite inputs (webhook layer)."""
+
+    return _tag_re.sub("[untrusted draft marker]", str(text or ""))
 
 
 def _build_prompt(

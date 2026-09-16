@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
+from draft_cleaner import SENSITIVE_DRAFT_PREFIX
 from shared.priority import RANK
 
 
@@ -47,7 +48,7 @@ _FALLBACK_RESULT: dict[str, Any] = {
     "gorgias_priority_set": False,
     "note_posted": False,
     "draft_text": (
-        "[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]\n\n"
+        f"{SENSITIVE_DRAFT_PREFIX}\n\n"
         "Thanks for your message. I don’t have a confirmed answer to share yet."
     ),
 }
