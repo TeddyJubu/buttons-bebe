@@ -500,7 +500,7 @@ function render(){
        <button class="head-logout" id="header-logout" type="button">Sign out</button>
        <button class="head-avatar" id="header-settings" aria-label="Open settings">B</button>
       </div></header>
-    <div class="wrap" tabindex="0" aria-label="Dashboard content"><div class="t-panel-slide" data-open="false">${loadFailed?errorBanner():""}${view()}</div></div>
+    <div class="wrap" tabindex="0" aria-label="Dashboard content"><div class="t-panel-slide" data-open="false">${(loadFailed||sessionExpired)?errorBanner():""}${view()}</div></div>
   </div>`;
  const status=document.getElementById("app-status");if(status){status.textContent="";requestAnimationFrame(()=>{status.textContent=liveMessage();});}
  const openTab=k=>{tab=k;openTk=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
