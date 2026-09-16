@@ -159,9 +159,10 @@ dead once rotated.)
 
 Only after every service has been green for 24 hours:
 
-- Remove the `.env` bullet from **`CLAUDE.md` → Known limitations**.
-- Update `CLAUDE.md` §"Where things live" to list one `.env`, not two.
-- Update `AGENTS.md` and `HANDOVER/02-live-architecture.md` §271 the same way.
+- Remove the legacy-`webhook/.env` bullet from **`AGENTS.md` §7**.
+- Update `AGENTS.md` to list one `.env`, not two.
+- Note the same in `HANDOVER/02-live-architecture.md` §271 (historical doc —
+  annotate, don't rewrite).
 - Note the rotation date in `DEV-ISSUES.md` #9 and mark it resolved.
 
 ---

@@ -1,11 +1,13 @@
 # AGENTS.md — Buttons Bebe AI Support Agent
 
-> Reflects the live system as of **2026-07-14**. `CLAUDE.md` is the co-source of
-> truth for deep architecture; this file is the operational map for agents.
-> Any doc describing `/root/gorgias-webhook`, "shadow mode", Supermemory/ChromaDB,
-> an 8-tool `hermes-tools-mcp`, or the "Mimo" model describes a **retired** system
-> (box wiped & rebuilt 2026-07-06). `_VPS-FULL-BACKUP-20260706/` holds plaintext
-> secrets — gitignored, never commit or restore from it.
+> Reflects the live system as of **2026-07-14**. This file is the sole root
+> source of truth (`CLAUDE.md` was merged into it and removed on 2026-09-16 —
+> its KB/locks, learning-loop, and Fable-port background sections now live in
+> §11–§12 below). Any doc describing `/root/gorgias-webhook`, "shadow mode",
+> Supermemory/ChromaDB, an 8-tool `hermes-tools-mcp`, or the "Mimo" model
+> describes a **retired** system (box wiped & rebuilt 2026-07-06).
+> `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
+> commit or restore from it.
 
 ## 1. What & why
 
@@ -20,6 +22,8 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    returns draft text.
 2. Hermes + its three MCP tools are strictly READ-ONLY (Gorgias read, Redo
    read, KB search). No credential loading, no direct API/curl fallbacks.
+   Shopify, Redo, and normal Gorgias access are read-only everywhere; the only
+   external writes are the human-initiated Gorgias send/note actions in (3).
 3. The only external writes are human-triggered console actions:
    `POST /dashboard/api/ticket/{id}/send|note|rewrite` on the webhook app
    (:8000). Publicly reached through the standalone `/console/login` page and
@@ -58,9 +62,9 @@ Gorgias webhook
   → HUMAN clicks Send reply / Draft as internal note / Request edit (or ignores)
 ```
 
-- Hermes always reports `gorgias_priority_set=false`, `note_posted=false`. The
-  processor may WhatsApp-alert the owner for HIGH/CRITICAL work but never
-  writes Gorgias.
+- Hermes returns the draft plus a `JSON_RESULT` and always reports
+  `gorgias_priority_set=false`, `note_posted=false`. The processor may
+  WhatsApp-alert the owner for HIGH/CRITICAL work but never writes Gorgias.
 - `processor/gorgias_writer.py` still defines `post_internal_note()` but
   nothing calls it — dormant. Do not re-wire without revisiting the safety
   model.
@@ -69,9 +73,11 @@ Gorgias webhook
   `<DRAFT>` blocks are neutralised and fail closed. Don't loosen casually.
 - Toolsets are an explicit allow-list (`HERMES_TOOLSETS` in
   `processor/config.py`, built in `build_hermes_command()`), never `--yolo`
-  (`HERMES_SKIP_APPROVAL=1` is a temporary unblock only). A misspelled
-  toolset name silently drops the tool instead of erroring — run
-  `tools/verify_hermes_toolset.sh` on the VPS after changing either.
+  (`HERMES_SKIP_APPROVAL=1` is a temporary unblock only). The `terminal` and
+  `file` toolsets are out of scope, so there is nothing dangerous left to
+  auto-approve. A misspelled toolset name silently drops the tool instead of
+  erroring — run `tools/verify_hermes_toolset.sh` on the VPS after changing
+  either.
 
 ## 5. Components (repo dirs)
 
@@ -106,12 +112,12 @@ Gorgias webhook
 
 Caddy (`deploy/caddy/Caddyfile.redacted` is the only supported source;
 `webhook/Caddyfile` is marked RETIRED): session-protected console at
-`/console/*` (rewritten internally to `/dashboard/api/*`; `/console/kbapi` →
-:8087, `/console/waapi` → :8085). `/console/login` and
-`/console/api/auth/*` are the only public console bootstrap paths; all console
-data and mutation routes require the signed session cookie. The other public
-allowlist is `/webhook/gorgias/*`, `/health`, `/ready`, and
-`/connect-whatsapp/*`; everything else 404s.
+`https://srv1766050.hstgr.cloud/console/` (`/console/*`, rewritten internally
+to `/dashboard/api/*`; `/console/kbapi` → :8087, `/console/waapi` → :8085).
+`/console/login` and `/console/api/auth/*` are the only public console
+bootstrap paths; all console data and mutation routes require the signed
+session cookie. The other public allowlist is `/webhook/gorgias/*`,
+`/health`, `/ready`, and `/connect-whatsapp/*`; everything else 404s.
 
 ## 7. Credentials
 
@@ -125,7 +131,10 @@ token); Gorgias = Basic (email + API key); Redo = Bearer. The console uses
 `CONSOLE_PASSWORD_HASH` (PBKDF2) and `CONSOLE_SESSION_SECRET` from the root
 `.env`; never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes
 skills never read env files — the authenticated MCP services are their only
-runtime data path.
+runtime data path. No secret has ever been committed to git (full-history
+token-prefix scan, 2026-07-29); what remains is VPS-side: merging the
+leftover `webhook/.env` and rotating the credentials sitting in plaintext in
+`_VPS-FULL-BACKUP-20260706/` — see `deploy/ENV-CONSOLIDATION-RUNBOOK.md`.
 
 ## 8. Verify before pushing — CI auto-deploys `main`
 
@@ -195,12 +204,56 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
   `FEEDBACK_LEGACY_OPT_IN=1` for a bounded test.
 - `processor/gorgias_writer.py` — dormant (§4).
 
-**Doc trust order:** `CLAUDE.md` ≈ this file → `HANDOVER/` (good onboarding,
-but dated 2026-07-13 *before* the Fable port: its "webhook/processor source is
-not in the repo" claims are outdated) → `PORTFROMFABLETASKLIST.md`,
-`IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md` (context). **Superseded — do not
-implement from:** `INCONSISTENCIES.md`, `DEV-ISSUES.md`. **Stale layout:**
-root `README.md` (describes the retired `gorgias-webhook/` + `teddy/` design).
+**Doc trust order:** this file (sole root source of truth) → `HANDOVER/`
+(good onboarding, but dated 2026-07-13 *before* the Fable port: its
+"webhook/processor source is not in the repo" claims are outdated) →
+`PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
+(context; see §12). **Superseded — do not implement from:**
+`INCONSISTENCIES.md`, `DEV-ISSUES.md`. **Stale layout:** root `README.md`
+(describes the retired `gorgias-webhook/` + `teddy/` design).
+
+## 11. Knowledge base & learning loop (deep details)
+
+Live KB root on the VPS: `/root/Buttonsbebe Agent/KB`. Sources: `intents/`,
+`faq/`, `policies/`, `tickets/`, `products/`, plus lower-trust Shopify
+platform background in `shopify/`. Index: LanceDB hybrid vector + FTS search.
+
+- Product source is the active Shopify catalog, refreshed daily by
+  `buttonsbebe-kb-sync.timer`. Product sync stages and validates the catalog,
+  holds the sync/index locks through rebuild, restores the previous corpus on
+  failure, and promotes a new index only after exact content validation.
+- Search readers hold a shared promotion lock, so they see the previous or the
+  new complete index, never a partial swap.
+- `learned/` stores raw console lessons and is never indexed. Every human
+  console action writes a unique `lesson-*.md` packet and updates the learning
+  ledger under a lock. At 03:30 UTC, `buttonsbebe-kb-learn.timer` masks known
+  names and identifier patterns, promotes distinct `source: learned-auto`
+  exemplars to `tickets/`, and rebuilds the KB. PII masking is best-effort;
+  generated exemplars remain reviewable and purgeable.
+- The Notice Board is a locked, immediate override layer and requires no
+  reindex. Expired notices are removed by `buttonsbebe-kb-notices-gc.timer`.
+
+## 12. Background reading (Fable port, 2026-07-29)
+
+Ported from the `Fable_buttonsbebe` branch on 2026-07-29. **Track A** in these
+documents is the live system described above; **Track B** is Fable, a
+standalone help-desk prototype that stayed on its branch and is not part of
+`main`. Treat Track B material as background, not as planned work.
+
+| Document | What it is |
+|---|---|
+| `PORTFROMFABLETASKLIST.md` | The port itself — what came across from Fable, what deliberately did not, and the status of each task. Start here. |
+| `IMPROVEMENT-PLAN.md` | The reasoning behind the reliability and quality work (draft cleaner, heartbeat, classifier coverage, one `.env`). |
+| `DESIGN-CRITIQUE.md` | Code-level review of the console and the old dashboard. |
+| `TESTING-READINESS.md` | Defines "ready to ship": a clean 48-scenario run is the gate before any live change. |
+| `Buttons-Bebe-Competitive-Brief.html` | Point-in-time market snapshot. Background only. |
+| `testing/TEST-PLAN.md` · `testing/HOW-TO-RUN.md` | The 48 scenarios, the A–E rubric, and how to run them against the live model. |
+| `deploy/HEARTBEAT-INSTALL.md` | Installing the dead-man's switch on the VPS. |
+| `deploy/ENV-CONSOLIDATION-RUNBOOK.md` | Merging the two `.env` files and rotating secrets. VPS work, not yet done. |
+
+Deliberately **not** ported: `SPRINT-2-PLAN.md` and `CONTINUE-HERE.md` are
+finished-sprint logs specific to the Fable branch — on `main` they would read
+as current work.
 
 ## Learned User Preferences
 
