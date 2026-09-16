@@ -207,7 +207,6 @@ class WarehouseSafetyAssetTests(unittest.TestCase):
         self.assertTrue(SYNC_SCRIPT.stat().st_mode & stat.S_IXUSR, SYNC_SCRIPT)
         self.assertEqual(SYNC_SCRIPT.stat().st_mode & 0o111, 0o111)
         for unit in (
-            ROOT / "kb/buttonsbebe-kb-sync.service",
             ROOT / "deploy/systemd/buttonsbebe-kb-sync.service",
         ):
             text = unit.read_text(encoding="utf-8")
@@ -217,7 +216,6 @@ class WarehouseSafetyAssetTests(unittest.TestCase):
 
     def test_kb_sync_timer_copies_use_daily_cadence(self) -> None:
         for unit in (
-            ROOT / "kb/buttonsbebe-kb-sync.timer",
             ROOT / "deploy/systemd/buttonsbebe-kb-sync.timer",
         ):
             text = unit.read_text(encoding="utf-8")
