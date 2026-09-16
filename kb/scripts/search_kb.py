@@ -18,7 +18,7 @@ from contextlib import contextmanager
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lancedb
-from kb_lib import CATEGORY_WEIGHT, DB_DIR, TABLE, embed_query
+from kb_lib import CATEGORY_WEIGHT, DB_DIR, PROMOTE_LOCK_PATH, TABLE, embed_query
 
 try:
     # Notice Board: owner-posted overrides that ride on top of every search.
@@ -90,7 +90,7 @@ def _diversify_by_file(ranked: list[tuple[str, float]], info: dict[str, dict], k
 @contextmanager
 def _index_read_lock():
     """Prevent a search from observing the brief staged-index promotion gap."""
-    path = DB_DIR.parent / ".index_kb.promote.lock"
+    path = PROMOTE_LOCK_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)

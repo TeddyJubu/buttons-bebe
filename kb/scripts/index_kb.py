@@ -19,7 +19,7 @@ from contextlib import contextmanager
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lancedb
-from kb_lib import DB_DIR, TABLE, KBChunk, load_rows, embed_passages
+from kb_lib import DB_DIR, PROMOTE_LOCK_PATH, TABLE, KBChunk, load_rows, embed_passages
 
 LOCK_PATH = DB_DIR.parent / ".index_kb.lock"
 CONTENT_FIELDS = (
@@ -59,7 +59,7 @@ def _index_lock():
 @contextmanager
 def _promotion_lock():
     """Keep readers off the index only for the brief directory swap."""
-    path = DB_DIR.parent / ".index_kb.promote.lock"
+    path = PROMOTE_LOCK_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)

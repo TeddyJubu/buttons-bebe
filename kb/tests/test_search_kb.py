@@ -13,6 +13,7 @@ fake_lancedb = sys.modules.setdefault("lancedb", types.ModuleType("lancedb"))
 fake_lancedb.connect = None
 fake_kb_lib = sys.modules.setdefault("kb_lib", types.ModuleType("kb_lib"))
 fake_kb_lib.DB_DIR = Path("/tmp/buttonsbebe-search-test")
+fake_kb_lib.PROMOTE_LOCK_PATH = fake_kb_lib.DB_DIR.parent / ".index_kb.promote.lock"
 fake_kb_lib.TABLE = "kb"
 fake_kb_lib.embed_query = lambda _query: [0.1]
 fake_kb_lib.CATEGORY_WEIGHT = {

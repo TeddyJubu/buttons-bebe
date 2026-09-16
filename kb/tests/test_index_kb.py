@@ -15,6 +15,7 @@ fake_lancedb.connect = None
 sys.modules.setdefault("lancedb", fake_lancedb)
 fake_kb_lib = types.ModuleType("kb_lib")
 fake_kb_lib.DB_DIR = Path("/tmp/buttonsbebe-index-test")
+fake_kb_lib.PROMOTE_LOCK_PATH = fake_kb_lib.DB_DIR.parent / ".index_kb.promote.lock"
 fake_kb_lib.TABLE = "kb"
 fake_kb_lib.KBChunk = object
 fake_kb_lib.load_rows = None
