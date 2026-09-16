@@ -233,6 +233,71 @@ def draft_for_request_type(request_type: str, name: str) -> str | None:
     return None
 
 
+# ponytail: one canonical copy each — scenario table and keyword fallbacks share these.
+_CANADA_CATALOG_TEMPLATE = (
+    "Hi {name} — Yes, we ship the demo catalog to Canada. International rates show at "
+    "checkout; any customs or import duties are the customer’s responsibility. I cannot "
+    "promise a carrier delivery date from this chat. Let me know if you need anything else."
+)
+_DAMAGE_UNKNOWN_ORDER_TEMPLATE = (
+    "Hi {name} — {photo_bit}I am sorry it arrived that way. "
+    "Reply with your order number (like #1001) so I can look this up, and we will sort next "
+    "steps from here. I will not refund from this chat. Let me know if you need anything else."
+)
+
+# ponytail: adding a demo scenario is a table row, not a new elif.
+# (ids, default order ref, template using any of {name}/{looked}/{money}/{ship}/{photo_bit})
+_SCENARIO_TEMPLATES: tuple[tuple[frozenset[str], str, str], ...] = (
+    (frozenset({"t-demo-04-return"}), "#1003", (
+        "Hi {name} — I looked at {looked}. To start a return on the merino throw, reply with "
+        "the item name and whether tags are still on, and we will walk you through the return "
+        "portal steps from here. A prepaid label is not automatic — once the return is set up, "
+        "we will confirm whether a label is included or you need to buy postage. I will not "
+        "refund or cancel from this chat. Let me know if you need anything else."
+    )),
+    (frozenset({"t-demo-05-cancel"}), "#1001", (
+        "Hi {name} — I looked at {looked}. It is {money} and {ship}, so it has not been "
+        "handed to a carrier yet. I see you asked to cancel because of the wrong size. I will "
+        "not cancel or refund from here — a teammate needs to review the hold before anything "
+        "changes. I will write back once that review is done. Let me know if you need anything else."
+    )),
+    (frozenset({"t-demo-08-canada"}), "", (
+        "Hi {name} — Yes, we can ship the Muslin Swaddle Trio to Montreal. International "
+        "shipping is offered at checkout (about $35 USD as a typical rate — please confirm the "
+        "live total before you place the order). Any customs or import duties charged in Canada "
+        "are the customer’s responsibility. I cannot promise a carrier delivery date from this "
+        "chat. Let me know if you need anything else."
+    )),
+    (frozenset({"t-demo-14-duplicate"}), "#1001", (
+        "Hi {name} — I looked at {looked}. Thanks for flagging the two bank lines that look "
+        "like this order. I am checking whether one is a pending authorization versus a second "
+        "capture. I will not refund from here — once we confirm what the bank is showing, a "
+        "teammate can advise next steps. Let me know if you need anything else."
+    )),
+    (frozenset({"t-demo-18-exchange"}), "#1003", (
+        "Hi {name} — I looked at {looked}. Happy to help with an exchange on the Organic "
+        "Cotton Bath Towel Hood for the next size. Reply with the size you want and whether "
+        "the current towel is unused with tags on, and we will outline the swap steps from "
+        "here. I will not issue a refund from this chat. Let me know if you need anything else."
+    )),
+    (frozenset({"t-demo-22-policy"}), "", (
+        "Hi {name} — For unused baby apparel with tags still on, our demo return window is "
+        "7 days after delivery for refund eligibility — the return needs a carrier scan within "
+        "that window. After that, eligible returns are usually store credit instead. Final-sale "
+        "items follow different rules. I will not process a refund from this chat; write back "
+        "with an order number if you want us to check a specific item. Let me know if you need "
+        "anything else."
+    )),
+    (frozenset({"t-demo-12-damaged-box"}), "#1004", (
+        "Hi {name} — I looked at {looked}. Thanks for the photo of the damage. I am sorry it "
+        "arrived that way. I will sort next steps from here. I will not refund from this chat. "
+        "Let me know if you need anything else."
+    )),
+    (frozenset({"t-demo-03-damaged-rattle", "t-demo-17-plush"}), "", _DAMAGE_UNKNOWN_ORDER_TEMPLATE),
+    (frozenset({"t-jordan-ship", "t-multi-snoozed"}), "", _CANADA_CATALOG_TEMPLATE),
+)
+
+
 def _scenario_draft(
     ticket_id: str,
     name: str,
@@ -242,78 +307,15 @@ def _scenario_draft(
 ) -> str | None:
     """Caduceus tone for seeded demo scenarios. Never refund/cancel/send promises."""
     oid = order_name or ""
-    money = financial or "Paid"
-    ship = fulfill or "Unfulfilled"
-
-    if ticket_id == "t-demo-04-return":
-        looked = oid or "#1003"
-        return (
-            f"Hi {name} — I looked at {looked}. To start a return on the merino throw, reply with "
-            "the item name and whether tags are still on, and we will walk you through the return "
-            "portal steps from here. A prepaid label is not automatic — once the return is set up, "
-            "we will confirm whether a label is included or you need to buy postage. I will not "
-            "refund or cancel from this chat. Let me know if you need anything else."
-        )
-    if ticket_id == "t-demo-05-cancel":
-        looked = oid or "#1001"
-        return (
-            f"Hi {name} — I looked at {looked}. It is {money} and {ship}, so it has not been "
-            "handed to a carrier yet. I see you asked to cancel because of the wrong size. I will "
-            "not cancel or refund from here — a teammate needs to review the hold before anything "
-            "changes. I will write back once that review is done. Let me know if you need anything else."
-        )
-    if ticket_id == "t-demo-08-canada":
-        return (
-            f"Hi {name} — Yes, we can ship the Muslin Swaddle Trio to Montreal. International "
-            "shipping is offered at checkout (about $35 USD as a typical rate — please confirm the "
-            "live total before you place the order). Any customs or import duties charged in Canada "
-            "are the customer’s responsibility. I cannot promise a carrier delivery date from this "
-            "chat. Let me know if you need anything else."
-        )
-    if ticket_id == "t-demo-14-duplicate":
-        looked = oid or "#1001"
-        return (
-            f"Hi {name} — I looked at {looked}. Thanks for flagging the two bank lines that look "
-            "like this order. I am checking whether one is a pending authorization versus a second "
-            "capture. I will not refund from here — once we confirm what the bank is showing, a "
-            "teammate can advise next steps. Let me know if you need anything else."
-        )
-    if ticket_id == "t-demo-18-exchange":
-        looked = oid or "#1003"
-        return (
-            f"Hi {name} — I looked at {looked}. Happy to help with an exchange on the Organic "
-            "Cotton Bath Towel Hood for the next size. Reply with the size you want and whether "
-            "the current towel is unused with tags on, and we will outline the swap steps from "
-            "here. I will not issue a refund from this chat. Let me know if you need anything else."
-        )
-    if ticket_id == "t-demo-22-policy":
-        return (
-            f"Hi {name} — For unused baby apparel with tags still on, our demo return window is "
-            "7 days after delivery for refund eligibility — the return needs a carrier scan within "
-            "that window. After that, eligible returns are usually store credit instead. Final-sale "
-            "items follow different rules. I will not process a refund from this chat; write back "
-            "with an order number if you want us to check a specific item. Let me know if you need "
-            "anything else."
-        )
-    if ticket_id == "t-demo-12-damaged-box":
-        looked = oid or "#1004"
-        return (
-            f"Hi {name} — I looked at {looked}. Thanks for the photo of the damage. I am sorry it "
-            "arrived that way. I will sort next steps from here. I will not refund from this chat. "
-            "Let me know if you need anything else."
-        )
-    if ticket_id in {"t-demo-03-damaged-rattle", "t-demo-17-plush"}:
-        return (
-            f"Hi {name} — Thanks for the photo of the damage. I am sorry it arrived that way. "
-            "Reply with your order number (like #1001) so I can look this up, and we will sort next "
-            "steps from here. I will not refund from this chat. Let me know if you need anything else."
-        )
-    if ticket_id in {"t-jordan-ship", "t-multi-snoozed"}:
-        return (
-            f"Hi {name} — Yes, we ship the demo catalog to Canada. International rates show at "
-            "checkout; any customs or import duties are the customer’s responsibility. I cannot "
-            "promise a carrier delivery date from this chat. Let me know if you need anything else."
-        )
+    for ids, default_looked, template in _SCENARIO_TEMPLATES:
+        if ticket_id in ids:
+            return template.format(
+                name=name,
+                looked=oid or default_looked,
+                money=financial or "Paid",
+                ship=fulfill or "Unfulfilled",
+                photo_bit="Thanks for the photo of the damage. ",
+            )
     return None
 
 
@@ -369,18 +371,10 @@ def fixture_draft(thread: dict[str, Any], rail: dict[str, Any]) -> str:
     if not order_name and _looks_like_damage(asked, subject):
         photos = _customer_photo_count(thread)
         photo_bit = "Thanks for the photo of the damage. " if photos else "Thanks for flagging the damage. "
-        return (
-            f"Hi {name} — {photo_bit}I am sorry it arrived that way. "
-            "Reply with your order number (like #1001) so I can look this up, and we will sort next "
-            "steps from here. I will not refund from this chat. Let me know if you need anything else."
-        )
+        return _DAMAGE_UNKNOWN_ORDER_TEMPLATE.format(name=name, photo_bit=photo_bit)
 
     if not order_name and _looks_like_canada_ship(asked, subject):
-        return (
-            f"Hi {name} — Yes, we ship the demo catalog to Canada. International rates show at "
-            "checkout; any customs or import duties are the customer’s responsibility. I cannot "
-            "promise a carrier delivery date from this chat. Let me know if you need anything else."
-        )
+        return _CANADA_CATALOG_TEMPLATE.format(name=name)
 
     sentences: list[str] = []
     if status == "closed":
