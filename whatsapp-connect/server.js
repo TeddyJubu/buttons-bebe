@@ -84,7 +84,6 @@ function destJid() {
 
 async function startSock() {
   const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  reconnectFailures = 0; // we got a socket; the previous failure recovered
   let version;
   try {
     ({ version } = await fetchLatestBaileysVersion());
@@ -114,6 +113,7 @@ async function startSock() {
     if (connection === "open") {
       state = "connected";
       qrDataUrl = null;
+      reconnectFailures = 0; // a live connection is the only proof the streak recovered
       const raw = sock.user && sock.user.id ? sock.user.id.split(":")[0] : null;
       ownerJid = raw ? `${raw}@s.whatsapp.net` : null;
       console.log("WhatsApp connected as", ownerJid);
@@ -179,6 +179,9 @@ function onReconnectFailed(e) {
     console.error(`${reconnectFailures} consecutive reconnect failures — exiting for systemd restart`);
     process.exit(1);
   }
+  // The scheduled startSock() rejected, so nothing else will retry: schedule
+  // the next attempt ourselves or the service sits in "connecting" forever.
+  setTimeout(() => startSock().catch(onReconnectFailed), 2000);
 }
 
 function forwardToHermes(text, jid) {

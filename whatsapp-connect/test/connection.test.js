@@ -38,7 +38,7 @@ test("sendWithRetry stops holding once the deadline passes and rethrows", async 
         e.retryable = true;
         throw e;
       },
-      { intervalMs: 1, maxWaitMs: 2 },
+      { intervalMs: 1, maxWaitMs: 100 },
     ),
     /no destination/,
   );

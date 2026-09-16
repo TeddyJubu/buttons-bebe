@@ -28,7 +28,11 @@ async function sendWithRetry(send, { intervalMs = 2000, maxWaitMs = 10000 } = {}
       return await send();
     } catch (e) {
       if (!e || !e.retryable || Date.now() >= deadline) throw e;
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      // Clamp: never sleep past the deadline, and recheck before the next
+      // attempt so the advertised maxWaitMs cap is actually enforced.
+      const wait = Math.min(intervalMs, deadline - Date.now());
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      if (Date.now() >= deadline) throw e;
     }
   }
 }
