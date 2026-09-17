@@ -82,7 +82,7 @@ from pathlib import Path
 import ast
 import json
 
-roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("console-src/inbox"), Path("console-src/helpdesk-agent")]
+roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("console-src/inbox"), Path("console-src/helpdesk-agent"), Path("shopify")]
 
 # Installed dependencies are not ours to syntax-check, and checking them made
 # the gate's verdict depend on which interpreter happened to run it: a local

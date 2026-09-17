@@ -1,8 +1,15 @@
 # Production operator runbook
 
-Use alongside the dated [readiness report](PRODUCTION-READINESS-2026-09-07.md).
-The report's pending fields must be filled by the root reviewer; this document
-is a procedure, not evidence that each operation is already installed or enabled.
+This is the live operator procedure. The dated [readiness report](PRODUCTION-READINESS-2026-09-07.md)
+and the [CD unblock record](CD-UNBLOCK-2026-09-15.md) are archived incident
+records; their pending fields are not evidence that anything is installed or
+enabled. Related keeper runbooks:
+
+- [Recovery pack](RECOVERY-PACK.md) — explicit encrypted recovery, beyond the scheduled backup
+- [WhatsApp dependency switch](WHATSAPP-DEPENDENCY-SWITCH.md) — manual scoped node_modules replacement
+- [Inbox network isolation](INBOX-NETWORK-ISOLATION.md) — connect-denial evidence and constraints for the dedicated inbox
+- [Hermes MCP 2 field compatibility](HERMES-MCP2-COMPAT.md) — SDK field-name repair, dry-run-by-default
+- [Dependency readiness](DEPENDENCY-READINESS.md) — npm-ci lock deploy procedure for whatsapp-connect
 
 ## Owner checks without business mutations
 

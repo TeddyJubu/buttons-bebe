@@ -1,3 +1,6 @@
+> Archived incident record (2026-09-07 readiness review). Point-in-time
+> evidence; the live procedure is PRODUCTION-OPERATOR-RUNBOOK.md.
+
 # Production readiness review — 7 September 2026
 
 **Draft operator handover, awaiting root review and final deployment evidence.**
