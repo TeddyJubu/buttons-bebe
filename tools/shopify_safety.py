@@ -33,14 +33,19 @@ _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _MAX_HTTP_BODY = 64 * 1024
 _WRITE_FLAG = "SHOPIFY_CONTENT_WRITES_ENABLED"
 _MUTATION_FLAG = "SHOPIFY_MUTATIONS_ENABLED"
-_CADDY_MANIFEST_FILES = frozenset(
-    {
-        "Caddyfile",
-        "sites/support.caddy",
-        "sites/exchange.caddy",
-        "sites/warehouse.caddy",
-    }
+# One ordered source of truth for the approved Caddy fragments: the manifest
+# set and the entrypoint's deterministic import list are both derived from it,
+# so a newly approved fragment can't leave the two out of sync.
+_CADDY_FRAGMENTS = (
+    "sites/support.caddy",
+    "sites/exchange.caddy",
+    "sites/warehouse.caddy",
+    # Owner-approved 2026-09-17: the receiving workspace origin (runbook
+    # step 4; proxies 127.0.0.1:3210 behind the console session gate).
+    "sites/receiving.caddy",
 )
+_CADDY_MANIFEST_FILES = frozenset({"Caddyfile", *_CADDY_FRAGMENTS})
+_CADDY_IMPORTS = [f"import {fragment}" for fragment in _CADDY_FRAGMENTS]
 
 
 class MonitorTransportError(RuntimeError):
@@ -297,11 +302,7 @@ def _check_caddy_manifest(config: SafetyConfig, deps: SafetyDependencies) -> str
         for line in entrypoint.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    if imports != [
-        "import sites/support.caddy",
-        "import sites/exchange.caddy",
-        "import sites/warehouse.caddy",
-    ]:
+    if imports != _CADDY_IMPORTS:
         raise CheckFailure("active Caddy entrypoint is not the deterministic import set")
     return "active Caddy entrypoint and fragments match the approved manifest"
 
