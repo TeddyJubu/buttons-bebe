@@ -187,7 +187,7 @@ def process_ticket_with_hermes(
                 "no draft stored"
             )
 
-        blocks, json_markers, _echoes = _valid_verdicts(stdout, token=run_token)
+        blocks, json_markers = _valid_verdicts(stdout, token=run_token)
         draft_info = _extract_draft_details(stdout, token=run_token)
         if json_markers > _MAX_VERDICT_CANDIDATES or draft_info.overflow:
             return _authentication_failure(

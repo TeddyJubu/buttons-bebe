@@ -86,18 +86,12 @@ def _as_bool(value: Any) -> bool:
 
 def _valid_verdicts(
     output: str,
-    customer_text: str | None = None,
     token: str | None = None,
-) -> tuple[list[tuple[re.Match[str], dict[str, Any]]], int, int]:
-    """Collect valid JSON verdicts carrying the exact expected run token.
+) -> tuple[list[tuple[re.Match[str], dict[str, Any]]], int]:
+    """Collect valid JSON verdicts carrying the exact expected run token."""
 
-    ``customer_text`` remains in the transitional signature, but is ignored:
-    token ownership replaces echo heuristics completely.
-    """
-
-    del customer_text
     if not token:
-        return [], 0, 0
+        return [], 0
     text = str(output or "")
     candidates = list(_json_marker_re(token).finditer(text))
     marker_count = len(candidates)
@@ -109,7 +103,7 @@ def _valid_verdicts(
             markers=marker_count,
             limit=_MAX_VERDICT_CANDIDATES,
         )
-        return [], marker_count, 0
+        return [], marker_count
 
     required = {"priority", "reason", "action", "notify_owner"}
     blocks: list[tuple[re.Match[str], dict[str, Any]]] = []
@@ -128,7 +122,7 @@ def _valid_verdicts(
         if not isinstance(parsed.get("reason"), str):
             continue
         blocks.append((candidate, parsed))
-    return blocks, marker_count, 0
+    return blocks, marker_count
 
 
 def _merge_verdicts(
@@ -179,12 +173,10 @@ class DraftExtraction:
 
 def _extract_draft_details(
     output: str,
-    customer_text: str | None = None,
     token: str | None = None,
 ) -> DraftExtraction:
     """Extract complete exact-token draft blocks and report auth anomalies."""
 
-    del customer_text
     if not token:
         return DraftExtraction(None, False, 0)
     text = str(output or "")
@@ -221,25 +213,13 @@ def _extract_draft_details(
     )
 
 
-def _extract_draft(
-    output: str,
-    customer_text: str | None = None,
-    token: str | None = None,
-) -> tuple[str | None, bool]:
-    """Compatibility wrapper around strict tokenized draft extraction."""
-
-    details = _extract_draft_details(output, customer_text, token)
-    return details.text, details.ambiguous
-
-
 def _parse_json_result(
     output: str,
-    customer_text: str | None = None,
     token: str | None = None,
 ) -> dict[str, Any]:
     """Parse and normalize a verdict only when its exact token authenticates it."""
 
-    blocks, marker_count, _echoes = _valid_verdicts(output, customer_text, token)
+    blocks, marker_count = _valid_verdicts(output, token)
     if not token or not marker_count or not blocks or len(blocks) != marker_count:
         log_event(
             logger,
