@@ -52,7 +52,7 @@ def _live_order(name: str, env: dict[str, str]) -> dict[str, str | None] | None:
         env["SHOPIFY_CLIENT_SECRET"],
         queries.ORDER_BY_NAME_QUERY,
         {"query": f"name:{name.lstrip('#')}"},
-        api_version=env.get("SHOPIFY_API_VERSION") or names.API_VERSION,
+        api_version=env.get("SHOPIFY_API_VERSION") or API_VERSION,
         env=env,
     )
     nodes = ((data.get("orders") or {}).get("nodes") or [])
@@ -73,7 +73,7 @@ def _live_customer(email: str, env: dict[str, str]) -> dict[str, str] | None:
         env["SHOPIFY_CLIENT_SECRET"],
         queries.CUSTOMER_BY_EMAIL_QUERY,
         {"query": f'email:"{email}"'},
-        api_version=env.get("SHOPIFY_API_VERSION") or names.API_VERSION,
+        api_version=env.get("SHOPIFY_API_VERSION") or API_VERSION,
         env=env,
     )
     nodes = ((data.get("customers") or {}).get("nodes") or [])

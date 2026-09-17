@@ -26,7 +26,6 @@ Served assets (per `console-src/inbox/static-manifest.json`, 22 entries, 5,884 L
 | `console-src/inbox/index.html` | 121 | mount + 104-line generated `<style id="support-theme">` |
 | `console-src/inbox/migrate_store.py` | 32 | one-shot legacy JSON→SQLite import |
 | `console-src/inbox/run-review.sh` | 11 | local launcher |
-| `console-src/inbox/dormant/canonical-review.js` | 36 | dormant adapter, guarded |
 | Tests | ~4,600 | `tests/` (py), `test/` (14 JS + 1 py) |
 
 Interface/seam: the organ (`js/inbox.js`) sees only a **shop** object (`read()`, `sendReply()`, `observedHistory`) — `js/shop/production-shop.js:20` sets `observedHistory: true` and `production-shop.js:24` throws on `sample`/`fixture` sources, so the served app can never fall back to fixtures. Data crosses the process boundary as three SQLite files: live store `HELPDESK_DB_FILE` (`review_server.py:24`), read-only projection (`projection.py:12`), read-only shop rail (`shop_rail.py`), all published atomically by root-run systemd timers.
@@ -93,15 +92,15 @@ No new dependency proposed. FastAPI + uvicorn are already installed and pinned (
 - Deleting `migrate_store.py` or the ~70 LOC legacy-JSON paths in `tickets.py:314-467` — still referenced by the documented VPS migration runbook (`PRODUCTION.md:35-55`); retire only after the VPS migration is confirmed complete.
 - Deleting the JS fixture stack (1,746 LOC: `js/fixtures/demo-inbox.js` 651, `fixture-shop.js` 361, `helpdesk-shop.js` 353, `live-catalog.js` 199, `review-blocks.js` 123, `tissues/view.js` 59) — unserved (verified absent from the manifest; `production-shop.js:24` hard-fails fixture sources) but the organ's 1,020-LOC test suite runs against `helpdesk-shop.js` (`test/inbox-organ.test.js:1020`). Relocation to a `test/fixtures/` scope is cosmetic; not worth churn now.
 - Any new JS framework/bundler — zero-dependency hand-rolled ES modules are a feature here (served bytes are tiny, no supply chain); a framework would not delete ≥100 hand-rolled lines of *equivalent* logic.
-- Reviving `dormant/canonical-review.js` without a fresh safety review, or enabling the Gorgias bridge (`review_server.py:105-108` correctly 503s while `GORGIAS_BRIDGE_ENABLED=0`, `helpdesk-inbox.service:17`).
+- Enabling the Gorgias bridge (`review_server.py:105-108` correctly 503s while `GORGIAS_BRIDGE_ENABLED=0`, `helpdesk-inbox.service:17`). (Action 8 deleted the `dormant/canonical-review.js` adapter, removing the revival hazard outright.)
 
 ## Verification
 
 - **Action 1 (move server tests into the gate):** the file *is* the verification — it already contains the Send-lock test (`test/test_review_server.py` asserts the lock short-circuit), static traversal/symlink rejection, 413 oversize, capability 403s, storage-failure 503. After the move, `python -m unittest discover -s console-src/inbox/tests -p 'test_*.py'` (verify_release.sh:189's own command) runs it; no new test needed.
 - **Action 2 (run-review.sh local paths):** smallest check — start via the script on a non-VPS machine and hit one tool verb; today it reproducibly returns `StoreUnavailable`, after the fix it must serve `list_tickets` from the local store. No automated test needed beyond the moved `tests/test_review_server.py` (its storage-failure test already exercises the fallback path).
 - **Action 3 (resetUiState):** existing coverage — `test/inbox-organ.test.js` drives every subscription and `selectView/selectChannel/selectStatus/selectAssignee/selectTag/selectTicket` method (file is 1,020 LOC over the organ's full API) and `test/production-inbox.test.js` (447 LOC) asserts the observed-history facets these resets guard. Run `node --test console-src/inbox/test/*.test.js` (already in `verify_release.sh:192`); zero new tests required.
-- **Action 4 (manifest guard):** the new test self-verifies — it fails the moment someone adds `js/tissues/new-thing.js` without either manifest or TEST_ONLY registration. Modeled on the existing proven pattern in `test/canonical-review.test.js:22-25`, which already asserts manifest membership; extend that file rather than creating a new one if preferred.
+- **Action 4 (manifest guard):** the new test self-verifies — it fails the moment someone adds `js/tissues/new-thing.js` without either manifest or TEST_ONLY registration. The pattern is proven in `test/manifest-guard.test.js`, which already asserts manifest membership; extend that file rather than creating a new one if preferred.
 - **Action 5 (doc fix):** no test — verified numbers cited here from `tickets.py:295-296` (SEED_TICKETS = 38 = 30 `fixtures_demo_tickets.py` + sample) and `js/fixtures/demo-inbox.js` (9 test-only fixtures); recheck with the same two reads.
-- **Actions 6-8:** existing suites — `tests/test_shop_rail.py` (115 LOC) for the connect change; `test/webmcp.test.js:60` ("never Send") and the view-list consumers for action 7; `test/canonical-review.test.js` for action 8's keep-or-delete decision record.
+- **Actions 6-7:** existing suites — `tests/test_shop_rail.py` (115 LOC) for the connect change; `test/webmcp.test.js:60` ("never Send") and the view-list consumers for action 7. Action 8 landed as deletion (Wave 4): both files removed, decision recorded in the row-8 table entry above.
 
 No code was modified by this analysis.

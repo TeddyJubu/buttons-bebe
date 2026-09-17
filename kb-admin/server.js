@@ -268,6 +268,7 @@ const server = http.createServer((req, res) => {
       try {
         if (d.content != null && typeof d.content !== "string") return send(res,400,{error:"content must be text"});
         atomicSave(fp,d.content || "");
+        _healthCache = null; // a write landed: /health's 60s cache must not serve the pre-write scan
         // One-line audit per write: goes to journald via stdout (08-5/R4).
         console.log(JSON.stringify({ event: "kb-save", path: rel, size: Buffer.byteLength(d.content || ""), ts: new Date().toISOString() }));
         return send(res, 200, { ok: true, path: rel });
@@ -277,6 +278,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && p === "/reindex") {
     if (reindex.running) return send(res, 200, { started: false, reindex });
+    _healthCache = null; // reindex rewrites the store: the cached pre-reindex scan is stale
     reindex = { running: true, ok: null, at: new Date().toISOString() };
     const ch = spawn("/bin/bash", [path.join(KB, "update.sh")], { cwd: KB, stdio: ["ignore", "ignore", "ignore"] });
     ch.on("close", (code) => { reindex = { running: false, ok: code === 0, at: new Date().toISOString() }; });

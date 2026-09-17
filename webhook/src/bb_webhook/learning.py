@@ -96,6 +96,7 @@ def _bump_ledger(kind: str, edited: bool) -> None:
             # Dedupe for operation_id retries lives in _write_unique_lesson's
             # deterministic filename (created=False) and the learning_recorded
             # DB flag — the ledger counts only writes that created a packet.
+            data.pop("_operations", None)  # legacy key; never carry it into a rewrite
             data["total"] = data.get("total", 0) + 1
             data[kind] = data.get(kind, 0) + 1
             if kind == "sent":

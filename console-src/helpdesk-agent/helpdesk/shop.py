@@ -64,7 +64,7 @@ class LiveShop:
             self.env["SHOPIFY_CLIENT_SECRET"],
             document,
             {"id": ident},
-            api_version=self.env.get("SHOPIFY_API_VERSION") or names.API_VERSION,
+            api_version=self.env.get("SHOPIFY_API_VERSION") or API_VERSION,
             env=self.env,
         )
 

@@ -23,12 +23,12 @@ helpdesk pull-mailbox --limit 20
 helpdesk escalate-ticket --ticket-id t-ada-track --reason "pending review"
 helpdesk write-gate-status
 helpdesk serve          # MCP stdio
-helpdesk tools          # list the fifteen tool names
+helpdesk tools          # list the seventeen tool names
 ```
 
 JSON on stdout. Failures are structured JSON (no stack traces).
 
-The inbox is a client of the same fifteen tools. The console HTTP door is
+The inbox is a client of the same seventeen tools. The console HTTP door is
 `POST /console/api/helpdesk` (`{ tool, arguments }`) and calls `invoke()`.
 Mint/Admin failure falls back to the inbox fixture shop. `SHOPIFY_MUTATIONS_ENABLED`
 stays `0`. Env names (values live only in `.env`): `SHOPIFY_SHOP`,

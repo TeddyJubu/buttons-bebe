@@ -17,6 +17,7 @@
 const express = require("express");
 const QRCode = require("qrcode");
 const fs = require("fs");
+const { randomUUID } = require("node:crypto");
 const { execFile } = require("child_process");
 const P = require("pino");
 // One logging convention: pino for every service log (Baileys gets a silent
@@ -82,8 +83,8 @@ function readNotify() {
 function writeNotify(o) {
   // tmp+rename so a crash mid-write can't corrupt notify.json (readNotify
   // would silently revert a typed-number destination to the default).
-  const tmp = NOTIFY_FILE + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(o));
+  const tmp = `${NOTIFY_FILE}.${process.pid}.${randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(o), { mode: 0o600, flag: "wx" });
   fs.renameSync(tmp, NOTIFY_FILE);
 }
 function numberToJid(num) {
