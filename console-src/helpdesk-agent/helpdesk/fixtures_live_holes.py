@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .fixtures_common import customer as _customer
 from .names import LIVE_HOLE_SHOP
 
 C_UNFULFILLED = "gid://shopify/Customer/10207427887277"
@@ -37,18 +38,6 @@ LINE = {
     },
 }
 EMPTY_RETURNS = {"nodes": []}
-
-
-def _customer(gid: str, name: str, orders: str, spent: str, email: str | None = None) -> dict:
-    return {
-        "id": gid,
-        "displayName": name,
-        "defaultEmailAddress": {"emailAddress": email} if email else None,
-        "createdAt": "2026-08-01T12:00:00Z",
-        "numberOfOrders": orders,
-        "amountSpent": {"amount": spent, "currencyCode": "USD"},
-        "tags": ["sample"],
-    }
 
 
 def _order(gid: str, name: str, created: str, fulfill: str, customer_id: str, tracking=None, title=None):

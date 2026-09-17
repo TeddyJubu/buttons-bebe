@@ -536,7 +536,7 @@ def normalize_external(raw: Any) -> dict[str, Any] | None:
         )
         if value is not None and str(value).strip():
             out[dest] = str(value).strip()
-    return out if out.get("ticketId") or out.get("messageId") else out
+    return out
 
 
 def find_ticket(ticket_id: str) -> dict | None:

@@ -1,7 +1,7 @@
 # Helpdesk agent organ
 
 MCP server + CLI for the Shopify helpdesk. UI is a client, not the product.
-Each of the fifteen v1 tools is a tissue: one handler, two doors (MCP and CLI).
+Each of the seventeen v1 tools is a tissue: one handler, two doors (MCP and CLI).
 
 ```text
 helpdesk list-tickets --view mine --limit 20

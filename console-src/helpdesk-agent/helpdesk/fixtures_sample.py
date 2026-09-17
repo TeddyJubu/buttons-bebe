@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .fixtures_common import customer as _customer
 from .names import SAMPLE_SHOP
 
 USD = {"amount": "36.00", "currencyCode": "USD"}
@@ -28,15 +29,10 @@ ORDER_PARTIAL = "gid://shopify/Order/9004"
 RETURN_OPEN = "gid://shopify/Return/90011"
 
 CUSTOMERS = {
-    ADA: {
-        "id": ADA,
-        "displayName": "Ada Demo",
-        "defaultEmailAddress": {"emailAddress": "ada@demo-helpdesk.example"},
-        "createdAt": "2026-04-01T12:00:00Z",
-        "numberOfOrders": "1",
-        "amountSpent": USD,
-        "tags": ["sample"],
-        "giftCards": [
+    ADA: _customer(
+        ADA, "Ada Demo", "1", "36.00", "ada@demo-helpdesk.example",
+        created="2026-04-01T12:00:00Z",
+        giftCards=[
             {
                 "id": GIFT_ADA,
                 "lastCharacters": "4291",
@@ -45,34 +41,18 @@ CUSTOMERS = {
                 "balance": {"amount": "25.00", "currencyCode": "USD"},
             }
         ],
-    },
-    CASEY: {
-        "id": CASEY,
-        "displayName": "Casey Sandbox",
-        "defaultEmailAddress": {"emailAddress": "casey@demo-helpdesk.example"},
-        "createdAt": "2026-04-02T12:00:00Z",
-        "numberOfOrders": "2",
-        "amountSpent": {"amount": "72.00", "currencyCode": "USD"},
-        "tags": ["sample"],
-    },
-    JORDAN: {
-        "id": JORDAN,
-        "displayName": "Jordan Preview",
-        "defaultEmailAddress": None,
-        "createdAt": "2026-04-03T12:00:00Z",
-        "numberOfOrders": "0",
-        "amountSpent": {"amount": "0.00", "currencyCode": "USD"},
-        "tags": ["sample"],
-    },
-    SKY: {
-        "id": SKY,
-        "displayName": "Sky Jensen",
-        "defaultEmailAddress": {"emailAddress": "sky@demo-helpdesk.example"},
-        "createdAt": "2026-04-04T12:00:00Z",
-        "numberOfOrders": "1",
-        "amountSpent": {"amount": "50.00", "currencyCode": "USD"},
-        "tags": ["sample"],
-    },
+    ),
+    CASEY: _customer(
+        CASEY, "Casey Sandbox", "2", "72.00", "casey@demo-helpdesk.example",
+        created="2026-04-02T12:00:00Z",
+    ),
+    JORDAN: _customer(
+        JORDAN, "Jordan Preview", "0", "0.00", created="2026-04-03T12:00:00Z",
+    ),
+    SKY: _customer(
+        SKY, "Sky Jensen", "1", "50.00", "sky@demo-helpdesk.example",
+        created="2026-04-04T12:00:00Z",
+    ),
 }
 
 _LINE = {

@@ -40,6 +40,15 @@ TOOL_NAMES = (
     TOOL_SEND_REPLY,
 )
 
+# The tools a read-only transaction may wrap (report 11, action 7). Anything
+# new lands here once, at review time — not as a re-typed set in dispatch.
+READ_TOOLS = frozenset({
+    TOOL_LIST_TICKETS,
+    TOOL_GET_TICKET,
+    TOOL_WRITE_GATE_STATUS,
+    TOOL_BRIDGE_STATUS,
+})
+
 CLI_COMMANDS = {
     TOOL_LIST_TICKETS: "list-tickets",
     TOOL_GET_TICKET: "get-ticket",
