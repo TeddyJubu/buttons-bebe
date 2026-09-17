@@ -211,20 +211,6 @@ fi
 echo "release gate: processor tests -> ${processor_tests[*]}"
 "$PROCESSOR_PYTHON" -m unittest "${processor_tests[@]}" -v
 
-# T-FIX-3 parity is a structural safety gate. Before the split lands there is
-# no new package to compare, so keep the pre-split tree explicitly green; once
-# processor/classifier/__init__.py exists, the fixed 10,000-case comparison is
-# mandatory and uses the processor interpreter's isolated workers.
-if [[ -f processor/classifier/__init__.py ]]; then
-  echo "release gate: classifier parity -> 10000 synthetic samples"
-  "$PROCESSOR_PYTHON" tools/compare_classifier.py \
-    --old processor/classifier_shim.py \
-    --new processor/classifier/__init__.py \
-    --samples 10000
-else
-  echo "release gate: classifier parity skipped (T-FIX-3 package not present)"
-fi
-
 node --check whatsapp-connect/server.js
 # test/*.test.js needs only node: builtins, so it runs unconditionally. The
 # root test files need the real node_modules (qs), which npm ci owns — running

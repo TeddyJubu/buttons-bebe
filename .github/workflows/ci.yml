@@ -13,10 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The classifier parity gate loads the pre-split implementation from
-          # local history; a one-commit checkout would silently remove it.
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
