@@ -46,6 +46,16 @@ class SafetyTests(unittest.TestCase):
                         self.assertNotIn("gorgias", alias.name.lower())
                 if isinstance(node, ast.ImportFrom) and node.module:
                     self.assertNotIn("gorgias", node.module.lower())
+                    # Aliases too: `from x import gorgias_thing as y` would
+                    # smuggle a wrapper past the module-name check (report 12,
+                    # action 6). The bridge package's own dormant adapters are
+                    # the sanctioned exceptions; anything else named gorgias*
+                    # is a wrapper import.
+                    for alias in node.names:
+                        if node.module == "bridge":
+                            self.assertIn(alias.name, {"config", "router", "email_out", "gorgias_api"})
+                        else:
+                            self.assertNotIn("gorgias", alias.name.lower())
 
     def test_mutations_refused_even_if_flag_on(self) -> None:
         previous = os.environ.get("SHOPIFY_MUTATIONS_ENABLED")

@@ -100,7 +100,10 @@ def send_public_reply(ticket_id: int | str, body_text: str) -> dict[str, Any]:
     text = str(body_text or "").strip()
     if not text:
         return {"ok": False, "error": "empty body"}
-    tid = int(ticket_id)
+    try:
+        tid = int(str(ticket_id).strip())
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "invalid ticket id"}
     try:
         listed = _request(
             "GET",
@@ -171,7 +174,10 @@ def close_ticket(ticket_id: int | str) -> dict[str, Any]:
 
     if not send_access_enabled():
         return {"ok": False, "error": ACTIVATE_SEND_MESSAGE}
-    tid = int(ticket_id)
+    try:
+        tid = int(str(ticket_id).strip())
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "invalid ticket id"}
     try:
         _request("PUT", f"/tickets/{tid}", body={"status": "closed"}, retries=1)
         return {"ok": True}
