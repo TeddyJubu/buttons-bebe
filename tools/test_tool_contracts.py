@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -75,6 +77,35 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(result["shipments"], fixture["shipments"])
         self.assertEqual(result["exchange"], fixture["exchange"])
         self.assertNotIn("source", result)
+
+    def test_redo_path_segments_never_escape_their_url_segment(self) -> None:
+        # Report 05, action 6: `../`-style ids must raise ValueError before
+        # any _get call, mirroring the Gorgias cursor guard's shape.
+        # Exec'd with a hand-built scope because importing redo_mcp would
+        # read .env at import time (mirrors test_gorgias_read_contract.py).
+        source = TOOLS_DIR / "redo_mcp.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        selected = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in {"_segment", "get_return", "get_order"}
+        ]
+        for node in selected:
+            node.decorator_list = []
+        get = Mock()
+        scope = {"re": re, "_get": get, "_trim": lambda x: x}
+        exec(compile(ast.Module(body=selected, type_ignores=[]), str(source), "exec"), scope)
+
+        segment = scope["_segment"]
+        for bad in ("../orders", "a/b", "a b", "a?x=1", "a#f", "#", "", "x" * 65, None, 123, True):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                segment(bad, "order_name")
+        self.assertEqual(segment("abc-DEF_123", "order_name"), "abc-DEF_123")
+
+        for tool in ("get_return", "get_order"):
+            for bad in ("../orders", "x" * 65, "12345;DROP", "%2e%2e"):
+                with self.subTest(tool=tool, bad=bad), self.assertRaises(ValueError):
+                    scope[tool](bad)
+        get.assert_not_called()
 
     def test_gorgias_source_matches_installed_five_tool_contract(self) -> None:
         self.assertEqual(

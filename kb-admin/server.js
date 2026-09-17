@@ -117,8 +117,10 @@ function contentFiles(folder) {
   }
 }
 
+let _healthCache = null; // {expires, value} — /health scans every product file; 60s keeps console refreshes cheap
 function kbHealth() {
   const now = Date.now();
+  if (_healthCache && now < _healthCache.expires) return _healthCache.value;
   const folders = {};
   let ok = true;
   for (const folder of FOLDERS) {
@@ -143,7 +145,7 @@ function kbHealth() {
   }
   const ageHours = newest === null ? null : Math.max(0, (now - newest) / 3600000);
   const threshold = Number.isFinite(PRODUCT_FRESH_HOURS) && PRODUCT_FRESH_HOURS > 0 ? PRODUCT_FRESH_HOURS : 96;
-  return {
+  const value = {
     ok,
     generated_at: new Date(now).toISOString(),
     folders,
@@ -158,6 +160,8 @@ function kbHealth() {
       fresh_for_hours: threshold,
     },
   };
+  _healthCache = { expires: now + 60000, value };
+  return value;
 }
 
 // ---- Notice Board (owner overrides; shared JSON with notices_lib.py) --------
@@ -264,6 +268,7 @@ const server = http.createServer((req, res) => {
       try {
         if (d.content != null && typeof d.content !== "string") return send(res,400,{error:"content must be text"});
         atomicSave(fp,d.content || "");
+        _healthCache = null; // a write landed: /health's 60s cache must not serve the pre-write scan
         // One-line audit per write: goes to journald via stdout (08-5/R4).
         console.log(JSON.stringify({ event: "kb-save", path: rel, size: Buffer.byteLength(d.content || ""), ts: new Date().toISOString() }));
         return send(res, 200, { ok: true, path: rel });
@@ -273,6 +278,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && p === "/reindex") {
     if (reindex.running) return send(res, 200, { started: false, reindex });
+    _healthCache = null; // reindex rewrites the store: the cached pre-reindex scan is stale
     reindex = { running: true, ok: null, at: new Date().toISOString() };
     const ch = spawn("/bin/bash", [path.join(KB, "update.sh")], { cwd: KB, stdio: ["ignore", "ignore", "ignore"] });
     ch.on("close", (code) => { reindex = { running: false, ok: code === 0, at: new Date().toISOString() }; });

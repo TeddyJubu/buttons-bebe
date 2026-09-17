@@ -119,3 +119,9 @@ test("registerInboxWebMcp wires organ tools when context present", async () => {
 });
 
 function createInboxOrgan(opts = {}) { return createProductionInbox({shop: createFixtureShop(), ...opts}); }
+
+test("select_view enum matches the view-model menu list exactly (report 10-7)", async () => {
+  const { views } = await import("../js/view-model.js");
+  const selectView = buildInboxWebMcpTools(createInboxOrgan()).find((t) => t.name === "select_view");
+  assert.deepEqual(selectView.inputSchema.properties.viewId.enum, views.map((v) => v.id));
+});

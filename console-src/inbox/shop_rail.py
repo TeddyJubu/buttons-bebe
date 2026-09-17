@@ -10,6 +10,15 @@ from contextlib import closing
 DEFAULT_PATH = '/var/lib/buttonsbebe-inbox-projection/shop-rail.sqlite3'
 
 
+def connect(path):
+    """Read-only, row-typed connection — the one DB-open recipe for the
+    projection pair (report 10, action 6). projection.py re-exports this."""
+    db = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=0.2)
+    db.row_factory = sqlite3.Row
+    db.execute('PRAGMA query_only=ON')
+    return db
+
+
 def _path(path=None):
     return Path(path or os.environ.get('SHOP_RAIL_PATH', DEFAULT_PATH))
 
@@ -25,9 +34,7 @@ def attach(ticket, path=None):
     if not target.is_file():
         return ticket
     try:
-        uri = target.resolve().as_uri() + '?mode=ro'
-        with closing(sqlite3.connect(uri, uri=True, timeout=0.2)) as db:
-            db.execute('PRAGMA query_only=ON')
+        with closing(connect(target)) as db:
             row = db.execute(
                 'SELECT payload FROM rail WHERE ticket_id=?',
                 (ticket_id,),

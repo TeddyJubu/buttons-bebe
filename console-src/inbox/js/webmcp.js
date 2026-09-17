@@ -9,14 +9,7 @@
  * Chrome 146–149 previews. Progressive enhancement when modelContext is absent.
  */
 
-const VIEW_IDS = Object.freeze([
-  "open",
-  "mine",
-  "unassigned",
-  "all",
-  "snoozed",
-  "closed",
-]);
+import { VIEW_IDS } from "./view-model.js";
 
 /**
  * @typedef {{
@@ -352,4 +345,4 @@ export function registerInboxWebMcp(organ, options = {}) {
   return registerWebMcpTools(tools, options);
 }
 
-export const INBOX_WEBMCP_VIEW_IDS = VIEW_IDS;
+export { VIEW_IDS as INBOX_WEBMCP_VIEW_IDS } from "./view-model.js";

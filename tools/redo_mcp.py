@@ -12,6 +12,7 @@ Tools:
 Transport is chosen by REDO_MCP_TRANSPORT (stdio default | streamable-http).
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +48,14 @@ def _get(path: str, params: dict | None = None):
         return r.json()
     except Exception as e:  # never raise into the MCP boundary
         return {"error": "request failed", "detail": repr(e)[:200]}
+
+
+def _segment(value, name):
+    # Mirror of the Gorgias cursor guard: path segments are constrained to a
+    # safe charset so no input can escape its URL segment (report 05, action 6).
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+        raise ValueError(f"{name} must be 1-64 characters of [A-Za-z0-9_-]")
+    return value
 
 
 def _trim(ret):
@@ -122,7 +131,7 @@ def get_returns_for_order(order_name: str) -> dict:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True))
 def get_return(return_id: str) -> dict:
     """Get one return by its Redo return id (read-only)."""
-    return _trim(_get(f"/returns/{return_id}"))
+    return _trim(_get(f"/returns/{_segment(return_id, 'return_id')}"))
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True))
@@ -132,7 +141,7 @@ def get_order(order_name: str) -> dict:
     Returns full read-only order context including shipping address,
     fulfillment, tracking, delivery status, line items, and customer data.
     """
-    clean = order_name.lstrip("#").strip()
+    clean = _segment(order_name.lstrip("#").strip(), "order_name")
 
     # Redo's order-detail route needs its internal ID. The filtered returns
     # response includes order records that map Shopify names to that ID.

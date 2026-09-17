@@ -1,3 +1,6 @@
+> Archived incident record (2026-09-15 CD unblock). The procedure below is
+> historical; the live approval procedure is PRODUCTION-OPERATOR-RUNBOOK.md.
+
 # Unblock CD: manual deploy/systemd + deploy/caddy approval (2026-09-15)
 
 CD refuses releases with exit 78 (`Deployment configuration 'deploy/systemd' changed;

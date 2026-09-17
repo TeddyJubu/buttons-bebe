@@ -1,3 +1,6 @@
+> Archived incident record (2026-07-13 VPS snapshot recovery). Historical
+> evidence only; live procedures are PRODUCTION-OPERATOR-RUNBOOK.md.
+
 # Recovered live VPS snapshot
 
 This source and deployment snapshot was recovered read-only from the live

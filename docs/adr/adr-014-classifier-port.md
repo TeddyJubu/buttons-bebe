@@ -92,9 +92,16 @@ compatibility were difficult to review.
 - processor/test_classifier_rules.py freezes the main tables and side
   channels, tests view ownership, benign and sensitive corpora, quotes,
   boilerplate, caps, mutation behavior, and hostile regex shapes.
-- tools/compare_classifier.py --samples 10000 compares the pre-split and
+- tools/compare_classifier.py --samples 10000 compared the pre-split and
   package implementations in isolated workers on priority, sensitivity, and
-  owner-notification. CI fetches full history so the parity source exists.
+  owner-notification. **Retired 2026-09-17 (owner decision, simplification
+  Wave 4, report 04-5):** the comparison proved the one-time T-FIX-3
+  structural split — it stayed green across 231 deploys to main
+  (2026-08-23 → 2026-09-17) — and re-proved nothing after that. The gate
+  step, `processor/classifier_shim.py`, the harness, and CI's full-history
+  fetch were deleted together; the selftest and test_classifier_rules.py are
+  the ongoing net. The pre-split implementation remains retrievable from git
+  history at the parent of `ba138d5`.
 
 ## 6. Rollback
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -239,7 +240,12 @@ def _live_messages(limit: int) -> list[dict[str, Any]] | None:
             if len(out) >= limit:
                 break
         return out
-    except Exception:
+    except Exception as exc:
+        # Fixture fallback follows; surface the live failure so drift from the
+        # real mailbox is observable, not silent (report 11, action 6). Stderr,
+        # never stdout: tool output must stay clean and the pull-only test
+        # enforces that.
+        sys.stderr.write(f"mailbox live pull failed: {type(exc).__name__}\n")
         return None
 
 

@@ -16,6 +16,7 @@ _SMART_QUOTES = {
     "\u2019": "'", "\u2018": "'", "\u02bc": "'", "\u00b4": "'",
     "\u201c": '"', "\u201d": '"',
 }
+_SMART_QUOTES_TRANSLATION = str.maketrans(_SMART_QUOTES)
 _EXCLAIM_RE = re.compile(r"!{3,}")
 _POSITIVE_RE = re.compile(
     r"\b(thank|thanks|thankyou|thx|love|loved|loving|adorable|perfect|beautiful|"
@@ -94,10 +95,7 @@ def _bound(text: str) -> str:
 
 
 def _fold_smart_quotes(text: str) -> str:
-    for fancy, plain in _SMART_QUOTES.items():
-        if fancy in text:
-            text = text.replace(fancy, plain)
-    return text
+    return text.translate(_SMART_QUOTES_TRANSLATION)
 
 
 def _normalise_text(value: str) -> str:

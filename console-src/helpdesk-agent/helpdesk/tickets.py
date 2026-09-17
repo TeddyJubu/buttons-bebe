@@ -34,6 +34,8 @@ from .fixtures_live_holes import (
 from .fixtures_demo_tickets import DEMO_SEED_TICKETS
 from .fixtures_sample import ADA, CASEY, JORDAN, ORDER_ADA, ORDER_CASEY_A, ORDER_CASEY_B
 
+# Keep in sync with the single JS source: console-src/inbox/js/view-model.js
+# exports VIEW_IDS (report 10, action 7). Order differs (UI menu order there).
 VIEWS = ("open", "closed", "all", "snoozed", "mine", "unassigned")
 TICKET_STATUSES = ("open", "closed", "snoozed")
 REQUEST_TYPES = ("marketing_unsubscribe", "privacy_request", "bug")
@@ -534,7 +536,7 @@ def normalize_external(raw: Any) -> dict[str, Any] | None:
         )
         if value is not None and str(value).strip():
             out[dest] = str(value).strip()
-    return out if out.get("ticketId") or out.get("messageId") else out
+    return out
 
 
 def find_ticket(ticket_id: str) -> dict | None:

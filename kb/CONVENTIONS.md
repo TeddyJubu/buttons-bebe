@@ -53,3 +53,13 @@ level-two headings is indexed as one chunk.
 
 After adding or editing content, run `./update.sh` from this folder to rebuild
 the validated local index.
+
+## Concurrency conventions (deliberate — do not "harmonize")
+
+Markdown edits (kb-admin saves, nightly promotion) are lock-free by design:
+they publish via atomic rename, and name collisions fail loudly instead of
+overwriting. Indexers take `flock` on `.index_kb.lock` /
+`.index_kb.promote.lock`. The Notice Board uses a directory-mkdir lock with a
+60-second stale takeover because it must interoperate with Node. A save that
+lands mid-index is picked up by the next reindex — the console's "Saved —
+re-index to apply" message is the accepted workflow, not a bug.

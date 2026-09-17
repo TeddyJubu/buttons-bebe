@@ -6,9 +6,7 @@ import json
 import os
 import sys
 import tempfile
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -393,6 +391,16 @@ class GorgiasApiAdapterTests(unittest.TestCase):
             result = api.send_public_reply("4242", "a reply")
         self.assertEqual(result["ok"], False)
         self.assertIn("unreachable", result["error"])
+
+    def test_non_numeric_ticket_id_returns_structured_error_not_crash(self) -> None:
+        import bridge.gorgias_api as api
+
+        with patch("helpdesk.send_access.send_access_enabled", lambda: True), \
+             patch.object(api, "_request") as request:
+            for bad in ("abc", "12;DROP", "  ", None, [], 4.2):
+                self.assertEqual(api.send_public_reply(bad, "text"), {"ok": False, "error": "invalid ticket id"})
+                self.assertEqual(api.close_ticket(bad), {"ok": False, "error": "invalid ticket id"})
+        request.assert_not_called()
 
 
 class LiveToolCountTests(unittest.TestCase):

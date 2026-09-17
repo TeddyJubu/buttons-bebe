@@ -14,7 +14,7 @@ from .dto import clerk_customer, clerk_history_row, clerk_order, clerk_returns
 from .env import load_shopify_env
 from .errors import HelpdeskError, not_found
 from .gids import require_gid, require_shop
-from .names import LIVE_HOLE_SHOP, SAMPLE_SHOP
+from .names import API_VERSION, LIVE_HOLE_SHOP, SAMPLE_SHOP
 
 
 def _catalog_get(catalog, mapping: dict, ident: str, kind: str) -> dict:
@@ -64,7 +64,7 @@ class LiveShop:
             self.env["SHOPIFY_CLIENT_SECRET"],
             document,
             {"id": ident},
-            api_version=self.env.get("SHOPIFY_API_VERSION") or "2026-07",
+            api_version=self.env.get("SHOPIFY_API_VERSION") or API_VERSION,
             env=self.env,
         )
 

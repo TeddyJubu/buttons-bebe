@@ -65,9 +65,9 @@ Gorgias webhook
 - Hermes returns the draft plus a `JSON_RESULT` and always reports
   `gorgias_priority_set=false`, `note_posted=false`. The processor may
   WhatsApp-alert the owner for HIGH/CRITICAL work but never writes Gorgias.
-- `processor/gorgias_writer.py` still defines `post_internal_note()` but
-  nothing calls it — dormant. Do not re-wire without revisiting the safety
-  model.
+  (`processor/gorgias_writer.py`, the dormant write-back stub, was deleted
+  2026-09-17, Wave 4 — history in git. Do not rebuild it without revisiting
+  the safety model.)
 - Prompt-injection hardening lives in `hermes_runner.py`: run-token
   `<DRAFT:token>` tags prove the draft is Hermes'; customer-supplied
   `<DRAFT>` blocks are neutralised and fail closed. Don't loosen casually.
@@ -201,9 +201,8 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 
 - `processor/classifier.py` — advisory deterministic rules only; Hermes also
   classifies; the processor can raise priority but never lower it.
-- `processor/feedback_collector.py` — superseded poller; rollback only via
-  `FEEDBACK_LEGACY_OPT_IN=1` for a bounded test.
-- `processor/gorgias_writer.py` — dormant (§4).
+- `feedback/collector.py` — retained legacy collector; writes `ticket-*.md`
+  packets only under `FEEDBACK_LEGACY_OPT_IN=1` (bounded rollback test).
 
 **Deleted from the tree — history in git only; do not rebuild them:**
 
@@ -213,6 +212,11 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
   legacy collector writes (`feedback/collector.py`, under
   `FEEDBACK_LEGACY_OPT_IN=1`); the live learning path writes `lesson-*.md` and
   promotes nightly (§11).
+- The retired processor stubs `feedback_collector.py` (superseded poller),
+  `gorgias_writer.py` (dormant write-back), and `classifier_shim.py`
+  (parity lookup) — **deleted 2026-09-17** (Wave 4, owner decision, report
+  03-7/04-5). Safety stays intact: an ImportError on a forbidden path is as
+  loud as the guarded RuntimeError; RETIRED.md records the policy.
 
 **Doc trust order:** this file (sole root source of truth) → `HANDOVER/`
 (good onboarding, but dated 2026-07-13 *before* the Fable port: its

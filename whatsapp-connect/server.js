@@ -17,6 +17,7 @@
 const express = require("express");
 const QRCode = require("qrcode");
 const fs = require("fs");
+const { randomUUID } = require("node:crypto");
 const { execFile } = require("child_process");
 const P = require("pino");
 // One logging convention: pino for every service log (Baileys gets a silent
@@ -52,6 +53,15 @@ let ownerJid = null;
 let sock = null;
 let reconnectFailures = 0; // consecutive startSock() failures; cap → exit for systemd restart
 const botSentIds = new Set(); // ids of messages we sent, so we don't reply to ourselves
+const BOT_SENT_IDS_CAP = 500; // bounded memory; oldest entries drop off
+
+function addBotSentId(id) {
+  botSentIds.add(id);
+  if (botSentIds.size > BOT_SENT_IDS_CAP) {
+    // Sets iterate in insertion order; drop the oldest.
+    botSentIds.delete(botSentIds.values().next().value);
+  }
+}
 
 function audit(event, detail = {}) {
   log.info(detail, event);
@@ -71,7 +81,11 @@ function readNotify() {
   }
 }
 function writeNotify(o) {
-  fs.writeFileSync(NOTIFY_FILE, JSON.stringify(o));
+  // tmp+rename so a crash mid-write can't corrupt notify.json (readNotify
+  // would silently revert a typed-number destination to the default).
+  const tmp = `${NOTIFY_FILE}.${process.pid}.${randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(o), { mode: 0o600, flag: "wx" });
+  fs.renameSync(tmp, NOTIFY_FILE);
 }
 function numberToJid(num) {
   const d = String(num || "").replace(/[^0-9]/g, "");
@@ -201,7 +215,7 @@ function forwardToHermes(text, jid) {
         sock
           .sendMessage(jid, { text: reply.slice(0, 4000) })
           .then((sent) => {
-            if (sent && sent.key && sent.key.id) botSentIds.add(sent.key.id);
+            if (sent && sent.key && sent.key.id) addBotSentId(sent.key.id);
           })
           .catch((e) => log.error({ err: e }, "reply send error"));
       }
@@ -220,7 +234,7 @@ function sendAlert(text) {
     return Promise.reject(e);
   }
   return sock.sendMessage(jid, { text: String(text).slice(0, 4000) }).then((sent) => {
-    if (sent && sent.key && sent.key.id) botSentIds.add(sent.key.id);
+    if (sent && sent.key && sent.key.id) addBotSentId(sent.key.id);
     return jid;
   });
 }
@@ -244,9 +258,7 @@ const requireSendAuth = createSendAuth(SEND_SECRET, (req) => {
   });
 });
 
-app.get(`${BASE}/status`, requireAuth, (req, res) =>
-  res.json({ state, qr: qrDataUrl, owner: ownerJid })
-);
+app.get(`${BASE}/status`, requireAuth, (req, res) => res.json(statusPayload()));
 
 // Push an important message to the linked WhatsApp (used by the escalation path).
 // Delivers to the configured destination (linked owner account, or a typed number).
@@ -274,11 +286,14 @@ app.post(`${BASE}/send`, requireSendAuth, (req, res) => {
 // These are reached only via Caddy at /console/waapi/* behind the console's own
 // auth gate (the service itself is bound to localhost), so no WA password here.
 
+function statusPayload() {
+  return { state, qr: qrDataUrl, owner: ownerJid };
+}
+
 app.get("/wa/status", (req, res) => {
-  const n = readNotify();
   // qs is pinned by package-lock + the qs-security tests; this echo is how an
   // operator confirms the LIVE node_modules match the lock without shell access.
-  res.json({ state, qr: qrDataUrl, owner: ownerJid, notify: n, qs: require("qs/package.json").version });
+  res.json({ ...statusPayload(), notify: readNotify(), qs: require("qs/package.json").version });
 });
 
 app.get("/wa/notify", (req, res) => res.json(readNotify()));

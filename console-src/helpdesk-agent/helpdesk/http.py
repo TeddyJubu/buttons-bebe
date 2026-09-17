@@ -1,4 +1,4 @@
-"""HTTP door. Same invoke() as MCP and CLI. Human actor for inbox Send."""
+"""Inbox HTTP door (actor=human). Same invoke() as MCP and CLI."""
 
 from __future__ import annotations
 

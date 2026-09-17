@@ -65,8 +65,7 @@ Gorgias is pointed at it. Send the same header secret as `GORGIAS_BRIDGE_SECRET`
 `bridge/gorgias_inbound.py:verify_secret`).
 
 Note the isolation boundary: production's Gorgias webhook receiver keeps
-running on port 8000 (`deploy/PRODUCTION-READINESS-2026-09-07.md`); this door
-serves the *demo helpdesk* intake only.
+running on port 8000; this door serves the *demo helpdesk* intake only.
 
 ## 4. Wiring the inbound door (the snippet that does not exist yet)
 

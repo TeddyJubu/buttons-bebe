@@ -13,10 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The classifier parity gate loads the pre-split implementation from
-          # local history; a one-commit checkout would silently remove it.
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -45,7 +41,7 @@ jobs:
           PYTHONPATH=testing .gate-venv/bin/python -m unittest testing/test_production_mcp_metadata.py -v
           PYTHONPATH=testing .tools-venv/bin/python -m unittest testing/test_production_mcp_metadata.py -v
       - name: Install ripgrep (required by the release gate)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep caddy
       - name: Run offline release gate
         env:
           PYTHON: .gate-venv/bin/python

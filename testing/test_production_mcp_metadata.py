@@ -16,7 +16,7 @@ PROBE='''
 import asyncio,importlib.util,json,sys,types
 from pathlib import Path
 root=Path(sys.argv[1]);relative=sys.argv[2]
-common=types.ModuleType('_common');common.load_env=lambda:{}
+common=types.ModuleType('_common');common.load_env=lambda:{};common._clean=lambda v:v.strip().strip(chr(34)+chr(39)).replace(chr(13),'')
 requests=types.ModuleType('requests')
 def forbidden(*a,**k):raise AssertionError('No provider call allowed in discovery test')
 requests.get=forbidden;requests.post=forbidden

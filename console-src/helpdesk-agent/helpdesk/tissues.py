@@ -51,18 +51,22 @@ def _ticket_gid_source() -> str:
     return "sample"
 
 
+def _source_label() -> str:
+    return "inbox" if os.environ.get("HELPDESK_PRODUCTION") == "1" else "sample"
+
+
 def handle_list_tickets(args: dict[str, Any]) -> dict[str, Any]:
     view = str(args.get("view") or "open")
     limit = args.get("limit", 20)
     gid_source = _ticket_gid_source()
-    return {"source": "inbox" if os.environ.get("HELPDESK_PRODUCTION") == "1" else "sample", "tickets": tickets.list_tickets(view, limit, gid_source)}
+    return {"source": _source_label(), "tickets": tickets.list_tickets(view, limit, gid_source)}
 
 
 def handle_get_ticket(args: dict[str, Any]) -> dict[str, Any]:
     ticket_id = args.get("ticketId") or args.get("ticket_id")
     gid_source = _ticket_gid_source()
     return {
-        "source": "inbox" if os.environ.get("HELPDESK_PRODUCTION") == "1" else "sample",
+        "source": _source_label(),
         "ticket": tickets.get_ticket(str(ticket_id) if ticket_id is not None else "", gid_source),
     }
 
@@ -72,7 +76,7 @@ def handle_escalate_ticket(args: dict[str, Any]) -> dict[str, Any]:
     reason = args.get("reason")
     gid_source = _ticket_gid_source()
     return {
-        "source": "inbox" if os.environ.get("HELPDESK_PRODUCTION") == "1" else "sample",
+        "source": _source_label(),
         "ticket": tickets.escalate_ticket(
             str(ticket_id) if ticket_id is not None else "",
             None if reason is None else str(reason),

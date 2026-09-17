@@ -873,10 +873,6 @@ class BuiltInSelfTestTests(unittest.TestCase):
 class SelfTestCorpusTests(unittest.TestCase):
     """The corpus that `python classifier.py` runs must also pass in CI."""
 
-    def test_selftest_passes(self):
-        ok, total = cls._selftest()
-        self.assertTrue(ok, "classifier self-test reported failures")
-
     def test_every_selftest_case_matches_its_label(self):
         for message, want_priority, want_sensitive in cls._SELFTEST_CASES:
             with self.subTest(message=message[:60]):
