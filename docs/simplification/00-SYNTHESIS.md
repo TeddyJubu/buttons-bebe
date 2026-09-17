@@ -319,5 +319,16 @@ kb-admin legacyDashboard test block that pinned the deleted HTML; row
 **Wave 3 (17 P2 care + test rows) executed on the same branch — one commit
 per row, gate green before each commit: rows 3.1–3.17 all landed
 (d18b65e … 73cb619). B.5's owner decision was taken 2026-09-17 — the v1
-human gate is retired, all three components deleted.** Wave 4 remains
-analysis-only.
+human gate is retired, all three components deleted.**
+**Wave 4 (P3 rows + owner decisions) executed on branch `wave4/p3-rows` —
+one commit per row, gate green before each commit. Owner decisions taken
+2026-09-17: parity gate retired (04-5, all three processor stubs deleted,
+03-7), WhatsApp pairing page deferred (09-12), the 8 zero-hardening
+systemd units hardened now (13-12, rides a fingerprint re-approval).
+Done rows: 04-5/6/7/8/10/11, 05-5/6, 06-6/7, 07-5/6/7, 08-7/8, 09-9/10,
+01-8, 02-6/8, 10-6/7/8, 11-5..11-10 (incl. stragglers), 12-4/5/6,
+13-9/10/11. Deferred with cause: 04-12 (prompt cap 3k→8k is a live-brain
+cost/latency tradeoff needing production message-length data — revisit
+after logging `len(message_text)` at truncation; no test pins the cap);
+02-7 (v1 session-token removal waits on the VPS bcrypt→PBKDF2 rotation
+per ENV-CONSOLIDATION-RUNBOOK).**
