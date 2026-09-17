@@ -15,5 +15,15 @@ ExecStart=/bin/bash -c 'exec /usr/local/bin/node "/root/Buttonsbebe Agent/whatsa
 Restart=on-failure
 RestartSec=3
 
+# Conservative restrictions compatible with the existing /root application.
+# Dedicated identities and ProtectHome require a separate data/config move.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+
 [Install]
 WantedBy=multi-user.target

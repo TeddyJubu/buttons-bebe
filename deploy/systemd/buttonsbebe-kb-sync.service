@@ -9,3 +9,13 @@ Type=oneshot
 # rebuilds the index, and restarts the KB service.
 ExecStart="/root/Buttonsbebe Agent/KB/sync-products.sh"
 TimeoutStartSec=1800
+
+# Conservative restrictions compatible with the existing /root application.
+# Dedicated identities and ProtectHome require a separate data/config move.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
