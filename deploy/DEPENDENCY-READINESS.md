@@ -34,24 +34,32 @@ Because CD refuses those deploys, **the live checkout at
 manifests from the repo before installing anything.**
 
 The reviewed tool `tools/ops/whatsapp_dependency_switch.py` performs this
-switch atomically under a deployment lock: it stages a candidate, validates
-fingerprints, stops the service before touching `node_modules`, preserves the
-auth store, journals a rollback receipt, and restarts only after the candidate
-is verified. `npm ci` inside the live directory bypasses all of that
-(mutating `node_modules` under the running service, restarting before
-verifying, no rollback) — do not run it for a dependency change. Use it only
-for a same-manifest reinstall with the service already stopped.
+switch atomically under a deployment lock: it validates fingerprints against a
+root-approved plan, stops the service before touching `node_modules`,
+preserves the auth store, journals a rollback receipt, and restarts only after
+the candidate is verified. Its candidate path is fixed:
+`/opt/buttonsbebe/whatsapp-candidate-18ca775` (see
+`deploy/WHATSAPP-DEPENDENCY-SWITCH.md` for the full safety contract). `npm ci`
+inside the live directory bypasses all of that (mutating `node_modules` under
+the running service, restarting before verifying, no rollback) — do not run
+it for a dependency change.
 
 ```bash
-# 1. Prepare the candidate from the REVIEWED commit (never the stale live
-#    checkout): fresh git clone at the merged sha, isolated npm ci from it.
-git clone <repo> /root/wa-candidate && cd /root/wa-candidate
-git checkout <merged-sha> && cd whatsapp-connect
+# 1. Stage the candidate at the tool's fixed path, built from the REVIEWED
+#    commit (never the stale live checkout): fresh clone at the merged sha,
+#    isolated npm ci, then the tests.
+git clone <repo> /opt/buttonsbebe/whatsapp-candidate-18ca775
+cd /opt/buttonsbebe/whatsapp-candidate-18ca775 && git checkout <merged-sha>
 npm ci --ignore-scripts               # installs exactly the reviewed lock
 node --test                            # 15 tests incl. the two qs regression cases
 
-# 2. Switch the live service over (stop → swap → verify → start, journaled).
-python3 tools/ops/whatsapp_dependency_switch.py   # --help: inventory/apply/rollback
+# 2. Inventory, review, approve — run from the repo checkout, absolute tool path:
+umask 077
+python3 /root/Buttonsbebe\ Agent/tools/ops/whatsapp_dependency_switch.py \
+    --inventory > /root/wa-switch-approved.json
+#    Review the printed live/candidate hashes and patched-server sha, then apply:
+python3 /root/Buttonsbebe\ Agent/tools/ops/whatsapp_dependency_switch.py \
+    --approved-plan /root/wa-switch-approved.json --apply
 
 # 3. Prove live parity before calling it done.
 curl -s http://127.0.0.1:8085/wa/status   # "qs" must echo the locked version (6.16.0)
