@@ -134,10 +134,12 @@ class ShopifySafetyTests(unittest.TestCase):
                 "import sites/support.caddy\n"
                 "import sites/exchange.caddy\n"
                 "import sites/warehouse.caddy\n"
+                "import sites/receiving.caddy\n"
             ),
             "sites/support.caddy": "support.buttonsbebe.com { respond 200 }\n",
             "sites/exchange.caddy": "exchange.buttonsbebe.com { respond 200 }\n",
             "sites/warehouse.caddy": "wh.buttonsbebe.com { respond 200 }\n",
+            "sites/receiving.caddy": "support.buttonsbebe.com:8443 { respond 200 }\n",
         }
         manifest_lines = []
         for relative, contents in caddy_files.items():

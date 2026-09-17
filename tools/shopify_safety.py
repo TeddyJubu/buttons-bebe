@@ -39,6 +39,9 @@ _CADDY_MANIFEST_FILES = frozenset(
         "sites/support.caddy",
         "sites/exchange.caddy",
         "sites/warehouse.caddy",
+        # Owner-approved 2026-09-17: the receiving workspace origin (runbook
+        # step 4; proxies 127.0.0.1:3210 behind the console session gate).
+        "sites/receiving.caddy",
     }
 )
 
@@ -301,6 +304,7 @@ def _check_caddy_manifest(config: SafetyConfig, deps: SafetyDependencies) -> str
         "import sites/support.caddy",
         "import sites/exchange.caddy",
         "import sites/warehouse.caddy",
+        "import sites/receiving.caddy",
     ]:
         raise CheckFailure("active Caddy entrypoint is not the deterministic import set")
     return "active Caddy entrypoint and fragments match the approved manifest"
