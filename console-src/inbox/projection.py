@@ -7,18 +7,11 @@ import sqlite3
 import time
 from contextlib import closing
 
-from shop_rail import attach as attach_shop_rail
+from shop_rail import attach as attach_shop_rail, connect
 
 DEFAULT_PATH = '/var/lib/buttonsbebe-inbox-projection/projection.sqlite3'
 VERSION = 1
 class ProjectionUnavailable(Exception): pass
-
-
-def connect(path):
-    db = sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro', uri=True, timeout=0.2)
-    db.row_factory = sqlite3.Row
-    db.execute('PRAGMA query_only=ON')
-    return db
 
 
 def status(db, path):
