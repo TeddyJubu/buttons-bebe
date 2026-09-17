@@ -83,7 +83,7 @@ No new dependency proposed. FastAPI + uvicorn are already installed and pinned (
 | 5 | Fix stale AGENTS.md facts (35→38 seeds; JSON→SQLite paths) | `AGENTS.md:277,278,282` | ±3 | Zero | **P2** | Docs match reality for the next 12 agents |
 | 6 | `shop_rail.py` uses `projection.connect` (or shared 10-line helper) | `console-src/inbox/shop_rail.py` | −8 | Low | P3 | One DB-open recipe |
 | 7 | Single source for view ids: `view-model.js` exports the list, `webmcp.js:12` and (ideally) a comment at `tickets.py:36` reference it | `js/webmcp.js`, `js/view-model.js`, `helpdesk/tickets.py` (comment only) | ±5 | Low | P3 | Three-way silent drift becomes impossible on the JS side |
-| 8 | Decide dormant/: keep (it's 36 LOC, guarded by `test/canonical-review.test.js:22-25` asserting absence from manifest and boot) or delete both files; do not leave it undecided | `console-src/inbox/dormant/canonical-review.js`, `test/canonical-review.test.js` | −62 or 0 | Zero either way | P3 | Removes a "what is this?" question for every future reader |
+| 8 | **Done (Wave 4): deleted both files** — the adapter mirrored the server-side review-context contract that webhook's `send_intents.review_context` enforces with its own tests, was imported by nothing, and targeted `/console/api/...` which the inbox page's own origin (Caddy `/inbox/*` → review_server:8766) does not serve | — | −62 | Zero | P3 | Removes a "what is this?" question for every future reader |
 
 ## Rejected on principle
 
