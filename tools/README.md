@@ -47,7 +47,8 @@ the agent `.env` (`/root/Buttonsbebe Agent/.env`).
 
 `shopify_safety.py` is a read-only host monitor for the live warehouse path. It
 checks that the warehouse and Caddy services are active, the active Caddy
-entrypoint and three fragments match a root-owned SHA-256 manifest, port 4000
+entrypoint and four fragments (support, exchange, warehouse, receiving) match a
+root-owned SHA-256 manifest, port 4000
 is bound only to loopback, the deployed `shopify.js` keeps its central mutation
 and content-write guards disabled by default, the running warehouse process has
 not enabled either guard and started after that hardened source was installed,
