@@ -14,7 +14,6 @@ Transport chosen by GORGIAS_MCP_TRANSPORT (stdio default | streamable-http).
 Note: sets an explicit User-Agent -- Gorgias's WAF 403s the default urllib UA.
 """
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -23,17 +22,13 @@ import requests
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import StrictInt
-from _common import load_env
+from _common import _clean, load_env
 from gorgias_content import curate_messages, curate_ticket
 
 HOST = os.environ.get("GORGIAS_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GORGIAS_MCP_PORT", "8079"))
 TRANSPORT = os.environ.get("GORGIAS_MCP_TRANSPORT", "stdio")
 UA = "ButtonsBebe-Hermes/1.0"
-
-
-def _clean(v):
-    return re.sub(r'^[\s"\']+|[\s"\'\\]+$', "", v).replace("\r", "")
 
 
 def _bare_subdomain(sub):
