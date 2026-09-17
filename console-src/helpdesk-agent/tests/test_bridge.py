@@ -385,6 +385,15 @@ class GorgiasApiAdapterTests(unittest.TestCase):
         self.assertIn("unreachable", str(ctx.exception))
         self.assertNotIsInstance(ctx.exception, urllib.error.URLError)
 
+    def test_unreachable_api_returns_ok_false_from_send_public_reply(self) -> None:
+        import bridge.gorgias_api as api
+
+        with patch("helpdesk.send_access.send_access_enabled", lambda: True), \
+             patch.object(api, "_request", side_effect=RuntimeError("Gorgias unreachable")):
+            result = api.send_public_reply("4242", "a reply")
+        self.assertEqual(result["ok"], False)
+        self.assertIn("unreachable", result["error"])
+
 
 class LiveToolCountTests(unittest.TestCase):
     def test_seventeen_live_tools(self) -> None:

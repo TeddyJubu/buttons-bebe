@@ -224,8 +224,10 @@ test("interrupted atomic publication preserves old document and file mode",()=>{
 test("saves back up into KB/.backups/ with a bounded ring, not beside documents",async(t)=>{
  const {baseUrl,kb}=await startServer(t);
  const fp=path.join(kb,'intents','shipping.md');
- for(let i=0;i<25;i+=1)
-  await fetch(baseUrl+'/save',{method:'POST',body:JSON.stringify({path:'intents/shipping.md',content:'rev '+i})});
+ for(let i=0;i<25;i+=1){
+  const r=await fetch(baseUrl+'/save',{method:'POST',body:JSON.stringify({path:'intents/shipping.md',content:'rev '+i})});
+  assert.equal(r.status,200);                                          // fetch does not throw on 4xx/5xx
+ }
  const docDir=fs.readdirSync(path.join(kb,'intents'));
  assert.equal(docDir.some(name=>name.includes('.bak-')),false);      // old behavior: sibling backups
  const ring=fs.readdirSync(path.join(kb,'.backups')).filter(name=>name.startsWith('intents__shipping.md.bak-'));

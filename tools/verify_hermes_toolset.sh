@@ -147,7 +147,7 @@ LIVE_HERMES="${HERMES_HOME:-${HOME:-/root}/.hermes}"
 # and log state. Ignored BY FILENAME so the check never depends on "hermes"
 # appearing in HERMES_HOME's path, and a live-only auth.json/.env can never
 # be mistaken for (or masked as) content drift.
-MIRROR_LIVE_ONLY='config.yaml|config.example.yaml|auth.json|\.env(\..*)?|sessions?\.json|.*\.log'
+MIRROR_LIVE_ONLY='config\.yaml|config\.example\.yaml|auth\.json|\.env(\..*)?|sessions?\.json|.*\.log'
 if [ ! -d "$LIVE_HERMES" ]; then
     note "no live Hermes home at $LIVE_HERMES — skipping (set HERMES_HOME to point at it)"
 elif [ ! -d "$REPO_HERMES" ]; then

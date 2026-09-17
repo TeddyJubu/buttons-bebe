@@ -67,11 +67,25 @@ def tree_digest(path):
 
 
 def patched_server(source):
+    """Redact the legacy secret-bearing startup log; pass the no-secret format through.
+
+    The deployed server.js now logs via pino (`log.info(...%d..., PORT)`) with
+    no BASE interpolation, so there is nothing to redact — but the redaction
+    must survive a rollback from a live dir still on the old console.log
+    format, and any source whose startup log is not one of the two known-good
+    shapes (marker twice, unknown or missing log line) is still refused
+    rather than guessed at.
+    """
     marker=b' base=${BASE}'
-    if source.count(marker)!=1:raise ValueError('Expected unique startup log marker')
-    line=next(line for line in source.splitlines() if marker in line)
-    if b'console.log(`whatsapp-connect listening on 127.0.0.1:${PORT}' not in line:raise ValueError('Startup log format changed')
-    return source.replace(marker,b'',1)
+    pino_startup=b'log.info("whatsapp-connect listening on 127.0.0.1:%d", PORT)'
+    if marker in source:
+        if source.count(marker)!=1:raise ValueError('Expected unique startup log marker')
+        line=next(line for line in source.splitlines() if marker in line)
+        if b'console.log(`whatsapp-connect listening on 127.0.0.1:${PORT}' not in line:raise ValueError('Startup log format changed')
+        return source.replace(marker,b'',1)
+    if source.count(pino_startup)==1:
+        return source
+    raise ValueError('Startup log format changed')
 
 
 def inventory(live=LIVE,candidate=CANDIDATE):

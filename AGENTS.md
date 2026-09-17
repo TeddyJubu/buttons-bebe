@@ -157,7 +157,7 @@ Gate facts (each exists because something slipped once):
   this way).
 - Runs unittest suites in `kb/tests`, `deploy/tests`, `tools.test_tool_contracts`,
   webhook notification tests, feedback tests; `node --test` for every
-  whatsapp-connect test (incl. the root qs/startup-lock files, skipped only
+  whatsapp-connect test (incl. the root qs/startup-log files, skipped only
   when `node_modules` is absent) and kb-admin.
 - **Fails on any active `twilio` reference** — escalation is the local
   WhatsApp bridge now; do not reintroduce Twilio.

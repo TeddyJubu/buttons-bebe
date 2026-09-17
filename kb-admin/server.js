@@ -47,6 +47,9 @@ function backupFile(fp) {
   fs.copyFileSync(fp, backup, fs.constants.COPYFILE_EXCL);
   const backupFd = fs.openSync(backup, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try { fs.fsyncSync(backupFd); } finally { fs.closeSync(backupFd); }
+  // fsync the directory too, or a crash can lose the just-made backup entry
+  const dirFd = fs.openSync(BACKUP_DIR, fs.constants.O_RDONLY);
+  try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
   const prefix = `${rel.replace("/", "__")}.bak-`;
   const ring = fs.readdirSync(BACKUP_DIR).filter((n) => n.startsWith(prefix)).sort();
   while (ring.length > BACKUP_KEEP) fs.unlinkSync(path.join(BACKUP_DIR, ring.shift()));

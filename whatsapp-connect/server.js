@@ -326,10 +326,11 @@ app.get("/connect-whatsapp/*", (req, res) => res.status(404).send("Not found"));
 
 // Backstop for any future handler that throws synchronously: a generic 500,
 // never express's default stack-trace response (publicly reachable via the
-// token path when NODE_ENV is unset).
+// token path when NODE_ENV is unset). Never log req.path/req.url — on this
+// service they embed the bearer token.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  log.error({ err, path: req.path }, "unhandled route error");
+  log.error({ err }, "unhandled route error");
   res.status(500).json({ error: "internal error" });
 });
 
