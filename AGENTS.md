@@ -1,6 +1,6 @@
 # AGENTS.md — Buttons Bebe AI Support Agent
 
-> Reflects the live system as of **2026-07-14**. This file is the sole root
+> Reflects the live system as of **2026-09-17**. This file is the sole root
 > source of truth (`CLAUDE.md` was merged into it and removed on 2026-09-16 —
 > its KB/locks, learning-loop, and Fable-port background sections now live in
 > §11–§12 below). Any doc describing `/root/gorgias-webhook`, "shadow mode",
@@ -88,9 +88,9 @@ Gorgias webhook
 | `kb/` | KB markdown (`intents/ faq/ policies/ tickets/ products/ shopify/` — `shopify/` is shopify.dev platform background), LanceDB index/sync scripts, MCP server, systemd units/timers, `search.sh`. |
 | `tools/` | Read-only Redo + Gorgias MCP modules, `run-gorgias.sh` / `run-redo.sh`, `verify_release.sh`, `verify_hermes_toolset.sh`. |
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
-| `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). |
+| `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). Lock changes deploy manually (`npm ci` runbook: `deploy/DEPENDENCY-READINESS.md`) — CD refuses dependency mutation. |
 | `console-src/index.html` | **THE** console SPA source (includes Notice Board tab); deployed to the web root by CD. |
-| `dashboard/index.html` | Older console snapshot without Notice Board — superseded, kept for reference. |
+| ~~`dashboard/index.html`~~ | Deleted 2026-09-17 (Wave 2) — there is exactly one console surface now. |
 | `deploy/` | Only supported Caddy config (`caddy/Caddyfile.redacted`), CD receive script (`cd/`), systemd units, ENV-consolidation + heartbeat runbooks, tests. |
 | `testing/` | 48-scenario suite (`scenarios.json`), TEST-PLAN, judging rubric, HOW-TO-RUN. |
 | `feedback/` | PII masking library + retired-poller tests. |
@@ -156,8 +156,9 @@ Gate facts (each exists because something slipped once):
   with the marker line `# offline-gate: skip` (`test_e2e.py` hits a real VPS
   this way).
 - Runs unittest suites in `kb/tests`, `deploy/tests`, `tools.test_tool_contracts`,
-  webhook notification tests, feedback tests; `node --test` for
-  whatsapp-connect security tests and kb-admin.
+  webhook notification tests, feedback tests; `node --test` for every
+  whatsapp-connect test (incl. the root qs/startup-log files, skipped only
+  when `node_modules` is absent) and kb-admin.
 - **Fails on any active `twilio` reference** — escalation is the local
   WhatsApp bridge now; do not reintroduce Twilio.
 - Enforces exactly **48** unique-id scenarios in `testing/scenarios.json`.
@@ -203,6 +204,15 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 - `processor/feedback_collector.py` — superseded poller; rollback only via
   `FEEDBACK_LEGACY_OPT_IN=1` for a bounded test.
 - `processor/gorgias_writer.py` — dormant (§4).
+
+**Deleted from the tree — history in git only; do not rebuild them:**
+
+- Legacy v1 human gate (`kb/scripts/review_learned.py`, `feedback/review.py`,
+  console `/dashboard/api/review/*`) — **deleted 2026-09-17** (Wave 3.10, owner
+  decision). It consumed `ticket-*.md` review packets that only the retained
+  legacy collector writes (`feedback/collector.py`, under
+  `FEEDBACK_LEGACY_OPT_IN=1`); the live learning path writes `lesson-*.md` and
+  promotes nightly (§11).
 
 **Doc trust order:** this file (sole root source of truth) → `HANDOVER/`
 (good onboarding, but dated 2026-07-13 *before* the Fable port: its

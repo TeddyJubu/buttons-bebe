@@ -231,6 +231,17 @@ export function createInboxOrgan(opts = {}) {
     if (selectedId) markRead(selectedId);
   }
 
+  // ponytail: one definition of "switching context clears the selection and composer".
+  function resetUiState(nextSelectedId = null) {
+    selectedId = nextSelectedId;
+    body = "";
+    strip = "";
+    summarizeText = "";
+    discarded = false;
+    selectedMacroId = "";
+    macrosOpen = false;
+  }
+
   async function refreshList() {
     listError = "";
     if (pinnedCatalog) {
@@ -776,13 +787,7 @@ export function createInboxOrgan(opts = {}) {
       statusId = "";
       assigneeId = "";
       tagId = "";
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       refreshList().then(() => {
         ensureSelection();
         return refreshThread();
@@ -790,61 +795,31 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.CHANNEL_SELECTED, ({ channelId: next }) => {
       channelId = normalizeChannel(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.STATUS_SELECTED, ({ statusId: next }) => {
       statusId = normalizeStatus(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.ASSIGNEE_SELECTED, ({ assigneeId: next }) => {
       assigneeId = normalizeAssignee(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.TAG_SELECTED, ({ tagId: next }) => {
       tagId = normalizeTag(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SELECTED, ({ ticketId }) => {
-      selectedId = ticketId;
+      resetUiState(ticketId);
       markRead(ticketId);
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_BODY, ({ text }) => {
@@ -996,13 +971,7 @@ export function createInboxOrgan(opts = {}) {
       statusId = "";
       assigneeId = "";
       tagId = "";
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       return refreshList().then(() => {
         ensureSelection();
         return refreshThread();
@@ -1010,61 +979,31 @@ export function createInboxOrgan(opts = {}) {
     },
     selectChannel(next) {
       channelId = normalizeChannel(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     selectStatus(next) {
       statusId = normalizeStatus(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     selectAssignee(next) {
       assigneeId = normalizeAssignee(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     selectTag(next) {
       tagId = normalizeTag(next);
-      selectedId = null;
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
+      resetUiState();
       ensureSelection();
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     selectTicket(id) {
-      selectedId = id;
+      resetUiState(id);
       markRead(id);
-      body = "";
-      strip = "";
-      summarizeText = "";
-      discarded = false;
-      selectedMacroId = "";
-      macrosOpen = false;
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     collapseList(collapsed = true) {

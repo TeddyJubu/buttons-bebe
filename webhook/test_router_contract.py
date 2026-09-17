@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -31,11 +27,6 @@ class RouterContractTests(unittest.TestCase):
             ("POST", "/dashboard/api/results"),
             ("GET", "/dashboard/api/notifications"),
             ("POST", "/dashboard/api/notifications/read"),
-            ("GET", "/dashboard/api/review/list"),
-            ("GET", "/dashboard/api/review/packet/{ticket_id}"),
-            ("POST", "/dashboard/api/review/approve/{ticket_id}"),
-            ("POST", "/dashboard/api/review/reject/{ticket_id}"),
-            ("POST", "/dashboard/api/review/reindex"),
             ("POST", "/dashboard/api/ticket/{ticket_id}/send"),
             ("POST", "/dashboard/api/ticket/{ticket_id}/note"),
             ("POST", "/dashboard/api/ticket/{ticket_id}/rewrite"),
@@ -50,27 +41,6 @@ class RouterContractTests(unittest.TestCase):
             for method in (method.upper(),)
         }
         self.assertEqual(actual, expected)
-
-    def test_feedback_review_imports_under_the_production_pythonpath(self) -> None:
-        webhook_dir = Path(__file__).resolve().parent
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(webhook_dir / "src")
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                (
-                    "from bb_webhook.routers import console; "
-                    "raise SystemExit(console._review is None)"
-                ),
-            ],
-            cwd=webhook_dir,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_lifespan_keeps_logging_settings_and_db_startup_order(self) -> None:
         events: list[str] = []

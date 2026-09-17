@@ -198,41 +198,48 @@ class GorgiasClient:
 
     # ── WRITE side (added for reply-from-dashboard) ────────
 
+    def _headers(self) -> dict:
+        return {"User-Agent": _USER_AGENT, "Accept": "application/json"}
+
+    async def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """One GET/POST with timeout/UA/429-retry. POST keeps 429-only policy (3.4).
+
+        Never retried: connection errors on POST (double-send risk — the
+        accepted-write-before-disconnect case stays fail-closed upstream).
+        """
+        kwargs.setdefault("auth", self._auth)
+        headers = self._headers()
+        headers.update(kwargs.pop("headers", {}))
+        kwargs["headers"] = headers
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            call = client.post if method == "post" else client.get
+            resp = None
+            for attempt in range(_MAX_429_RETRIES + 1):
+                resp = await call(url, **kwargs)
+                if resp.status_code != 429 or attempt >= _MAX_429_RETRIES:
+                    break
+                await asyncio.sleep(_retry_after(resp))
+            assert resp is not None
+            return resp
+
     async def _post_message(self, ticket_id: int, payload: dict) -> dict:
         """Low-level POST of a message to a ticket. Returns {ok, ...}."""
         if not self._auth:
             return {"ok": False, "error": "gorgias credentials not configured"}
         url = f"{self.base_url}{_API_VERSION}/tickets/{ticket_id}/messages"
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = None
-                for attempt in range(_MAX_429_RETRIES + 1):
-                    resp = await client.post(
-                        url,
-                        auth=self._auth,
-                        json=payload,
-                        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
-                    )
-                    if resp.status_code != 429 or attempt >= _MAX_429_RETRIES:
-                        break
-                    await asyncio.sleep(_retry_after(resp))
-                assert resp is not None
-                if resp.status_code in (200, 201):
-                    return {"ok": True, "message": resp.json()}
-                if resp.status_code == 400 and "body_text" in payload:
-                    p2 = dict(payload)
-                    txt = p2.pop("body_text")
-                    p2["body_html"] = html.escape(txt).replace("\n", "<br>")
-                    resp2 = await client.post(
-                        url,
-                        auth=self._auth,
-                        json=p2,
-                        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
-                    )
-                    if resp2.status_code in (200, 201):
-                        return {"ok": True, "message": resp2.json()}
-                    return {"ok": False, "error": f"gorgias {resp2.status_code}: {resp2.text[:300]}"}
-                return {"ok": False, "error": f"gorgias {resp.status_code}: {resp.text[:300]}"}
+            resp = await self._request("post", url, json=payload)
+            if resp.status_code in (200, 201):
+                return {"ok": True, "message": resp.json()}
+            if resp.status_code == 400 and "body_text" in payload:
+                p2 = dict(payload)
+                txt = p2.pop("body_text")
+                p2["body_html"] = html.escape(txt).replace("\n", "<br>")
+                resp2 = await self._request("post", url, json=p2)
+                if resp2.status_code in (200, 201):
+                    return {"ok": True, "message": resp2.json()}
+                return {"ok": False, "error": f"gorgias {resp2.status_code}: {resp2.text[:300]}"}
+            return {"ok": False, "error": f"gorgias {resp.status_code}: {resp.text[:300]}"}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -264,29 +271,21 @@ class GorgiasClient:
         murl = f"{self.base_url}{_API_VERSION}/messages"
         msgs = []
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as _c:
-                mr = None
-                for attempt in range(_MAX_429_RETRIES + 1):
-                    mr = await _c.get(
-                        murl,
-                        auth=self._auth,
-                        params={
-                            "ticket_id": ticket_id,
-                            "limit": 30,
-                            "order_by": "created_datetime:desc",
-                        },
-                        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
-                    )
-                    if mr.status_code != 429 or attempt >= _MAX_429_RETRIES:
-                        break
-                    await asyncio.sleep(_retry_after(mr))
-                assert mr is not None
-                if mr.status_code == 404:
-                    return {"ok": False, "delivery_status": "not_attempted", "error": "ticket not found"}
-                if mr.status_code != 200:
-                    return {"ok": False, "delivery_status": "not_attempted", "error": f"gorgias {mr.status_code}: {mr.text[:300]}"}
-                jd = mr.json()
-                msgs = jd.get("data", jd) if isinstance(jd, dict) else jd
+            mr = await self._request(
+                "get",
+                murl,
+                params={
+                    "ticket_id": ticket_id,
+                    "limit": 30,
+                    "order_by": "created_datetime:desc",
+                },
+            )
+            if mr.status_code == 404:
+                return {"ok": False, "delivery_status": "not_attempted", "error": "ticket not found"}
+            if mr.status_code != 200:
+                return {"ok": False, "delivery_status": "not_attempted", "error": f"gorgias {mr.status_code}: {mr.text[:300]}"}
+            jd = mr.json()
+            msgs = jd.get("data", jd) if isinstance(jd, dict) else jd
         except Exception as exc:
             return {"ok": False, "delivery_status": "not_attempted", "error": f"failed to read ticket: {exc}"}
         if not isinstance(msgs, list):

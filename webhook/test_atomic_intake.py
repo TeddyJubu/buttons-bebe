@@ -78,7 +78,14 @@ class AtomicIntakeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(await Database(self.path).fetch("SELECT * FROM app_settings")), 1)
 
     async def test_legacy_partial_intake_is_reported_without_replaying_it(self):
-        await database.record_event("synthetic-1", "test", 123, "created", "customer", "{}", self.path)
+        # Seed the pre-job-queue partial state directly: an event row with no
+        # parsed message and no job (the state record_event used to leave).
+        await Database(self.path).execute(
+            "INSERT INTO webhook_events (message_id, tenant_id, ticket_id, "
+            "event_type, author_type, raw_payload, received_at) "
+            "VALUES (?, 'test', ?, 'created', 'customer', ?, ?)",
+            ("synthetic-1", 123, "{}", "2026-01-01T00:00:00+00:00"),
+            operation="test_seed_partial_event")
         self.assertIsNone(await database.ingest_event(self.event, "{}", self.path))
         self.assertEqual(await database.get_intake_integrity_stats(self.path), [dict(
             event_type="created", author_type="customer", events=1,

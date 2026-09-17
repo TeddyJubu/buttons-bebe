@@ -6,9 +6,7 @@ import re
 
 from . import data as _data
 from . import matching as _matching
-from .guards import browsing as _browsing
-from .guards import order_context as _order_context
-from .guards import problem as _problem
+from . import patterns as _patterns  # ponytail: guards folded here (3.3)
 
 
 # ADR-014 §2.2 — bound/fold/filter the port view; main keeps raw ticket text.
@@ -164,11 +162,11 @@ def _is_exclaiming(message_text: str) -> bool:
 
 
 def _weak_matches(text: str) -> list[str]:
-    if not _order_context._ORDER_CONTEXT_RE.search(text):
+    if not _patterns._ORDER_CONTEXT_RE.search(text):
         return []
     found = _matching._find_matches(text, _data._WEAK_UNGUARDED)
-    browsing = (_browsing._BROWSING_QUESTION_RE.search(text)
-                and not _problem._PROBLEM_CONTEXT_RE.search(text))
+    browsing = (_patterns._BROWSING_QUESTION_RE.search(text)
+                and not _patterns._PROBLEM_CONTEXT_RE.search(text))
     if not browsing:
         for table in (_data._WEAK_DAMAGE, _data._WEAK_OMISSION):
             found.extend(match for match in _matching._find_matches(text, table)

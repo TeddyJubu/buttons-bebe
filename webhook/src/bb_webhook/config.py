@@ -26,11 +26,9 @@ if not _DEMO_MODE_AT_IMPORT:
 class Settings(BaseSettings):
     """Central configuration loaded from environment / .env."""
 
-    model_config = SettingsConfigDict(
-        env_file=None if _DEMO_MODE_AT_IMPORT else str(_ENV_PATH),
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    # load_dotenv at import already populated os.environ, which Settings()
+    # reads — one .env parse instead of two (report 01-6).
+    model_config = SettingsConfigDict(extra="ignore")
 
     demo_mode: bool = Field(default=False, alias="DEMO_MODE")
     processor_result_secret: str = Field(default="", alias="PROCESSOR_RESULT_SECRET", repr=False)

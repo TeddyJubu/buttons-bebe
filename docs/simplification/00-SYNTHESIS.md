@@ -172,9 +172,12 @@ assertion (03-4); raw-socket 400 test (08-1); chatty-child reindex test
    operate on `ticket-*.md` packets that nothing writes anymore (live
    capture writes `lesson-*.md`; the nightly auto-promotion is the
    deliberate design per AGENTS.md §11). The console review list is
-   permanently empty — a misleading dead UI. **Owner decision required**
-   (one question: "is the v1 human gate retired?"); recommendation: retire
-   all three together, note in AGENTS.md §10 + RETIRED.md.
+   permanently empty — a misleading dead UI. **Owner decision taken
+   2026-09-17: retire all three** (commit `5e9623d`, row 3.10); noted in
+   AGENTS.md and RETIRED.md. (Correction: the retained legacy collector
+   `feedback/collector.py` can still write `ticket-*.md` under
+   `FEEDBACK_LEGACY_OPT_IN=1` — the packets were dead in the live path, not
+   unwritable.)
 6. **Prompt-safety literals.** 02-10 (share the `<DRAFT` marker
    neutralization between `rewrite_runner` and `hermes_runner`) and 04-3
    (import the SENSITIVE prefix from `draft_cleaner` instead of 3 literals)
@@ -306,6 +309,15 @@ skipped, and any future revisit should start from the reports' evidence:
 
 **Status:** **Wave 1 (11 P1 reliability rows) executed on branch `refactor`,
 PR #28 — one commit per row, gate green before each push; the follow-up
-review on that PR fixed a further ~20 findings in the same files.** Waves
-2–4 remain analysis-only; no production code beyond Wave 1 has been
-modified.
+review on that PR fixed a further ~20 findings in the same files.**
+**Wave 2 (8 verified-dead deletion rows) executed on the same branch —
+one commit per row, gate green before each commit (rows 2.4 and 2.8
+resolved B-conflicts per the resolutions above; row 2.1 also dropped the
+kb-admin legacyDashboard test block that pinned the deleted HTML; row
+2.3's dead helpers are referenced by the already-broken, gate-orphaned
+`demo/adversarial/` suite, left broken by owner decision).**
+**Wave 3 (17 P2 care + test rows) executed on the same branch — one commit
+per row, gate green before each commit: rows 3.1–3.17 all landed
+(d18b65e … 73cb619). B.5's owner decision was taken 2026-09-17 — the v1
+human gate is retired, all three components deleted.** Wave 4 remains
+analysis-only.

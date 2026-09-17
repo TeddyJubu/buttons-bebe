@@ -98,8 +98,6 @@ def _normalize_timestamp(val: Any) -> str | None:
     if not isinstance(val, str) or not val.strip():
         return None
     ts = val.strip()
-    if ts.endswith("Z"):
-        ts = ts[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(ts)
     except ValueError:
@@ -493,8 +491,7 @@ def is_event_too_old(created_at: str | None, max_age: int = MAX_EVENT_AGE) -> bo
         return False  # can't determine age, allow it
 
     try:
-        ts_str = created_at.replace("Z", "+00:00") if isinstance(created_at, str) else created_at
-        event_time = datetime.fromisoformat(ts_str)
+        event_time = datetime.fromisoformat(created_at)
         now = datetime.now(timezone.utc)
         age = (now - event_time).total_seconds()
         return age > max_age
@@ -510,7 +507,7 @@ def is_event_in_future(
     if not created_at:
         return False
     try:
-        event_time = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        event_time = datetime.fromisoformat(created_at)
         return (event_time - datetime.now(timezone.utc)).total_seconds() > max_future_skew
     except (ValueError, TypeError, AttributeError):
         return False

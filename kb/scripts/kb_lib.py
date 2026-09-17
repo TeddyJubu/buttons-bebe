@@ -30,6 +30,9 @@ from sensitivity import is_sensitive_metadata, normalize_tags
 # ---- where things live --------------------------------------------------
 KB_DIR = Path(__file__).resolve().parent.parent   # the KB/ folder
 DB_DIR = KB_DIR / "lancedb"                         # the search index (auto-built)
+# The writer (index_kb) takes LOCK_EX on this file around the directory swap;
+# readers (search_kb) take LOCK_SH. One constant so the pairing cannot drift.
+PROMOTE_LOCK_PATH = DB_DIR.parent / ".index_kb.promote.lock"
 TABLE = "kb"
 
 # Which content folders get indexed, in order of trust (highest first).

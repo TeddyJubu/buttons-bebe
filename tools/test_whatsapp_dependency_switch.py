@@ -133,4 +133,10 @@ class WhatsAppSwitchTests(unittest.TestCase):
         for invalid in (source+source,b'const BASE = "secret";'):
             with self.assertRaises(ValueError):switch.patched_server(invalid)
 
+    def test_log_patch_passes_the_deployed_no_secret_pino_format_through(self):
+        # The live server.js logs via pino now: no BASE in the startup line, so
+        # patched_server must return it unchanged instead of refusing to run.
+        current=b'const BASE = "/connect-whatsapp/${TOKEN}";\nlog.info("whatsapp-connect listening on 127.0.0.1:%d", PORT);\n'
+        self.assertEqual(switch.patched_server(current),current)
+
 if __name__=='__main__':unittest.main()

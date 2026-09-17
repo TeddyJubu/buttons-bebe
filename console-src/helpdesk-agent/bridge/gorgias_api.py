@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
 import time
@@ -64,6 +65,12 @@ def _request(
                 continue
             detail = exc.read().decode("utf-8", errors="replace")[:400]
             raise RuntimeError(f"Gorgias {method} {path} failed: {exc.code} {detail}") from exc
+        except urllib.error.URLError as exc:
+            # A freshly-activated bridge fails closed like every other path, with
+            # the structured error callers already handle.
+            raise RuntimeError(f"Gorgias {method} {path} unreachable: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Gorgias {method} {path} returned invalid JSON: {exc.msg}") from exc
 
 
 def _is_customer(message: dict[str, Any]) -> bool:
@@ -94,10 +101,16 @@ def send_public_reply(ticket_id: int | str, body_text: str) -> dict[str, Any]:
     if not text:
         return {"ok": False, "error": "empty body"}
     tid = int(ticket_id)
-    listed = _request(
-        "GET",
-        f"/tickets/{tid}/messages?limit=30&order_by={urllib.parse.quote('created_datetime:desc')}",
-    )
+    try:
+        listed = _request(
+            "GET",
+            f"/tickets/{tid}/messages?limit=30&order_by={urllib.parse.quote('created_datetime:desc')}",
+        )
+    except RuntimeError as exc:
+        # parity with close_ticket: an unreachable/invalid-JSON Gorgias must
+        # surface as a structured {ok: False} result, never raise past the
+        # bridge into a generic 500 (helpdesk/tissues.py).
+        return {"ok": False, "error": str(exc)}
     messages = listed.get("data") if isinstance(listed, dict) else None
     if not isinstance(messages, list):
         messages = listed if isinstance(listed, list) else []
@@ -132,12 +145,15 @@ def send_public_reply(ticket_id: int | str, body_text: str) -> dict[str, Any]:
         "from_agent": True,
         "public": True,
         "body_text": text,
-        "body_html": text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>"),
+        "body_html": html.escape(text).replace("\n", "<br>"),  # parity with the production adapter (gorgias_client.py)
         "sender": {"email": email},
         "receiver": {"email": customer_email},
         "source": new_source,
     }
-    created = _request("POST", f"/tickets/{tid}/messages", body=payload, retries=1)
+    try:
+        created = _request("POST", f"/tickets/{tid}/messages", body=payload, retries=1)
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
     message_id = created.get("id") if isinstance(created, dict) else None
     if message_id is None:
         return {"ok": False, "error": "Gorgias did not return a message id", "raw": created}

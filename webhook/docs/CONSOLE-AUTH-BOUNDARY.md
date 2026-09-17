@@ -10,10 +10,8 @@ inside FastAPI as well as at Caddy.
 | Routes | Caller and authorization |
 | --- | --- |
 | `GET /dashboard/api/messages`, `/stats`, `/tickets`, `/notifications`, `/learning` | Signed and registered owner session |
-| `GET /dashboard/api/review/list`, `/review/packet/{ticket_id}` | Signed and registered owner session |
 | `POST /dashboard/api/notifications/read` | Owner session and trusted Origin |
 | `POST /dashboard/api/ticket/{ticket_id}/send`, `/note`, `/rewrite` | Owner session and trusted Origin; action handler still owns confirmation, idempotency, ticket and content validation |
-| `POST /dashboard/api/review/approve/{ticket_id}`, `/review/reject/{ticket_id}`, `/review/reindex` | Owner session and trusted Origin |
 | `POST /dashboard/api/results` | Processor only: direct loopback, no Origin or Forwarded/X-Forwarded headers; never exposed as a browser action |
 | `POST /auth/login`, `/auth/logout` | Trusted Origin; login verifies existing owner credentials, logout durably revokes the presented session |
 | `GET /auth/session`, `/auth/check`, `/auth/page-check` | Registry-backed session validation; proxy checks also validate Origin for original unsafe methods |

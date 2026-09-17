@@ -52,7 +52,8 @@ class VerifyToolsetScriptTests(unittest.TestCase):
     def run_script(self, *, mcp_list: str = _GOOD_LIST, mcp_status: int = 0,
                    smoke_out: str = "KBOK: returns accepted within 7 days.",
                    smoke_status: int = 0, config: str | None = None,
-                   toolsets: str | None = None) -> subprocess.CompletedProcess:
+                   toolsets: str | None = None,
+                   hermes_home: Path | None = None) -> subprocess.CompletedProcess:
         env = dict(os.environ)
         env["HERMES_VERIFY_PYTHON"] = sys.executable
         env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
@@ -62,6 +63,10 @@ class VerifyToolsetScriptTests(unittest.TestCase):
         env["FAKE_SMOKE_STATUS"] = str(smoke_status)
         if toolsets is not None:
             env["HERMES_TOOLSETS"] = toolsets
+        if hermes_home is not None:
+            env["HERMES_HOME"] = str(hermes_home)
+        else:
+            env["HERMES_HOME"] = str(self.tmp / "absent-hermes-home")
         if config is None:
             env["HERMES_CONFIG"] = str(self.tmp / "absent.yaml")
         else:
@@ -159,6 +164,50 @@ class VerifyToolsetScriptTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("skipping the live run", proc.stdout)
         self.assertNotIn("KBOK", proc.stdout)
+
+    # ── the hermes home mirror check ────────────────────────────────────
+    def _mirror_home(self, soul_text: str | None = None) -> Path:
+        import shutil
+        home = self.tmp / "live-hermes"
+        home.mkdir(exist_ok=True)
+        repo = Path(__file__).resolve().parents[2] / "hermes"
+        shutil.copytree(repo, home, dirs_exist_ok=True)
+        # Live-only files (config, credentials) must not fail the check —
+        # all of them, not just config.yaml: auth.json and .env are exactly
+        # the files a live install holds and the repo mirror must not.
+        (home / "config.yaml").write_text("model:\n  default: glm-5.2\n", encoding="utf-8")
+        (home / "auth.json").write_text('{"api_key": "sk-live"}\n', encoding="utf-8")
+        (home / ".env").write_text("HERMES_API_KEY=sk-live\n", encoding="utf-8")
+        if soul_text is not None:
+            (home / "SOUL.md").write_text(soul_text, encoding="utf-8")
+        return home
+
+    def test_matching_hermes_home_passes(self):
+        proc = self.run_script(config="platform_toolsets:\n  cli: []\n",
+                               hermes_home=self._mirror_home())
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("matches the repo mirror", proc.stdout)
+
+    def test_live_only_credentials_do_not_mask_content_drift(self):
+        # auth.json/.env in the live home must be ignored as live-only state,
+        # but they must not blind the check to a real SOUL.md drift.
+        proc = self.run_script(config="platform_toolsets:\n  cli: []\n",
+                               hermes_home=self._mirror_home("drifted brain\n"))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("drifted", proc.stdout)
+        self.assertIn("runbook", proc.stdout)
+
+    def test_drifted_soul_fails_with_runbook_pointer(self):
+        proc = self.run_script(config="platform_toolsets:\n  cli: []\n",
+                               hermes_home=self._mirror_home("drifted brain instructions\n"))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("drifted", proc.stdout)
+        self.assertIn("runbook", proc.stdout)
+
+    def test_missing_hermes_home_skips_without_failing(self):
+        proc = self.run_script(config="platform_toolsets:\n  cli: []\n")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("skipping", proc.stdout.lower())
 
 
 if __name__ == "__main__":

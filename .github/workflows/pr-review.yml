@@ -43,7 +43,7 @@ jobs:
               ]],
               ["Production runtime", [/^(?:processor|webhook|tools|kb-admin)\//, /^(?:kb|KB)\/scripts\//]],
               ["Knowledge base", [/^(?:kb|KB)\/(?:policies|tickets|intents|faq)\//]],
-              ["Dashboard", [/^(?:console-src|dashboard)\//]],
+              ["Console", [/^console-src\//]],
               ["Documentation", [/\.md$/]],
             ].filter(([, patterns]) => inAny(patterns)).map(([name]) => name);
 

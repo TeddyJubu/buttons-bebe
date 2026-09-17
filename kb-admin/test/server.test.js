@@ -178,14 +178,6 @@ test("console binds only KB item buttons and disables saving after a load error"
   assert.match(html, /\.main\.header-compact \.header-title \.sub/);
   assert.doesNotMatch(html, /if\(!confirm\("Remove this notice/);
   assert.doesNotMatch(html, /jget\(KBAPI\+"\/notices"\)\|\|\{notices:\[\]\}/);
-
-  const legacyDashboard = fs.readFileSync(path.join(ROOT, "dashboard", "index.html"), "utf8");
-  const legacyScripts = [...legacyDashboard.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
-  for (const match of legacyScripts) assert.doesNotThrow(() => new Function(match[1]));
-  assert.doesNotMatch(legacyDashboard, /Post drafts to Gorgias|gorgias_writes_enabled|4,246 products/);
-  assert.match(legacyDashboard, /sensitiveDrafts=stats\.sensitive_draft\|\|0/);
-  assert.match(legacyDashboard, /noKbDrafts=stats\.no_kb_match\|\|0/);
-  assert.match(legacyDashboard, /Raw lessons stay out of search with restricted file permissions/);
 });
 
 test("invalid and oversized JSON do not alter KB content", async(t)=>{
@@ -227,4 +219,19 @@ test("interrupted atomic publication preserves old document and file mode",()=>{
   assert.equal(fs.readFileSync(fp,'utf8'),'new complete content');
   assert.equal(fs.statSync(fp).mode & 0o777,0o640);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test("saves back up into KB/.backups/ with a bounded ring, not beside documents",async(t)=>{
+ const {baseUrl,kb}=await startServer(t);
+ const fp=path.join(kb,'intents','shipping.md');
+ for(let i=0;i<25;i+=1){
+  const r=await fetch(baseUrl+'/save',{method:'POST',body:JSON.stringify({path:'intents/shipping.md',content:'rev '+i})});
+  assert.equal(r.status,200);                                          // fetch does not throw on 4xx/5xx
+ }
+ const docDir=fs.readdirSync(path.join(kb,'intents'));
+ assert.equal(docDir.some(name=>name.includes('.bak-')),false);      // old behavior: sibling backups
+ const ring=fs.readdirSync(path.join(kb,'.backups')).filter(name=>name.startsWith('intents__shipping.md.bak-'));
+ assert.equal(ring.length,20);                                       // retention cap holds
+ assert.ok(ring.every(name=>fs.statSync(path.join(kb,'.backups',name)).size>0));
+ assert.equal(fs.readFileSync(fp,'utf8'),'rev 24');                  // publication unaffected
 });

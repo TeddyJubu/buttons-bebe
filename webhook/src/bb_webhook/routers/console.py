@@ -1,4 +1,4 @@
-"""Human-gated console actions and feedback review endpoints."""
+"""Human-gated console actions."""
 
 from __future__ import annotations
 
@@ -14,13 +14,6 @@ from ..gorgias_client import GorgiasClient as _GClient
 from ..learning import ledger as _ledger, record_lesson as _record_lesson
 from ..rewrite_runner import run_rewrite, RewriteFailure
 from ..logging_utils import get_logger, log_event
-
-try:
-    # Optional at import time: review routes must not prevent the webhook
-    # receiver from starting when the feedback package is not installed.
-    from feedback import review as _review
-except Exception:  # pragma: no cover - depends on deployment packaging
-    _review = None
 
 router = APIRouter(prefix="/dashboard/api")
 logger = get_logger(__name__)
@@ -45,75 +38,6 @@ _SUPPORT_STORE_NAME = " ".join(
 
 def _app_value(name: str, default):
     return deps.resolve(name, default)
-
-
-def _review_unavailable() -> JSONResponse:
-    return JSONResponse(status_code=503, content={"error": "review_unavailable"})
-
-
-@router.get("/review/list")
-async def review_list() -> JSONResponse:
-    if _review is None:
-        return _review_unavailable()
-    return JSONResponse(content={"pending": _review.list_pending()})
-
-
-@router.get("/review/packet/{ticket_id}")
-async def review_packet(ticket_id: str) -> JSONResponse:
-    if _review is None:
-        return _review_unavailable()
-    packet = _review.get_packet(ticket_id)
-    if not packet:
-        return JSONResponse(status_code=404, content={"error": "not_found"})
-    return JSONResponse(
-        content={
-            "ticket_id": packet["ticket_id"],
-            "front": packet["front"],
-            "situation_masked": packet["situation_masked"],
-            "reply_masked": packet["reply_masked"],
-            "reply_raw": packet["reply"],
-            "pii_reply": packet["pii_reply"],
-        }
-    )
-
-
-@router.post("/review/approve/{ticket_id}")
-async def review_approve(ticket_id: str, request: Request) -> JSONResponse:
-    if _review is None:
-        return _review_unavailable()
-    reviewer = actor(request)
-    if not reviewer:
-        return JSONResponse(status_code=401, content={"error":"not_authenticated"})
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse(status_code=400, content={"error":"invalid_json"})
-    if not isinstance(body,dict) or set(body)-{"pii_cleared","note","why"}:
-        return JSONResponse(status_code=400, content={"error":"invalid_review_object"})
-    if type(body.get("pii_cleared")) is not bool:
-        return JSONResponse(status_code=400, content={"error":"invalid_pii_confirmation"})
-    if any(not isinstance(body.get(key,""),str) or len(body.get(key,""))>5000 for key in ("note","why")):
-        return JSONResponse(status_code=400, content={"error":"invalid_review_text"})
-    log_event(logger,"INFO","Legacy PII review requested",actor_id=reviewer,ticket_id=ticket_id)
-    result = _review.approve(ticket_id,pii_cleared=body["pii_cleared"],
-                             note=body.get("note",""),why=body.get("why",""),review_actor=reviewer)
-    log_event(logger,"INFO","Legacy PII review completed",actor_id=reviewer,ticket_id=ticket_id,approved=result.get("ok") is True)
-    return JSONResponse(content=result,status_code=200 if result.get("ok") else 400)
-
-
-
-@router.post("/review/reject/{ticket_id}")
-async def review_reject(ticket_id: str, purge: bool = False) -> JSONResponse:
-    if _review is None:
-        return _review_unavailable()
-    return JSONResponse(content=_review.reject(ticket_id, purge=purge))
-
-
-@router.post("/review/reindex")
-async def review_reindex() -> JSONResponse:
-    if _review is None:
-        return _review_unavailable()
-    return JSONResponse(content=_review.reindex())
 
 
 @router.get("/inbox/review-context/{inbox_ticket_id}")

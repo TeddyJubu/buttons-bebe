@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         import hermes_runner
 
     config.ProcessorSettings.model_config["env_file"] = None
-    config._settings = None
+    config.get_settings.cache_clear()   # lru_cache replaced the _settings = None reset
     result = hermes_runner.process_ticket_with_hermes(
         ticket_id=args.ticket,
         message_text=str(latest.get("body_text", "")),

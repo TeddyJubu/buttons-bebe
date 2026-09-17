@@ -17,8 +17,8 @@ fi
 # Since the 2026-07-08 consolidation both the processor and the webhook read
 # the SAME file at the project root. processor/config.py hard-codes that path
 # and never looks at webhook/.env, so there is no useful fallback: starting
-# anyway would boot the processor with an empty GORGIAS_API_KEY and
-# LLM_API_KEY, which fails per-ticket rather than at startup. Fail loudly.
+# anyway would boot the processor with an empty GORGIAS_API_KEY, which fails
+# per-ticket rather than at startup. Fail loudly.
 ENV_FILE="../.env"
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: no .env at $(cd .. && pwd)/.env"

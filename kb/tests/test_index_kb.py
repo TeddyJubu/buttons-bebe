@@ -15,6 +15,7 @@ fake_lancedb.connect = None
 sys.modules.setdefault("lancedb", fake_lancedb)
 fake_kb_lib = types.ModuleType("kb_lib")
 fake_kb_lib.DB_DIR = Path("/tmp/buttonsbebe-index-test")
+fake_kb_lib.PROMOTE_LOCK_PATH = fake_kb_lib.DB_DIR.parent / ".index_kb.promote.lock"
 fake_kb_lib.TABLE = "kb"
 fake_kb_lib.KBChunk = object
 fake_kb_lib.load_rows = None
@@ -74,7 +75,14 @@ class TestIndexKB(unittest.TestCase):
     def _patch_paths(self, root: Path):
         db_dir = root / "lancedb"
         lock_path = root / ".index_kb.lock"
-        return patch.object(index_kb, "DB_DIR", db_dir), patch.object(index_kb, "LOCK_PATH", lock_path)
+        # Patch PROMOTE_LOCK_PATH too, or every promotion test contends on (and
+        # leaves) a shared /tmp lock from the module-level import.
+        promote_lock = root / ".index_kb.promote.lock"
+        return (
+            patch.object(index_kb, "DB_DIR", db_dir),
+            patch.object(index_kb, "LOCK_PATH", lock_path),
+            patch.object(index_kb, "PROMOTE_LOCK_PATH", promote_lock),
+        )
 
     def test_empty_input_does_not_open_or_replace_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -83,7 +91,7 @@ class TestIndexKB(unittest.TestCase):
             db_dir.mkdir()
             marker = db_dir / "last-known-good"
             marker.write_text("keep")
-            with self._patch_paths(root)[0], self._patch_paths(root)[1]:
+            with self._patch_paths(root)[0], self._patch_paths(root)[1], self._patch_paths(root)[2]:
                 with patch.object(index_kb, "load_rows", return_value=[]), patch.object(index_kb.lancedb, "connect") as connect:
                     with self.assertRaisesRegex(SystemExit, "last-known-good"):
                         index_kb.main()
@@ -110,7 +118,7 @@ class TestIndexKB(unittest.TestCase):
             marker = db_dir / "last-known-good"
             marker.write_text("keep")
             paths = self._patch_paths(root)
-            with paths[0], paths[1]:
+            with paths[0], paths[1], paths[2]:
                 with patch.object(index_kb, "load_rows", return_value=[{"text": "one"}, {"text": "two"}]), patch.object(index_kb, "embed_passages", return_value=[[0.1]]):
                     with self.assertRaisesRegex(SystemExit, "embedding count mismatch"):
                         index_kb.main()
@@ -126,7 +134,7 @@ class TestIndexKB(unittest.TestCase):
             marker.write_text("keep")
             fake_db = lambda path: FakeDB(Path(path), fail=True)
             paths = self._patch_paths(root)
-            with paths[0], paths[1]:
+            with paths[0], paths[1], paths[2]:
                 with patch.object(index_kb, "load_rows", return_value=[{"text": "one"}]), patch.object(index_kb, "embed_passages", return_value=[[0.1]]), patch.object(index_kb.lancedb, "connect", side_effect=fake_db):
                     with self.assertRaisesRegex(RuntimeError, "FTS failure"):
                         index_kb.main()
@@ -153,7 +161,7 @@ class TestIndexKB(unittest.TestCase):
                 "text": "one",
             }
             paths = self._patch_paths(root)
-            with paths[0], paths[1]:
+            with paths[0], paths[1], paths[2]:
                 with patch.object(index_kb, "load_rows", return_value=[row]), patch.object(index_kb, "embed_passages", return_value=[[0.1]]), patch.object(index_kb.lancedb, "connect", side_effect=fake_db):
                     index_kb.main()
             self.assertTrue((db_dir / "rows.txt").exists())
@@ -170,7 +178,8 @@ class TestIndexKB(unittest.TestCase):
             staged.mkdir()
             (db_dir / "old").write_text("old")
             (staged / "new").write_text("new")
-            with patch.object(index_kb, "DB_DIR", db_dir), patch.object(
+            paths = self._patch_paths(root)
+            with paths[0], paths[2], patch.object(
                 index_kb.shutil, "rmtree", side_effect=OSError("cleanup failed")
             ):
                 index_kb._promote(staged)
@@ -208,7 +217,7 @@ class TestIndexKB(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = self._patch_paths(root)
-            with paths[0], paths[1]:
+            with paths[0], paths[1], paths[2]:
                 with patch.object(index_kb, "load_rows", return_value=rows), patch.object(
                     index_kb, "embed_passages", return_value=vectors
                 ), patch.object(
@@ -244,7 +253,7 @@ class TestIndexKB(unittest.TestCase):
             marker = db_dir / "last-known-good"
             marker.write_text("keep")
             paths = self._patch_paths(root)
-            with paths[0], paths[1]:
+            with paths[0], paths[1], paths[2]:
                 with patch.object(index_kb, "load_rows", return_value=[row]), patch.object(
                     index_kb, "embed_passages", return_value=[[0.1]]
                 ), patch.object(

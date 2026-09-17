@@ -66,22 +66,6 @@ class DatabaseQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(job["message_id"], "customer-second")
         self.assertEqual(job["is_customer_message"], 1)
 
-    async def test_record_event_has_one_concurrent_insert_winner(self) -> None:
-        args = {
-            "message_id": "same-event",
-            "tenant_id": "test",
-            "ticket_id": 100,
-            "event_type": "ticket.message.created",
-            "author_type": "customer",
-            "raw_payload": "{}",
-            "db_path": self.db_path,
-        }
-
-        winners = await asyncio.gather(*(database.record_event(**args) for _ in range(16)))
-
-        self.assertEqual(sum(winners), 1)
-        self.assertTrue(await database.is_duplicate("same-event", self.db_path))
-
     async def test_enqueue_and_claim_are_atomic_under_concurrency(self) -> None:
         ids = await asyncio.gather(*(self._enqueue("same-job", customer=True) for _ in range(16)))
 
