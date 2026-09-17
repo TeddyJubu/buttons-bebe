@@ -44,7 +44,7 @@ class Database:
         for attempt in range(_LOCK_RETRY_ATTEMPTS):
             try:
                 async with aiosqlite.connect(str(self.path)) as conn:
-                    await conn.execute("PRAGMA busy_timeout=3000")
+                    await conn.execute("PRAGMA busy_timeout=5000")
                     if fetch:
                         conn.row_factory = aiosqlite.Row
                         cursor = await conn.execute(sql, params)
@@ -89,7 +89,7 @@ class Database:
             try:
                 async with aiosqlite.connect(str(self.path)) as conn:
                     conn.row_factory = aiosqlite.Row
-                    await conn.execute("PRAGMA busy_timeout=3000")
+                    await conn.execute("PRAGMA busy_timeout=5000")
                     try:
                         await conn.execute("BEGIN IMMEDIATE")
                         result = await callback(conn)
