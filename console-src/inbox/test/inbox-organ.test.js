@@ -74,8 +74,15 @@ test("mount first-paints the Ada draft strip above the composer box", async () =
 
 test("selected list row CSS is pale accent wash + narrow accent edge", () => {
   const css = readFileSync(join(here, "../styles.css"), "utf8");
-  assert.match(css, /--ink:\s*#1C1916/);
-  assert.match(css, /--accent:\s*#B5471D/);
+  // Palette tokens live once in the inline #support-theme block (index.html);
+  // styles.css keeps only the tokens unique to the inbox. The .12 --line
+  // there must not silently diverge again — see the divergence note below.
+  const html = readFileSync(join(here, "../index.html"), "utf8");
+  assert.match(html, /--ink:\s*#1C1916/);
+  assert.match(html, /--accent:\s*#B5471D/);
+  assert.doesNotMatch(css, /--ink:\s*#/);
+  assert.doesNotMatch(css, /--accent:\s*#/);
+  assert.doesNotMatch(css, /--line:\s*rgba\(28, 25, 22, \.08\)/);
   assert.match(css, /\.ticket-row \.ticket-bar[\s\S]*width:\s*3px/);
   assert.match(css, /\.ticket-row\.is-selected\s*\{[^}]*color-mix\([^)]*var\(--accent\)/);
   assert.match(css, /Pale accent wash \+ narrow accent edge on the selected ticket/);

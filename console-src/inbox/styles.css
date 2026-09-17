@@ -1,17 +1,9 @@
 :root {
-  --ground: #F4F0EA;
-  --surface: #FFFDF9;
-  --ink: #1C1916;
-  --mute: #5C564F;
-  --line: rgba(28, 25, 22, .08);
-  --accent: #B5471D;
+  /* Palette, type, and radius tokens come from the #support-theme block
+     inlined in index.html (the single source of truth). Only the tokens
+     unique to the inbox live here. */
   --ok: #2F6B3A;
   --warn: #9A6B12;
-  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, monospace;
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 8px;
   /* Micro-feedback timings — hover subtle, press short, menus slightly longer */
   --motion-press: 80ms;
   --motion-hover: 120ms;
