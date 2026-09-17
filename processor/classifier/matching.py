@@ -37,10 +37,6 @@ def _search_any(views: list[str], pattern: re.Pattern) -> re.Match | None:
     return None
 
 
-def _match_keywords(text: str, patterns: list[str]) -> int:
-    return len(_find_matches(text, patterns))
-
-
 def _find_collapsed(text: str, phrase: str) -> tuple[int, int]:
     if not phrase or not text:
         return -1, -1
@@ -83,5 +79,5 @@ def _match_context(text: str, phrase: str, window: int = 30) -> str:
 
 __all__ = [
     "_MAX_CONTEXT_SCAN", "_find_matches", "_find_matches_any", "_search_any",
-    "_match_keywords", "_find_collapsed", "_match_context",
+    "_find_collapsed", "_match_context",
 ]

@@ -10,7 +10,6 @@ from shared.priority import RANK
 
 
 _NONCE_BYTES = 8
-_PRIORITY_ORDER = tuple(RANK)
 
 # These are the only action values that a trusted Hermes verdict may use.
 _ALLOWED_ACTIONS = frozenset(
