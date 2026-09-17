@@ -226,15 +226,16 @@ else
 fi
 
 node --check whatsapp-connect/server.js
-node --test whatsapp-connect/test/*.test.js whatsapp-connect/*.test.js 2>/dev/null || {
-  # root test files need the real node_modules (qs), which npm ci owns; the
-  # gate must not silently skip them when a dev tree has no node_modules
-  if [ -d whatsapp-connect/node_modules ]; then
-    echo "release gate: whatsapp root tests exist but failed" >&2
-    exit 1
-  fi
+# test/*.test.js needs only node: builtins, so it runs unconditionally. The
+# root test files need the real node_modules (qs), which npm ci owns — running
+# them when it is absent must be a visible skip, never a silent pass hiding
+# behind a collapsed glob.
+node --test whatsapp-connect/test/*.test.js
+if [ -d whatsapp-connect/node_modules ]; then
+  node --test whatsapp-connect/*.test.js
+else
   echo "release gate: whatsapp root tests skipped (no node_modules; CI runs them via npm ci)"
-}
+fi
 node --test console-src/test/*.test.js
 node --check kb-admin/server.js
 node --test kb-admin/test/*.test.js

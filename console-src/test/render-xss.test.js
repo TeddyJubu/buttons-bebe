@@ -28,7 +28,7 @@ const cardSrc = slice("function fmtWhen(iso){", "\nfunction noticesView(){");
 
 const rowCtx = {};
 vm.runInNewContext(
-  `${escSrc}\n${helpers}\nlet openTk=null,actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false,actLearn=false;\n${rowSrc}\nthis.row=row;this.setOpen=k=>{openTk=k;};`,
+  `${escSrc}\n${helpers}\nlet openTk=null,actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false,actLearn=false;\n${rowSrc}\nthis.row=row;this.setOpen=k=>{openTk=k;};this.setDraft=d=>{actDraft=d;};`,
   rowCtx,
 );
 const notifCtx = { IC: { check: "✓" }, Date };
@@ -59,10 +59,16 @@ const ticket = {
 // breakout matters. `&lt;img` contains "<img", so use a lookbehind for the "&lt;" prefix.
 const RAW = /(?<!&lt;)<(img|script)|" onmouseover="/;
 test("ticket row escapes hostile fields closed and open", () => {
-  for (const html of [rowCtx.row(ticket), (rowCtx.setOpen("1\" onmouseover=\"alert(1)"), rowCtx.row(ticket))]) {
-    assert.match(html, /&lt;img/);
-    assert.doesNotMatch(html, RAW);
-  }
+  const closed = rowCtx.row(ticket);
+  // Open-row detail renders the *edited* draft into a textarea, not the
+  // ticket's raw draft — stage the hostile text there before rendering.
+  rowCtx.setOpen("1\" onmouseover=\"alert(1)");
+  rowCtx.setDraft(`<script>alert(1)</script> and ${hostile}`);
+  const open = rowCtx.row(ticket);
+  assert.match(closed, /&lt;img/);
+  assert.match(open, /&lt;img/);
+  assert.doesNotMatch(closed, RAW);
+  assert.doesNotMatch(open, RAW);
 });
 
 test("notification rows escape hostile title/customer/subject/detail", () => {

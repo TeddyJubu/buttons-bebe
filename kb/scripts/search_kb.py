@@ -109,7 +109,12 @@ def _heal_missing_index() -> str | None:
     """
     if DB_DIR.exists():
         return None
-    backups = sorted(glob.glob(str(DB_DIR.parent / ".lancedb-backup-*")))
+    # mkdtemp backup names carry random suffixes, so name order is not age
+    # order — sort by modification time or the "newest" restore can be the
+    # oldest crash.
+    backups = sorted(
+        glob.glob(str(DB_DIR.parent / ".lancedb-backup-*")), key=os.path.getmtime
+    )
     if not backups:
         return None
     # ponytail: newest backup wins; restore is one rename, logged loudly by the caller.
@@ -123,18 +128,20 @@ def _heal_missing_index() -> str | None:
 def search(query: str, k: int = K) -> list[dict]:
     candidate_pool = max(POOL, k * 20)
     with _index_read_lock():
-        healed = _heal_missing_index()
-        if healed:
-            print(f"search_kb: restored crash-mid-swap backup {healed}; run ./update.sh to rebuild clean",
-                  file=sys.stderr)
         try:
+            healed = _heal_missing_index()
+            if healed:
+                print(f"search_kb: restored crash-mid-swap backup {healed}; run ./update.sh to rebuild clean",
+                      file=sys.stderr)
             db = lancedb.connect(str(DB_DIR))
             table = db.open_table(TABLE)
         except Exception as exc:
-            # ponytail: friendly fail-closed, never a raw LanceDB traceback to Hermes.
+            # ponytail: friendly fail-closed — the heal (os.replace) can raise
+            # too, and owner Notice-Board overrides must survive an index
+            # outage, never a raw LanceDB traceback to Hermes.
             print(f"search_kb: index unavailable ({exc}); run ./update.sh to rebuild",
                   file=sys.stderr)
-            return []
+            return _notice_results()
 
         # 1) meaning search (vectors)
         qv = embed_query(query)

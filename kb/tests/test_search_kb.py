@@ -242,20 +242,71 @@ class MissingIndexSelfHealTests(unittest.TestCase):
 
         tmp = Path(tempfile.mkdtemp(prefix="bb-heal-"))
         self.addCleanup(__import__("shutil").rmtree, tmp, True)
-        (tmp / ".lancedb-backup-1").mkdir()
-        newest = tmp / ".lancedb-backup-2"
+        (tmp / ".lancedb-backup-older").mkdir()
+        (tmp / ".lancedb-backup-older" / "origin.txt").write_text("older")
+        newest = tmp / ".lancedb-backup-newest"
         newest.mkdir()
+        (newest / "origin.txt").write_text("newest")
         table = FakeTable([hit("shipping", "policies/shipping.md")], [])
+        connected_paths: list[str] = []
+        # Prove the restored directory is what LanceDB opens — the marker file
+        # pins which backup was restored, not just that some dir appeared.
+        def connect(path):
+            connected_paths.append(str(path))
+            return FakeDB(table)
 
         with patch.object(search_kb, "_index_read_lock") as lock, patch.object(
             search_kb, "_notice_results", return_value=[]
         ), patch.object(search_kb, "DB_DIR", tmp / "lancedb"), patch.object(
-            search_kb.lancedb, "connect", return_value=FakeDB(table)
+            search_kb.lancedb, "connect", side_effect=connect
+        ):
+            lock.side_effect = _no_lock
+            results = search_kb.search("shipping", k=1)
+        self.assertTrue((tmp / "lancedb").is_dir())
+        self.assertEqual((tmp / "lancedb" / "origin.txt").read_text(), "newest")
+        self.assertFalse(newest.exists())
+        self.assertEqual(connected_paths, [str(tmp / "lancedb")])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["file"], "policies/shipping.md")
+
+    def test_heal_restores_newest_by_mtime_not_name(self) -> None:
+        import os
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp(prefix="bb-heal-"))
+        self.addCleanup(__import__("shutil").rmtree, tmp, True)
+        # mkdtemp backup names carry random suffixes, so name order is not
+        # age order: give the alphabetically-last backup the OLDER mtime and
+        # expect the alphabetically-first (fresher) one to win.
+        stale = tmp / ".lancedb-backup-zzz"
+        stale.mkdir()
+        (stale / "origin.txt").write_text("stale")
+        fresh = tmp / ".lancedb-backup-aaa"
+        fresh.mkdir()
+        (fresh / "origin.txt").write_text("fresh")
+        two_hours = 2 * 60 * 60
+        os.utime(stale, (two_hours, two_hours))
+
+        with patch.object(search_kb, "_index_read_lock") as lock, patch.object(
+            search_kb, "_notice_results", return_value=[]
+        ), patch.object(search_kb, "DB_DIR", tmp / "lancedb"), patch.object(
+            search_kb.lancedb, "connect", side_effect=FileNotFoundError("gone")
         ):
             lock.side_effect = _no_lock
             search_kb.search("shipping", k=1)
-        self.assertTrue((tmp / "lancedb").is_dir())
-        self.assertFalse(newest.exists())
+        self.assertEqual((tmp / "lancedb" / "origin.txt").read_text(), "fresh")
+        self.assertFalse(fresh.exists())
+
+    def test_index_unavailable_still_returns_owner_notices(self) -> None:
+        notice = {"title": "recall", "text": "stop answering sizing questions"}
+        with patch.object(search_kb, "_index_read_lock") as lock, patch.object(
+            search_kb, "_notice_results", return_value=[notice]
+        ):
+            lock.side_effect = _no_lock
+            with patch.object(
+                search_kb.lancedb, "connect", side_effect=FileNotFoundError("gone")
+            ), patch.object(search_kb, "DB_DIR", Path("/tmp/bb-no-such-index-xyz")):
+                self.assertEqual(search_kb.search("shipping"), [notice])
 
 
 if __name__ == "__main__":

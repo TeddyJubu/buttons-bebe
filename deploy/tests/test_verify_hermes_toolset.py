@@ -172,8 +172,12 @@ class VerifyToolsetScriptTests(unittest.TestCase):
         home.mkdir(exist_ok=True)
         repo = Path(__file__).resolve().parents[2] / "hermes"
         shutil.copytree(repo, home, dirs_exist_ok=True)
-        # Live-only files (config, credentials) must not fail the check.
+        # Live-only files (config, credentials) must not fail the check —
+        # all of them, not just config.yaml: auth.json and .env are exactly
+        # the files a live install holds and the repo mirror must not.
         (home / "config.yaml").write_text("model:\n  default: glm-5.2\n", encoding="utf-8")
+        (home / "auth.json").write_text('{"api_key": "sk-live"}\n', encoding="utf-8")
+        (home / ".env").write_text("HERMES_API_KEY=sk-live\n", encoding="utf-8")
         if soul_text is not None:
             (home / "SOUL.md").write_text(soul_text, encoding="utf-8")
         return home
@@ -183,6 +187,15 @@ class VerifyToolsetScriptTests(unittest.TestCase):
                                hermes_home=self._mirror_home())
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("matches the repo mirror", proc.stdout)
+
+    def test_live_only_credentials_do_not_mask_content_drift(self):
+        # auth.json/.env in the live home must be ignored as live-only state,
+        # but they must not blind the check to a real SOUL.md drift.
+        proc = self.run_script(config="platform_toolsets:\n  cli: []\n",
+                               hermes_home=self._mirror_home("drifted brain\n"))
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("drifted", proc.stdout)
+        self.assertIn("runbook", proc.stdout)
 
     def test_drifted_soul_fails_with_runbook_pointer(self):
         proc = self.run_script(config="platform_toolsets:\n  cli: []\n",

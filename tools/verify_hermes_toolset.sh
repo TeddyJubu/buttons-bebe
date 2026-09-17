@@ -143,6 +143,11 @@ fi
 say "5. Hermes home mirror matches the repo"
 REPO_HERMES="$(cd "$(dirname "$0")/.." && pwd)/hermes"
 LIVE_HERMES="${HERMES_HOME:-${HOME:-/root}/.hermes}"
+# Live-only files the repo mirror never ships: config, credentials, session
+# and log state. Ignored BY FILENAME so the check never depends on "hermes"
+# appearing in HERMES_HOME's path, and a live-only auth.json/.env can never
+# be mistaken for (or masked as) content drift.
+MIRROR_LIVE_ONLY='config.yaml|config.example.yaml|auth.json|\.env(\..*)?|sessions?\.json|.*\.log'
 if [ ! -d "$LIVE_HERMES" ]; then
     note "no live Hermes home at $LIVE_HERMES — skipping (set HERMES_HOME to point at it)"
 elif [ ! -d "$REPO_HERMES" ]; then
@@ -158,7 +163,8 @@ else
     if [ "$MIRROR_STATUS" -eq 0 ]; then
         ok "live Hermes home matches the repo mirror"
     elif [ "$MIRROR_STATUS" -eq 1 ]; then
-        DRIFT="$(printf '%s\n' "$MIRROR_DIFF" | grep -E '^(diff|Only in .*hermes)' | grep -v 'Only in .*: config.yaml' | head -10)"
+        DRIFT="$(printf '%s\n' "$MIRROR_DIFF" | grep '^diff ' | head -10; \
+                 printf '%s\n' "$MIRROR_DIFF" | grep '^Only in ' | grep -Ev ": ($MIRROR_LIVE_ONLY)$" | head -10)"
         if [ -z "$DRIFT" ]; then
             ok "live Hermes home matches the repo mirror (live-only files ignored)"
         else
@@ -172,7 +178,7 @@ else
 fi
 
 # ── 6. a real one-shot with the new flags still reaches the KB ───────────
-say "5. Smoke test — one read-only prompt with the new flags"
+say "6. Smoke test — one read-only prompt with the new flags"
 if [ "$FAILED" -ne 0 ]; then
     bad "skipping the live run: a check above failed, so the lockdown is unproven"
     bad "and this step would launch a root agent under it. Fix the above first."
