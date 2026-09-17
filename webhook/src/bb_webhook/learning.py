@@ -77,7 +77,10 @@ def _write_unique_lesson(ticket_id: object, content: str, operation_id="") -> tu
         pathlib.Path(temporary).unlink(missing_ok=True)
 
 
-def _bump_ledger(kind: str, edited: bool, operation_id="") -> None:
+def _bump_ledger(kind: str, edited: bool) -> None:
+    """Count one ledger write. Dedupe lives in _write_unique_lesson + the
+    learning_recorded DB flag, not here (the old unbounded _operations list
+    was a weaker second copy)."""
     temp_path: pathlib.Path | None = None
     try:
         LEARNED_DIR.mkdir(parents=True, exist_ok=True)
@@ -90,12 +93,9 @@ def _bump_ledger(kind: str, edited: bool, operation_id="") -> None:
                 loaded = json.loads(LEDGER.read_text(encoding="utf-8") or "{}")
                 if isinstance(loaded, dict):
                     data = loaded
-            operations = data.get("_operations", [])
-            if operation_id and operation_id in operations:
-                _sync_directory(LEARNED_DIR)
-                return
-            if operation_id:
-                data["_operations"] = operations + [operation_id]
+            # Dedupe for operation_id retries lives in _write_unique_lesson's
+            # deterministic filename (created=False) and the learning_recorded
+            # DB flag — the ledger counts only writes that created a packet.
             data["total"] = data.get("total", 0) + 1
             data[kind] = data.get(kind, 0) + 1
             if kind == "sent":
@@ -166,8 +166,10 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
                    + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
                    + "---\n\n" + body)
         _path, created = _write_unique_lesson(ticket_id, content, operation_id)
-        if created or operation_id:
-            _bump_ledger(kind, edited, operation_id)
+        if created:
+            # Retry with the same operation_id finds the identical packet and
+            # skips the bump — the file layer is the dedupe now.
+            _bump_ledger(kind, edited)
         return True
     except Exception as exc:
         logging.getLogger(__name__).error("Learning lesson capture failed: %s", type(exc).__name__)

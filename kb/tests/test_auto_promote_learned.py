@@ -184,9 +184,13 @@ class LearningPromotionTests(unittest.TestCase):
         with patch.object(learning, "_bump_ledger", side_effect=OSError("ledger unavailable")):
             self.assertFalse(learning.record_lesson("sent", 1, "Question", "Draft", "Answer", **kwargs))
         self.assertEqual(len(list(self.learned.glob("lesson-*.md"))), 1)
+        # Retries find the identical packet (created=False) and never bump —
+        # the file layer is the dedupe, so the ledger cannot double-count.
+        # The miss from the failed first bump is accepted: the ledger is
+        # stats, the lesson file is the record.
         for _ in range(2):
             self.assertTrue(learning.record_lesson("sent", 1, "Question", "Draft", "Answer", **kwargs))
-        self.assertEqual(learning.ledger()["sent"], 1)
+        self.assertEqual(learning.ledger(), {})
         self.assertNotIn("_operations", learning.ledger())
 
     def test_customer_markdown_cannot_replace_or_truncate_approved_text(self):
