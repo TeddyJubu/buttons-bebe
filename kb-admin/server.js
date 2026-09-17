@@ -117,8 +117,10 @@ function contentFiles(folder) {
   }
 }
 
+let _healthCache = null; // {expires, value} — /health scans every product file; 60s keeps console refreshes cheap
 function kbHealth() {
   const now = Date.now();
+  if (_healthCache && now < _healthCache.expires) return _healthCache.value;
   const folders = {};
   let ok = true;
   for (const folder of FOLDERS) {
@@ -143,7 +145,7 @@ function kbHealth() {
   }
   const ageHours = newest === null ? null : Math.max(0, (now - newest) / 3600000);
   const threshold = Number.isFinite(PRODUCT_FRESH_HOURS) && PRODUCT_FRESH_HOURS > 0 ? PRODUCT_FRESH_HOURS : 96;
-  return {
+  const value = {
     ok,
     generated_at: new Date(now).toISOString(),
     folders,
@@ -158,6 +160,8 @@ function kbHealth() {
       fresh_for_hours: threshold,
     },
   };
+  _healthCache = { expires: now + 60000, value };
+  return value;
 }
 
 // ---- Notice Board (owner overrides; shared JSON with notices_lib.py) --------

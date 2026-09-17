@@ -69,6 +69,11 @@ test("health reports live file counts and product freshness", async (t) => {
   assert.equal(health.products.count, 1);
   assert.equal(health.products.fresh, true);
   assert.match(health.products.last_modified, /^\d{4}-\d{2}-\d{2}T/);
+
+  // The product scan is cached for 60s: a second call must serve the same
+  // snapshot (same generated_at) instead of re-scanning every product file.
+  const again = await (await fetch(`${baseUrl}/health`)).json();
+  assert.equal(again.generated_at, health.generated_at);
 });
 
 test("file reads reject traversal and distinguish missing files", async (t) => {
