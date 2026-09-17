@@ -58,7 +58,7 @@ don't hand-write these files.
   sizes/options, variants, prices, availability, description, link).
 - **What's synced:** active/published products by default (currently ~4,200).
   To include everything, set `SHOPIFY_PRODUCT_QUERY=` (empty) in `.env`.
-- **Refreshes automatically every 3 days** via a systemd timer
+- **Refreshes automatically daily** via a systemd timer
   (`buttonsbebe-kb-sync.timer`) — it re-syncs, re-indexes, and reloads the service.
 - **Fails closed:** malformed/inactive records, orphan variants, an empty export,
   or a catalog retaining less than 75% of the current product files leave the
