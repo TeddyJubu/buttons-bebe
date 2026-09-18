@@ -89,7 +89,7 @@ export function createRailOrgan({ shop, mailbox }) {
 
   function render() {
     if (shop.observedHistory && !models.fromSnapshot) {
-      return `<div class="pane-inner"><h2>Context</h2><p class="mute">This view contains observed webhook messages and review drafts. Live customer, order, return, assignment and ticket status details are not connected.</p></div>`;
+      return `<div class="pane-inner"><h2>Context</h2><p class="mute">This view contains observed webhook messages and review drafts. Live customer, order and return details are not connected. Ticket status and assignment are shown only when the latest observed webhook carried them.</p></div>`;
     }
     const customerHtml = models.customer.error
       ? renderError("customer", "Customer", models.customer.peek)

@@ -56,8 +56,17 @@ after its source/schema compatibility is confirmed. A successful initial export
 must precede starting a newly projection-aware inbox.
 
 Do not interpret observed history as complete Gorgias history. Its 90-day,
-500-ticket, 100-message-per-ticket bounds and lineage withholding are deliberate.
+100-message-per-ticket bounds and lineage withholding are deliberate.
 See [local monitoring](LOCAL-MONITOR.md) for freshness thresholds and limitations.
+
+## If inbox views show unknown status or an empty Assigned to me
+
+That is the correct reading until the Gorgias HTTP Integration body carries the
+ticket state fields and a ticket receives a new message event. Follow
+[the Integration template note](GORGIAS-WEBHOOK-TEMPLATE.md); it covers the
+exact keys to add, the presence check on the stored payload, and the operator
+address the inbox compares against. Do not repair a view by editing the
+projection, re-exporting older events, or pointing the inbox at Gorgias.
 
 ## Deployment and rollback
 

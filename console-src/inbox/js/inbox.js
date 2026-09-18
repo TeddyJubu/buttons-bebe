@@ -70,8 +70,8 @@ export function createInboxOrgan(opts = {}) {
   const composerTissue = createComposerTissue({ mailbox });
   const rail = createRailOrgan({ shop, mailbox });
 
-  let viewId = shop.observedHistory ? "all" : (opts.viewId || "mine");
-  const availableViews = shop.observedHistory ? [{id:"all",label:"Observed history"}] : views;
+  let viewId = opts.viewId || (shop.observedHistory ? "all" : "mine");
+  const availableViews = views;
   let channelId = "";
   function normalizeChannel(value) {
     return typeof value === "string" ? value.trim().slice(0, 40) : "";
@@ -206,6 +206,24 @@ export function createInboxOrgan(opts = {}) {
     if (ticketId) unreadIds.delete(ticketId);
   }
 
+  /**
+   * "Assigned to me" is resolved here, not in the credential-free exporter:
+   * the snapshot only carries the assignee address Gorgias observed. An
+   * address that is not the configured operator's is "other", never null —
+   * counting another agent's ticket as Unassigned would be an invented state.
+   * With no configured operator address, nothing is ever mine.
+   */
+  function withOperatorAssignee(ticket) {
+    if (!ticket) return ticket;
+    const mine = String(opts.operatorEmail ?? shop.operatorEmail ?? "").trim().toLowerCase();
+    // The snapshot carries the observed address under assigneeEmail; older
+    // fixtures and snapshots put the same address in assignee. Either way the
+    // raw address must survive for the assignee facet menu and row badge.
+    const observed = String(ticket.assigneeEmail ?? ticket.assignee ?? "").trim().toLowerCase();
+    if (!observed) return { ...ticket, assignee: null };
+    return { ...ticket, assignee: mine && observed === mine ? "me" : (ticket.assignee ?? "other") };
+  }
+
   function afterUi() {
     paintMounted?.();
     return snapshot();
@@ -252,10 +270,14 @@ export function createInboxOrgan(opts = {}) {
     if (typeof shop.listTickets === "function") {
       try {
         if (shop.observedHistory) {
-          const rows = await readObservedTickets(shop, Math.max(100, listRows.length));
-          listRows = rows;
-          counts = {all:shop.projection?.ticketCount ?? rows.length};
-          projectionNotice = shop.projection?.stale ? "Observed history is stale; refresh is delayed." : "Observed history · last 90 days. Status is as last observed; assignment is unknown.";
+          const rows = (await readObservedTickets(shop)).map(withOperatorAssignee);
+          listRows = rows.filter((ticket) => ticketInView(ticket, viewId));
+          counts = viewCounts(rows);
+          // Pagination reports the whole snapshot size, not the loaded prefix.
+          counts.all = shop.projection?.ticketCount ?? rows.length;
+          projectionNotice = shop.projection?.stale
+            ? "Observed history is stale; refresh is delayed."
+            : "Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.";
           return;
         }
         const [rows, ...viewRows] = await Promise.all([
@@ -300,7 +322,7 @@ export function createInboxOrgan(opts = {}) {
       try {
         const ticket = await shop.getTicket({ ticketId: id });
         if (ticket) {
-          selected = ticket;
+          selected = shop.observedHistory ? withOperatorAssignee(ticket) : ticket;
           return;
         }
       } catch {
@@ -481,8 +503,26 @@ export function createInboxOrgan(opts = {}) {
     if ((!bridgeStatus.gorgiasEnabled && !shop.observedHistory) || pinnedCatalog) return;
     bridgePollTimer = setInterval(() => {
       refreshList().then(async () => {
-        if (shop.observedHistory && selectedId) {
-          try { selected = await shop.getTicket({ticketId:selectedId}); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
+        const previousId = selectedId;
+        ensureSelection();
+        if (selectedId !== previousId) {
+          selected = null;
+          body = "";
+          strip = "";
+          summarizeText = "";
+          discarded = false;
+          selectedMacroId = "";
+          macrosOpen = false;
+        }
+        if (!selectedId) {
+          selected = null;
+        } else if (shop.observedHistory && selectedId === previousId) {
+          try { selected = withOperatorAssignee(await shop.getTicket({ticketId:selectedId})); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
+        }
+        if (selectedId !== previousId) {
+          await refreshThread();
+          await refreshRail();
+          await refreshComposer();
         }
         paintMounted?.();
       }).catch(() => {});

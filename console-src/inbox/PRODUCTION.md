@@ -114,7 +114,13 @@ older-than180seconds or any failed export appears stale. Successful export clear
 that marker. The service never receives owner cookies or credentials.
 
 Messages are only the webhook history already observed by the canonical system,
-not complete Gorgias history. Assignment/status/order context remain unknown.
+not complete Gorgias history. Order context remains unknown. Ticket status,
+assignee address, spam and trash come from an allowlist read of the same latest
+webhook payload and stay unknown/false unless that payload carried them; the
+exporter never calls Gorgias and never decides who "me" is. The inbox service
+resolves Assigned to me by comparing `INBOX_OPERATOR_GORGIAS_EMAIL` against the
+observed assignee address, and an unset value keeps that view empty. See
+[the Integration template note](../../deploy/GORGIAS-WEBHOOK-TEMPLATE.md).
 The latest stored processor draft is displayed read-only and explicitly not sent.
 All workflow mutations and Send remain disabled. No intake route is changed.
 After staging these files, the operator must manually apply the units, inspect

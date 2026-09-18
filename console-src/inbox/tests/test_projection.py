@@ -99,6 +99,39 @@ class ProjectionTests(unittest.TestCase):
         self.assertFalse(ticket['gorgiasSpam'])
         self.assertTrue(ticket['gorgiasTrashed'])
         self.assertFalse(ticket['gorgiasSnoozed'])
+
+    def test_exported_ticket_carries_view_state_and_never_an_assignee_identity(self):
+        """Views read spam/trashed/assigneeEmail from the same observed columns.
+
+        `assignee` carries the observed address verbatim (no operator identity
+        lives here); only the inbox service compares it to the operator and
+        decides "me". An unseen assignee is null, never guessed.
+        """
+        export(self.source,self.dest,now=self.now)
+        listed=query('helpdesk.list_tickets',{},self.dest)['tickets'][0]
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        for row in (listed,ticket):
+            self.assertEqual(row['status'],'closed')
+            self.assertEqual(row['assigneeEmail'],'agent@example.com')
+            self.assertFalse(row['spam'])
+            self.assertFalse(row['trashed'])
+            # The observed address is exported verbatim; "me" is not decided here.
+            self.assertEqual(row['assignee'],'agent@example.com')
+        # The snooze column drives the snoozed view even while status reads
+        # open, and trash/spam stay flag buckets, never status strings.
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m5','customer','new@example.com','new@example.com','New','sms','open','agent@example.com',NULL,NULL,1,0,1,'2099-05-01','2099-05-01',1,'Hello')")
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['status'],'snoozed')
+        self.assertTrue(ticket['spam']);self.assertFalse(ticket['trashed'])
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m6','customer','new@example.com','new@example.com','New','sms',NULL,NULL,NULL,NULL,0,1,0,'2099-06-01','2099-06-01',1,'Hello')")
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['status'],'unknown')
+        self.assertTrue(ticket['trashed'])
+        self.assertIsNone(ticket['assigneeEmail'])
     def test_atomic_publish_old_readers_and_failed_export_keep_previous(self):
         export(self.source,self.dest,now=self.now)
         db=connect(self.dest);db.execute('BEGIN');db.execute('SELECT * FROM tickets').fetchall()

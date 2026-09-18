@@ -25,6 +25,16 @@ MAX_EVENT_AGE = 600  # 10 minutes
 MAX_FUTURE_SKEW = 300  # tolerate modest clock drift, not future-dated replays
 MAX_SQLITE_INTEGER = 9_223_372_036_854_775_807
 
+# Gorgias templates render an unset scalar as the string "None" (and `| tojson`
+# renders a missing object as the string "null"). These are absent values, not
+# observations; normalize them away before a status/assignee/priority check
+# mistakes them for real content.
+TEMPLATE_NONE_WORDS = frozenset(("", "none", "null", "nil"))
+
+
+def _is_template_none(val: Any) -> bool:
+    return isinstance(val, str) and val.strip().casefold() in TEMPLATE_NONE_WORDS
+
 
 # ── Helpers ────────────────────────────────────────────────
 
@@ -111,9 +121,10 @@ def _normalize_ticket_status(val: Any) -> str | None:
     """Keep a short observed Gorgias ticket status, or None.
 
     Unknown shapes fail closed to None so the projection keeps 'unknown'
-    instead of storing an unbounded or misleading value.
+    instead of storing an unbounded or misleading value. The template renders
+    an unset status as "None"; that is absent, not an observation.
     """
-    if not isinstance(val, str):
+    if not isinstance(val, str) or _is_template_none(val):
         return None
     status = val.strip().lower()
     if not status or len(status) > 30:
@@ -128,8 +139,11 @@ def _normalize_ticket_assignee(val: Any) -> str | None:
 
     The template renders assignee with |tojson, so this may arrive as a dict
     (prefer email, then name), a plain string, or nothing when unassigned.
-    Unknown shapes fail closed to None (unassigned), never a guess.
+    |tojson on a missing object renders the literal string "null" — that is
+    absent, never an assignee. Unknown shapes fail closed to None (unassigned).
     """
+    if _is_template_none(val):
+        return None
     raw: Any = val
     if isinstance(val, str):
         raw = _maybe_json_parse(val)
@@ -189,9 +203,10 @@ def _normalize_ticket_priority(val: Any) -> str | None:
 
     This is Gorgias's own ticket priority, stored separately from the AI
     draft priority in ticket_results.priority. Malformed values fail
-    closed to None rather than being guessed or defaulted.
+    closed to None rather than being guessed or defaulted. The template
+    renders an unset priority as "None"; that is absent, not a priority.
     """
-    if not isinstance(val, str):
+    if not isinstance(val, str) or _is_template_none(val):
         return None
     priority = val.strip().lower()
     if not priority or len(priority) > 20:
