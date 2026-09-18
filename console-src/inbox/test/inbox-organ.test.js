@@ -217,7 +217,7 @@ test("inbox organ renders three panes and an ink selected bar", async () => {
   assert.match(snap.html, /data-pane="rail"/);
   assert.doesNotMatch(snap.html, /data-pane="icons"|fifth-column/);
   assert.match(snap.html, /list-scope-label">Inbox</);
-  assert.match(snap.html, /data-list-filter/);
+  assert.match(snap.html, /data-list-inbox/);
   assert.match(snap.html, /data-view="mine"/);
   assert.match(snap.html, /ticket-bar/);
   assert.equal(snap.selectedHasInkBar, true);
