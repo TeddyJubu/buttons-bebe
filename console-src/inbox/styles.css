@@ -111,7 +111,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .pane-head h1 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
 .pane-head h2 { font-size: 14px; font-weight: 600; }
 
-/* List column chrome: Inbox title + views filter / sort / collapse. */
+/* List column chrome: Inbox (views) + one filter / sort / collapse. */
 .pane-list .list-toolbar {
   padding: 10px 12px 8px;
   background: var(--ground);
@@ -156,13 +156,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   right: 0;
   z-index: 3;
   min-width: 200px;
+  max-height: min(70vh, 480px);
   padding: 4px 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  overflow: hidden;
+  overflow: auto;
 }
+.list-view-menu { left: 0; right: auto; }
 .list-scope-menu.is-open { display: block; }
+.list-filter-section + .list-filter-section {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.list-filter-heading {
+  margin: 0;
+  padding: 8px 12px 2px;
+  color: var(--mute);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 .list-menu-item {
   display: flex;
   justify-content: space-between;
@@ -208,7 +224,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   color: var(--ink);
 }
 .list-tool-btn:hover,
-.list-tool-btn[aria-pressed="true"] {
+.list-tool-btn[aria-pressed="true"],
+.list-tool-btn.is-active {
   background: var(--ground);
 }
 .list-tool-icon { display: block; }

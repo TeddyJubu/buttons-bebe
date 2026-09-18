@@ -10,7 +10,7 @@ import { esc, formatWhen, requestTypeLabel, screenStatus, severityLabel } from "
  * Selected row: pale accent wash + narrow accent edge. Uses first-party
  * customerName, snippet, and helpdesk status (open / closed / snoozed) —
  * never Return.status. Unread is session-local (bold name).
- * Chrome: Inbox title + filter (views) / sort / collapse — no separate views pane.
+ * Chrome: Inbox (views) + one filter (channel/status/assignee/tag) / sort / collapse.
  */
 
 const ICON_FILTER = `<svg class="list-tool-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -54,7 +54,7 @@ export function createListTissue({ mailbox }) {
     collapsed: false,
     unreadIds: [],
   };
-  let ui = { sort: "default", filterOpen: false, channelOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
+  let ui = { sort: "default", viewOpen: false, filterOpen: false };
   let host = null;
 
   function project(input) {
@@ -92,122 +92,111 @@ export function createListTissue({ mailbox }) {
     return rows;
   }
 
+  function menuItem(attrs, on, label, count) {
+    const countHtml = count == null ? "" : `<span class="list-menu-count">${esc(count)}</span>`;
+    return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" ${attrs} role="option" aria-selected="${on ? "true" : "false"}">
+        <span class="list-menu-label">${esc(label)}</span>
+        ${countHtml}
+      </button>`;
+  }
+
   function renderViewMenu(next) {
-    const items = (next.views || []).map((view) => {
-      const on = view.id === next.selectedViewId;
-      const count = next.counts?.[view.id] ?? 0;
-      return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-view="${esc(view.id)}" role="option" aria-selected="${on ? "true" : "false"}">
-        <span class="list-menu-label">${esc(view.label)}</span>
-        <span class="list-menu-count">${esc(count)}</span>
-      </button>`;
-    }).join("");
-    return `<div class="list-scope-menu list-view-menu${ui.filterOpen ? " is-open" : ""}" role="listbox" ${ui.filterOpen ? "" : "hidden"}>
-      ${items}
-    </div>`;
-  }
-  function renderChannelMenu(next) {
-    const channels = next.channels || [];
-    if (!channels.length) return "";
-    const allOn = !next.selectedChannelId;
-    const items = [`<button type="button" class="list-menu-item${allOn ? " is-selected" : ""}" data-channel="" role="option" aria-selected="${allOn ? "true" : "false"}">
-        <span class="list-menu-label">All channels</span>
-      </button>`,
-      ...channels.map((channel) => {
-        const on = channel.id === next.selectedChannelId;
-        return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-channel="${esc(channel.id)}" role="option" aria-selected="${on ? "true" : "false"}">
-        <span class="list-menu-label">${esc(channel.label || channel.id)}</span>
-        <span class="list-menu-count">${esc(channel.count ?? 0)}</span>
-      </button>`;
-      })].join("");
-    return `<div class="list-scope-menu list-channel-menu${ui.channelOpen ? " is-open" : ""}" role="listbox" ${ui.channelOpen ? "" : "hidden"}>
-      ${items}
-    </div>`;
-  }
-  function renderStatusMenu(next) {
-    const statuses = next.statuses || [];
-    if (!statuses.length) return "";
-    const allOn = !next.selectedStatusId;
-    const items = [`<button type="button" class="list-menu-item${allOn ? " is-selected" : ""}" data-status-pick="" role="option" aria-selected="${allOn ? "true" : "false"}">
-        <span class="list-menu-label">All statuses</span>
-      </button>`,
-      ...statuses.map((entry) => {
-        const on = entry.id === next.selectedStatusId;
-        return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-status-pick="${esc(entry.id)}" role="option" aria-selected="${on ? "true" : "false"}">
-        <span class="list-menu-label">${esc(screenStatus(entry.label || entry.id))}</span>
-        <span class="list-menu-count">${esc(entry.count ?? 0)}</span>
-      </button>`;
-      })].join("");
-    return `<div class="list-scope-menu list-status-menu${ui.statusOpen ? " is-open" : ""}" role="listbox" ${ui.statusOpen ? "" : "hidden"}>
-      ${items}
-    </div>`;
-  }
-  function renderAssigneeMenu(next) {
-    const assignees = next.assignees || [];
-    if (!assignees.length) return "";
-    const allOn = !next.selectedAssigneeId;
-    const items = [`<button type="button" class="list-menu-item${allOn ? " is-selected" : ""}" data-assignee-pick="" role="option" aria-selected="${allOn ? "true" : "false"}">
-        <span class="list-menu-label">Everyone</span>
-      </button>`,
-      ...assignees.map((entry) => {
-        const on = entry.id === next.selectedAssigneeId;
-        return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-assignee-pick="${esc(entry.id)}" role="option" aria-selected="${on ? "true" : "false"}">
-        <span class="list-menu-label">${esc(entry.label || entry.id)}</span>
-        <span class="list-menu-count">${esc(entry.count ?? 0)}</span>
-      </button>`;
-      })].join("");
-    return `<div class="list-scope-menu list-assignee-menu${ui.assigneeOpen ? " is-open" : ""}" role="listbox" ${ui.assigneeOpen ? "" : "hidden"}>
-      ${items}
-    </div>`;
-  }
-  function renderTagMenu(next) {
-    const tags = next.tags || [];
-    if (!tags.length) return "";
-    const allOn = !next.selectedTagId;
-    const items = [`<button type="button" class="list-menu-item${allOn ? " is-selected" : ""}" data-tag-pick="" role="option" aria-selected="${allOn ? "true" : "false"}">
-        <span class="list-menu-label">All tags</span>
-      </button>`,
-      ...tags.map((entry) => {
-        const on = entry.id === next.selectedTagId;
-        return `<button type="button" class="list-menu-item${on ? " is-selected" : ""}" data-tag-pick="${esc(entry.id)}" role="option" aria-selected="${on ? "true" : "false"}">
-        <span class="list-menu-label">${esc(entry.label || entry.id)}</span>
-        <span class="list-menu-count">${esc(entry.count ?? 0)}</span>
-      </button>`;
-      })].join("");
-    return `<div class="list-scope-menu list-tag-menu${ui.tagOpen ? " is-open" : ""}" role="listbox" ${ui.tagOpen ? "" : "hidden"}>
+    const items = (next.views || []).map((view) =>
+      menuItem(`data-view="${esc(view.id)}"`, view.id === next.selectedViewId, view.label, next.counts?.[view.id] ?? 0),
+    ).join("");
+    return `<div class="list-scope-menu list-view-menu${ui.viewOpen ? " is-open" : ""}" role="listbox" ${ui.viewOpen ? "" : "hidden"}>
       ${items}
     </div>`;
   }
 
+  function renderFilterSection(heading, items) {
+    if (!items) return "";
+    return `<section class="list-filter-section" aria-label="${esc(heading)}">
+      <p class="list-filter-heading">${esc(heading)}</p>
+      ${items}
+    </section>`;
+  }
+
+  function renderChannelSection(next) {
+    const channels = next.channels || [];
+    if (!channels.length) return "";
+    const items = [
+      menuItem('data-channel=""', !next.selectedChannelId, "All channels"),
+      ...channels.map((channel) =>
+        menuItem(`data-channel="${esc(channel.id)}"`, channel.id === next.selectedChannelId, channel.label || channel.id, channel.count ?? 0),
+      ),
+    ].join("");
+    return renderFilterSection("Channel", items);
+  }
+
+  function renderStatusSection(next) {
+    const statuses = next.statuses || [];
+    if (!statuses.length) return "";
+    const items = [
+      menuItem('data-status-pick=""', !next.selectedStatusId, "All statuses"),
+      ...statuses.map((entry) =>
+        menuItem(`data-status-pick="${esc(entry.id)}"`, entry.id === next.selectedStatusId, screenStatus(entry.label || entry.id), entry.count ?? 0),
+      ),
+    ].join("");
+    return renderFilterSection("Status", items);
+  }
+
+  function renderAssigneeSection(next) {
+    const assignees = next.assignees || [];
+    if (!assignees.length) return "";
+    const items = [
+      menuItem('data-assignee-pick=""', !next.selectedAssigneeId, "Everyone"),
+      ...assignees.map((entry) =>
+        menuItem(`data-assignee-pick="${esc(entry.id)}"`, entry.id === next.selectedAssigneeId, entry.label || entry.id, entry.count ?? 0),
+      ),
+    ].join("");
+    return renderFilterSection("Assignee", items);
+  }
+
+  function renderTagSection(next) {
+    const tags = next.tags || [];
+    if (!tags.length) return "";
+    const items = [
+      menuItem('data-tag-pick=""', !next.selectedTagId, "All tags"),
+      ...tags.map((entry) =>
+        menuItem(`data-tag-pick="${esc(entry.id)}"`, entry.id === next.selectedTagId, entry.label || entry.id, entry.count ?? 0),
+      ),
+    ].join("");
+    return renderFilterSection("Tag", items);
+  }
+
+  function filterActive(next) {
+    return Boolean(next.selectedChannelId || next.selectedStatusId || next.selectedAssigneeId || next.selectedTagId);
+  }
+
+  function hasFacetFilters(next) {
+    return Boolean((next.channels || []).length || (next.statuses || []).length || (next.assignees || []).length || (next.tags || []).length);
+  }
+
+  function renderFilterMenu(next) {
+    const sections = [renderChannelSection(next), renderStatusSection(next), renderAssigneeSection(next), renderTagSection(next)].filter(Boolean).join("");
+    if (!sections) return "";
+    return `<div class="list-scope-menu list-filter-menu${ui.filterOpen ? " is-open" : ""}" role="listbox" ${ui.filterOpen ? "" : "hidden"}>
+      ${sections}
+    </div>`;
+  }
+
   function renderToolbar(next = model) {
+    const facets = hasFacetFilters(next);
     return `<header class="pane-head list-toolbar">
       <a class="console-link" href="/console/">Console</a>
       <div class="list-toolbar-row">
         <div class="list-scope">
-          <button type="button" class="list-scope-btn" data-list-inbox aria-label="Inbox" title="Open the views menu">
+          <button type="button" class="list-scope-btn" data-list-inbox aria-label="Inbox" title="Open the views menu" aria-haspopup="listbox" aria-expanded="${ui.viewOpen ? "true" : "false"}">
             <span class="list-scope-label">Inbox</span>
             ${ICON_CHEVRON}
           </button>
+          ${renderViewMenu(next)}
         </div>
         <div class="list-tools" role="group" aria-label="List tools">
-          <div class="list-filter-wrap">
-            ${(next.views || []).length > 1 ? `<button type="button" class="list-tool-btn" data-list-filter title="Views" aria-label="Views" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen ? "true" : "false"}">${ICON_FILTER}</button>` : ""}
-            ${renderViewMenu(next)}
-          </div>
-          ${(next.channels || []).length ? `<div class="list-filter-wrap">
-            <button type="button" class="list-tool-btn" data-list-channel title="Channel" aria-label="Channel" aria-haspopup="listbox" aria-expanded="${ui.channelOpen ? "true" : "false"}" aria-pressed="${ui.channelOpen ? "true" : "false"}">${ICON_FILTER}</button>
-            ${renderChannelMenu(next)}
-          </div>` : ""}
-          ${(next.statuses || []).length ? `<div class="list-filter-wrap">
-            <button type="button" class="list-tool-btn" data-list-status title="Status" aria-label="Status" aria-haspopup="listbox" aria-expanded="${ui.statusOpen ? "true" : "false"}" aria-pressed="${ui.statusOpen ? "true" : "false"}">${ICON_FILTER}</button>
-            ${renderStatusMenu(next)}
-          </div>` : ""}
-          ${(next.assignees || []).length ? `<div class="list-filter-wrap">
-            <button type="button" class="list-tool-btn" data-list-assignee title="Assignee" aria-label="Assignee" aria-haspopup="listbox" aria-expanded="${ui.assigneeOpen ? "true" : "false"}" aria-pressed="${ui.assigneeOpen ? "true" : "false"}">${ICON_FILTER}</button>
-            ${renderAssigneeMenu(next)}
-          </div>` : ""}
-          ${(next.tags || []).length ? `<div class="list-filter-wrap">
-            <button type="button" class="list-tool-btn" data-list-tag title="Tag" aria-label="Tag" aria-haspopup="listbox" aria-expanded="${ui.tagOpen ? "true" : "false"}" aria-pressed="${ui.tagOpen ? "true" : "false"}">${ICON_FILTER}</button>
-            ${renderTagMenu(next)}
+          ${facets ? `<div class="list-filter-wrap">
+            <button type="button" class="list-tool-btn${filterActive(next) ? " is-active" : ""}" data-list-filter title="Filter" aria-label="Filter" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen || filterActive(next) ? "true" : "false"}">${ICON_FILTER}</button>
+            ${renderFilterMenu(next)}
           </div>` : ""}
           <button type="button" class="list-tool-btn" data-list-sort title="Sort ${ui.sort === "oldest" ? "newest first" : ui.sort === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
           <button type="button" class="list-tool-btn" data-list-collapse title="Collapse list" aria-label="Collapse ticket list">${ICON_CLOSE}</button>
@@ -320,74 +309,45 @@ export function createListTissue({ mailbox }) {
       if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
       const viewPick = event.target.closest("[data-view]");
       if (viewPick) {
-        ui = { ...ui, filterOpen: false, channelOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
+        ui = { ...ui, viewOpen: false, filterOpen: false };
         paint();
         mailbox.publish(MAILBOX_TOPICS.VIEW_SELECTED, { viewId: viewPick.dataset.view });
         return;
       }
       if (event.target.closest("[data-list-filter]")) {
-        ui = { ...ui, filterOpen: !ui.filterOpen, channelOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
+        ui = { ...ui, filterOpen: !ui.filterOpen, viewOpen: false };
         paint();
         return;
       }
       const channelPick = event.target.closest("[data-channel]");
       if (channelPick) {
-        ui = { ...ui, channelOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
-        paint();
         mailbox.publish(MAILBOX_TOPICS.CHANNEL_SELECTED, { channelId: channelPick.dataset.channel || "" });
-        return;
-      }
-      if (event.target.closest("[data-list-channel]")) {
-        ui = { ...ui, channelOpen: !ui.channelOpen, filterOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
-        paint();
         return;
       }
       const statusPick = event.target.closest("[data-status-pick]");
       if (statusPick) {
-        ui = { ...ui, statusOpen: false, channelOpen: false, assigneeOpen: false, tagOpen: false };
-        paint();
         mailbox.publish(MAILBOX_TOPICS.STATUS_SELECTED, { statusId: statusPick.dataset.statusPick || "" });
-        return;
-      }
-      if (event.target.closest("[data-list-status]")) {
-        ui = { ...ui, statusOpen: !ui.statusOpen, filterOpen: false, channelOpen: false, assigneeOpen: false, tagOpen: false };
-        paint();
         return;
       }
       const assigneePick = event.target.closest("[data-assignee-pick]");
       if (assigneePick) {
-        ui = { ...ui, assigneeOpen: false, filterOpen: false, channelOpen: false, statusOpen: false, tagOpen: false };
-        paint();
         mailbox.publish(MAILBOX_TOPICS.ASSIGNEE_SELECTED, { assigneeId: assigneePick.dataset.assigneePick || "" });
-        return;
-      }
-      if (event.target.closest("[data-list-assignee]")) {
-        ui = { ...ui, assigneeOpen: !ui.assigneeOpen, filterOpen: false, channelOpen: false, statusOpen: false, tagOpen: false };
-        paint();
         return;
       }
       const tagPick = event.target.closest("[data-tag-pick]");
       if (tagPick) {
-        ui = { ...ui, tagOpen: false, filterOpen: false, channelOpen: false, statusOpen: false, assigneeOpen: false };
-        paint();
         mailbox.publish(MAILBOX_TOPICS.TAG_SELECTED, { tagId: tagPick.dataset.tagPick || "" });
         return;
       }
-      if (event.target.closest("[data-list-tag]")) {
-        ui = { ...ui, tagOpen: !ui.tagOpen, filterOpen: false, channelOpen: false, statusOpen: false, assigneeOpen: false };
-        paint();
-        return;
-      }
       if (event.target.closest("[data-list-inbox]")) {
-        // Title affordance — views live under the filter control.
-        ui = { ...ui, filterOpen: !ui.filterOpen, channelOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
+        ui = { ...ui, viewOpen: !ui.viewOpen, filterOpen: false };
         paint();
         return;
       }
       if (event.target.closest("[data-list-sort]")) {
         const nextSort =
           ui.sort === "default" ? "newest" : ui.sort === "newest" ? "oldest" : "default";
-        ui = { ...ui, sort: nextSort, filterOpen: false, channelOpen: false, statusOpen: false, assigneeOpen: false, tagOpen: false };
+        ui = { ...ui, sort: nextSort, viewOpen: false, filterOpen: false };
         paint();
         return;
       }

@@ -138,12 +138,12 @@ test('clearing the channel restores every loaded row',async()=>{
 test('channel control hides when no ticket carries a channel',async()=>{
  const plain=channelTickets.map(({channel,...rest})=>rest);
  const result=await createInboxOrgan({shop:channelShop(plain)}).ready();
- assert.doesNotMatch(result.html,/data-list-channel/);
+ assert.doesNotMatch(result.html,/data-channel=/);
+ assert.doesNotMatch(result.html,/data-list-filter/);
  assert.match(result.html,/data-ticket="t-email"/);
 });
 test('views funnel shows when the observed history offers several views',async()=>{
  const result=await createInboxOrgan({shop:channelShop(channelTickets)}).ready();
- assert.match(result.html,/data-list-filter/);
  assert.match(result.html,/data-list-inbox/);
  assert.match(result.html,/data-view="all"/);
 });
@@ -197,7 +197,7 @@ test('clearing the status restores every loaded row',async()=>{
 test('status control hides when every ticket is unknown',async()=>{
  const tickets=statusTickets.map(t=>({...t,status:'unknown'}));
  const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
- assert.doesNotMatch(result.html,/data-list-status/);
+ assert.doesNotMatch(result.html,/data-status-pick=/);
  assert.match(result.html,/data-ticket="t-open"/);
 });
 test('channel and status filters compose',async()=>{
@@ -260,7 +260,7 @@ test('clearing the assignee restores every loaded row',async()=>{
 test('assignee control hides when every ticket is blank',async()=>{
  const tickets=assigneeTickets.map(t=>({...t,assignee:null}));
  const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
- assert.doesNotMatch(result.html,/data-list-assignee/);
+ assert.doesNotMatch(result.html,/data-assignee-pick=/);
  assert.match(result.html,/data-ticket="t-amy"/);
 });
 const tagTickets=[
@@ -314,7 +314,7 @@ test('clearing the tag restores every loaded row',async()=>{
 test('tag control hides and rows stay clean when no tags exist',async()=>{
  const tickets=tagTickets.map(t=>({...t,tags:[]}));
  const result=await createInboxOrgan({shop:channelShop(tickets)}).ready();
- assert.doesNotMatch(result.html,/data-list-tag/);
+ assert.doesNotMatch(result.html,/data-tag-pick=/);
  assert.doesNotMatch(result.html,/ticket-tag/);
  assert.match(result.html,/data-ticket="t-vip"/);
 });
@@ -381,10 +381,11 @@ const filterBarTickets=[
 ];
 test('filter bar offers channel status assignee and tag together',async()=>{
  const result=await createInboxOrgan({shop:channelShop(filterBarTickets)}).ready();
- assert.match(result.html,/data-list-channel/);
- assert.match(result.html,/data-list-status/);
- assert.match(result.html,/data-list-assignee/);
- assert.match(result.html,/data-list-tag/);
+ assert.match(result.html,/data-list-filter/);
+ assert.match(result.html,/data-channel="email"/);
+ assert.match(result.html,/data-status-pick="open"/);
+ assert.match(result.html,/data-assignee-pick="amy@example.com"/);
+ assert.match(result.html,/data-tag-pick="vip"/);
  assert.match(result.html,/data-ticket="t-vip"/);
  assert.match(result.html,/data-ticket="t-urgent"/);
  assert.match(result.html,/data-ticket="t-plain"/);
