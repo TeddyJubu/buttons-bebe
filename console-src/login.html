@@ -169,10 +169,21 @@ body.bb-console .detail .draft.esc,body.bb-console .warn{background:var(--amber-
 body.bb-console .tk .who b,body.bb-console .tk .subj{font-size:15px}
 body.bb-console .badge.low{background:var(--green-s);color:var(--green)}
 body.bb-console .badge.sens{background:var(--amber-s);color:var(--amber)}
-body.bb-console .warn.owner-alert-warning{background:var(--brand-alert);color:#374151;border-color:var(--brand-alert-border)}
-body.bb-console .attention{background:var(--brand-alert);border-color:var(--brand-alert-border);border-radius:12px}
-body.bb-console .attention-head p,body.bb-console .attention-btn{color:#4b5563}
-body.bb-console .attention-btn{background:#fff;border-color:var(--brand-alert-border);border-radius:8px}
+body.bb-console .warn.owner-alert-warning{display:flex;align-items:flex-start;gap:12px;margin-bottom:20px;padding:14px 16px;background:var(--brand-alert);color:var(--ink);border-left:4px solid var(--brand-rose);border-color:var(--brand-alert-border);border-radius:12px;font-weight:400}
+body.bb-console .owner-alert-icon{display:grid;place-items:center;width:26px;height:26px;flex:0 0 26px;border-radius:999px;background:var(--brand-rose);color:#fff;font-size:14px;font-weight:700;line-height:1}
+body.bb-console .owner-alert-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+body.bb-console .owner-alert-copy strong{font-size:14px;font-weight:600}
+body.bb-console .owner-alert-copy span{font-size:13px;line-height:1.45;color:var(--ink2)}
+body.bb-console .attention{background:var(--card);border-color:var(--line);border-left:4px solid var(--brand-rose);border-radius:12px}
+body.bb-console .attention-eyebrow{color:var(--brand-rose)}
+body.bb-console .attention-head p{color:var(--ink2)}
+body.bb-console .attention-btn{background:var(--bg);border-color:var(--line);border-radius:8px;color:var(--ink);transition:border-color .15s ease,transform .15s ease}
+body.bb-console .attention-btn:hover{background:var(--card);border-color:var(--brand-rose);transform:translateY(-1px)}
+body.bb-console .attention-btn strong{color:var(--acc)}
+body.bb-console .attention-label{color:var(--ink);font-weight:500}
+body.bb-console .attention-hint{color:var(--ink3)}
+body.bb-console .attention-arrow{color:var(--brand-rose)}
+@media(prefers-reduced-motion:reduce){body.bb-console .attention-btn{transition:none}}
 body.bb-console .kbed textarea{background:#fff;font-family:var(--brand-font);font-size:16px;line-height:1.65}
 body.bb-console .notice-intro h2,body.bb-console .panel h3{color:var(--acc)}
 body.bb-console .notice-card,body.bb-console .notice-review,body.bb-console .notification-row{border-radius:12px}
