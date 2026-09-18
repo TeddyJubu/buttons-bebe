@@ -102,6 +102,16 @@ export function createComposerTissue({ mailbox }) {
     };
   }
 
+  /** Issue #35: print the address once when the display name is the address. */
+  function toLine(ticket) {
+    const to = recipient(ticket);
+    if (!to.name) return `<span class="mute">${esc(to.email)}</span>`;
+    if (!to.email || to.name.toLowerCase() === to.email.toLowerCase()) {
+      return `<strong>${esc(to.name)}</strong>`;
+    }
+    return `<strong>${esc(to.name)}</strong> <span class="mute">${esc(to.email)}</span>`;
+  }
+
   function render(next = model) {
     const ticket = next.ticket;
     if (!ticket) return `<div class="composer empty-pane">Select a ticket to reply.</div>`;
@@ -160,7 +170,7 @@ export function createComposerTissue({ mailbox }) {
       : "";
     return `<section class="composer" data-composer>
       ${peek}
-      <div class="composer-to"><span>To</span> <strong>${esc(to.name)}</strong> <span class="mute">${esc(to.email)}</span></div>
+      <div class="composer-to"><span>To</span> ${toLine(ticket)}</div>
       ${writeGate}
       ${strip}
       <div class="composer-box" data-macro-open="${searchOpen ? "true" : "false"}">

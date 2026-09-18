@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 import grp
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -48,6 +49,29 @@ def rendered_decimal(value, limit):
     if isinstance(value,bool) or not isinstance(value,(str,int)): return None
     digits=str(value)
     return digits if digits.isascii() and digits.isdecimal() and len(digits)<=limit else None
+
+
+# Mailbox/login addresses and shop display names never become personas. Keep in
+# sync with the JS isMailboxName guard (clerk-ticket.js); this exporter-side
+# copy keeps the projection honest even if the inbox bundle is stale.
+_MAILBOX_NAMES={'demo shop support','demo shop','agentmail','teddyjubu','helpdesk-support'}
+
+
+def derived_customer_name(email):
+    """Gorgias-style display name from the address local part; None when the
+    address is a mailbox/login identity or too odd to humanize. Issue #35.
+    Gorgias masks addresses in webhook payloads (e***a@gmail.com) — the mask
+    asterisks are observed data, so they stay in the derived name."""
+    text=email.strip().lower() if isinstance(email,str) else ''
+    if not text or text.count('@')!=1: return None
+    local,domain=text.split('@')
+    if domain=='agentmail.to' and local in _MAILBOX_NAMES: return None
+    # Word characters are letters, digits and the mask asterisk; separator
+    # runs become single spaces. The display is a plain name, never an address.
+    words=re.split(r'[^a-z0-9*]+',local)
+    words=[word.capitalize() for word in words if word]
+    if not words: return None
+    return ' '.join(words)[:200]
 
 
 def identity_context(row, raw):
@@ -156,7 +180,9 @@ def build(rows):
         view_status = 'snoozed' if gorgias_snoozed else (observed_status or 'unknown')
         # The exporter holds no operator identity, so it exports the observed
         # assignee address as-is; only the inbox service decides "me".
-        ticket={'id':f'gorgias:{ticket_id}','subject':subject,'customerName':latest['customer_email'] or 'Customer',
+        # No observed name ⇒ derive one from the address local part (#35); the
+        # raw address is never the display name. fromEmail keeps the address.
+        ticket={'id':f'gorgias:{ticket_id}','subject':subject,'customerName':derived_customer_name(latest['customer_email']) or 'Customer',
           'customerContext':latest.get('customer_context',identity_context(latest,None)),
           'fromEmail':latest['customer_email'] or '', 'status':view_status,'assignee':observed_assignee or None,'channel':channel,'updatedAt':latest['received_at'],
           'snippet':messages[-1]['body'][:240], 'messages':messages,'statusEvents':[], 'projectionSource':True,
@@ -172,6 +198,7 @@ def build(rows):
         ticket['spam']=bool(gorgias_spam)
         ticket['trashed']=bool(gorgias_trashed)
         ticket['assigneeEmail']=observed_assignee or None
+        # An observed name always wins; a conflicted identity never names.
         if ticket['customerContext']['identity']['name'] and not ticket['customerContext']['conflict']:
             ticket['customerName']=ticket['customerContext']['identity']['name']
         tickets.append(ticket)

@@ -180,4 +180,47 @@ class ProjectionTests(unittest.TestCase):
         with sqlite3.connect(self.dest) as db:db.execute("UPDATE metadata SET payload='{}'")
         with self.assertRaises(ProjectionUnavailable):query('helpdesk.list_tickets',{},self.dest)
 
+    def test_customer_name_derives_from_email_when_none_observed(self):
+        # Issue #35: no observed name ⇒ derive a Gorgias-style display name
+        # from the address local part; an observed name always wins.
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        # qa@example.com has no observed name in the event payload used here.
+        self.assertEqual(ticket['customerName'],'Qa')
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m35','customer','estywa.s@gmail.com','estywa.s@gmail.com','Re order','email',NULL,NULL,NULL,NULL,0,0,0,'2099-07-01','2099-07-01',1,'Hi')")
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['customerName'],'Estywa S')
+        # Observed name (identity_context) still wins over the derivation.
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO webhook_events VALUES(?,?,?)",(1,'m35',json.dumps({'ticket':{'id':1,'customer':{'name':'Esty Real','email':'estywa.s@gmail.com'}}})))
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['customerName'],'Esty Real')
+        # A conflicted identity never provides a name; derivation applies.
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE webhook_events SET raw_payload=? WHERE ticket_id=1 AND message_id='m35'",(json.dumps({'ticket':{'id':2,'customer':{'name':'Other','email':'other@example.com'}}}),))
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['customerName'],'Estywa S')
+
+    def test_customer_name_derivation_skips_mailbox_and_aliased_addresses(self):
+        # Mailbox/login addresses and shop display names never become personas.
+        for email,expected in (
+            ('helpdesk-support@agentmail.to','Customer'),
+            ('teddyjubu@agentmail.to','Customer'),
+        ):
+            with sqlite3.connect(self.source) as db:
+                db.execute("INSERT INTO parsed_messages VALUES(1,'mx','customer',?,?, 'Re order','email',NULL,NULL,NULL,NULL,0,0,0,'2099-08-01','2099-08-01',1,'Hi')",(email,email))
+            export(self.source,self.dest,now=self.now)
+            ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+            self.assertEqual(ticket['customerName'],expected,email)
+        # Bare local-part-only values never crash the derivation.
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(1,'mz','customer','plain','plain','Re order','email',NULL,NULL,NULL,NULL,0,0,0,'2099-09-01','2099-09-01',1,'Hi')")
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['customerName'],'Customer')
+
 if __name__=='__main__':unittest.main()
