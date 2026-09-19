@@ -92,12 +92,19 @@ export function createListTissue({ mailbox }) {
 
   // #37: highlight the matched fragment. The needle is escaped for regex
   // assembly and the wrapped text goes through esc() so nothing renders raw.
+  // #37: highlight the matched fragment. The match is found on folded text
+  // but sliced from the RAW text — toLowerCase() can change string length
+  // (e.g. İ → i̇), so a folded offset must never index the raw string. If
+  // the needle folds to a different length the highlight is skipped rather
+  // than misplaced. Both halves go through esc() so nothing renders raw.
   function markMatch(text, query) {
     const raw = String(text ?? "");
     const needle = String(query || "").trim();
     if (!needle) return esc(raw);
-    const at = raw.toLowerCase().indexOf(needle.toLowerCase());
-    if (at < 0) return esc(raw);
+    const foldedNeedle = needle.toLowerCase();
+    if (foldedNeedle.length !== needle.length) return esc(raw);
+    const at = raw.toLowerCase().indexOf(foldedNeedle);
+    if (at < 0 || at + needle.length > raw.length) return esc(raw);
     return `${esc(raw.slice(0, at))}<mark class="ticket-hit">${esc(raw.slice(at, at + needle.length))}</mark>${esc(raw.slice(at + needle.length))}`;
   }
 
@@ -355,17 +362,36 @@ export function createListTissue({ mailbox }) {
   function paint() {
     if (!host) return;
     host.innerHTML = render(model);
+    afterPaint();
+  }
+
+  // #37: render is also the organ's paint path (safeMount calls render
+  // through mount), so the focus restore must run there too — not just on
+  // the tissue's own paint(). A query-model render with no live input
+  // focus intent is a no-op. The repaint replaces the input node, so the
+  // tissue restores focus and caret after every paint — the composer's
+  // macro-search idiom — or typing would die on the first keystroke.
+  let restoreSearchFocus = null;
+  function afterPaint() {
+    if (!restoreSearchFocus) return;
+    const again = host?.querySelector?.("[data-search-input]");
+    if (again?.focus) {
+      again.focus();
+      if (typeof restoreSearchFocus.start === "number") again.setSelectionRange?.(restoreSearchFocus.start, restoreSearchFocus.start);
+    }
+    restoreSearchFocus = null;
   }
 
   function mount(el) {
     host = el;
     paint();
     // #37: the operator's keystrokes publish live; the organ owns the bound
-    // and the match, so the tissue never re-renders the input mid-typing.
+    // and the match.
     el.oninput = (event) => {
-      if (event.target.closest("[data-search-input]")) {
-        mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: event.target.value || "" });
-      }
+      const input = event.target.closest?.("[data-search-input]");
+      if (!input) return;
+      restoreSearchFocus = { start: input.selectionStart };
+      mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: input.value || "" });
     };
     el.onclick = (event) => {
       if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
@@ -460,7 +486,12 @@ export function createListTissue({ mailbox }) {
   return {
     id: "list",
     project,
-    render,
+    render(next = model) {
+      return render(next);
+    },
+    // #37: after the organ paints the list html into the pane, the
+    // tissue's pending focus restore (if any) runs against the live DOM.
+    afterPaint,
     update(input) {
       model = project(input);
       return model;

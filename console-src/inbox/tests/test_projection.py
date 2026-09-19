@@ -264,6 +264,8 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(by_subject['total'],1)
         by_address=query('helpdesk.search_tickets',{'query':'qa@example'},self.dest)
         self.assertEqual([t['id'] for t in by_address['tickets']],['gorgias:1'])
+        by_name=query('helpdesk.search_tickets',{'query':'qa'},self.dest)
+        self.assertEqual([t['id'] for t in by_name['tickets']],['gorgias:1'],'the derived customerName is searchable')
         by_snippet=query('helpdesk.search_tickets',{'query':'snowsuit?'},self.dest)
         self.assertEqual(by_snippet['total'],1)
         # A SQL-looking needle is data, not a directive.

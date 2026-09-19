@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createInboxOrgan } from "../js/inbox.js";
-import { createThreadTissue } from "../js/tissues/thread.js";
 import { createMailbox } from "../js/mailbox.js";
 import { forbiddenControlHits } from "../js/util.js";
 
@@ -142,8 +141,10 @@ test("the query syncs into the URL and replays on popstate", async () => {
   const organ = makeOrgan({history});
   await organ.ready();
   await organ.selectSearch("snowsuit");
-  const pushed = history.entries.filter((e) => e.kind === "push").at(-1);
-  assert.equal(pushed?.q, "snowsuit", "a search pushes its query into the URL");
+  // Live typing restamps the current entry (no per-keystroke history
+  // spam); the query still lands in the URL so it is shareable.
+  const current = history.entries.at(-1);
+  assert.equal(current?.q, "snowsuit", "the live search restamps the URL with its query");
   // A replay of a search-less entry clears the query, like #42 clears the facets.
   await organ.replayEntry({ticket: "gorgias:1", view: "all"});
   assert.equal(organ.snapshot().searchQuery, "", "a replay without q clears the search");
@@ -198,8 +199,125 @@ test("the list tissue publishes the query as the operator types", async () => {
   tissue.mount(host);
   tissue.update({tickets: [], views: [], counts: {}, selectedViewId: "all", searchQuery: ""});
   tissue.render(); // repaint via render since the tissue paints through the host
-  const input = {value: "snow", closest: () => input};
+  const input = {value: "snow", closest: (selector) => selector === "[data-search-input]" ? input : null};
   host.oninput?.({target: input});
   // The topic fires with the raw value; the organ clamps.
   assert.deepEqual(seen.at(-1), {query: "snow"}, "the search input publishes list/searched");
+});
+
+test("a search keystroke never steals focus from the input", async () => {
+  // Drive the tissue directly: a keystroke records the caret, and the
+  // next repaint (the organ's async paint arriving) must restore focus
+  // and caret on the replacement input node — the composer idiom.
+  const mailbox = createMailbox();
+  const {createListTissue} = await import("../js/tissues/list.js");
+  const tissue = createListTissue({ mailbox });
+  const live = [];
+  let liveInput = null;
+  const host = {
+    innerHTML: "",
+    set oninput(h) { this._input = h; },
+    get oninput() { return this._input; },
+    querySelector(sel) {
+      if (sel === "[data-search-input]" && this.innerHTML.includes("data-search-input")) {
+        liveInput ||= {
+          focus() { live.push("focus"); },
+          setSelectionRange(a) { live.push(`caret:${a}`); },
+        };
+        return liveInput;
+      }
+      return null;
+    },
+  };
+  tissue.mount(host);
+  tissue.update({tickets: [], views: [], counts: {}, selectedViewId: "all", searchQuery: ""});
+  const typing = {
+    value: "a", selectionStart: 1,
+    closest: (sel) => sel === "[data-search-input]" ? typing : null,
+  };
+  host.oninput?.({target: typing});
+  assert.ok(!live.length, "keystroke publishes without stealing focus synchronously");
+  // The organ's repaint arrives: mount + paint with the updated model.
+  tissue.update({tickets: [], views: [], counts: {}, selectedViewId: "all", searchQuery: "a"});
+  tissue.mount(host);
+  assert.ok(live.includes("focus") && live.includes("caret:1"), "the repaint restores focus and caret");
+});
+
+test("overlong queries never prefix-match: the bound is a miss, not a truncation", async () => {
+  const organ = makeOrgan({
+    shop: {
+      listTickets: async () => [{
+        ...projected(1),
+        subject: "x".repeat(300),
+        customerName: "customer1@example.test", fromEmail: "customer1@example.test", snippet: "Observed",
+      }],
+      getTicket: async ({ticketId}) => null,
+    },
+  });
+  await organ.ready();
+  // The raw 5000-char paste's 200-x prefix IS ticket 1's subject — the
+  // truncation must not turn the paste into a hit.
+  const snap = await organ.selectSearch("x".repeat(5000));
+  assert.doesNotMatch(snap.html, /data-ticket="gorgias:1"/, "an over-limit query is a miss");
+  assert.match(snap.html, /No tickets match/i);
+  const ok = await organ.selectSearch("x".repeat(100));
+  assert.match(ok.html, /data-ticket="gorgias:1"/, "a within-bound query still matches");
+});
+
+test("back/forward after 'Search every view' restores a scoped, un-escalated search", async () => {
+  const history = fakeHistory();
+  const organ = makeOrgan({
+    history,
+    viewId: "open",
+    shop: {
+      listTickets: async () => [projected(1, {status: "closed"}), projected(2, {subject: "Where is my snowsuit?"}), projected(3)],
+      getTicket: async ({ticketId}) => [projected(1, {status: "closed"}), projected(2, {subject: "Where is my snowsuit?"}), projected(3)]
+        .find((row) => row.id === ticketId) || null,
+    },
+  });
+  await organ.ready();
+  await organ.selectSearch("Subject 1");
+  await organ.selectSearch("Subject 1", {allViews: true});
+  // Back pops the scoped entry: the same q, but no escalation.
+  const scoped = await organ.replayEntry({ticket: null, view: "open", q: "Subject 1"});
+  assert.equal(scoped.searchQuery, "Subject 1");
+  assert.equal(scoped.searchAllViews, false, "a replay without escalation state de-escalates");
+  assert.doesNotMatch(scoped.html, /data-ticket="gorgias:1"/, "the closed ticket stays out again");
+});
+
+test("the escalation searches the loaded snapshot on non-observed shops too", async () => {
+  const organ = makeOrgan({
+    shop: {
+      observedHistory: false,
+      projection: undefined,
+      listTickets: async ({view, limit}) => {
+        const rows = [
+          {...projected(1), status: "closed"},
+          {...projected(2), status: "open"},
+        ];
+        // The non-observed shop returns per-view pages, unfiltered shapes.
+        return view === "closed" ? [rows[0]] : view === "open" ? [rows[1]] : rows;
+      },
+      getTicket: async ({ticketId}) => null,
+    },
+    viewId: "open",
+  });
+  await organ.ready();
+  const scoped = await organ.selectSearch("Subject 1");
+  assert.doesNotMatch(scoped.html, /data-ticket="gorgias:1"/, "the open view excludes the closed ticket");
+  const escalated = await organ.selectSearch("Subject 1", {allViews: true});
+  assert.match(escalated.html, /data-ticket="gorgias:1"/, "the escalation searches every view's loaded rows");
+});
+
+test("typing does not spam the history stack per keystroke", async () => {
+  const history = fakeHistory();
+  const organ = makeOrgan({history});
+  await organ.ready();
+  await organ.selectSearch("s");
+  await organ.selectSearch("sn");
+  await organ.selectSearch("sno");
+  const pushes = history.entries.filter((e) => e.kind === "push");
+  const replaces = history.entries.filter((e) => e.kind === "replace");
+  assert.ok(pushes.length <= 1, `live typing replaces, not pushes (pushed ${pushes.length})`);
+  assert.ok(replaces.length >= 2, `each keystroke restamps the current entry (replaced ${replaces.length})`);
 });

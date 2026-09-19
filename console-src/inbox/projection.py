@@ -38,9 +38,12 @@ def query(tool, args, path=None):
             if tool=='helpdesk.search_tickets':
                 # #37: search stays local and read-only. The query is a bound
                 # parameter (never SQL), whitespace-collapsed, and clamped so a
-                # hostile length cannot dump or stall the snapshot. Matching
-                # is a substring over the observed summary fields, LIKE-free.
-                needle=' '.join(str(args.get('query','')).split())[:200]
+                # hostile length cannot dump or stall the snapshot. An
+                # over-limit query never truncates into a false prefix
+                # match — it misses. Matching is a substring over the
+                # observed summary fields, LIKE-free.
+                normalized=' '.join(str(args.get('query','')).split())
+                needle=normalized[:200] if len(normalized)<=200 else ''
                 limit=args.get('limit',20); offset=args.get('offset',0)
                 rows=db.execute('SELECT summary FROM tickets ORDER BY observed_at DESC,id').fetchall()
                 hits=[]

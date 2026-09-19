@@ -97,8 +97,11 @@ export function createInboxOrgan(opts = {}) {
     assigneeId = "";
     tagId = "";
     // A popped entry owns its query too: no q in the URL means no search,
-    // exactly like a dead facet. A popped q restores the exact search.
-    searchQuery = typeof q === "string" ? q.trim().slice(0, 200) : "";
+    // exactly like a dead facet. A popped q restores the exact search. The
+    // URL never encodes the escalation, so every replay de-escalates back
+    // to the scoped search.
+    setSearchQuery(q);
+    searchAllViews = false;
     selectedId = ticket || null;
     selected = null;
     resetUiState(ticket || null);
@@ -445,18 +448,25 @@ export function createInboxOrgan(opts = {}) {
   let selectedId = opts.ticketId || null;
   // #37: search stays first-party — the query is organ state, matched
   // client-side against the loaded snapshot rows (subject, customer name
-  // and address, snippet). The bound is the URL's practical limit; a longer
-  // paste behaves as a miss, never an error.
-  let searchQuery = typeof opts.searchQuery === "string" ? opts.searchQuery.trim().slice(0, 200) : "";
+  // and address, snippet). The bound is the URL's practical limit; an
+  // over-limit paste never truncates into a false prefix match — it misses.
+  let searchQuery = "";
+  let searchOverLimit = false;
   let searchAllViews = false;
-  function searchNeedle() {
-    return searchQuery.trim().slice(0, 200).toLowerCase();
+  function setSearchQuery(raw) {
+    const text = typeof raw === "string" ? raw.trim() : "";
+    // The bounded text stays in state (input, URL, count); the flag alone
+    // decides matching, so an over-limit paste can never prefix-match.
+    searchOverLimit = text.length > 200;
+    searchQuery = text.slice(0, 200);
   }
+  setSearchQuery(opts.searchQuery);
   function ticketMatchesSearch(ticket) {
     if (!searchQuery) return true;
+    if (searchOverLimit) return false;
     const haystack = [ticket?.subject, ticket?.customerName, ticket?.fromEmail, ticket?.snippet]
       .map((part) => String(part ?? "").toLowerCase()).join(" \n");
-    return haystack.includes(searchNeedle());
+    return haystack.includes(searchQuery.toLowerCase());
   }
   // #42: the id the operator landed on — from the boot deep link or a
   // back/forward replay — that no visible row matches. It stays selected
@@ -664,6 +674,15 @@ export function createInboxOrgan(opts = {}) {
         ]);
         if (Array.isArray(rows)) {
           listRows = rows;
+          // #37: the union of the loaded per-view pages is the escalation's
+          // snapshot on non-observed shops — there is no single unfiltered
+          // list to hold.
+          const seen = new Map();
+          for (const batch of [rows, ...viewRows]) {
+            if (!Array.isArray(batch)) continue;
+            for (const row of batch) if (row?.id && !seen.has(row.id)) seen.set(row.id, row);
+          }
+          allRows = [...seen.values()];
           for (const row of rows) {
             if (!knownTicketIds.has(row.id)) unreadIds.add(row.id);
             knownTicketIds.add(row.id);
@@ -683,6 +702,7 @@ export function createInboxOrgan(opts = {}) {
       }
     }
     listRows = fixtureTickets.filter((ticket) => ticketInView(ticket, viewId));
+    allRows = fixtureTickets;
     reconcileBulk();
     counts = viewCounts(fixtureTickets);
   }
@@ -1056,6 +1076,9 @@ export function createInboxOrgan(opts = {}) {
     // pagination bar hides — the search count is the honest total for the
     // loaded snapshot, and Load more would restate the unfiltered count.
     const searching = Boolean(searchQuery);
+    // An over-limit paste renders as a bounded miss, so the tissue must not
+    // treat it as empty.
+    const searchBounded = searchOverLimit;
     const pagination = shop.observedHistory && !searching ? {
       total: counts[viewId] ?? listRows.length,
       loaded: listRows.filter((ticket) => ticketInView(ticket, viewId)).length,
@@ -1089,6 +1112,7 @@ export function createInboxOrgan(opts = {}) {
       bulkSelection: bulkSelectionInput(),
       searchQuery,
       searchAllViews,
+      searchBounded,
       searchResults,
     };
   }
@@ -1130,6 +1154,7 @@ export function createInboxOrgan(opts = {}) {
       assigneeId,
       tagId,
       searchQuery,
+      searchAllViews,
       selectedId,
       unreadIds: [...unreadIds],
       titles,
@@ -1228,6 +1253,7 @@ export function createInboxOrgan(opts = {}) {
       const scrollTop = panes.list?.querySelector?.(".ticket-list")?.scrollTop || 0;
       const focused = panes.list?.querySelector?.("[data-load-more]") === panes.list?.ownerDocument?.activeElement;
       safeMount(listTissue, panes.list, listInput());
+      listTissue.afterPaint?.();
       const scroll = panes.list?.querySelector?.(".ticket-list");
       if (scroll) scroll.scrollTop = scrollTop;
       if (focused) panes.list?.querySelector?.("[data-load-more]")?.focus({preventScroll:true});
@@ -1237,6 +1263,7 @@ export function createInboxOrgan(opts = {}) {
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());
+      listTissue.afterPaint?.();
       const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
@@ -1276,7 +1303,7 @@ export function createInboxOrgan(opts = {}) {
       statusId = "";
       assigneeId = "";
       tagId = "";
-      searchQuery = "";
+      setSearchQuery("");
       searchAllViews = false;
       resetUiState();
       refreshList().then(() => {
@@ -1515,7 +1542,7 @@ export function createInboxOrgan(opts = {}) {
       assigneeId = "";
       tagId = "";
       // #37: a new view is a new partition — the search does not follow.
-      searchQuery = "";
+      setSearchQuery("");
       searchAllViews = false;
       resetUiState();
       return refreshList().then(() => {
@@ -1527,11 +1554,14 @@ export function createInboxOrgan(opts = {}) {
     // #37: search the loaded snapshot. Scoped by default; allViews is the
     // explicit "search every view" escalation.
     selectSearch(query, {allViews = false} = {}) {
-      searchQuery = typeof query === "string" ? query.trim().slice(0, 200) : "";
+      setSearchQuery(query);
       searchAllViews = Boolean(allViews) && Boolean(searchQuery);
       resetUiState();
       ensureSelection();
-      syncUrl();
+      // Live typing restamps the current entry; only committed navigation
+      // pushes, so Back returns to the previous inbox state, not the last
+      // keystroke prefix.
+      syncUrl({push: false});
       return refreshThread().then(refreshRail).then(refreshComposer).then(afterUi);
     },
     selectChannel(next) {
