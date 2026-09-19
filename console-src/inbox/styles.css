@@ -1068,3 +1068,63 @@ mark.ticket-hit {
   color: var(--ink);
   padding: 0;
 }
+
+/* #36: filter chips + builder. Chips sit under the toolbar so the active
+   filter is visible without opening the menu; the builder rows reuse the
+   pane's quiet-control language. */
+.list-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 11px;
+}
+.list-filter-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 8px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.list-filter-builder {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+.list-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.list-filter-row select,
+.list-filter-row input {
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.list-filter-match {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--mute);
+}
+.list-filter-match select {
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+/* The builder is wider than a facet list: give the filter popup room for
+   field + operator + value on one row. */
+.list-filter-wrap .list-filter-menu { min-width: 480px; }

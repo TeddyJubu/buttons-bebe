@@ -61,6 +61,9 @@ export function createListTissue({ mailbox }) {
   // #39 review: sort state lives in the organ; the tissue mirrors the id it
   // receives so the toolbar title matches what rendered.
   let ui = { viewOpen: false, filterOpen: false };
+  // #36: the save-view name editor, mirroring the #41 rename editor — the
+  // draft lives here; the organ owns the saved entry.
+  let viewName = null;
   let host = null;
 
   function project(input) {
@@ -89,6 +92,10 @@ export function createListTissue({ mailbox }) {
       searchAllViews: Boolean(input.searchAllViews),
       searchBounded: Boolean(input.searchBounded),
       searchResults: typeof input.searchResults === "number" ? input.searchResults : null,
+      filterConditions: Array.isArray(input.filterConditions) ? input.filterConditions.map((condition) => ({...condition})) : [],
+      filterMatch: input.filterMatch === "any" ? "any" : "all",
+      filterFields: Array.isArray(input.filterFields) ? input.filterFields : [],
+      savedViews: Array.isArray(input.savedViews) ? input.savedViews : [],
     };
   }
 
@@ -122,8 +129,18 @@ export function createListTissue({ mailbox }) {
     const items = (next.views || []).map((view) =>
       menuItem(`data-view="${esc(view.id)}"`, view.id === next.selectedViewId, view.label, next.counts?.[view.id] ?? 0),
     ).join("");
+    // #36: saved views list under the fixed ones, Gorgias-style, with a
+    // remove control that only ever deletes the view entry.
+    const saved = (next.savedViews || []).map((view) =>
+      `<button type="button" class="list-menu-item" data-saved-view="${esc(view.id)}" role="option" aria-selected="false">
+        <span class="list-menu-label">${esc(view.name)}</span>
+        <span class="list-menu-count">${view.shared ? "Shared" : "Private"}</span>
+      </button>`).join("");
     return `<div class="list-scope-menu list-view-menu${ui.viewOpen ? " is-open" : ""}" role="listbox" ${ui.viewOpen ? "" : "hidden"}>
       ${items}
+      ${saved ? `<p class="list-filter-heading">Saved views</p>
+      ${saved}
+      ${next.savedViews?.map((view) => `<button type="button" class="btn-quiet" data-view-delete="${esc(view.id)}" aria-label="Remove saved view ${esc(view.name)}">Remove ${esc(view.name)}</button>`).join("")}` : ""}
     </div>`;
   }
 
@@ -191,11 +208,108 @@ export function createListTissue({ mailbox }) {
     return Boolean((next.channels || []).length || (next.statuses || []).length || (next.assignees || []).length || (next.tags || []).length);
   }
 
+  // #36: Gorgias-style condition rows. Each row is field → operator → value
+  // with a remove control; the builder publishes edits to the organ, which
+  // owns the state and the filter predicate.
+  function renderConditionRow(next, condition, index) {
+    const fields = next.filterFields || [];
+    const field = fields.find((entry) => entry.id === condition.field) || null;
+    const ops = field?.ops || ["is"];
+    const offers = (field?.values || []).map((offer) =>
+      `<option value="${esc(offer.id)}"${condition.values.includes(offer.id) ? " selected" : ""}>${esc(offer.label || offer.id)}</option>`).join("");
+    const valueControl = condition.field === "updated"
+      ? `<input type="date" class="list-filter-date" data-filter-date="${index}" aria-label="Updated ${esc(condition.op)} date" value="${esc(condition.values[0] || "")}">`
+      : condition.field === "customer"
+        ? `<input type="search" class="list-filter-value" data-filter-value="${index}" aria-label="Customer contains" value="${esc(condition.values[0] || "")}">`
+        : `<select class="list-filter-value" data-filter-value="${index}" aria-label="Filter value">
+            <option value="">Pick a value</option>
+            ${offers}
+          </select>`;
+    return `<div class="list-filter-row" data-filter-row="${index}">
+      <select class="list-filter-field" data-filter-field="${index}" aria-label="Filter field">
+        ${fields.map((entry) => `<option value="${esc(entry.id)}"${entry.id === condition.field ? " selected" : ""}>${esc(entry.label)}</option>`).join("")}
+      </select>
+      <select class="list-filter-op" data-filter-op="${index}" aria-label="Filter operator">
+        ${ops.map((op) => `<option value="${esc(op)}"${op === condition.op ? " selected" : ""}>${esc(filterOpLabel(op))}</option>`).join("")}
+      </select>
+      ${valueControl}
+      <button type="button" class="btn-quiet" data-filter-remove="${index}" aria-label="Remove condition">Remove</button>
+    </div>`;
+  }
+
+  function filterOpLabel(op) {
+    return {is: "is", isNot: "is not", contains: "contains", before: "before", after: "after"}[op] || op;
+  }
+
+  function filterBuilderRows(next) {
+    const fields = next.filterFields || [];
+    if (!fields.length) return [];
+    return next.filterConditions.length ? next.filterConditions
+      : [{field: fields[0].id, op: (fields[0].ops || ["is"])[0], values: []}];
+  }
+
+  function renderFilterBuilder(next) {
+    const fields = next.filterFields || [];
+    if (!fields.length) return "";
+    const rows = filterBuilderRows(next)
+      .map((condition, index) => renderConditionRow(next, condition, index)).join("");
+    return `<div class="list-filter-builder" aria-label="Filter builder">
+      <label class="list-filter-match">
+        Match
+        <select data-filter-match aria-label="Match all or any">
+          <option value="all"${next.filterMatch !== "any" ? " selected" : ""}>all</option>
+          <option value="any"${next.filterMatch === "any" ? " selected" : ""}>any</option>
+        </select>
+        conditions
+      </label>
+      ${rows}
+      <button type="button" class="btn-hairline" data-add-condition>Add condition</button>
+    </div>`;
+  }
+
+  function renderFilterChips(next) {
+    const chips = (next.filterConditions || []).map((condition, index) => {
+      const field = (next.filterFields || []).find((entry) => entry.id === condition.field);
+      const label = field?.label || condition.field;
+      return `<span class="list-filter-chip" data-filter-chip>
+        ${esc(label)} ${esc(filterOpLabel(condition.op))} ${condition.field === "updated" || condition.field === "customer" ? esc(condition.values[0] || "…") : esc(condition.values.join(" or "))}
+        <button type="button" class="btn-quiet" data-filter-remove="${index}" aria-label="Remove ${esc(label)} filter">Clear</button>
+      </span>`;
+    });
+    if (!chips.length) return "";
+    return `<div class="list-filter-chips" role="status" aria-label="Active filters">
+      ${chips.join("")}
+      <button type="button" class="btn-quiet" data-filter-clear>Clear all</button>
+    </div>`;
+  }
+
+  function renderSavedViews(next) {
+    const saved = next.savedViews || [];
+    if (!saved.length) return "";
+    const items = saved.map((view) =>
+      `<button type="button" class="list-menu-item" data-saved-view="${esc(view.id)}" role="option" aria-selected="false">
+        <span class="list-menu-label">${esc(view.name)}</span>
+        <span class="list-menu-count">${view.shared ? "Shared" : "Private"}</span>
+      </button>`).join("");
+    return `<section class="list-filter-section" aria-label="Saved views">
+      <p class="list-filter-heading">Saved views</p>
+      ${items}
+    </section>`;
+  }
+
   function renderFilterMenu(next) {
     const sections = [renderChannelSection(next), renderStatusSection(next), renderAssigneeSection(next), renderTagSection(next)].filter(Boolean).join("");
-    if (!sections) return "";
-    return `<div class="list-scope-menu list-filter-menu${ui.filterOpen ? " is-open" : ""}" role="listbox" ${ui.filterOpen ? "" : "hidden"}>
+    const builder = renderFilterBuilder(next);
+    if (!sections && !builder) return "";
+    return `<div class="list-scope-menu list-filter-menu${ui.filterOpen ? " is-open" : ""}" ${ui.filterOpen ? "" : "hidden"}>
       ${sections}
+      ${sections && !viewName ? `<button type="button" class="btn-hairline" data-view-save>Save current filters as a view</button>` : ""}
+      ${viewName ? `<div class="list-view-name" data-view-name>
+        <input class="list-view-name-input" data-view-name-input value="${esc(viewName.draft)}" maxlength="80" placeholder="Name this view" aria-label="View name">
+        <button type="button" class="btn-hairline" data-view-save-confirm>Save</button>
+        <button type="button" class="btn-quiet" data-view-save-cancel>Cancel</button>
+      </div>` : ""}
+      ${builder}
     </div>`;
   }
 
@@ -353,6 +467,7 @@ export function createListTissue({ mailbox }) {
         : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/">Open support console</a></div>`;
     return `<div class="pane-inner">
       ${renderToolbar(next)}
+      ${renderFilterChips(next)}
       ${bulk?.ids?.length ? renderBulkBar(bulk) : ""}
       ${next.notice ? `<p class="history-notice" role="status">${esc(next.notice)}</p>` : ""}
       <div class="ticket-list" role="list">${rows}</div>
@@ -386,19 +501,128 @@ export function createListTissue({ mailbox }) {
     restoreSearchFocus = null;
   }
 
+  function fieldOps(fieldId) {
+    return (model.filterFields.find((entry) => entry.id === fieldId)?.ops) || ["is"];
+  }
+  // The operator edits the rendered rows, which include the fresh default row
+  // the builder shows when nothing is committed yet — an edit there is the
+  // operator's first condition, so it must publish, not map over an empty list.
+  function editableFilterRows() {
+    return model.filterConditions.length ? model.filterConditions
+      : filterBuilderRows(model);
+  }
+  function publishFilterEdit(conditions, match) {
+    mailbox.publish(MAILBOX_TOPICS.FILTER_CHANGED, {conditions: conditions.map((condition) => ({...condition})), match: match === "any" ? "any" : "all"});
+  }
+
   function mount(el) {
     host = el;
     paint();
     // #37: the operator's keystrokes publish live; the organ owns the bound
     // and the match.
     el.oninput = (event) => {
+      const nameInput = event.target.closest?.("[data-view-name-input]");
+      if (nameInput) {
+        viewName = {draft: nameInput.value};
+        return;
+      }
       const input = event.target.closest?.("[data-search-input]");
       if (!input) return;
       restoreSearchFocus = { start: input.selectionStart };
       mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: input.value || "" });
     };
+    // #36: builder edits publish one topic with the organ's committed
+    // state; the organ owns the predicate and the URL.
+    el.onchange = (event) => {
+      const row = (index) => Number(event.target.dataset?.filterField ?? event.target.dataset?.filterOp ?? event.target.dataset?.filterValue ?? event.target.dataset?.filterDate ?? index);
+      const matchSelect = event.target.closest("[data-filter-match]");
+      if (matchSelect) {
+        publishFilterEdit(model.filterConditions, matchSelect.value);
+        return;
+      }
+      const fieldSelect = event.target.closest("[data-filter-field]");
+      if (fieldSelect) {
+        const index = Number(fieldSelect.dataset.filterField);
+        const next = editableFilterRows().map((condition, at) => at === index
+          ? {field: fieldSelect.value, op: (fieldOps(fieldSelect.value)[0]), values: []}
+          : {...condition});
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+      const opSelect = event.target.closest("[data-filter-op]");
+      if (opSelect) {
+        const index = Number(opSelect.dataset.filterOp);
+        const next = editableFilterRows().map((condition, at) => at === index ? {...condition, op: opSelect.value} : {...condition});
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+      const valueSelect = event.target.closest("[data-filter-value]");
+      if (valueSelect) {
+        const index = Number(valueSelect.dataset.filterValue);
+        const next = editableFilterRows().map((condition, at) => {
+          if (at !== index) return {...condition};
+          if (condition.field === "customer") return {...condition, values: valueSelect.value ? [valueSelect.value.slice(0, 120)] : []};
+          const values = [...condition.values];
+          if (valueSelect.value && !values.includes(valueSelect.value)) values.push(valueSelect.value);
+          return {...condition, values};
+        });
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+      const dateInput = event.target.closest("[data-filter-date]");
+      if (dateInput) {
+        const index = Number(dateInput.dataset.filterDate);
+        const next = editableFilterRows().map((condition, at) => at === index ? {...condition, values: dateInput.value ? [dateInput.value] : []} : {...condition});
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+    };
     el.onclick = (event) => {
       if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
+      if (event.target.closest("[data-add-condition]")) {
+        const first = (model.filterFields[0] || {id: "status", ops: ["is"]});
+        const next = [...editableFilterRows(), {field: first.id, op: (first.ops || ["is"])[0], values: []}];
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+      if (event.target.closest("[data-filter-clear]")) {
+        publishFilterEdit([], model.filterMatch);
+        return;
+      }
+      const chipRemove = event.target.closest("[data-filter-remove]");
+      if (chipRemove) {
+        const next = model.filterConditions.filter((_, at) => at !== Number(chipRemove.dataset.filterRemove));
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+      if (event.target.closest("[data-view-save]")) {
+        // #36: the view needs a name before it exists — the editor opens
+        // here and Confirm publishes, mirroring the #41 rename flow.
+        viewName = {draft: ""};
+        paint();
+        return;
+      }
+      if (event.target.closest("[data-view-save-cancel]")) {
+        viewName = null;
+        paint();
+        return;
+      }
+      if (event.target.closest("[data-view-save-confirm]")) {
+        mailbox.publish(MAILBOX_TOPICS.FILTER_VIEW_SAVE, {name: viewName?.draft || "", shared: false});
+        viewName = null;
+        paint();
+        return;
+      }
+      const savedView = event.target.closest("[data-saved-view]");
+      if (savedView) {
+        mailbox.publish(MAILBOX_TOPICS.FILTER_VIEW_APPLY, {id: savedView.dataset.savedView});
+        return;
+      }
+      const viewDelete = event.target.closest("[data-view-delete]");
+      if (viewDelete) {
+        mailbox.publish(MAILBOX_TOPICS.FILTER_VIEW_DELETE, {id: viewDelete.dataset.viewDelete});
+        return;
+      }
       if (event.target.closest("[data-search-all]")) {
         mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: model.searchQuery, allViews: true });
         return;

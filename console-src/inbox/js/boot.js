@@ -18,6 +18,9 @@ const organ = createInboxOrgan({
   viewId,
   ticketId: params.get("ticket") || undefined,
   searchQuery: params.get("q") || "",
+  // #36: filters travel as one compact JSON f param so a filtered list is
+  // shareable and survives reload, exactly like the search query.
+  filters: params.get("f") || "",
   privacyGate: params.get("gate") === "privacy",
   // #42: the real mount path — /inbox/ in production, whatever the review
   // server serves under. The copy link and the address bar agree.
@@ -26,11 +29,11 @@ const organ = createInboxOrgan({
   // turns that into ?view=…&ticket=… entries so the URL can be copied,
   // bookmarked and traversed with back/forward.
   history: {
-    replace({ticket, view, q}) {
-      history.replaceState(null, "", buildUrl({ticket, view, q}));
+    replace({ticket, view, q, f}) {
+      history.replaceState(null, "", buildUrl({ticket, view, q, f}));
     },
-    push({ticket, view, q}) {
-      history.pushState(null, "", buildUrl({ticket, view, q}));
+    push({ticket, view, q, f}) {
+      history.pushState(null, "", buildUrl({ticket, view, q, f}));
     },
   },
   // #42: boot owns the clipboard for the thread's Copy link control. The
@@ -67,11 +70,12 @@ const organ = createInboxOrgan({
 });
 organ.mount(root);
 
-function buildUrl({ticket, view, q}) {
+function buildUrl({ticket, view, q, f}) {
   const next = new URLSearchParams();
   if (view && view !== "all") next.set("view", view);
   if (ticket) next.set("ticket", ticket);
   if (q) next.set("q", q);
+  if (f) next.set("f", f);
   const query = next.toString();
   return `${location.pathname}${query ? `?${query}` : ""}`;
 }
@@ -82,7 +86,7 @@ function buildUrl({ticket, view, q}) {
 window.addEventListener("popstate", () => {
   const next = new URLSearchParams(location.search);
   const view = next.get("view");
-  organ.replayEntry({ticket: next.get("ticket") || null, view: view && views.some((v) => v.id === view) ? view : "all", q: next.get("q") || ""});
+  organ.replayEntry({ticket: next.get("ticket") || null, view: view && views.some((v) => v.id === view) ? view : "all", q: next.get("q") || "", f: next.get("f") || ""});
 });
 
 // Expose the capability-locked organ for local accessibility verification.
