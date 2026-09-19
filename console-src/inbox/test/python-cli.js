@@ -78,7 +78,16 @@ export function pythonInvoke(tool, args) {
     },
   });
   assert.equal(result.error, undefined, result.stderr);
-  const payload = JSON.parse(result.stdout);
+  // A non-zero exit that still prints JSON is an expected payload (the
+  // send_reply human-only case asserts _exit); an empty stdout means the CLI
+  // died before emitting anything — surface stderr instead of a bare
+  // SyntaxError so the real cause stays diagnosable.
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch (err) {
+    throw new Error(`helpdesk CLI ${tool} exited ${result.status} with no JSON: ${result.stderr || err.message}`);
+  }
   payload._exit = result.status;
   return payload;
 }
