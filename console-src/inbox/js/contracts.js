@@ -243,6 +243,11 @@ export const MAILBOX_TOPICS = Object.freeze({
   THREAD_ESCALATE: "thread/escalate",
   THREAD_RENAME: "thread/rename",
   THREAD_COPY_LINK: "thread/copy-link",
+  // #44: first-party ticket-detail controls — browser-store state only.
+  THREAD_STEP: "thread/step",
+  THREAD_STATE: "thread/state",
+  THREAD_MENU: "thread/menu",
+  THREAD_MARK_UNREAD: "thread/mark-unread",
   WRITE_GATE_OPEN: "write-gate/open",
   WRITE_GATE_CLOSE: "write-gate/close",
   CUSTOMER_JOIN_GATE_OPEN: "customer-join-gate/open",
