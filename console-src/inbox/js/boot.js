@@ -17,6 +17,7 @@ const organ = createInboxOrgan({
   shop,
   viewId,
   ticketId: params.get("ticket") || undefined,
+  searchQuery: params.get("q") || "",
   privacyGate: params.get("gate") === "privacy",
   // #42: the real mount path — /inbox/ in production, whatever the review
   // server serves under. The copy link and the address bar agree.
@@ -25,11 +26,11 @@ const organ = createInboxOrgan({
   // turns that into ?view=…&ticket=… entries so the URL can be copied,
   // bookmarked and traversed with back/forward.
   history: {
-    replace({ticket, view}) {
-      history.replaceState(null, "", buildUrl({ticket, view}));
+    replace({ticket, view, q}) {
+      history.replaceState(null, "", buildUrl({ticket, view, q}));
     },
-    push({ticket, view}) {
-      history.pushState(null, "", buildUrl({ticket, view}));
+    push({ticket, view, q}) {
+      history.pushState(null, "", buildUrl({ticket, view, q}));
     },
   },
   // #42: boot owns the clipboard for the thread's Copy link control. The
@@ -66,10 +67,11 @@ const organ = createInboxOrgan({
 });
 organ.mount(root);
 
-function buildUrl({ticket, view}) {
+function buildUrl({ticket, view, q}) {
   const next = new URLSearchParams();
   if (view && view !== "all") next.set("view", view);
   if (ticket) next.set("ticket", ticket);
+  if (q) next.set("q", q);
   const query = next.toString();
   return `${location.pathname}${query ? `?${query}` : ""}`;
 }
@@ -80,7 +82,7 @@ function buildUrl({ticket, view}) {
 window.addEventListener("popstate", () => {
   const next = new URLSearchParams(location.search);
   const view = next.get("view");
-  organ.replayEntry({ticket: next.get("ticket") || null, view: view && views.some((v) => v.id === view) ? view : "all"});
+  organ.replayEntry({ticket: next.get("ticket") || null, view: view && views.some((v) => v.id === view) ? view : "all", q: next.get("q") || ""});
 });
 
 // Expose the capability-locked organ for local accessibility verification.

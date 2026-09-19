@@ -249,4 +249,37 @@ class ProjectionTests(unittest.TestCase):
         ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
         self.assertEqual(ticket['customerName'],'Customer')
 
+    def test_search_matches_subject_name_address_and_snippet_and_stays_readonly(self):
+        """#37: helpdesk.search_tickets is local, read-only, and parameterized.
+
+        Ticket 1 (subject '<script>title</script>', qa@example.com, draft-only
+        snippet) plus a second ticket with a distinctive subject cover the
+        match fields; hostile needles are data, never SQL.
+        """
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(2,'s2','customer','buyer@example.com','buyer@example.com','Snowsuit refund please','email',NULL,NULL,NULL,NULL,0,0,0,'2099-01-05','2099-01-05',1,'Where is my snowsuit?')")
+        export(self.source,self.dest,now=self.now)
+        by_subject=query('helpdesk.search_tickets',{'query':'snowsuit refund'},self.dest)
+        self.assertEqual([t['id'] for t in by_subject['tickets']],['gorgias:2'])
+        self.assertEqual(by_subject['total'],1)
+        by_address=query('helpdesk.search_tickets',{'query':'qa@example'},self.dest)
+        self.assertEqual([t['id'] for t in by_address['tickets']],['gorgias:1'])
+        by_snippet=query('helpdesk.search_tickets',{'query':'snowsuit?'},self.dest)
+        self.assertEqual(by_snippet['total'],1)
+        # A SQL-looking needle is data, not a directive.
+        hostile=query('helpdesk.search_tickets',{'query':"'; DELETE FROM tickets;--"},self.dest)
+        self.assertEqual(hostile['tickets'],[]);self.assertEqual(hostile['total'],0)
+        still=query('helpdesk.list_tickets',{},self.dest)
+        self.assertEqual(len(still['tickets']),2)
+        # Oversized needles are clamped, not fatal; empty matches nothing.
+        self.assertEqual(query('helpdesk.search_tickets',{'query':'zz'*2500},self.dest)['total'],0)
+        self.assertEqual(query('helpdesk.search_tickets',{'query':''},self.dest)['tickets'],[])
+        # Pagination is over the result set; the last page has no nextOffset.
+        both=query('helpdesk.search_tickets',{'query':'e'},self.dest)
+        self.assertEqual(both['total'],2)
+        page=query('helpdesk.search_tickets',{'query':'e','limit':1,'offset':1},self.dest)
+        self.assertEqual(len(page['tickets']),1);self.assertIsNone(page['nextOffset'])
+        page_one=query('helpdesk.search_tickets',{'query':'e','limit':1},self.dest)
+        self.assertEqual(page_one['nextOffset'],1)
+
 if __name__=='__main__':unittest.main()

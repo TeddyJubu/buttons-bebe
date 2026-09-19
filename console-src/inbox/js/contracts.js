@@ -215,6 +215,7 @@
 
 export const MAILBOX_TOPICS = Object.freeze({
   VIEW_SELECTED: "view/selected",
+  LIST_SEARCHED: "list/searched",
   CHANNEL_SELECTED: "channel/selected",
   STATUS_SELECTED: "status/selected",
   ASSIGNEE_SELECTED: "assignee/selected",

@@ -74,7 +74,7 @@ export function createInboxOrgan(opts = {}) {
   let urlSuspended = false;
   function syncUrl({push = true} = {}) {
     if (!history || urlSuspended) return;
-    (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId});
+    (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId, q: searchQuery});
   }
   // #42: back/forward replays both URL fields without pushing — the organ
   // owns the view, so a stale view must never be written back over the
@@ -82,7 +82,7 @@ export function createInboxOrgan(opts = {}) {
   // visible row (the thread pane must not hang empty) and the replace
   // restamps the URL with what actually renders, so the bar and the UI
   // agree.
-  async function replayEntry({ticket, view} = {}) {
+  async function replayEntry({ticket, view, q} = {}) {
     const generation = ++replayGeneration;
     const stale = () => generation !== replayGeneration;
     const nextView = availableViews.some((candidate) => candidate.id === view) ? view : "all";
@@ -96,6 +96,9 @@ export function createInboxOrgan(opts = {}) {
     statusId = "";
     assigneeId = "";
     tagId = "";
+    // A popped entry owns its query too: no q in the URL means no search,
+    // exactly like a dead facet. A popped q restores the exact search.
+    searchQuery = typeof q === "string" ? q.trim().slice(0, 200) : "";
     selectedId = ticket || null;
     selected = null;
     resetUiState(ticket || null);
@@ -440,6 +443,21 @@ export function createInboxOrgan(opts = {}) {
       .map(([id, count]) => ({ id, label: id, count }));
   }
   let selectedId = opts.ticketId || null;
+  // #37: search stays first-party — the query is organ state, matched
+  // client-side against the loaded snapshot rows (subject, customer name
+  // and address, snippet). The bound is the URL's practical limit; a longer
+  // paste behaves as a miss, never an error.
+  let searchQuery = typeof opts.searchQuery === "string" ? opts.searchQuery.trim().slice(0, 200) : "";
+  let searchAllViews = false;
+  function searchNeedle() {
+    return searchQuery.trim().slice(0, 200).toLowerCase();
+  }
+  function ticketMatchesSearch(ticket) {
+    if (!searchQuery) return true;
+    const haystack = [ticket?.subject, ticket?.customerName, ticket?.fromEmail, ticket?.snippet]
+      .map((part) => String(part ?? "").toLowerCase()).join(" \n");
+    return haystack.includes(searchNeedle());
+  }
   // #42: the id the operator landed on — from the boot deep link or a
   // back/forward replay — that no visible row matches. It stays selected
   // (thread shows not-found, or getTicket resolves it) instead of being
@@ -495,6 +513,9 @@ export function createInboxOrgan(opts = {}) {
   let moreError = "";
   let paintListOnly = null;
   let listRows = pinnedCatalog ? pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId)) : [];
+  // #37: the unfiltered loaded snapshot — the search-every-view escalation
+  // matches against this, not the view-partitioned listRows.
+  let allRows = pinnedCatalog || [];
   let selected = pinnedCatalog?.find((ticket) => ticket.id === selectedId) || null;
   let counts = pinnedCatalog ? viewCounts(pinnedCatalog) : viewCounts(fixtureTickets);
   /** Set by mount(); programmatic organ APIs remount chrome when present. */
@@ -538,16 +559,22 @@ export function createInboxOrgan(opts = {}) {
   }
 
   function visibleTickets() {
-    return listRows.filter((ticket) =>
+    // #37: the escalation searches the whole loaded snapshot; a scoped search
+    // rides the view partition. Either way flagged rows stay out.
+    const source = searchAllViews ? allRows : listRows;
+    return source.filter((ticket) =>
       // #33: on the observed path the view partition holds for every render,
       // including rows appended by loadMore, so flagged rows never leak into
       // working views. Server-filtered list rows carry no assignee field and
       // are already view-filtered, so they must not be re-filtered here.
-      (!shop.observedHistory || ticketInView(ticket, viewId)) &&
+      // #37: a scoped search rides the view partition; the "search every
+      // view" escalation lifts only the partition, never the flag guard.
+      (searchAllViews ? !(ticket.spam || ticket.trashed) : !shop.observedHistory || ticketInView(ticket, viewId)) &&
       (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
       (!statusId || normalizeStatus(ticket?.status) === statusId) &&
       assigneeMatches(ticket, assigneeId) &&
-      (!tagId || ticketTags(ticket).includes(tagId)));
+      (!tagId || ticketTags(ticket).includes(tagId)) &&
+      ticketMatchesSearch(ticket));
   }
 
   function selectedTicket() {
@@ -611,6 +638,10 @@ export function createInboxOrgan(opts = {}) {
             knownTicketIds.add(row.id);
           }
           listRows = rows.filter((ticket) => ticketInView(ticket, viewId));
+          // #37: the whole loaded snapshot stays searchable — the "search
+          // every view" escalation must see rows the view partition keeps
+          // out of listRows.
+          allRows = rows;
           reconcileBulk();
           counts = viewCounts(rows);
           // #33: pagination totals stay in the active view's domain. For All,
@@ -980,6 +1011,7 @@ export function createInboxOrgan(opts = {}) {
         knownTicketIds.add(row.id);
       }
       listRows = rows;
+      allRows = rows;
       reconcileBulk();
       const observed = viewCounts(rows);
       const flaggedInSnapshot = (shop.projection?.spamCount ?? observed.spam)
@@ -1020,14 +1052,20 @@ export function createInboxOrgan(opts = {}) {
     // #33: pagination totals live in the active view's domain — Spam shows
     // "3 of 3", All shows the working partition. `loaded` counts view
     // members in the raw prefix so Load more never stops early when flagged
-    // rows occupy part of the prefix.
-    const pagination = shop.observedHistory ? {
+    // rows occupy part of the prefix. #37: while a search is active the
+    // pagination bar hides — the search count is the honest total for the
+    // loaded snapshot, and Load more would restate the unfiltered count.
+    const searching = Boolean(searchQuery);
+    const pagination = shop.observedHistory && !searching ? {
       total: counts[viewId] ?? listRows.length,
       loaded: listRows.filter((ticket) => ticketInView(ticket, viewId)).length,
       loading: loadingMore,
       error: moreError,
       loadMore,
     } : null;
+    // #37: the count is the rendered set — view (or flag) guard, facets and
+    // the query all apply, so the number can never overstate the rows.
+    const searchResults = searching ? visibleTickets().length : null;
     return {
       tickets: sortedVisibleTickets().map((ticket) => ({...ticket, derivedTitle: derivedTitle(ticket)})),
       error: listError,
@@ -1049,6 +1087,9 @@ export function createInboxOrgan(opts = {}) {
       unreadIds: [...unreadIds],
       sortId,
       bulkSelection: bulkSelectionInput(),
+      searchQuery,
+      searchAllViews,
+      searchResults,
     };
   }
 
@@ -1088,6 +1129,7 @@ export function createInboxOrgan(opts = {}) {
       statusId,
       assigneeId,
       tagId,
+      searchQuery,
       selectedId,
       unreadIds: [...unreadIds],
       titles,
@@ -1234,12 +1276,19 @@ export function createInboxOrgan(opts = {}) {
       statusId = "";
       assigneeId = "";
       tagId = "";
+      searchQuery = "";
+      searchAllViews = false;
       resetUiState();
       refreshList().then(() => {
         ensureSelection();
         syncUrl();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    });
+    // #37: the tissue publishes raw keystrokes; the organ owns the bound,
+    // the match and the URL.
+    mailbox.subscribe(MAILBOX_TOPICS.LIST_SEARCHED, ({ query, allViews } = {}) => {
+      selectSearch(query, {allViews: Boolean(allViews)});
     });
     mailbox.subscribe(MAILBOX_TOPICS.CHANNEL_SELECTED, ({ channelId: next }) => {
       channelId = normalizeChannel(next);
@@ -1465,12 +1514,25 @@ export function createInboxOrgan(opts = {}) {
       statusId = "";
       assigneeId = "";
       tagId = "";
+      // #37: a new view is a new partition — the search does not follow.
+      searchQuery = "";
+      searchAllViews = false;
       resetUiState();
       return refreshList().then(() => {
         ensureSelection();
         syncUrl();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    },
+    // #37: search the loaded snapshot. Scoped by default; allViews is the
+    // explicit "search every view" escalation.
+    selectSearch(query, {allViews = false} = {}) {
+      searchQuery = typeof query === "string" ? query.trim().slice(0, 200) : "";
+      searchAllViews = Boolean(allViews) && Boolean(searchQuery);
+      resetUiState();
+      ensureSelection();
+      syncUrl();
+      return refreshThread().then(refreshRail).then(refreshComposer).then(afterUi);
     },
     selectChannel(next) {
       channelId = normalizeChannel(next);
