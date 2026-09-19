@@ -278,6 +278,31 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .pane-rail.is-collapsed .pane-inner {
   height: 100%;
 }
+/* #40: the collapsed strips stay informative — the list names the view, its
+   count, and unread rows; the rail names both panes it hides. */
+.list-strip-count,
+.list-strip-unread {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--mute);
+}
+.list-strip-unread {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 12%, var(--ground));
+  color: var(--ink);
+}
+.rail-expand-returns { margin-top: 16px; }
+.rail-strip-return {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink);
+  flex: 0 0 auto;
+}
 .rail-expand-label {
   writing-mode: vertical-rl;
   text-orientation: mixed;
@@ -934,6 +959,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .pane-rail { min-height: 160px; }
   .pane-list.is-collapsed, .pane-rail.is-collapsed { width: 100%; max-width: none; min-width: 0; height: 40px; min-height: 40px; flex-basis: 40px; }
   .pane-list.is-collapsed .list-expand-btn, .pane-rail.is-collapsed .rail-expand-btn { writing-mode: horizontal-tb; }
+  /* The 120px vertical-strip affordance clips inside a 40px row — both
+     buttons must fit or the pane can never expand again. The labels carry
+     their own vertical writing-mode rule, so override them here too. */
+  .pane-list.is-collapsed .list-expand-btn, .pane-rail.is-collapsed .rail-expand-btn { min-height: 0; padding: 0 14px; flex-direction: row; align-items: center; gap: 8px; }
+  .pane-list.is-collapsed .list-expand-label, .pane-rail.is-collapsed .rail-expand-label,
+  .pane-list.is-collapsed .list-strip-count, .pane-list.is-collapsed .list-strip-unread { writing-mode: horizontal-tb; }
+  .pane-rail.is-collapsed .rail-expand-returns { margin-top: 0; margin-left: 8px; }
+  .pane-rail.is-collapsed .pane-inner { display: flex; flex-direction: row; align-items: center; }
 }
 
 @media (pointer: coarse) {
