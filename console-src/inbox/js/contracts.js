@@ -197,6 +197,9 @@
  * `composer/macros`      { open } — picker only; never Send
  * `composer/send`        { text, close: boolean }
  * `composer/summarize`   { ticketId }
+ * `thread/step`          { delta } — previous/next nav over the current list; never Send
+ * `thread/state`         { ticketId, field, value } — first-party browser store; never Gorgias
+ * `thread/mark-unread`   { ticketId } — first-party read state; never Gorgias
  * `thread/escalate`      { ticketId, reason? } — first-party; never Send
  * `thread/rename`        { ticketId, title } — first-party browser store; never Gorgias
  * `thread/copy-link`     { ticketId } — boot copies the console deep link; never Gorgias
@@ -246,7 +249,6 @@ export const MAILBOX_TOPICS = Object.freeze({
   // #44: first-party ticket-detail controls — browser-store state only.
   THREAD_STEP: "thread/step",
   THREAD_STATE: "thread/state",
-  THREAD_MENU: "thread/menu",
   THREAD_MARK_UNREAD: "thread/mark-unread",
   WRITE_GATE_OPEN: "write-gate/open",
   WRITE_GATE_CLOSE: "write-gate/close",

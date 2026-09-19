@@ -521,16 +521,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   padding: 1px 6px;
   text-transform: uppercase;
 }
-.thread-menu { position: relative; }
+/* The anchor span wraps trigger + menu so the absolute item positions off
+   a box that actually contains the trigger. */
+.thread-menu-anchor { position: relative; display: inline-flex; }
+.thread-menu { display: inline-flex; }
 .thread-menu[hidden] { display: none; }
 .thread-menu-item {
   position: absolute;
   right: 0;
-  top: 100%;
+  top: calc(100% + 4px);
   z-index: 20;
   display: block;
   width: max-content;
-  margin-top: 4px;
   padding: 6px 10px;
   font-size: 12px;
   font-family: inherit;

@@ -254,15 +254,22 @@ export function createInboxOrgan(opts = {}) {
     }
   }
   let ticketState = loadTicketState();
-  // #41-style ownership anchor: only ids this organ changed are persisted on
-  // top of storage, so a stale tab never clobbers another tab's override.
-  const localStateIds = new Set();
+  // #41-style ownership anchor, field-level: a tab owns only the fields it
+  // changed, so two tabs editing different fields never erase each other.
+  // A cleared field persists as null inside the record (a field tombstone)
+  // so the deletion itself survives the merge.
+  const ownedStateFields = new Map();
   function persistTicketState() {
     try {
       const merged = {...loadTicketState()};
-      for (const id of localStateIds) {
-        if (id in ticketState) merged[id] = ticketState[id];
-        else delete merged[id];
+      for (const [id, fields] of ownedStateFields) {
+        const record = {...(merged[id] && typeof merged[id] === "object" ? merged[id] : {})};
+        for (const field of fields) {
+          const value = ticketState[id]?.[field];
+          if (value) record[field] = value;
+          else record[field] = null; // this tab's field deletion
+        }
+        merged[id] = Object.keys(record).length ? record : null;
       }
       ticketState = merged;
       storage?.setItem?.(STATE_KEY, JSON.stringify(ticketState));
@@ -281,25 +288,19 @@ export function createInboxOrgan(opts = {}) {
       if (field in changes) fields[field] = changes[field];
     }
     if (!Object.keys(fields).length) return;
-    localStateIds.add(ticketId);
     const record = ticketState[ticketId] && ticketState[ticketId] !== null && typeof ticketState[ticketId] === "object" ? {...ticketState[ticketId]} : {};
     const stamp = {by: operatorStamp(), at: Date.now()};
-    let kept = false;
     for (const [field, value] of Object.entries(fields)) {
-      const clean = typeof value === "string" ? value.trim().slice(0, 40) : null;
-      if (clean) {
-        record[field] = {value: clean, ...stamp};
-        kept = true;
-      } else {
-        delete record[field];
-      }
+      // Values come from the picker's own option lists or the operator's
+      // address — trim, never truncate (a sliced address breaks the Me pick).
+      const clean = typeof value === "string" ? value.trim() : null;
+      if (clean) record[field] = {value: clean, ...stamp};
+      else delete record[field];
+      // Field-level ownership: this tab now owns the field, value or clear.
+      if (!ownedStateFields.has(ticketId)) ownedStateFields.set(ticketId, new Set());
+      ownedStateFields.get(ticketId).add(field);
     }
-    if (kept) ticketState[ticketId] = record;
-    else {
-      // The tombstone keeps the deletion itself owned: without it the
-      // two-tab merge would resurrect whatever another tab still holds.
-      ticketState[ticketId] = null;
-    }
+    ticketState[ticketId] = Object.keys(record).length ? record : null;
     persistTicketState();
   }
   // #44: the closure bodies behind the organ methods — subscriptions live
@@ -324,13 +325,21 @@ export function createInboxOrgan(opts = {}) {
     await refreshComposer();
   }
 
+  // The observed value for a field, before any local override. The
+  // Gorgias priority lives under gorgiasPriority (ticket.priority is the
+  // draft's); the assignee address may sit in either assignee field.
+  function observedState(ticket, field) {
+    if (field === "status") return ticket.observedStatus ?? ticket.status ?? null;
+    if (field === "priority") return ticket.gorgiasPriority ?? null;
+    return ticket.assigneeEmail ?? ticket.assignee ?? null;
+  }
   // The effective value for a field: the local override, else the observed
-  // one. View filters and the thread header both read through this so a
-  // locally-closed ticket is honestly in the Closed view.
+  // one. View filters read through this so a locally-closed ticket is
+  // honestly in the Closed view; the thread badge keeps the observed value.
   function effectiveState(ticket, field) {
     const override = ticketState[ticket.id]?.[field]?.value;
     if (typeof override === "string" && override.trim()) return override.trim();
-    const observed = field === "status" ? ticket.status : field === "priority" ? ticket.priority : ticket.assignee;
+    const observed = observedState(ticket, field);
     return typeof observed === "string" && observed.trim() ? observed.trim() : null;
   }
 
@@ -348,16 +357,20 @@ export function createInboxOrgan(opts = {}) {
   // #44: rows entering the organ carry the operator's local overrides on
   // top of the observed values, so every view/filter/count that reads
   // status or assignee sees the effective value without per-site patches.
+  // The observed values ride along as observedStatus/observedAssignee so
+  // the header badge can keep naming what Gorgias reported.
   function applyLocalState(ticket) {
     if (!ticket) return ticket;
     const status = effectiveState(ticket, "status");
     const priority = effectiveState(ticket, "priority");
     const assignee = ticketState[ticket.id]?.assignee
       ? normalizedAssignee(ticketState[ticket.id].assignee.value)
-      : ticket.assignee;
+      : withOperatorAssignee(ticket).assignee;
     const local = stateOverrides(ticket);
     return {
       ...ticket,
+      observedStatus: ticket.status ?? null,
+      observedAssignee: ticket.assigneeEmail ?? ticket.assignee ?? null,
       status: status || ticket.status,
       priority: priority || ticket.priority,
       assignee,
@@ -917,11 +930,11 @@ export function createInboxOrgan(opts = {}) {
   let loadingMore = false;
   let moreError = "";
   let paintListOnly = null;
-  let listRows = pinnedCatalog ? pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId)) : [];
+  let listRows = pinnedCatalog ? pinnedCatalog.map(applyLocalState).filter((ticket) => ticketInView(ticket, viewId)) : [];
   // #37: the unfiltered loaded snapshot — the search-every-view escalation
   // matches against this, not the view-partitioned listRows.
   let allRows = pinnedCatalog || [];
-  let selected = pinnedCatalog?.find((ticket) => ticket.id === selectedId) || null;
+  let selected = pinnedCatalog ? applyLocalState(pinnedCatalog.find((ticket) => ticket.id === selectedId)) || null : null;
   let counts = pinnedCatalog ? viewCounts(pinnedCatalog) : viewCounts(fixtureTickets);
   /** Set by mount(); programmatic organ APIs remount chrome when present. */
   let paintMounted = null;
@@ -1024,9 +1037,10 @@ export function createInboxOrgan(opts = {}) {
   async function refreshList() {
     listError = "";
     if (pinnedCatalog) {
-      listRows = pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId));
+      const overlaid = pinnedCatalog.map(applyLocalState);
+      listRows = overlaid.filter((ticket) => ticketInView(ticket, viewId));
       reconcileBulk();
-      counts = viewCounts(pinnedCatalog);
+      counts = viewCounts(overlaid);
       return;
     }
     if (typeof shop.listTickets === "function") {
@@ -1065,12 +1079,16 @@ export function createInboxOrgan(opts = {}) {
           ...availableViews.map((view) => shop.listTickets({ view: view.id, limit: 100 })),
         ]);
         if (Array.isArray(rows)) {
-          listRows = rows;
+          // #44: the overlay must reach every list source — a locally-closed
+          // ticket must leave the Open view here too, not just in the
+          // observed history path.
+          const overlaid = rows.map(applyLocalState);
+          listRows = overlaid;
           // #37: the union of the loaded per-view pages is the escalation's
           // snapshot on non-observed shops — there is no single unfiltered
           // list to hold.
           const seen = new Map();
-          for (const batch of [rows, ...viewRows]) {
+          for (const batch of [overlaid, ...viewRows.map((batch) => Array.isArray(batch) ? batch.map(applyLocalState) : batch)]) {
             if (!Array.isArray(batch)) continue;
             for (const row of batch) if (row?.id && !seen.has(row.id)) seen.set(row.id, row);
           }
@@ -1107,7 +1125,7 @@ export function createInboxOrgan(opts = {}) {
       return;
     }
     if (pinnedCatalog) {
-      selected = pinnedCatalog.find((ticket) => ticket.id === id) || null;
+      selected = applyLocalState(pinnedCatalog.find((ticket) => ticket.id === id)) || null;
       return;
     }
     if (typeof shop.getTicket === "function") {

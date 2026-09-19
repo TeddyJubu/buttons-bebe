@@ -102,6 +102,8 @@ test("setting status, priority and assignee is first-party and persists", async 
   const reloaded = createInboxOrgan({shop: observedShop(observedRows), storage});
   await reloaded.ready();
   assert.equal(reloaded.snapshot().ticketState.status, "closed", "the status survives reload");
+  assert.equal(reloaded.snapshot().ticketState.priority, "high", "the priority survives reload");
+  assert.equal(reloaded.snapshot().ticketState.assignee, OPERATOR, "the assignee survives reload");
 });
 
 test("clearing a local override falls back to the observed value", async () => {
@@ -110,7 +112,11 @@ test("clearing a local override falls back to the observed value", async () => {
   await organ.ready();
   await organ.setTicketState("gorgias:1", {status: "closed"});
   const snap = await organ.setTicketState("gorgias:1", {status: null});
-  assert.equal(snap.ticketState.status, null, "clearing restores the observed value");
+  assert.equal(snap.ticketState.status, null, "clearing drops the local override");
+  // The effective value the control falls back to is the observed one.
+  const control = snap.html.match(/<select data-detail-status[^>]*>([\s\S]*?)<\/select>/);
+  assert.ok(control, "the status control renders");
+  assert.match(control[1], /value="open" selected/, "clearing restores the observed value");
   assert.doesNotMatch(snap.html, /Console only/, "no override marker remains");
 });
 
@@ -133,4 +139,86 @@ test("the overflow menu carries the first-party actions", async () => {
   assert.match(html, /data-menu-toggle/, "the menu opens");
   assert.match(html, /data-menu-mark-unread/, "mark-as-unread is offered");
   assert.match(html, /title="[^"]*[Bb]rowser only[^"]*"/, "menu actions say they are browser-only");
+});
+
+test("clearing one field keeps the ticket's other local overrides", async () => {
+  const storage = freshStorage();
+  const organ = createInboxOrgan({shop: observedShop(observedRows), storage});
+  await organ.ready();
+  await organ.setTicketState("gorgias:1", {status: "closed", priority: "high"});
+  const snap = await organ.setTicketState("gorgias:1", {status: null});
+  assert.equal(snap.ticketState.status, null, "the status override is cleared");
+  assert.equal(snap.ticketState.priority, "high", "the priority override survives");
+  assert.match(snap.html, /Console only/, "a badge remains for the surviving override");
+});
+
+test("pinned-catalog rows honor local state in views and counts", async () => {
+  // Non-observed shops read pinned rows the organ was mounted with; the
+  // overlay must reach those rows too or the Closed control lies.
+  const storage = freshStorage();
+  const organ = createInboxOrgan({tickets: observedRows, storage});
+  await organ.ready();
+  await organ.setTicketState("gorgias:1", {status: "closed"});
+  await organ.selectView("closed");
+  const snap = organ.snapshot();
+  assert.match(snap.html, /data-ticket="gorgias:1"/, "the locally-closed pinned ticket appears in the Closed view");
+});
+
+test("the observed Gorgias status stays visible beside a local override", async () => {
+  const storage = freshStorage();
+  const organ = createInboxOrgan({shop: observedShop(observedRows), storage});
+  await organ.ready();
+  await organ.setTicketState("gorgias:1", {status: "closed"});
+  const snap = organ.snapshot();
+  // The observed badge names Gorgias, not the local pick.
+  const badge = snap.html.match(/<span class="status-badge" title="Ticket status">([^<]*)<\/span>/);
+  assert.ok(badge, "the observed status badge renders");
+  assert.equal(badge[1], "Open", "the badge shows the observed Gorgias status");
+});
+
+test("the priority picker starts from the observed Gorgias priority", async () => {
+  const storage = freshStorage();
+  const rows = [observedRow(1, {gorgiasPriority: "high", priority: "low"})];
+  const organ = createInboxOrgan({shop: observedShop(rows), storage});
+  await organ.ready();
+  const snap = organ.snapshot();
+  const control = snap.html.match(/<select data-detail-priority[^>]*>([\s\S]*?)<\/select>/);
+  assert.ok(control, "the priority control renders");
+  assert.match(control[1], /value="high" selected/, "the picker starts from the observed priority");
+  assert.doesNotMatch(control[1], /value="low" selected/, "the draft priority never seeds the picker");
+});
+
+test("the assignee picker shows the observed address as a value", async () => {
+  const storage = freshStorage();
+  const rows = [observedRow(1, {assigneeEmail: "bo@example.test", assignee: "bo@example.test"})];
+  const organ = createInboxOrgan({shop: observedShop(rows), storage});
+  await organ.ready();
+  const snap = organ.snapshot();
+  const control = snap.html.match(/<select data-detail-assignee[^>]*>([\s\S]*?)<\/select>/);
+  assert.ok(control, "the assignee control renders");
+  assert.match(control[1], /value="bo@example.test"/, "the observed assignee address is offered");
+});
+
+test("two tabs editing different fields do not erase each other", async () => {
+  const storage = freshStorage();
+  const tabA = createInboxOrgan({shop: observedShop(observedRows), storage});
+  await tabA.ready();
+  const tabB = createInboxOrgan({shop: observedShop(observedRows), storage});
+  await tabB.ready();
+  // Both tabs load the same store; A owns status, B owns priority.
+  await tabA.setTicketState("gorgias:1", {status: "closed"});
+  await tabB.setTicketState("gorgias:1", {priority: "high"});
+  const snapB = tabB.snapshot();
+  assert.equal(snapB.ticketState.priority, "high", "tab B's priority override persists");
+  assert.equal(snapB.ticketState.status, "closed", "tab A's status override survives tab B's write");
+});
+
+test("a locally-set assignee survives the picker's round trip", async () => {
+  const storage = freshStorage();
+  const longAddress = "a-very-long-operator-address-that-exceeds@example.test";
+  const organ = createInboxOrgan({shop: observedShop(observedRows), storage, operatorEmail: longAddress});
+  await organ.ready();
+  await organ.setTicketState("gorgias:1", {assignee: longAddress});
+  const snap = organ.snapshot();
+  assert.equal(snap.ticketState.assignee, longAddress, "the full address round-trips untruncated");
 });
