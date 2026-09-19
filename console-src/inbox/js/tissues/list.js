@@ -598,8 +598,13 @@ export function createListTissue({ mailbox }) {
       }
       const valueRemove = event.target.closest("[data-filter-value-remove]");
       if (valueRemove) {
-        const [row, value] = String(valueRemove.dataset.filterValueRemove).split(":");
-        const next = editableFilterRows().map((condition, at) => at === Number(row)
+        // Split on the first colon only — values themselves may carry colons
+        // (a tag like sale:active).
+        const packed = String(valueRemove.dataset.filterValueRemove);
+        const split = packed.indexOf(":");
+        const row = Number(packed.slice(0, split));
+        const value = packed.slice(split + 1);
+        const next = editableFilterRows().map((condition, at) => at === row
           ? {...condition, values: condition.values.filter((entry) => entry !== value)}
           : {...condition});
         publishFilterEdit(next, model.filterMatch);

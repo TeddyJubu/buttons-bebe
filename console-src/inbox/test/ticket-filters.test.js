@@ -553,3 +553,26 @@ test("offers include a value chosen past the 12-value cap", async () => {
   assert.match(snap.html, /data-filter-value-remove="0:t15"/, "the row shows the chosen value, not Pick a value");
   assert.match(snap.html, /data-filter-value-remove="0:t15"[^>]*aria-label="Remove t15 value"/, "the chosen value renders labeled");
 });
+
+test("a value containing a colon still clears from its row", async () => {
+  // cubic: the value-remove attribute packs "index:value" — a tag like
+  // sale:active split on every colon removed the wrong value.
+  const mailbox = createMailbox();
+  const seen = [];
+  mailbox.subscribe("list/filter-changed", (msg) => seen.push(msg));
+  const {createListTissue} = await import("../js/tissues/list.js");
+  const tissue = createListTissue({ mailbox });
+  const host = {
+    innerHTML: "",
+    set onclick(h) { this._click = h; },
+    get onclick() { return this._click; },
+    querySelector() { return null; },
+  };
+  tissue.mount(host);
+  tissue.update({tickets: [], views: [], counts: {}, selectedViewId: "all", searchQuery: "",
+    filterConditions: [{field: "tag", op: "is", values: ["sale:active", "vip"]}], filterMatch: "all",
+    filterFields: [{id: "tag", label: "Tag", ops: ["is"], values: []}], savedViews: []});
+  host.onclick?.({target: {closest: (sel) => sel === "[data-filter-value-remove]" ? {dataset: {filterValueRemove: "0:sale:active"}} : null}});
+  assert.deepEqual(seen.at(-1).conditions, [{field: "tag", op: "is", values: ["vip"]}],
+    "the colon value clears, leaving the others");
+});
