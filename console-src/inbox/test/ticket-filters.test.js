@@ -466,3 +466,90 @@ test("the views-menu click applies a saved view through the mailbox", async () =
   assert.deepEqual(organ.snapshot().filterConditions, [{field: "channel", op: "is", values: ["email"]}],
     "publishing apply through the mailbox restores the view's conditions");
 });
+
+test("a filter edit that filters out the selection refreshes the thread", async () => {
+  // cubic P1: applyFilterEdit snapped selectedId to the first visible row
+  // but never refreshed the thread, so the pane kept painting the cached
+  // ticket the filter just removed.
+  const organ = makeOrgan();
+  await organ.ready();
+  const first = organ.snapshot().selectedId;
+  // Only ticket 2 is chat-channel; a chat filter moves the selection to it.
+  await organ.setFilterConditions([{field: "channel", op: "is", values: ["chat"]}], {match: "all"});
+  const snap = organ.snapshot();
+  assert.notEqual(snap.selectedId, first, "the filter moved the selection off the filtered-out row");
+  const threadTicketId = /data-ticket-id-badge="([^"]+)"/.exec(snap.html)?.[1];
+  assert.ok(threadTicketId, "the thread renders a ticket");
+  assert.equal(threadTicketId, snap.selectedId, "the thread shows the new selection, not the stale cached one");
+});
+
+test("a chosen value carries a per-value Clear in its row", async () => {
+  // cubic: a multi-value row showed one value in a plain select with no way
+  // back to an empty row — each chosen value now has its own Clear.
+  const mailbox = createMailbox();
+  const seen = [];
+  mailbox.subscribe("list/filter-changed", (msg) => seen.push(msg));
+  const {createListTissue} = await import("../js/tissues/list.js");
+  const tissue = createListTissue({ mailbox });
+  const host = {
+    innerHTML: "",
+    set onclick(h) { this._click = h; },
+    get onclick() { return this._click; },
+    querySelector() { return null; },
+  };
+  const base = {tickets: [], views: [], counts: {}, selectedViewId: "all", searchQuery: "",
+    filterConditions: [{field: "channel", op: "is", values: ["email", "chat"]}], filterMatch: "all",
+    filterFields: [{id: "channel", label: "Channel", ops: ["is"], values: [{id: "email", label: "email"}, {id: "chat", label: "chat"}]}],
+    savedViews: []};
+  tissue.mount(host);
+  tissue.update(base);
+  // Open the filter menu — the click paints the builder with the committed rows.
+  host.onclick?.({target: {closest: (sel) => sel === "[data-list-filter]" ? {} : null}});
+  const chips = [...host.innerHTML.matchAll(/data-filter-value-remove="0:([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(chips, ["email", "chat"], "each chosen value renders its own Clear");
+  host.onclick?.({target: {closest: (sel) => sel === "[data-filter-value-remove]" ? {dataset: {filterValueRemove: "0:chat"}} : null}});
+  assert.deepEqual(seen.at(-1).conditions, [{field: "channel", op: "is", values: ["email"]}],
+    "Clear drops just that value");
+});
+
+test("an unknown operator falls back to the field's first operator", async () => {
+  // cubic: a hand-edited URL with op "is" on the date field produced an
+  // unmatchable condition and blanked the inbox.
+  const organ = makeOrgan();
+  await organ.ready();
+  await organ.setFilterConditions([{field: "updated", op: "is", values: ["2026-09-02"]}], {match: "all"});
+  const snap = organ.snapshot();
+  assert.equal(snap.filterConditions[0].op, "before", "the invalid op falls back to the field's first op");
+  // The fallback is a real date predicate, not an unmatchable is: ticket 1
+  // (2026-09-01) is before the edge, so the list is non-empty.
+  assert.match(snap.html, /data-ticket="gorgias:1"/, "the fallback op stays matchable — the inbox never blanks");
+});
+
+test("the filter icon lights for a builder-only condition", async () => {
+  // cubic: the icon keyed on the four facet selects, so a builder-only or
+  // isNot filter left it visually and semantically inactive.
+  const organ = makeOrgan();
+  await organ.ready();
+  const before = organ.snapshot().html;
+  assert.doesNotMatch(before, /data-list-filter[^>]*aria-pressed="true"/, "idle before any condition");
+  await organ.setFilterConditions([{field: "status", op: "isNot", values: ["closed"]}], {match: "all"});
+  assert.match(organ.snapshot().html, /data-list-filter[^>]*aria-pressed="true"/, "lit for a builder-only isNot condition");
+});
+
+test("offers include a value chosen past the 12-value cap", async () => {
+  // cubic: a condition value outside the first 12 offers left the row
+  // showing "Pick a value", as if the filter were lost.
+  const rows = [];
+  for (let i = 1; i <= 15; i++) rows.push(projected(i, {tags: [`t${i}`]}));
+  const organ = makeOrgan({shop: {
+    observedHistory: true, operatorEmail: OPERATOR, projection: {generatedAt: "gen-1", stale: false},
+    getCapabilities: async () => ({}),
+    listTickets: async () => rows,
+    getTicket: async ({ticketId}) => rows.find((row) => row.id === ticketId) || null,
+  }});
+  await organ.ready();
+  await organ.setFilterConditions([{field: "tag", op: "is", values: ["t15"]}], {match: "all"});
+  const snap = organ.snapshot();
+  assert.match(snap.html, /data-filter-value-remove="0:t15"/, "the row shows the chosen value, not Pick a value");
+  assert.match(snap.html, /data-filter-value-remove="0:t15"[^>]*aria-label="Remove t15 value"/, "the chosen value renders labeled");
+});

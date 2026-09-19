@@ -487,7 +487,9 @@ export function createInboxOrgan(opts = {}) {
       // "unknown" is the observed placeholder for a missing status, not a
       // filterable value — it never appears in the builder's offers.
       offers: () => statusFacets().map((entry) => ({id: entry.id, label: entry.label})),
-      matches: (ticket, op, values) => filterValueSet(values, ticket?.status, op),
+      // cubic: offers are normalized, so the match normalizes too — a raw
+      // row value with whitespace must match the facet-picked id.
+      matches: (ticket, op, values) => filterValueSet(values, normalizeStatus(ticket?.status), op),
     },
     assignee: {
       label: "Assignee", ops: ["is", "isNot"],
@@ -495,7 +497,7 @@ export function createInboxOrgan(opts = {}) {
       matches: (ticket, op, values) => {
         // The reserved unassigned id matches a blank assignee exactly like
         // the facet pick, so the builder and the quick menu agree.
-        const raw = ticket?.assignee ? String(ticket.assignee) : "";
+        const raw = normalizeAssignee(ticket?.assignee);
         const hit = values.some((value) => value === "unassigned" ? !raw : value === raw);
         return op === "isNot" ? !hit : hit;
       },
@@ -512,7 +514,7 @@ export function createInboxOrgan(opts = {}) {
     channel: {
       label: "Channel", ops: ["is", "isNot"],
       offers: () => channelFacets().map((entry) => ({id: entry.id, label: entry.label})),
-      matches: (ticket, op, values) => filterValueSet(values, ticket?.channel, op),
+      matches: (ticket, op, values) => filterValueSet(values, normalizeChannel(ticket?.channel), op),
     },
     priority: {
       label: "Priority", ops: ["is", "isNot"],
@@ -525,7 +527,7 @@ export function createInboxOrgan(opts = {}) {
         return [...counts.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
           .map(([id, count]) => ({id, label: id, count}));
       },
-    matches: (ticket, op, values) => filterValueSet(values, ticket?.gorgiasPriority, op),
+    matches: (ticket, op, values) => filterValueSet(values, String(ticket?.gorgiasPriority ?? "").trim().slice(0, 20), op),
     },
     customer: {
       label: "Customer", ops: ["is", "isNot", "contains"],
@@ -574,9 +576,10 @@ export function createInboxOrgan(opts = {}) {
     return raw.slice(0, 8).flatMap((row) => {
       const field = typeof row?.field === "string" && row.field in FILTER_FIELDS ? row.field : null;
       if (!field) return [];
-      // ponytail: values are clamped and deduped; unknown ops fall back to
-      // "is" so a hand-edited URL never yields an unmatchable condition.
-      const op = FILTER_FIELDS[field].ops.includes(row.op) ? row.op : "is";
+      // ponytail: values are clamped and deduped; an unknown op falls back
+      // to the field's first op so a hand-edited URL never yields an
+      // unmatchable condition ("is" on a date field matches nothing).
+      const op = FILTER_FIELDS[field].ops.includes(row.op) ? row.op : FILTER_FIELDS[field].ops[0];
       const values = (Array.isArray(row.values) ? row.values : [row?.values])
         .filter((value) => typeof value === "string")
         .map((value) => value.trim().slice(0, 120))
@@ -625,13 +628,15 @@ export function createInboxOrgan(opts = {}) {
     if (value) filterConditions.push({field, op: "is", values: [value]});
     if (!filterConditions.length) filterMatch = "all";
   }
+  // cubic P1: an edit can filter out the selected row — the thread must
+  // refresh, or the pane keeps painting the cached ticket the filter removed.
   function applyFilterEdit(conditions, match) {
     filterConditions = normalizeFilterConditions(conditions);
     if (match === "all" || match === "any") filterMatch = match;
     resetUiState();
     ensureSelection();
     syncUrl({push: false});
-    afterUi();
+    return refreshThread().then(refreshRail).then(refreshComposer).then(afterUi);
   }
   function pickFacetAndRefresh(field, value) {
     pickFacet(field, value);
@@ -694,6 +699,7 @@ export function createInboxOrgan(opts = {}) {
     resetUiState();
     ensureSelection();
     syncUrl({push: false});
+    return refreshThread().then(refreshRail).then(refreshComposer);
   }
   // #42: the id the operator landed on — from the boot deep link or a
   // back/forward replay — that no visible row matches. It stays selected
@@ -1342,10 +1348,16 @@ export function createInboxOrgan(opts = {}) {
       filterMatch,
       // The builder renders its own offers from the facet counts, capped so
       // a wide snapshot cannot flood the popup.
-      filterFields: Object.entries(FILTER_FIELDS).map(([id, field]) => ({
-        id, label: field.label, ops: field.ops,
-        values: field.offers().slice(0, 12).map((offer) => ({id: offer.id, label: offer.label || offer.id})),
-      })),
+      filterFields: Object.entries(FILTER_FIELDS).map(([id, field]) => {
+        const offered = field.offers().slice(0, 12).map((offer) => ({id: offer.id, label: offer.label || offer.id}));
+        // cubic: an active value past the 12-offer cap must still render as
+        // chosen, or the row shows "Pick a value" and the filter looks lost.
+        const active = filterConditions.filter((condition) => condition.field === id)
+          .flatMap((condition) => condition.values)
+          .filter((value) => !offered.some((offer) => offer.id === value))
+          .map((value) => ({id: value, label: value}));
+        return {id, label: field.label, ops: field.ops, values: [...offered, ...active]};
+      }),
       savedViews: savedViewList(),
     };
   }
@@ -1562,6 +1574,9 @@ export function createInboxOrgan(opts = {}) {
         pickFacet(field, normalize(msg[`${field}Id`] ?? ""));
         resetUiState();
         ensureSelection();
+        // cubic: the quick pick restamps the URL like every other filter
+        // path, or the address bar's f drifts from the chips.
+        syncUrl({push: false});
         refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
       });
     }
@@ -1575,8 +1590,7 @@ export function createInboxOrgan(opts = {}) {
       paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.FILTER_VIEW_APPLY, ({id} = {}) => {
-      applySavedView(id);
-      paint();
+      Promise.resolve(applySavedView(id)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.FILTER_VIEW_DELETE, ({id} = {}) => {
       removeView(id);
@@ -1812,12 +1826,7 @@ export function createInboxOrgan(opts = {}) {
     setFilterConditions(next, {match} = {}) {
       // The builder publishes the complete row list, so this is a replace —
       // merging by field would resurrect conditions the operator removed.
-      filterConditions = normalizeFilterConditions(next);
-      if (match === "all" || match === "any") filterMatch = match;
-      resetUiState();
-      ensureSelection();
-      syncUrl({push: false});
-      return afterUi();
+      return applyFilterEdit(next, match);
     },
     clearFilters() {
       filterConditions = [];

@@ -135,11 +135,14 @@ test('clearing the channel restores every loaded row',async()=>{
  assert.match(result.html,/data-ticket="t-email"/);
  assert.match(result.html,/data-ticket="t-blank"/);
 });
-test('channel control hides when no ticket carries a channel',async()=>{
+test('channel facet hides when no ticket carries a channel but the builder stays',async()=>{
+ // #36 cubic: the filter control is the seven-field builder, not just the
+ // channel facet menu — with no channel data the facet entries hide, but
+ // customer/updated/priority remain filterable, so the control remains.
  const plain=channelTickets.map(({channel,...rest})=>rest);
  const result=await createInboxOrgan({shop:channelShop(plain)}).ready();
  assert.doesNotMatch(result.html,/data-channel=/);
- assert.doesNotMatch(result.html,/data-list-filter/);
+ assert.match(result.html,/data-list-filter/);
  assert.match(result.html,/data-ticket="t-email"/);
 });
 test('views funnel shows when the observed history offers several views',async()=>{

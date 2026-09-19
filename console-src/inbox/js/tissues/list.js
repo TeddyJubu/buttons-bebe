@@ -201,7 +201,10 @@ export function createListTissue({ mailbox }) {
   }
 
   function filterActive(next) {
-    return Boolean(next.selectedChannelId || next.selectedStatusId || next.selectedAssigneeId || next.selectedTagId);
+    // cubic: the icon reflects every committed condition, not just the four
+    // quick facets — a builder-only or isNot filter lights it too.
+    const activeCondition = (next.filterConditions || []).some((condition) => condition.values.length);
+    return Boolean(next.selectedChannelId || next.selectedStatusId || next.selectedAssigneeId || next.selectedTagId) || activeCondition;
   }
 
   function hasFacetFilters(next) {
@@ -217,6 +220,16 @@ export function createListTissue({ mailbox }) {
     const ops = field?.ops || ["is"];
     const offers = (field?.values || []).map((offer) =>
       `<option value="${esc(offer.id)}"${condition.values.includes(offer.id) ? " selected" : ""}>${esc(offer.label || offer.id)}</option>`).join("");
+    // cubic: a picked value must be removable — a multi-value row shows one
+    // chosen value per chip with its own Clear, or "Pick a value" offers no
+    // way back to an empty row.
+    const chosen = condition.values.map((value) => {
+      const offer = (field?.values || []).find((entry) => entry.id === value);
+      return `<span class="list-filter-chip" data-filter-chip>
+        ${esc(offer?.label || value)}
+        <button type="button" class="btn-quiet" data-filter-value-remove="${index}:${esc(value)}" aria-label="Remove ${esc(offer?.label || value)} value">Clear</button>
+      </span>`;
+    }).join("");
     const valueControl = condition.field === "updated"
       ? `<input type="date" class="list-filter-date" data-filter-date="${index}" aria-label="Updated ${esc(condition.op)} date" value="${esc(condition.values[0] || "")}">`
       : condition.field === "customer"
@@ -232,6 +245,7 @@ export function createListTissue({ mailbox }) {
       <select class="list-filter-op" data-filter-op="${index}" aria-label="Filter operator">
         ${ops.map((op) => `<option value="${esc(op)}"${op === condition.op ? " selected" : ""}>${esc(filterOpLabel(op))}</option>`).join("")}
       </select>
+      ${chosen}
       ${valueControl}
       <button type="button" class="btn-quiet" data-filter-remove="${index}" aria-label="Remove condition">Remove</button>
     </div>`;
@@ -283,20 +297,6 @@ export function createListTissue({ mailbox }) {
     </div>`;
   }
 
-  function renderSavedViews(next) {
-    const saved = next.savedViews || [];
-    if (!saved.length) return "";
-    const items = saved.map((view) =>
-      `<button type="button" class="list-menu-item" data-saved-view="${esc(view.id)}" role="option" aria-selected="false">
-        <span class="list-menu-label">${esc(view.name)}</span>
-        <span class="list-menu-count">${view.shared ? "Shared" : "Private"}</span>
-      </button>`).join("");
-    return `<section class="list-filter-section" aria-label="Saved views">
-      <p class="list-filter-heading">Saved views</p>
-      ${items}
-    </section>`;
-  }
-
   function renderFilterMenu(next) {
     const sections = [renderChannelSection(next), renderStatusSection(next), renderAssigneeSection(next), renderTagSection(next)].filter(Boolean).join("");
     const builder = renderFilterBuilder(next);
@@ -314,7 +314,9 @@ export function createListTissue({ mailbox }) {
   }
 
   function renderToolbar(next = model) {
-    const facets = hasFacetFilters(next);
+    // cubic: gate the filter control on the builder's fields — a snapshot
+    // with no facet rows must still offer the seven-field builder.
+    const facets = hasFacetFilters(next) || (next.filterFields || []).length > 0;
     return `<header class="pane-head list-toolbar">
       <a class="console-link" href="/console/">Console</a>
       <div class="list-toolbar-row">
@@ -534,7 +536,6 @@ export function createListTissue({ mailbox }) {
     // #36: builder edits publish one topic with the organ's committed
     // state; the organ owns the predicate and the URL.
     el.onchange = (event) => {
-      const row = (index) => Number(event.target.dataset?.filterField ?? event.target.dataset?.filterOp ?? event.target.dataset?.filterValue ?? event.target.dataset?.filterDate ?? index);
       const matchSelect = event.target.closest("[data-filter-match]");
       if (matchSelect) {
         publishFilterEdit(model.filterConditions, matchSelect.value);
@@ -592,6 +593,15 @@ export function createListTissue({ mailbox }) {
       const chipRemove = event.target.closest("[data-filter-remove]");
       if (chipRemove) {
         const next = model.filterConditions.filter((_, at) => at !== Number(chipRemove.dataset.filterRemove));
+        publishFilterEdit(next, model.filterMatch);
+        return;
+      }
+      const valueRemove = event.target.closest("[data-filter-value-remove]");
+      if (valueRemove) {
+        const [row, value] = String(valueRemove.dataset.filterValueRemove).split(":");
+        const next = editableFilterRows().map((condition, at) => at === Number(row)
+          ? {...condition, values: condition.values.filter((entry) => entry !== value)}
+          : {...condition});
         publishFilterEdit(next, model.filterMatch);
         return;
       }
