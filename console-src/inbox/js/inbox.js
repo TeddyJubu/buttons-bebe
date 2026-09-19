@@ -28,6 +28,7 @@ import { createHelpdeskShop } from "./shop/production-shop.js";
 import { createComposerTissue } from "./tissues/composer.js";
 import { createListTissue } from "./tissues/list.js";
 import { createRailOrgan } from "./tissues/rail.js";
+import { projectReturns } from "./tissues/returns.js";
 import { createThreadTissue } from "./tissues/thread.js";
 import { esc, formatWhen, forbiddenControlHits, GATE_CONFIRM_LABEL } from "./util.js";
 
@@ -722,8 +723,33 @@ export function createInboxOrgan(opts = {}) {
   let macroQuery = "";
   let selectedMacroId = "";
   let macrosOpen = false;
-  let listCollapsed = false;
-  let railCollapsed = false;
+  // #40: collapse state persists across reloads — the layout the operator
+  // chose is part of their setup, not a session accident.
+  const COLLAPSE_KEY = "bb-inbox-collapsed-v1";
+  function loadCollapseState() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(COLLAPSE_KEY) || "null");
+      if (!raw || typeof raw !== "object") return {list: false, rail: false};
+      return {list: Boolean(raw.list), rail: Boolean(raw.rail)};
+    } catch {
+      return {list: false, rail: false};
+    }
+  }
+  // cubic: persist only the field this organ actually changed — writing the
+  // whole record would overwrite another tab's fresh choice with this
+  // organ's stale value for the untouched pane.
+  function persistCollapseState(changed) {
+    try {
+      const current = loadCollapseState();
+      current[changed] = changed === "list" ? listCollapsed : railCollapsed;
+      storage?.setItem?.(COLLAPSE_KEY, JSON.stringify(current));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
+  const collapseSeed = loadCollapseState();
+  let listCollapsed = collapseSeed.list;
+  let railCollapsed = collapseSeed.rail;
   // #34: first-seen ids start unread unless the persisted read store already
   // marks them read. Fixtures seed unread exactly like before; the observed
   // path learns ids from the snapshot itself.
@@ -1037,11 +1063,25 @@ export function createInboxOrgan(opts = {}) {
     </div>`;
   }
 
+  // #40: the collapsed rail strip names what it hides — the customer pane
+  // and the returns pane, with an open-return marker when one is in flight.
+  // The marker follows the path: observed tickets read their own snapshot
+  // (the rail's cached models go stale there when the next ticket carries
+  // no snapshot); connected tickets read the rail's live-loaded models.
   function railCollapsedHtml() {
+    const ticket = selectedTicket();
+    const openReturn = ticket?.projectionSource
+      ? Boolean(projectReturns(shopifyRailSnapshot(ticket)?.returns || null).inProgress)
+      : Boolean(rail.snapshot().models?.returns?.inProgress);
     return `<div class="pane-inner">
       <button type="button" class="rail-expand-btn" data-rail-expand aria-label="Expand customer rail" title="Show customer rail">
         ${RAIL_EXPAND_ICON}
         <span class="rail-expand-label">Customer</span>
+      </button>
+      <button type="button" class="rail-expand-btn rail-expand-returns" data-rail-expand aria-label="Expand customer rail — Returns" title="Show the returns pane">
+        ${RAIL_EXPAND_ICON}
+        <span class="rail-expand-label">Returns</span>
+        ${openReturn ? `<span class="rail-strip-return" data-strip-return="open" title="An open return is in flight" role="img" aria-label="Open return in flight">●</span>` : ""}
       </button>
     </div>`;
   }
@@ -1381,7 +1421,9 @@ export function createInboxOrgan(opts = {}) {
     const listModel = listTissue.update(listInput());
     const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
     const composerModel = composerTissue.update(composerInput(ticket));
-    const railHtml = !showsCustomerRail(ticket) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
+    // #40: collapsed wins over empty — observed tickets never show a customer
+    // rail, so the empty check first would make the collapse strip unreachable.
+    const railHtml = railCollapsed ? railCollapsedHtml() : !showsCustomerRail(ticket) ? emptyRailHtml() : rail.render();
     const html = `<div class="inbox" data-organ="inbox">
       <a class="skip-link" href="#inbox-thread">Skip to thread.</a>
       <section class="pane pane-list${listCollapsed ? " is-collapsed" : ""}" data-pane="list">${listTissue.render(listModel)}</section>
@@ -1430,6 +1472,19 @@ export function createInboxOrgan(opts = {}) {
     };
   }
 
+  // #40: the rail collapses in every mode — the observed path renders the
+  // same collapse control the connected rail's toolbar carries.
+  function railToolbarHtml() {
+    return `<div class="rail-toolbar">
+      <span class="rail-heading">Customer details</span>
+      <button type="button" class="list-tool-btn" data-rail-collapse title="Collapse customer rail" aria-label="Collapse customer rail">
+        <svg class="list-tool-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M4.25 4.25l7.5 7.5M11.75 4.25l-7.5 7.5"/>
+        </svg>
+      </button>
+    </div>`;
+  }
+
   function emptyRailHtml() {
     const ticket = selectedTicket();
     const context = ticket?.customerContext;
@@ -1438,13 +1493,13 @@ export function createInboxOrgan(opts = {}) {
       const fields = [["Name", identity?.name], ["Email", identity?.email], ["Phone", identity?.phone], ["Gorgias customer ID", identity?.id]]
         .filter(([, value]) => typeof value === "string" && value.trim())
         .map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("");
-      return `<div class="empty-pane observed-customer"><strong>Customer details</strong>
+      return `${railToolbarHtml()}<div class="empty-pane observed-customer"><strong>Customer details</strong>
         ${fields ? `<dl>${fields}</dl>` : `<p>${context?.conflict ? "Conflicting customer details were observed; identity needs review." : "Customer identity was not included in the observed history."}</p>`}
         <p class="customer-source">Source: observed Gorgias webhook${context?.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. ${ticket.projection?.stale ? "Snapshot is stale." : "This is a snapshot, not a live customer lookup."}</p>
         <strong>Orders and returns</strong><p>${ticket.shopifyRail?.status === "missing" ? "No matching Shopify customer or order was found." : ticket.shopifyRail?.status === "error" ? "Shopify details could not be refreshed. We will retry automatically." : "Shopify details are awaiting refresh. They will appear here when available."}</p>
       </div>`;
     }
-    return `<div class="empty-pane"><strong>Customer details</strong><p>${capabilities.customerDetails === false ? "Customer and order lookup is not connected to this inbox." : "Select a conversation to see customer and order details."}</p></div>`;
+    return `${railToolbarHtml()}<div class="empty-pane"><strong>Customer details</strong><p>${capabilities.customerDetails === false ? "Customer and order lookup is not connected to this inbox." : "Select a conversation to see customer and order details."}</p></div>`;
   }
 
   async function refreshRail() {
@@ -1515,10 +1570,10 @@ export function createInboxOrgan(opts = {}) {
       const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
-        if (!showsCustomerRail(ticket)) {
-          panes.rail.innerHTML = emptyRailHtml();
-        } else if (railCollapsed) {
+        if (railCollapsed) {
           panes.rail.innerHTML = railCollapsedHtml();
+        } else if (!showsCustomerRail(ticket)) {
+          panes.rail.innerHTML = emptyRailHtml();
         } else {
           rail.mount(panes.rail);
         }
@@ -1539,10 +1594,12 @@ export function createInboxOrgan(opts = {}) {
     };
     mailbox.subscribe(MAILBOX_TOPICS.LIST_COLLAPSED, ({ collapsed }) => {
       listCollapsed = Boolean(collapsed);
+      persistCollapseState("list");
       paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.RAIL_COLLAPSED, ({ collapsed }) => {
       railCollapsed = Boolean(collapsed);
+      persistCollapseState("rail");
       paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.VIEW_SELECTED, ({ viewId: next }) => {
@@ -1727,6 +1784,15 @@ export function createInboxOrgan(opts = {}) {
     root.onclick = (event) => {
       if (event.target.closest("[data-rail-expand]")) {
         railCollapsed = false;
+        persistCollapseState("rail");
+        paint();
+        return;
+      }
+      // #40: the observed rail never mounts the rail tissue, so the organ
+      // carries its toolbar's collapse click itself.
+      if (event.target.closest("[data-rail-collapse]")) {
+        railCollapsed = true;
+        persistCollapseState("rail");
         paint();
         return;
       }
@@ -1869,10 +1935,12 @@ export function createInboxOrgan(opts = {}) {
     },
     collapseList(collapsed = true) {
       listCollapsed = Boolean(collapsed);
+      persistCollapseState("list");
       return afterUi();
     },
     collapseRail(collapsed = true) {
       railCollapsed = Boolean(collapsed);
+      persistCollapseState("rail");
       return afterUi();
     },
     toggleRail(key) {

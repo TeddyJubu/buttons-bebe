@@ -447,10 +447,20 @@ export function createListTissue({ mailbox }) {
 
   function render(next = model) {
     if (next.collapsed) {
+      // #40: the strip stays useful collapsed — it names the active view,
+      // its ticket count, and the unread rows, not just "List".
+      const view = (next.views || []).find((entry) => entry.id === next.selectedViewId) || {label: "Inbox"};
+      const unread = (next.unreadIds || []).filter((id) => (next.tickets || []).some((ticket) => ticket.id === id)).length;
+      const count = next.searchQuery ? (next.searchResults ?? (next.tickets || []).length) : (next.tickets || []).length;
+      // cubic: an explicit aria-label replaces the name computed from the
+      // contents, so the view/count/unread signal must live in the label.
+      const name = `Expand ticket list (${esc(view.label)} view, ${count} tickets${unread ? `, ${unread} unread` : ""})`;
       return `<div class="pane-inner">
-        <button type="button" class="list-expand-btn" data-list-expand aria-label="Expand ticket list" title="Show ticket list">
+        <button type="button" class="list-expand-btn" data-list-expand aria-label="${name}" title="Show ticket list">
           ${ICON_EXPAND}
-          <span class="list-expand-label">List</span>
+          <span class="list-expand-label list-strip-view">${esc(view.label)}</span>
+          <span class="list-strip-count" data-strip-count="${count}">${count}</span>
+          ${unread ? `<span class="list-strip-unread" data-strip-unread="${unread}">${unread}</span>` : ""}
         </button>
       </div>`;
     }
