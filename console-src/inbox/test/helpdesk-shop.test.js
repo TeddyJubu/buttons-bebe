@@ -863,7 +863,7 @@ test("CLI draft-reply and summarize-thread return text", () => {
   assert.doesNotMatch(summary.summary, />Send</);
 });
 
-test("ingest_email Ada joins Cute Things and prize spam is not a ticket", () => {
+test("ingest_email Ada joins Cute Things and prize spam files in the Spam view", () => {
   const ada = pythonInvoke("helpdesk.ingest_email", {
     from: "Ada <ada.tracking@example.com>",
     subject: "Tracking on order #1001 has not moved",
@@ -887,7 +887,13 @@ test("ingest_email Ada joins Cute Things and prize spam is not a ticket", () => 
   });
   assert.equal(prize.ok, true);
   assert.equal(prize.spam, true);
-  assert.equal(prize.ticketId, null);
+  // #33: spam files a reviewable ticket instead of being dropped. Each CLI
+  // call is its own process, so the view partition itself is covered by the
+  // helpdesk-agent Python suite; here we pin the payload shape.
+  assert.match(prize.ticketId, /^t-in-/);
+  const spamRows = pythonInvoke("helpdesk.list_tickets", { view: "spam", limit: 100 });
+  assert.equal(spamRows.ok, true);
+  assert.ok(Array.isArray(spamRows.tickets));
 });
 
 test("CLI search-macros and apply-macro share dispatch and never send", () => {

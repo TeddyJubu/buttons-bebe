@@ -1,4 +1,13 @@
-"""Email and chat intake tissues. Spam is ours. Not a Shopify object."""
+"""Email and chat intake tissues. Spam is ours. Not a Shopify object.
+
+#33 spam-decision model: the observed (production) inbox mirrors Gorgias's
+spam flag only — it never runs its own rules (export_projection.py maps the
+observed webhook flag; there is no local detector). This demo/intake path is
+the one place we decide, so the decision is recorded per ticket:
+`spamSource: "intake-keywords"` names the marker-rule version that fired.
+Flagged messages file a reviewable ticket in the Spam view (#33); they are
+never dropped, never joined to Shopify, never notified.
+"""
 
 from __future__ import annotations
 
@@ -114,18 +123,35 @@ def handle_ingest_email(args: dict[str, Any]) -> dict[str, Any]:
     if external:
         record["external"] = external
     tickets.remember_intake(record)
+    if message_id:
+        dedupe_key = (source, message_id)
+    else:
+        dedupe_key = ("email", from_email or from_name, subject, body, received_at)
     if record["spam"]:
-        return {"spam": True, "ticketId": None}
+        # #33: Gorgias files spam in Spam for review/rescue instead of
+        # dropping it. No Shopify join, no customer notification — just a
+        # reviewable ticket flagged out of the working views.
+        ticket = tickets.add_ticket(
+            customer_name=from_name,
+            subject=subject,
+            body=body,
+            received_at=received_at,
+            customer_id=None,
+            order_id=None,
+            channel="email",
+            from_email=from_email,
+            dedupe_key=dedupe_key,
+            source=source,
+            external=external,
+            spam=True,
+        )
+        return {"spam": True, "ticketId": ticket["id"], **ticket}
     customer_id, order_id = join_shopify(
         subject=subject,
         body=body,
         from_email=from_email,
         channel="email",
     )
-    if message_id:
-        dedupe_key = (source, message_id)
-    else:
-        dedupe_key = ("email", from_email or from_name, subject, body, received_at)
     ticket = tickets.add_ticket(
         customer_name=from_name,
         subject=subject,
@@ -161,7 +187,20 @@ def handle_ingest_chat(args: dict[str, Any]) -> dict[str, Any]:
     )
     tickets.remember_intake(record)
     if record["spam"]:
-        return {"spam": True, "ticketId": None}
+        ticket = tickets.add_ticket(
+            customer_name=from_name,
+            subject=subject,
+            body=body,
+            received_at=received_at,
+            customer_id=None,
+            order_id=None,
+            channel="chat",
+            from_email=None,
+            dedupe_key=("chat", from_name, subject, body, received_at),
+            source="chat",
+            spam=True,
+        )
+        return {"spam": True, "ticketId": ticket["id"], **ticket}
     customer_id, order_id = join_shopify(
         subject=subject,
         body=body,

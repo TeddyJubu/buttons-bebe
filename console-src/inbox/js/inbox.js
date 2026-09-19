@@ -231,6 +231,11 @@ export function createInboxOrgan(opts = {}) {
 
   function visibleTickets() {
     return listRows.filter((ticket) =>
+      // #33: on the observed path the view partition holds for every render,
+      // including rows appended by loadMore, so flagged rows never leak into
+      // working views. Server-filtered list rows carry no assignee field and
+      // are already view-filtered, so they must not be re-filtered here.
+      (!shop.observedHistory || ticketInView(ticket, viewId)) &&
       (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
       (!statusId || normalizeStatus(ticket?.status) === statusId) &&
       assigneeMatches(ticket, assigneeId) &&
@@ -273,8 +278,15 @@ export function createInboxOrgan(opts = {}) {
           const rows = (await readObservedTickets(shop)).map(withOperatorAssignee);
           listRows = rows.filter((ticket) => ticketInView(ticket, viewId));
           counts = viewCounts(rows);
-          // Pagination reports the whole snapshot size, not the loaded prefix.
-          counts.all = shop.projection?.ticketCount ?? rows.length;
+          // #33: pagination totals stay in the active view's domain. For All,
+          // the exact working total is the snapshot minus the flagged union
+          // (a row can be both spam and trashed — subtract once). Metadata
+          // carries exact counts; the loaded prefix only approximates when
+          // metadata is missing.
+          const flaggedInSnapshot = (shop.projection?.spamCount ?? counts.spam)
+            + (shop.projection?.trashCount ?? counts.trash)
+            - (shop.projection?.flaggedOverlap ?? Math.min(counts.spam, counts.trash));
+          counts.all = (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot;
           projectionNotice = shop.projection?.stale
             ? "Observed history is stale; refresh is delayed."
             : "Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.";
@@ -611,10 +623,20 @@ export function createInboxOrgan(opts = {}) {
     paintListOnly?.();
     try {
       // Re-read the visible prefix so a newly published snapshot cannot cause
-      // duplicates or skipped tickets at an offset boundary.
+      // duplicates or skipped tickets at an offset boundary. listRows stays
+      // the raw prefix; the ticketInView filter in visibleTickets keeps
+      // flagged rows out of every render, and pagination totals stay in the
+      // active view's domain via the same helpers refreshList uses.
       const rows = await readObservedTickets(shop, listRows.length + 100);
       listRows = rows;
-      counts = {all: shop.projection?.ticketCount ?? rows.length};
+      const observed = viewCounts(rows);
+      const flaggedInSnapshot = (shop.projection?.spamCount ?? observed.spam)
+        + (shop.projection?.trashCount ?? observed.trash)
+        - (shop.projection?.flaggedOverlap ?? Math.min(observed.spam, observed.trash));
+      counts = {
+        ...observed,
+        all: (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot,
+      };
     } catch {
       moreError = "Could not load more tickets. Try again.";
     } finally {
@@ -625,11 +647,22 @@ export function createInboxOrgan(opts = {}) {
   }
 
   function listInput() {
+    // #33: pagination totals live in the active view's domain — Spam shows
+    // "3 of 3", All shows the working partition. `loaded` counts view
+    // members in the raw prefix so Load more never stops early when flagged
+    // rows occupy part of the prefix.
+    const pagination = shop.observedHistory ? {
+      total: counts[viewId] ?? listRows.length,
+      loaded: listRows.filter((ticket) => ticketInView(ticket, viewId)).length,
+      loading: loadingMore,
+      error: moreError,
+      loadMore,
+    } : null;
     return {
       tickets: visibleTickets(),
       error: listError,
       notice: projectionNotice,
-      pagination: shop.observedHistory ? {total: counts.all ?? listRows.length, loaded: listRows.length, loading: loadingMore, error: moreError, loadMore} : null,
+      pagination,
       selectedTicketId: selectedId,
       views: availableViews,
       counts,

@@ -2,7 +2,9 @@
 
 Ticket status is ours: open / closed / snoozed.
 Never Return.status OPEN and never Customer.displayName.
-Spam never becomes a ticket and never appears in list_tickets.
+Spam/trash are flag buckets, not statuses (#33): spam intake files a
+reviewable ticket in the Spam view, and every working view (all included)
+excludes flagged rows.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from .fixtures_sample import ADA, CASEY, JORDAN, ORDER_ADA, ORDER_CASEY_A, ORDER
 
 # Keep in sync with the single JS source: console-src/inbox/js/view-model.js
 # exports VIEW_IDS (report 10, action 7). Order differs (UI menu order there).
-VIEWS = ("open", "closed", "all", "snoozed", "mine", "unassigned")
+VIEWS = ("open", "closed", "all", "snoozed", "mine", "unassigned", "spam", "trash")
 TICKET_STATUSES = ("open", "closed", "snoozed")
 REQUEST_TYPES = ("marketing_unsubscribe", "privacy_request", "bug")
 PRIVACY_SUBTYPES = ("access", "delete", "export")
@@ -646,6 +648,7 @@ def add_ticket(
     request_type: str | None = None,
     source: str = "agentmail",
     external: dict[str, Any] | None = None,
+    spam: bool = False,
 ) -> dict:
     existing = _by_dedupe.get(dedupe_key)
     if existing:
@@ -683,6 +686,9 @@ def add_ticket(
         "bugHandled": False,
         "severity": severity,
         "device": device,
+        # #33: spam intake files a reviewable ticket in Spam, never a drop.
+        "spam": spam is True,
+        "spamSource": "intake-keywords" if spam is True else None,
         "messages": [
             {
                 "id": f"m-{ticket_id}-1",
@@ -767,6 +773,14 @@ def _gids_for(ticket: dict, gid_source: str = "sample") -> tuple[str | None, str
 
 def ticket_in_view(ticket: dict, view: str) -> bool:
     status = ticket["status"]
+    # Spam/trash are flag buckets, not status strings — Gorgias keeps them out
+    # of every working view, All included (#33).
+    if view == "spam":
+        return ticket.get("spam") is True
+    if view == "trash":
+        return ticket.get("trashed") is True
+    if ticket.get("spam") is True or ticket.get("trashed") is True:
+        return False
     if view == "all":
         return True
     if view == "open":
@@ -799,12 +813,16 @@ def _row(ticket: dict, gid_source: str = "sample") -> dict:
         "requestType": typed,
         "severity": severity,
         "device": device,
+        # #33: list rows carry the flags so a Spam/Trash view listing can
+        # re-filter client-side exactly like the JS view-model does.
+        "spam": ticket.get("spam") is True,
+        "trashed": ticket.get("trashed") is True,
     }
 
 
 def list_tickets(view: str = "open", limit: int = 20, gid_source: str = "sample") -> list[dict]:
     if view not in VIEWS:
-        raise bad_request("view must be open, closed, all, snoozed, mine, or unassigned", field="view")
+        raise bad_request("view must be open, closed, all, snoozed, mine, unassigned, spam, or trash", field="view")
     try:
         cap = int(limit)
     except (TypeError, ValueError) as exc:
@@ -840,6 +858,12 @@ def get_ticket(ticket_id: str, gid_source: str = "sample") -> dict:
             row["privacyHandled"] = bool(ticket.get("privacyHandled"))
             row["unsubscribeHandled"] = bool(ticket.get("unsubscribeHandled"))
             row["bugHandled"] = bool(ticket.get("bugHandled"))
+            # #33: flags, not status strings — Spam/Trash views read these.
+            row["spam"] = ticket.get("spam") is True
+            row["trashed"] = ticket.get("trashed") is True
+            spam_source = ticket.get("spamSource")
+            if row["spam"] and spam_source:
+                row["spamSource"] = str(spam_source)
             return row
     raise not_found("ticket", str(ticket_id))
 

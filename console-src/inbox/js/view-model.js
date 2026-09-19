@@ -15,12 +15,13 @@ export const VIEW_IDS = Object.freeze(views.map((view) => view.id));
 
 
 /** Trash and spam are observed flags, not status strings, and never leak into
- * the working views. A ticket whose status was never observed is only in All. */
+ * the working views — Gorgias keeps them out of All too (#33). A ticket whose
+ * status was never observed is only in All. */
 export function ticketInView(ticket, viewId) {
   if (viewId === "trash") return ticket.trashed === true;
   if (viewId === "spam") return ticket.spam === true;
-  if (viewId === "all") return true;
   if (ticket.trashed === true || ticket.spam === true) return false;
+  if (viewId === "all") return true;
   if (viewId === "open") return ticket.status === "open";
   if (viewId === "mine") return ticket.assignee === "me" && ticket.status === "open";
   if (viewId === "unassigned") return ticket.assignee == null && ticket.status === "open";

@@ -64,10 +64,18 @@ class IntakeTests(unittest.TestCase):
         payload = dispatch(TOOL_INGEST_EMAIL, PRIZE_SPAM)
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["spam"])
-        self.assertIsNone(payload["ticketId"])
-        listed = dispatch("helpdesk.list_tickets", {"view": "all", "limit": 100})["tickets"]
-        self.assertFalse(any("prize" in f"{row['subject']} {row['snippet']}".lower() for row in listed))
-        self.assertFalse(any(row.get("id") == payload.get("id") for row in listed))
+        # #33: spam files a reviewable ticket in Spam instead of being dropped.
+        self.assertIsNotNone(payload["ticketId"])
+        ticket = dispatch("helpdesk.get_ticket", {"ticketId": payload["ticketId"]})["ticket"]
+        self.assertTrue(ticket["spam"])
+        self.assertEqual(ticket["spamSource"], "intake-keywords")
+        self.assertEqual(ticket["messages"][0]["body"], PRIZE_SPAM["body"])
+        for view in ("all", "open", "mine", "unassigned", "snoozed", "closed"):
+            listed = dispatch("helpdesk.list_tickets", {"view": view, "limit": 100})["tickets"]
+            self.assertFalse(any("prize" in f"{row['subject']} {row['snippet']}".lower() for row in listed), view)
+            self.assertFalse(any(row.get("id") == payload.get("id") for row in listed), view)
+        spam_rows = dispatch("helpdesk.list_tickets", {"view": "spam", "limit": 100})["tickets"]
+        self.assertTrue(any(row["id"] == payload["ticketId"] for row in spam_rows))
 
     def test_ingest_email_unsubscribe_subject_sets_request_type(self) -> None:
         payload = dispatch(TOOL_INGEST_EMAIL, PRIYA_UNSUB)

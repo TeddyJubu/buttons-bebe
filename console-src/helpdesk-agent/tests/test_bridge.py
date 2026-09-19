@@ -184,6 +184,32 @@ class GorgiasInboundTests(unittest.TestCase):
         self.assertEqual(first["status"], "accepted")
         self.assertEqual(second["status"], "duplicate")
 
+    def test_accept_spam_returns_the_filed_ticket_id(self) -> None:
+        """#33: spam files a reviewable ticket; the bridge must surface it."""
+        result = accept(
+            {
+                "trigger": "ticket-message-created",
+                "ticket": {
+                    "id": 80,
+                    "subject": "You won a $10,000 prize!",
+                    "customer": {"email": "prize-farm@example.com", "name": "Prize Desk"},
+                },
+                "message": {
+                    "id": 8804,
+                    "from_agent": "False",
+                    "body_text": "Claim your lottery winnings today.",
+                    "created_datetime": "2026-09-06T12:00:00Z",
+                },
+            },
+            invoke=invoke,
+        )
+        self.assertEqual(result["status"], "spam")
+        self.assertIsNotNone(result["ticketId"], "bridge callers must be able to find the Spam ticket")
+        ticket = dispatch("helpdesk.get_ticket", {"ticketId": result["ticketId"]})["ticket"]
+        self.assertTrue(ticket["spam"])
+        spam_rows = dispatch("helpdesk.list_tickets", {"view": "spam", "limit": 100})["tickets"]
+        self.assertTrue(any(row["id"] == result["ticketId"] for row in spam_rows))
+
     def test_bridge_disabled_returns_503(self) -> None:
         os.environ["GORGIAS_BRIDGE_ENABLED"] = "0"
         result = accept({"ticket": {"id": 1}, "message": {"id": 2}}, invoke=invoke)
