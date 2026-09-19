@@ -62,7 +62,11 @@ test("the organ reports the selected ticket so boot can sync the URL", async () 
   const snap = organ.snapshot();
   assert.equal(snap.selectedId, "gorgias:1");
   assert.equal(snap.viewId, "all");
-  // #42: selecting moves via push; the initial ready() replaceSyncs.
+  // #42: ready() stamps the landing entry with a replace, never a push —
+  // reload cannot grow the history stack.
+  assert.equal(history.entries[0]?.kind, "replace", "the landing entry is a replace");
+  assert.equal(history.entries.filter((e) => e.kind === "replace").length, 1, "exactly one landing replace");
+  // #42: selecting moves via push.
   await organ.selectTicket("gorgias:2");
   const pushed = history.entries.filter((e) => e.kind === "push");
   assert.equal(pushed.at(-1)?.ticket, "gorgias:2", "a selection pushes a new history entry");
@@ -95,6 +99,57 @@ test("an unknown deep-linked ticket shows Ticket not found instead of jumping ro
   // not-found state has something to name.
   assert.match(snap.html, /data-ticket="gorgias:1"/);
   assert.equal(snap.selectedId, "gorgias:999", "the unknown id stays selected, not snapped away");
+});
+
+test("a deep-linked ticket getTicket resolves never hides behind not-found", async () => {
+  // The ticket exists (getTicket resolves it) but sits outside the active
+  // view's list rows — the thread must show it, not the not-found state.
+  const organ = makeOrgan({
+    ticketId: "gorgias:7",
+    shop: {
+      listTickets: async () => [projected(1)],
+      getTicket: async ({ticketId}) => (ticketId === "gorgias:7" ? projected(7) : null),
+    },
+  });
+  const snap = await organ.ready();
+  assert.doesNotMatch(snap.html, /Ticket not found/, "a resolved ticket is never hidden as missing");
+  assert.match(snap.html, /data-ticket-id-badge="gorgias:7"/, "the resolved ticket renders its thread");
+});
+
+test("popstate replays the view as well as the ticket and clears an absent ticket", async () => {
+  // back/forward carries both URL fields; replaying only the ticket would
+  // leave the organ on the stale view and corrupt the popped entry.
+  const history = fakeHistory();
+  const organ = makeOrgan({history});
+  await organ.ready();
+  await organ.selectView("open");
+  await organ.selectTicket("gorgias:2");
+  // The organ exposes replayEntry so boot's popstate handler can restore
+  // both fields without pushing.
+  assert.equal(typeof organ.replayEntry, "function", "the organ exposes a replay path");
+  await organ.replayEntry({ticket: "gorgias:1", view: "all"});
+  assert.equal(organ.snapshot().viewId, "all", "the view replays");
+  assert.equal(organ.snapshot().selectedId, "gorgias:1", "the ticket replays");
+  const last = history.entries.at(-1);
+  assert.equal(last.kind, "replace", "a replay replaces, never pushes");
+  // A URL with no ticket falls back to the first visible row and restamps
+  // the URL with what renders — the bar and the UI agree.
+  await organ.replayEntry({ticket: null, view: "all"});
+  const restamped = history.entries.at(-1);
+  assert.ok(restamped.ticket, "the replace restamps the URL with the rendered selection");
+  assert.equal(restamped.kind, "replace");
+});
+
+test("the copy link derives from the mounted path boot reports", async () => {
+  // The review server serves the SPA at /, production at /inbox/ — the
+  // copied deep link must carry the real mount path, not a hardcoded one.
+  const history = fakeHistory();
+  const organ = makeOrgan({history, ticketPath: "/custom-mount/"});
+  await organ.ready();
+  assert.equal(organ.ticketLink("gorgias:1"), "/custom-mount/?view=all&ticket=gorgias%3A1");
+  const bare = makeOrgan({history});
+  await bare.ready();
+  assert.equal(bare.ticketLink("gorgias:1"), "/inbox/?view=all&ticket=gorgias%3A1", "the default mount is /inbox/");
 });
 
 test("the thread shows the ticket id with a Copy link control", async () => {

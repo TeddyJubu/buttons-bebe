@@ -435,7 +435,7 @@ class ProcessorSecurityTests(unittest.TestCase):
             )
 
         body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))["text"]
-        self.assertLess(len(body), 1000)
+        self.assertLess(len(body), 900)
         self.assertTrue(body.endswith("inbox/?ticket=gorgias:1001"))
 
     def test_whatsapp_timeout_is_fail_soft_and_retries_are_bounded(self) -> None:

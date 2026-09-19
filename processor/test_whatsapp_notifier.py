@@ -239,6 +239,39 @@ def test_a_negative_ticket_id_is_rejected() -> None:
     assert body.rstrip().endswith("inbox/?ticket=gorgias:0")
 
 
+def test_demo_mode_allows_the_alert_with_the_documented_demo_profile() -> None:
+    # #42: the documented demo profile (demo/.env.example) must keep the
+    # alert flowing — every destination, including the console deep link
+    # base, points at its loopback placeholder. A production default left
+    # in place would silently block every demo alert.
+    with patch.dict(os.environ, {
+        "DEMO_MODE": "1",
+        "WHATSAPP_SEND_URL": "http://127.0.0.1:8185/connect-whatsapp/demo/send",
+        "WHATSAPP_TICKET_BASE_URL": "http://127.0.0.1:8100/demo/tickets",
+        "SUPPORT_TICKET_BASE_URL": "http://127.0.0.1:8100/demo-tickets",
+        "WA_SEND_SECRET": AUTH_SECRET,
+    }, clear=False), patch("whatsapp_notifier.urllib.request.urlopen",
+                            return_value=FakeResponse(200)) as urlopen:
+        assert send_whatsapp(1, "subject", "demo@example.com", "summary", "reason") is True
+    payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+    assert payload["text"].rstrip().endswith("demo-tickets/?ticket=gorgias:1"), payload["text"]
+
+
+def test_demo_mode_blocks_a_production_console_url() -> None:
+    # The console link base follows the same fail-closed rule as the send
+    # URL and the Gorgias link: in demo mode a production destination blocks
+    # the whole alert.
+    with patch.dict(os.environ, {
+        "DEMO_MODE": "1",
+        "WHATSAPP_SEND_URL": "http://127.0.0.1:8185/connect-whatsapp/demo/send",
+        "WHATSAPP_TICKET_BASE_URL": "http://127.0.0.1:8100/demo/tickets",
+        # SUPPORT_TICKET_BASE_URL left at the production default.
+        "WA_SEND_SECRET": AUTH_SECRET,
+    }, clear=False), patch("whatsapp_notifier.urllib.request.urlopen") as urlopen:
+        assert send_whatsapp(1, "subject", "demo@example.com", "summary", "reason") is False
+    urlopen.assert_not_called()
+
+
 def load_tests(_loader, _tests, _pattern):
     """Expose the function-style cases to the repository's unittest gate."""
     names = [name for name in globals() if name.startswith("test_")]

@@ -73,6 +73,9 @@ def validate(values: dict[str, str]) -> list[str]:
     ticket_base_url = values.get("WHATSAPP_TICKET_BASE_URL", "")
     if not ticket_base_url.startswith("http://127.0.0.1:8100/"):
         errors.append("WHATSAPP_TICKET_BASE_URL must point to the local demo placeholder")
+    support_ticket_base_url = values.get("SUPPORT_TICKET_BASE_URL", "")
+    if not support_ticket_base_url.startswith("http://127.0.0.1:8100/"):
+        errors.append("SUPPORT_TICKET_BASE_URL must point to the local demo placeholder")
 
     if values.get("GORGIAS_SUBDOMAIN") != "cute-things-demo":
         errors.append("GORGIAS_SUBDOMAIN must be cute-things-demo")

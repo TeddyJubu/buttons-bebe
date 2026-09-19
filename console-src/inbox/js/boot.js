@@ -18,6 +18,9 @@ const organ = createInboxOrgan({
   viewId,
   ticketId: params.get("ticket") || undefined,
   privacyGate: params.get("gate") === "privacy",
+  // #42: the real mount path — /inbox/ in production, whatever the review
+  // server serves under. The copy link and the address bar agree.
+  ticketPath: location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`,
   // #42: boot owns the address bar. The organ reports selection+view; boot
   // turns that into ?view=…&ticket=… entries so the URL can be copied,
   // bookmarked and traversed with back/forward.
@@ -71,12 +74,13 @@ function buildUrl({ticket, view}) {
   return `${location.pathname}${query ? `?${query}` : ""}`;
 }
 
-// #42: back/forward re-selects without pushing (replace, not push) so the
-// history stack stays the operator's own path through the inbox.
+// #42: back/forward replays BOTH URL fields (view and ticket) through the
+// organ's no-push path so the popped entry is never overwritten with a
+// stale view, and a URL with no ticket clears the selection.
 window.addEventListener("popstate", () => {
   const next = new URLSearchParams(location.search);
-  const ticket = next.get("ticket") || null;
-  if (ticket) organ.selectTicket(ticket, {fromHistory: true});
+  const view = next.get("view");
+  organ.replayEntry({ticket: next.get("ticket") || null, view: view && views.some((v) => v.id === view) ? view : "all"});
 });
 
 // Expose the capability-locked organ for local accessibility verification.

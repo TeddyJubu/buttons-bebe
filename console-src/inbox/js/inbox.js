@@ -67,17 +67,42 @@ export function createInboxOrgan(opts = {}) {
   // every selection/view change; back/forward arrives as selectTicket with
   // {fromHistory} so it replaces instead of pushing.
   const history = opts.history || null;
+  // #42: the SPA mount path — /inbox/ in production, whatever the review
+  // server serves under. Boot reports it; the copy link derives from it so
+  // the copied deep link resolves wherever the inbox is mounted.
+  const ticketPath = opts.ticketPath || "/inbox/";
   let urlSuspended = false;
   function syncUrl({push = true} = {}) {
     if (!history || urlSuspended) return;
     (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId});
+  }
+  // #42: back/forward replays both URL fields without pushing — the organ
+  // owns the view, so a stale view must never be written back over the
+  // popped entry. A popped entry with no ticket falls back to the first
+  // visible row (the thread pane must not hang empty) and the replace
+  // restamps the URL with what actually renders, so the bar and the UI
+  // agree.
+  async function replayEntry({ticket, view} = {}) {
+    const nextView = availableViews.some((candidate) => candidate.id === view) ? view : "all";
+    const changedView = nextView !== viewId;
+    viewId = nextView;
+    selectedId = ticket || null;
+    selected = null;
+    resetUiState(ticket || null);
+    if (changedView) await refreshList();
+    ensureSelection();
+    syncUrl({push: false});
+    await refreshThread();
+    await refreshRail();
+    await refreshComposer();
+    return afterUi();
   }
   // #42: the deep link the badge/Copy-link control hands out: relative,
   // same-origin, carrying the active view so the bookmark restores the
   // partition as well as the ticket.
   function ticketLink(ticketId) {
     if (!ticketId) return "";
-    return `/inbox/?view=${encodeURIComponent(viewId)}&ticket=${encodeURIComponent(ticketId)}`;
+    return `${ticketPath}?view=${encodeURIComponent(viewId)}&ticket=${encodeURIComponent(ticketId)}`;
   }
   // #34: read state is the operator's browser state, persisted so a reload
   // keeps the distinction. The observed path's projection server is
@@ -503,12 +528,13 @@ export function createInboxOrgan(opts = {}) {
   }
 
   // #42: the deep-linked id can name a ticket this snapshot does not hold.
-  // The thread must say so, not silently show another row.
+  // The thread must say so, not silently show another row — but a ticket
+  // getTicket resolved (it merely sits outside the active view's rows) is
+  // not missing; its thread renders.
   function missingTicketId() {
     const requested = opts.ticketId;
-    return requested && selectedId === requested && !listRows.some((ticket) => ticket.id === requested)
-      ? requested
-      : null;
+    if (!requested || selectedId !== requested || selected || listRows.some((ticket) => ticket.id === requested)) return null;
+    return requested;
   }
 
   function ensureSelection() {
@@ -1394,6 +1420,8 @@ export function createInboxOrgan(opts = {}) {
     },
     // #42: the console deep link for a ticket, carrying the active view.
     ticketLink,
+    // #42: back/forward replay — restores both fields, never pushes.
+    replayEntry,
     // #39 review: display-order control. Sorting does not touch the shop; the
     // selection stays intact because the ids still render, only reordered.
     selectSort(next) {
