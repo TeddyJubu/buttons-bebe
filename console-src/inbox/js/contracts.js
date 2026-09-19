@@ -181,6 +181,10 @@
  * `status/selected`      { statusId } — observed-history status filter; never Send
  * `assignee/selected`    { assigneeId } — observed-history assignee filter; never Send
  * `tag/selected`         { tagId } — observed-history tag filter; never Send
+ * `list/filter-changed`  { conditions, match } — builder edits; client-side read over loaded rows; never Send
+ * `list/filter-view-save` { name, shared } — first-party browser store; never Gorgias
+ * `list/filter-view-apply` { id } — first-party browser store; never Gorgias
+ * `list/filter-view-delete` { id } — first-party browser store; never Gorgias
  * `list/selected`        { ticketId }
  * `list/bulk-toggle`     { ticketId, shiftKey } — row checkbox toggle; never Send
  * `list/sort-selected`   { sortId } — display order only ("default"|"newest"|"oldest"); never Send
@@ -216,6 +220,10 @@
 export const MAILBOX_TOPICS = Object.freeze({
   VIEW_SELECTED: "view/selected",
   LIST_SEARCHED: "list/searched",
+  FILTER_CHANGED: "list/filter-changed",
+  FILTER_VIEW_SAVE: "list/filter-view-save",
+  FILTER_VIEW_APPLY: "list/filter-view-apply",
+  FILTER_VIEW_DELETE: "list/filter-view-delete",
   CHANNEL_SELECTED: "channel/selected",
   STATUS_SELECTED: "status/selected",
   ASSIGNEE_SELECTED: "assignee/selected",

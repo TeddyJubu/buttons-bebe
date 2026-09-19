@@ -74,7 +74,7 @@ export function createInboxOrgan(opts = {}) {
   let urlSuspended = false;
   function syncUrl({push = true} = {}) {
     if (!history || urlSuspended) return;
-    (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId, q: searchQuery});
+    (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId, q: searchQuery, f: encodeFilters()});
   }
   // #42: back/forward replays both URL fields without pushing — the organ
   // owns the view, so a stale view must never be written back over the
@@ -82,7 +82,7 @@ export function createInboxOrgan(opts = {}) {
   // visible row (the thread pane must not hang empty) and the replace
   // restamps the URL with what actually renders, so the bar and the UI
   // agree.
-  async function replayEntry({ticket, view, q} = {}) {
+  async function replayEntry({ticket, view, q, f} = {}) {
     const generation = ++replayGeneration;
     const stale = () => generation !== replayGeneration;
     const nextView = availableViews.some((candidate) => candidate.id === view) ? view : "all";
@@ -92,16 +92,19 @@ export function createInboxOrgan(opts = {}) {
     // survive into the restored view — selectView clears them and so does
     // the back button, or the popped ticket could be filtered out of its
     // own restored rows.
-    channelId = "";
-    statusId = "";
-    assigneeId = "";
-    tagId = "";
+    filterConditions = [];
+    filterMatch = "all";
     // A popped entry owns its query too: no q in the URL means no search,
     // exactly like a dead facet. A popped q restores the exact search. The
     // URL never encodes the escalation, so every replay de-escalates back
     // to the scoped search.
     setSearchQuery(q);
     searchAllViews = false;
+    // A popped entry owns its filters like its query: no f means none, a
+    // carried f restores the exact rows and match mode.
+    const filterState = parseFilterSeed(f);
+    filterConditions = normalizeFilterConditions(filterState.c);
+    filterMatch = filterState.m;
     selectedId = ticket || null;
     selected = null;
     resetUiState(ticket || null);
@@ -368,7 +371,16 @@ export function createInboxOrgan(opts = {}) {
     })();
   }
   const availableViews = views;
-  let channelId = "";
+  // #36: the facet ids are derived from the condition rows — one quick
+  // pick per field maps to one `is` condition, so the legacy menu, the
+  // chips and the builder can never disagree.
+  function facetCondition(field) {
+    return filterConditions.find((condition) => condition.field === field && condition.op === "is") || null;
+  }
+  const channelId = () => facetCondition("channel")?.values[0] || "";
+  const statusId = () => facetCondition("status")?.values[0] || "";
+  const assigneeId = () => facetCondition("assignee")?.values[0] || "";
+  const tagId = () => facetCondition("tag")?.values[0] || "";
   function normalizeChannel(value) {
     return typeof value === "string" ? value.trim().slice(0, 40) : "";
   }
@@ -383,7 +395,6 @@ export function createInboxOrgan(opts = {}) {
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([id, count]) => ({ id, label: id, count }));
   }
-  let statusId = "";
   function normalizeStatus(value) {
     return typeof value === "string" ? value.trim().slice(0, 30) : "";
   }
@@ -398,7 +409,6 @@ export function createInboxOrgan(opts = {}) {
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([id, count]) => ({ id, label: id, count }));
   }
-  let assigneeId = "";
   function normalizeAssignee(value) {
     return typeof value === "string" ? value.trim().slice(0, 120) : "";
   }
@@ -427,7 +437,6 @@ export function createInboxOrgan(opts = {}) {
     if (unassigned && facets.length) facets.unshift({ id: UNASSIGNED_ID, label: "Unassigned", count: unassigned });
     return facets;
   }
-  let tagId = "";
   function normalizeTag(value) {
     return typeof value === "string" ? value.trim().slice(0, 40) : "";
   }
@@ -467,6 +476,230 @@ export function createInboxOrgan(opts = {}) {
     const haystack = [ticket?.subject, ticket?.customerName, ticket?.fromEmail, ticket?.snippet]
       .map((part) => String(part ?? "").toLowerCase()).join(" \n");
     return haystack.includes(searchQuery.toLowerCase());
+  }
+  // #36: the Gorgias-style filter builder. Conditions are organ state over
+  // the fields the observed summary rows actually carry, evaluated
+  // client-side against the loaded snapshot — read-only, first-party, and
+  // composable with the view partition and the search.
+  const FILTER_FIELDS = Object.freeze({
+    status: {
+      label: "Status", ops: ["is", "isNot"],
+      // "unknown" is the observed placeholder for a missing status, not a
+      // filterable value — it never appears in the builder's offers.
+      offers: () => statusFacets().map((entry) => ({id: entry.id, label: entry.label})),
+      // cubic: offers are normalized, so the match normalizes too — a raw
+      // row value with whitespace must match the facet-picked id.
+      matches: (ticket, op, values) => filterValueSet(values, normalizeStatus(ticket?.status), op),
+    },
+    assignee: {
+      label: "Assignee", ops: ["is", "isNot"],
+      offers: () => assigneeFacets().map((entry) => ({id: entry.id, label: entry.label})),
+      matches: (ticket, op, values) => {
+        // The reserved unassigned id matches a blank assignee exactly like
+        // the facet pick, so the builder and the quick menu agree.
+        const raw = normalizeAssignee(ticket?.assignee);
+        const hit = values.some((value) => value === "unassigned" ? !raw : value === raw);
+        return op === "isNot" ? !hit : hit;
+      },
+    },
+    tag: {
+      label: "Tag", ops: ["is", "isNot"],
+      offers: () => tagFacets().map((entry) => ({id: entry.id, label: entry.label})),
+      matches: (ticket, op, values) => {
+        const tags = ticketTags(ticket);
+        const hit = values.some((value) => tags.includes(value));
+        return op === "isNot" ? !hit : hit;
+      },
+    },
+    channel: {
+      label: "Channel", ops: ["is", "isNot"],
+      offers: () => channelFacets().map((entry) => ({id: entry.id, label: entry.label})),
+      matches: (ticket, op, values) => filterValueSet(values, normalizeChannel(ticket?.channel), op),
+    },
+    priority: {
+      label: "Priority", ops: ["is", "isNot"],
+      offers: () => {
+        const counts = new Map();
+        for (const ticket of listRows) {
+          const priority = String(ticket?.gorgiasPriority ?? "").trim().slice(0, 20);
+          if (priority) counts.set(priority, (counts.get(priority) || 0) + 1);
+        }
+        return [...counts.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+          .map(([id, count]) => ({id, label: id, count}));
+      },
+    matches: (ticket, op, values) => filterValueSet(values, String(ticket?.gorgiasPriority ?? "").trim().slice(0, 20), op),
+    },
+    customer: {
+      label: "Customer", ops: ["is", "isNot", "contains"],
+      offers: () => [],
+      matches: (ticket, op, values) => {
+        // "is" is a whole-value match on the address or the observed name;
+        // "contains" is the substring the builder offers for typing into.
+        const name = String(ticket?.customerName ?? "").toLowerCase();
+        const address = String(ticket?.fromEmail ?? "").toLowerCase();
+        const hit = values.some((value) => {
+          const needle = value.toLowerCase();
+          if (op === "contains") return name.includes(needle) || address.includes(needle);
+          return name === needle || address === needle;
+        });
+        return op === "isNot" ? !hit : hit;
+      },
+    },
+    updated: {
+      label: "Updated", ops: ["before", "after"],
+      offers: () => [],
+      matches: (ticket, op, values) => {
+        const when = new Date(ticket?.updatedAt).getTime();
+        if (!Number.isFinite(when)) return false;
+        for (const value of values) {
+          // The date input names a day, not an instant: "after" is that
+          // day and later, "before" stops at its midnight.
+          const edge = new Date(`${value}T00:00:00Z`).getTime();
+          const dayEnd = edge + 86_400_000;
+          if (!Number.isFinite(edge)) continue;
+          if (op === "before" && when < edge) return true;
+          if (op === "after" && when >= edge && when < dayEnd + 1) return true;
+          if (op === "after" && when > dayEnd) return true;
+        }
+        return false;
+      },
+    },
+  });
+  function filterValueSet(values, raw, op) {
+    const actual = String(raw ?? "");
+    const hit = values.includes(actual);
+    return op === "isNot" ? !hit : hit;
+  }
+  function normalizeFilterConditions(raw) {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    return raw.slice(0, 8).flatMap((row) => {
+      const field = typeof row?.field === "string" && row.field in FILTER_FIELDS ? row.field : null;
+      if (!field) return [];
+      // ponytail: values are clamped and deduped; an unknown op falls back
+      // to the field's first op so a hand-edited URL never yields an
+      // unmatchable condition ("is" on a date field matches nothing).
+      const op = FILTER_FIELDS[field].ops.includes(row.op) ? row.op : FILTER_FIELDS[field].ops[0];
+      const values = (Array.isArray(row.values) ? row.values : [row?.values])
+        .filter((value) => typeof value === "string")
+        .map((value) => value.trim().slice(0, 120))
+        .filter(Boolean)
+        .filter((value) => { const key = `${field}:${op}:${value}`; if (seen.has(key)) return false; seen.add(key); return true; });
+      // A valueless row survives as a no-op — a half-built condition must
+      // never blank the list, and the row the operator is typing into must
+      // not vanish under them.
+      return [{field, op, values}];
+    });
+  }
+  function encodeFilters() {
+    if (!filterConditions.length) return "";
+    // ponytail: one compact JSON object in one URL param. Long enough for
+    // real stacks, short enough for an address bar.
+    return JSON.stringify({m: filterMatch, c: filterConditions});
+  }
+  function parseFilterSeed(raw) {
+    try {
+      const parsed = typeof raw === "string" && raw.trim() ? JSON.parse(raw) : null;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {m: "all", c: []};
+      return {m: parsed.m === "any" ? "any" : "all", c: Array.isArray(parsed.c) ? parsed.c : []};
+    } catch {
+      return {m: "all", c: []};
+    }
+  }
+  const filterSeed = parseFilterSeed(opts.filters);
+  let filterMatch = filterSeed.m;
+  let filterConditions = normalizeFilterConditions(filterSeed.c);
+  function ticketMatchesFilters(ticket) {
+    if (!filterConditions.length) return true;
+    const results = filterConditions.map((condition) => {
+      // A valueless row filters nothing — it is a row being built, not a
+      // condition that excludes everything.
+      if (!condition.values.length) return true;
+      const field = FILTER_FIELDS[condition.field];
+      return field ? field.matches(ticket, condition.op, condition.values) : true;
+    });
+    return filterMatch === "any" ? results.some(Boolean) : results.every(Boolean);
+  }
+  // A quick facet pick is authoritative for its field: it replaces every
+  // condition the builder holds on that field, so the menu and the chips
+  // can never show different filter states.
+  function pickFacet(field, value) {
+    filterConditions = filterConditions.filter((condition) => condition.field !== field);
+    if (value) filterConditions.push({field, op: "is", values: [value]});
+    if (!filterConditions.length) filterMatch = "all";
+  }
+  // cubic P1: an edit can filter out the selected row — the thread must
+  // refresh, or the pane keeps painting the cached ticket the filter removed.
+  function applyFilterEdit(conditions, match) {
+    filterConditions = normalizeFilterConditions(conditions);
+    if (match === "all" || match === "any") filterMatch = match;
+    resetUiState();
+    ensureSelection();
+    syncUrl({push: false});
+    return refreshThread().then(refreshRail).then(refreshComposer).then(afterUi);
+  }
+  function pickFacetAndRefresh(field, value) {
+    pickFacet(field, value);
+    resetUiState();
+    ensureSelection();
+    syncUrl({push: false});
+    return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+  }
+  // #36: saved views are the operator's own browser state — like read
+  // markers and titles, first-party only, never a Gorgias write.
+  const SAVED_VIEWS_KEY = "bb-inbox-saved-views-v1";
+  function loadSavedViews() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(SAVED_VIEWS_KEY) || "null");
+      return Array.isArray(raw) ? raw.filter((entry) => entry && typeof entry.id === "string" && typeof entry.name === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  let savedViews = loadSavedViews();
+  function persistSavedViews() {
+    try {
+      // Two-tab merge like the title store: adopt unseen ids, keep this
+      // organ's own adds and removals.
+      const stored = new Map(loadSavedViews().map((entry) => [entry.id, entry]));
+      for (const entry of savedViews) stored.set(entry.id, entry);
+      const localIds = new Set(savedViews.map((entry) => entry.id));
+      savedViews = [...stored.values()].filter((entry) => localIds.has(entry.id) || !removedViewIds.has(entry.id));
+      storage?.setItem?.(SAVED_VIEWS_KEY, JSON.stringify(savedViews));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
+  const removedViewIds = new Set();
+  function savedViewList() {
+    return savedViews.map((entry) => ({id: entry.id, name: entry.name, shared: Boolean(entry.shared)}));
+  }
+  function saveView(rawName, shared) {
+    const name = String(rawName ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!name) return null;
+    const entry = {id: `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name, shared: Boolean(shared), match: filterMatch, conditions: filterConditions.map((condition) => ({...condition}))};
+    savedViews = [...savedViews, entry];
+    persistSavedViews();
+    return entry;
+  }
+  function removeView(id) {
+    removedViewIds.add(String(id));
+    savedViews = savedViews.filter((entry) => entry.id !== id);
+    persistSavedViews();
+  }
+  // #36: applying a saved view is a closure function, not just an organ
+  // method — the FILTER_VIEW_APPLY subscription inside mount() calls this
+  // name, and it must resolve there.
+  function applySavedView(id) {
+    const view = savedViews.find((entry) => entry.id === id);
+    if (!view) return;
+    filterConditions = normalizeFilterConditions(view.conditions);
+    filterMatch = view.match === "any" ? "any" : "all";
+    resetUiState();
+    ensureSelection();
+    syncUrl({push: false});
+    return refreshThread().then(refreshRail).then(refreshComposer);
   }
   // #42: the id the operator landed on — from the boot deep link or a
   // back/forward replay — that no visible row matches. It stays selected
@@ -580,10 +813,7 @@ export function createInboxOrgan(opts = {}) {
       // #37: a scoped search rides the view partition; the "search every
       // view" escalation lifts only the partition, never the flag guard.
       (searchAllViews ? !(ticket.spam || ticket.trashed) : !shop.observedHistory || ticketInView(ticket, viewId)) &&
-      (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
-      (!statusId || normalizeStatus(ticket?.status) === statusId) &&
-      assigneeMatches(ticket, assigneeId) &&
-      (!tagId || ticketTags(ticket).includes(tagId)) &&
+      ticketMatchesFilters(ticket) &&
       ticketMatchesSearch(ticket));
   }
 
@@ -1099,13 +1329,13 @@ export function createInboxOrgan(opts = {}) {
       counts,
       selectedViewId: viewId,
       channels: channelFacets(),
-      selectedChannelId: channelId,
+      selectedChannelId: channelId(),
       statuses: statusFacets(),
-      selectedStatusId: statusId,
+      selectedStatusId: statusId(),
       assignees: assigneeFacets(),
-      selectedAssigneeId: assigneeId,
+      selectedAssigneeId: assigneeId(),
       tags: tagFacets(),
-      selectedTagId: tagId,
+      selectedTagId: tagId(),
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
       sortId,
@@ -1114,6 +1344,21 @@ export function createInboxOrgan(opts = {}) {
       searchAllViews,
       searchBounded,
       searchResults,
+      filterConditions: filterConditions.map((condition) => ({...condition})),
+      filterMatch,
+      // The builder renders its own offers from the facet counts, capped so
+      // a wide snapshot cannot flood the popup.
+      filterFields: Object.entries(FILTER_FIELDS).map(([id, field]) => {
+        const offered = field.offers().slice(0, 12).map((offer) => ({id: offer.id, label: offer.label || offer.id}));
+        // cubic: an active value past the 12-offer cap must still render as
+        // chosen, or the row shows "Pick a value" and the filter looks lost.
+        const active = filterConditions.filter((condition) => condition.field === id)
+          .flatMap((condition) => condition.values)
+          .filter((value) => !offered.some((offer) => offer.id === value))
+          .map((value) => ({id: value, label: value}));
+        return {id, label: field.label, ops: field.ops, values: [...offered, ...active]};
+      }),
+      savedViews: savedViewList(),
     };
   }
 
@@ -1149,10 +1394,13 @@ export function createInboxOrgan(opts = {}) {
       listCollapsed,
       railCollapsed,
       viewId,
-      channelId,
-      statusId,
-      assigneeId,
-      tagId,
+      channelId: channelId(),
+      statusId: statusId(),
+      assigneeId: assigneeId(),
+      tagId: tagId(),
+      filterConditions: filterConditions.map((condition) => ({...condition})),
+      filterMatch,
+      savedViews: savedViewList(),
       searchQuery,
       searchAllViews,
       selectedId,
@@ -1299,10 +1547,8 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.VIEW_SELECTED, ({ viewId: next }) => {
       viewId = next;
-      channelId = "";
-      statusId = "";
-      assigneeId = "";
-      tagId = "";
+      filterConditions = [];
+      filterMatch = "all";
       setSearchQuery("");
       searchAllViews = false;
       resetUiState();
@@ -1317,29 +1563,38 @@ export function createInboxOrgan(opts = {}) {
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SEARCHED, ({ query, allViews } = {}) => {
       selectSearch(query, {allViews: Boolean(allViews)});
     });
-    mailbox.subscribe(MAILBOX_TOPICS.CHANNEL_SELECTED, ({ channelId: next }) => {
-      channelId = normalizeChannel(next);
-      resetUiState();
-      ensureSelection();
-      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    // #36: the quick menu's four picks all land in the condition rows.
+    for (const [topic, field, normalize] of [
+      [MAILBOX_TOPICS.CHANNEL_SELECTED, "channel", normalizeChannel],
+      [MAILBOX_TOPICS.STATUS_SELECTED, "status", normalizeStatus],
+      [MAILBOX_TOPICS.ASSIGNEE_SELECTED, "assignee", normalizeAssignee],
+      [MAILBOX_TOPICS.TAG_SELECTED, "tag", normalizeTag],
+    ]) {
+      mailbox.subscribe(topic, (msg = {}) => {
+        pickFacet(field, normalize(msg[`${field}Id`] ?? ""));
+        resetUiState();
+        ensureSelection();
+        // cubic: the quick pick restamps the URL like every other filter
+        // path, or the address bar's f drifts from the chips.
+        syncUrl({push: false});
+        refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+      });
+    }
+    // #36: the builder publishes committed edits; the organ applies the
+    // field-by-field replace and restamps the URL.
+    mailbox.subscribe(MAILBOX_TOPICS.FILTER_CHANGED, ({conditions, match} = {}) => {
+      applyFilterEdit(conditions, match);
     });
-    mailbox.subscribe(MAILBOX_TOPICS.STATUS_SELECTED, ({ statusId: next }) => {
-      statusId = normalizeStatus(next);
-      resetUiState();
-      ensureSelection();
-      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    mailbox.subscribe(MAILBOX_TOPICS.FILTER_VIEW_SAVE, ({name, shared} = {}) => {
+      saveView(name, shared);
+      paint();
     });
-    mailbox.subscribe(MAILBOX_TOPICS.ASSIGNEE_SELECTED, ({ assigneeId: next }) => {
-      assigneeId = normalizeAssignee(next);
-      resetUiState();
-      ensureSelection();
-      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    mailbox.subscribe(MAILBOX_TOPICS.FILTER_VIEW_APPLY, ({id} = {}) => {
+      Promise.resolve(applySavedView(id)).then(paint);
     });
-    mailbox.subscribe(MAILBOX_TOPICS.TAG_SELECTED, ({ tagId: next }) => {
-      tagId = normalizeTag(next);
-      resetUiState();
-      ensureSelection();
-      refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
+    mailbox.subscribe(MAILBOX_TOPICS.FILTER_VIEW_DELETE, ({id} = {}) => {
+      removeView(id);
+      paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SELECTED, ({ ticketId }) => {
       resetUiState(ticketId);
@@ -1537,10 +1792,8 @@ export function createInboxOrgan(opts = {}) {
     },
     selectView(next) {
       viewId = next;
-      channelId = "";
-      statusId = "";
-      assigneeId = "";
-      tagId = "";
+      filterConditions = [];
+      filterMatch = "all";
       // #37: a new view is a new partition — the search does not follow.
       setSearchQuery("");
       searchAllViews = false;
@@ -1564,29 +1817,44 @@ export function createInboxOrgan(opts = {}) {
       syncUrl({push: false});
       return refreshThread().then(refreshRail).then(refreshComposer).then(afterUi);
     },
-    selectChannel(next) {
-      channelId = normalizeChannel(next);
-      resetUiState();
-      ensureSelection();
-      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    selectChannel(next) { return pickFacetAndRefresh("channel", normalizeChannel(next)); },
+    selectStatus(next) { return pickFacetAndRefresh("status", normalizeStatus(next)); },
+    selectAssignee(next) { return pickFacetAndRefresh("assignee", normalizeAssignee(next)); },
+    selectTag(next) { return pickFacetAndRefresh("tag", normalizeTag(next)); },
+    // #36: the builder's committed state. Rows for fields the operator
+    // touched replace that field's conditions; untouched fields keep theirs.
+    setFilterConditions(next, {match} = {}) {
+      // The builder publishes the complete row list, so this is a replace —
+      // merging by field would resurrect conditions the operator removed.
+      return applyFilterEdit(next, match);
     },
-    selectStatus(next) {
-      statusId = normalizeStatus(next);
+    clearFilters() {
+      filterConditions = [];
+      filterMatch = "all";
       resetUiState();
       ensureSelection();
-      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+      syncUrl({push: false});
+      return afterUi();
     },
-    selectAssignee(next) {
-      assigneeId = normalizeAssignee(next);
+    removeFilterCondition(index) {
+      filterConditions = filterConditions.filter((_, at) => at !== Number(index));
+      if (!filterConditions.length) filterMatch = "all";
       resetUiState();
       ensureSelection();
-      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+      syncUrl({push: false});
+      return afterUi();
     },
-    selectTag(next) {
-      tagId = normalizeTag(next);
-      resetUiState();
-      ensureSelection();
-      return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
+    saveFilterView({name, shared = false} = {}) {
+      saveView(name, shared);
+      return afterUi();
+    },
+    applyFilterView(id) {
+      applySavedView(id);
+      return afterUi();
+    },
+    deleteFilterView(id) {
+      removeView(id);
+      return afterUi();
     },
     selectTicket(id, {fromHistory = false} = {}) {
       // The operator picked a real row — the deep-link/replay protection
