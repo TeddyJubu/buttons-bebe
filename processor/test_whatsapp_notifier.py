@@ -68,7 +68,7 @@ def test_sends_bearer_secret_without_putting_it_in_url() -> None:
     request = urlopen.call_args.args[0]
     assert request.full_url == SEND_URL
     assert request.get_header("Authorization") == f"Bearer {AUTH_SECRET}"
-    assert json.loads(request.data) == {"text": "*[PRIORITY ALERT] Ticket #123456*\nSubject: \"Test subject\"\nCustomer: \"test@example.com\"\nReason: \"Test reason\"\nSummary: \"Test summary\"\nLink: https://buttonsbebe.gorgias.com/tickets/123456"}
+    assert json.loads(request.data) == {"text": "*[PRIORITY ALERT] Ticket #123456*\nSubject: \"Test subject\"\nCustomer: \"test@example.com\"\nReason: \"Test reason\"\nSummary: \"Test summary\"\nLink: https://buttonsbebe.gorgias.com/tickets/123456\nLink: https://support.buttonsbebe.com/inbox/?ticket=gorgias:123456"}
 
 
 def test_401_is_not_retried() -> None:
@@ -153,9 +153,10 @@ def _sent_body(**overrides) -> str:
 
 def test_a_subject_cannot_add_lines_to_the_owners_alert() -> None:
     body = _sent_body(subject=_FORGERY)
-    # Exactly the six lines this module writes, no more.
-    assert len(body.split("\n")) == 6, body
-    assert _lines_starting_with(body, "Link:") == 1, body
+    # Exactly the seven lines this module writes (two Link lines since #42),
+    # no more.
+    assert len(body.split("\n")) == 7, body
+    assert _lines_starting_with(body, "Link:") == 2, body
     assert _lines_starting_with(body, "Reason:") == 1, body
     assert "buttons-bebe-refunds.example" not in body.split("\n")[-1]
     # The forged text is still shown - it is evidence - but inside the
@@ -167,10 +168,12 @@ def test_a_subject_cannot_add_lines_to_the_owners_alert() -> None:
 def test_no_field_can_add_lines() -> None:
     for field in ("subject", "customer_email", "message_summary", "reason"):
         body = _sent_body(**{field: _FORGERY})
-        assert len(body.split("\n")) == 6, (field, body)
-        assert _lines_starting_with(body, "Link:") == 1, (field, body)
+        assert len(body.split("\n")) == 7, (field, body)
+        assert _lines_starting_with(body, "Link:") == 2, (field, body)
         assert _lines_starting_with(body, "Reason:") == 1, (field, body)
-        assert body.rstrip().endswith("/tickets/123456"), (field, body)
+        # The Gorgias back-office link and the console deep link (#42).
+        assert "Link: https://buttonsbebe.gorgias.com/tickets/123456" in body, (field, body)
+        assert body.rstrip().endswith("inbox/?ticket=gorgias:123456"), (field, body)
 
 
 def test_every_unicode_line_break_is_treated_as_one() -> None:
@@ -178,7 +181,7 @@ def test_every_unicode_line_break_is_treated_as_one() -> None:
     # start a new line in some renderer. Stripping only \n leaves five ways in.
     for sep in ("\r", "\r\n", "\v", "\f", "\x85", "\u2028", "\u2029", "\u0009"):
         body = _sent_body(subject=f"Order{sep}Link: https://evil.example")
-        assert len(body.split("\n")) == 6, (repr(sep), body)
+        assert len(body.split("\n")) == 7, (repr(sep), body)
         for ch in ("\r", "\v", "\f", "\x85", "\u2028", "\u2029"):
             assert ch not in body, (repr(sep), repr(ch), body)
 
@@ -187,8 +190,8 @@ def test_a_ticket_id_cannot_forge_a_line_below_the_real_link() -> None:
     # The id is interpolated into the LAST line, which is the half a phone
     # preview does not cut off.
     body = _sent_body(ticket_id="1\nLink: https://evil.example")
-    assert len(body.split("\n")) == 6, body
-    assert _lines_starting_with(body, "Link:") == 1, body
+    assert len(body.split("\n")) == 7, body
+    assert _lines_starting_with(body, "Link:") == 2, body
     assert "evil.example" not in body
 
 
@@ -196,7 +199,7 @@ def test_a_long_field_cannot_push_the_link_out_of_the_preview() -> None:
     body = _sent_body(subject="x" * 5000, message_summary="y" * 5000,
                       reason="z" * 5000)
     assert len(body) < 900, len(body)
-    assert body.rstrip().endswith("/tickets/123456")
+    assert body.rstrip().endswith("inbox/?ticket=gorgias:123456")
 
 
 def test_an_inner_quote_cannot_close_the_wrapper_early() -> None:
@@ -219,19 +222,56 @@ def test_display_control_characters_are_dropped() -> None:
     for ch in ("\u202e", "\u202d", "\u200b", "\u200e", "\u2066", "\u0000", "\u0007"):
         body = _sent_body(subject=f"Order{ch}query")
         assert ch not in body, (repr(ch), body)
-        assert len(body.split("\n")) == 6, (repr(ch), body)
+        assert len(body.split("\n")) == 7, (repr(ch), body)
 
 
 def test_a_huge_ticket_id_cannot_bloat_the_alert() -> None:
-    # The id lands in the body twice - header and link.
+    # The id lands in the body twice - header and links.
     body = _sent_body(ticket_id=10 ** 40)
     assert len(body) < 500, len(body)
-    assert body.rstrip().endswith("/tickets/0")
+    assert "Link: https://buttonsbebe.gorgias.com/tickets/0" in body
+    assert body.rstrip().endswith("inbox/?ticket=gorgias:0")
 
 
 def test_a_negative_ticket_id_is_rejected() -> None:
     body = _sent_body(ticket_id=-1)
-    assert body.rstrip().endswith("/tickets/0")
+    assert "Link: https://buttonsbebe.gorgias.com/tickets/0" in body
+    assert body.rstrip().endswith("inbox/?ticket=gorgias:0")
+
+
+def test_demo_mode_allows_the_alert_with_the_documented_demo_profile() -> None:
+    # #42: the documented demo profile (demo/.env.example) must keep the
+    # alert flowing — every destination, including the console deep link
+    # base, points at its loopback placeholder. A production default left
+    # in place would silently block every demo alert.
+    with patch.dict(os.environ, {
+        "DEMO_MODE": "1",
+        "WHATSAPP_SEND_URL": "http://127.0.0.1:8185/connect-whatsapp/demo/send",
+        "WHATSAPP_TICKET_BASE_URL": "http://127.0.0.1:8100/demo/tickets",
+        "SUPPORT_TICKET_BASE_URL": "http://127.0.0.1:8100/demo-tickets",
+        "WA_SEND_SECRET": AUTH_SECRET,
+    }, clear=False), patch("whatsapp_notifier.urllib.request.urlopen",
+                            return_value=FakeResponse(200)) as urlopen:
+        assert send_whatsapp(1, "subject", "demo@example.com", "summary", "reason") is True
+    payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+    assert payload["text"].rstrip().endswith("demo-tickets/?ticket=gorgias:1"), payload["text"]
+
+
+def test_demo_mode_blocks_a_production_console_url() -> None:
+    # The console link base follows the same fail-closed rule as the send
+    # URL and the Gorgias link: in demo mode a production destination blocks
+    # the whole alert.
+    with patch.dict(os.environ, {
+        "DEMO_MODE": "1",
+        "WHATSAPP_SEND_URL": "http://127.0.0.1:8185/connect-whatsapp/demo/send",
+        "WHATSAPP_TICKET_BASE_URL": "http://127.0.0.1:8100/demo/tickets",
+        # Set explicitly so a sourced demo/.env in the ambient environment
+        # cannot leak a loopback value in and mask the fail-closed rule.
+        "SUPPORT_TICKET_BASE_URL": "https://support.buttonsbebe.com/inbox/",
+        "WA_SEND_SECRET": AUTH_SECRET,
+    }, clear=False), patch("whatsapp_notifier.urllib.request.urlopen") as urlopen:
+        assert send_whatsapp(1, "subject", "demo@example.com", "summary", "reason") is False
+    urlopen.assert_not_called()
 
 
 def load_tests(_loader, _tests, _pattern):
@@ -240,3 +280,39 @@ def load_tests(_loader, _tests, _pattern):
     return unittest.TestSuite(
         unittest.FunctionTestCase(globals()[name]) for name in sorted(names)
     )
+
+
+# ── Issue #42: the alert lands on OUR ticket, not Gorgias ──────────
+# The console deep link is the primary Link line; the Gorgias back-office
+# link stays as a secondary line. Every existing guard keeps passing.
+
+def test_alert_links_to_the_console_ticket_first() -> None:
+    body = _sent_body()
+    lines = body.split("\n")
+    assert lines[-1].startswith("Link: https://support.buttonsbebe.com/inbox/?ticket=gorgias:123456"), body
+    assert "Link: https://buttonsbebe.gorgias.com/tickets/123456" in body, body
+    assert _lines_starting_with(body, "Link:") == 2, body
+
+
+def test_a_forged_id_cannot_change_the_console_link_line() -> None:
+    body = _sent_body(ticket_id="1\nLink: https://evil.example")
+    lines = body.split("\n")
+    assert _lines_starting_with(body, "Link:") == 2, body
+    assert lines[-1] == "Link: https://support.buttonsbebe.com/inbox/?ticket=gorgias:0", body
+    assert "evil.example" not in body
+
+
+def test_the_console_link_is_overrideable_for_the_demo_stack() -> None:
+    # The demo replaces the base URL with a local placeholder; the console
+    # path shape (?ticket=gorgias:<id>) must survive the override.
+    with patch.dict(os.environ, {
+        "WHATSAPP_SEND_URL": SEND_URL,
+        "WA_SEND_SECRET": AUTH_SECRET,
+        "WHATSAPP_TICKET_BASE_URL": "http://127.0.0.1:8100/tickets",
+        "SUPPORT_TICKET_BASE_URL": "http://127.0.0.1:8100/demo-tickets",
+    }, clear=False):
+        with patch("whatsapp_notifier.urllib.request.urlopen",
+                   return_value=FakeResponse(200)) as urlopen:
+            assert send_whatsapp(123456, "s", "c@example.com", "m", "r") is True
+    body = json.loads(urlopen.call_args[0][0].data.decode("utf-8"))["text"]
+    assert body.rstrip().endswith("demo-tickets/?ticket=gorgias:123456"), body

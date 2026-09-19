@@ -62,6 +62,64 @@ function safeMount(tissue, el, input) {
 export function createInboxOrgan(opts = {}) {
   const mailbox = opts.mailbox || createMailbox();
   const shop = opts.shop || createHelpdeskShop({ fail: opts.fail });
+  // #42: the URL is the operator's address bar, so boot owns history and
+  // injects it like the #39 downloads adapter. The organ calls syncUrl on
+  // every selection/view change; back/forward arrives as selectTicket with
+  // {fromHistory} so it replaces instead of pushing.
+  const history = opts.history || null;
+  // #42: the SPA mount path — /inbox/ in production, whatever the review
+  // server serves under. Boot reports it; the copy link derives from it so
+  // the copied deep link resolves wherever the inbox is mounted.
+  const ticketPath = opts.ticketPath || "/inbox/";
+  let urlSuspended = false;
+  function syncUrl({push = true} = {}) {
+    if (!history || urlSuspended) return;
+    (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId});
+  }
+  // #42: back/forward replays both URL fields without pushing — the organ
+  // owns the view, so a stale view must never be written back over the
+  // popped entry. A popped entry with no ticket falls back to the first
+  // visible row (the thread pane must not hang empty) and the replace
+  // restamps the URL with what actually renders, so the bar and the UI
+  // agree.
+  async function replayEntry({ticket, view} = {}) {
+    const generation = ++replayGeneration;
+    const stale = () => generation !== replayGeneration;
+    const nextView = availableViews.some((candidate) => candidate.id === view) ? view : "all";
+    const changedView = nextView !== viewId;
+    viewId = nextView;
+    // A replayed entry owns the whole URL, so dead facet filters must not
+    // survive into the restored view — selectView clears them and so does
+    // the back button, or the popped ticket could be filtered out of its
+    // own restored rows.
+    channelId = "";
+    statusId = "";
+    assigneeId = "";
+    tagId = "";
+    selectedId = ticket || null;
+    selected = null;
+    resetUiState(ticket || null);
+    // The popped entry's ticket is protected exactly like a boot deep
+    // link: an id outside the rows stays put, whatever renders resolves.
+    protectedTicketId = ticket || null;
+    if (changedView) await refreshList();
+    if (stale()) return afterUi();
+    ensureSelection();
+    syncUrl({push: false});
+    await refreshThread();
+    if (stale()) return afterUi();
+    await refreshRail();
+    if (stale()) return afterUi();
+    await refreshComposer();
+    return afterUi();
+  }
+  // #42: the deep link the badge/Copy-link control hands out: relative,
+  // same-origin, carrying the active view so the bookmark restores the
+  // partition as well as the ticket.
+  function ticketLink(ticketId) {
+    if (!ticketId) return "";
+    return `${ticketPath}?view=${encodeURIComponent(viewId)}&ticket=${encodeURIComponent(ticketId)}`;
+  }
   // #34: read state is the operator's browser state, persisted so a reload
   // keeps the distinction. The observed path's projection server is
   // read-only, so the read set lives here (localStorage in production, an
@@ -382,6 +440,17 @@ export function createInboxOrgan(opts = {}) {
       .map(([id, count]) => ({ id, label: id, count }));
   }
   let selectedId = opts.ticketId || null;
+  // #42: the id the operator landed on — from the boot deep link or a
+  // back/forward replay — that no visible row matches. It stays selected
+  // (thread shows not-found, or getTicket resolves it) instead of being
+  // snapped to the first visible row. Every operator-driven selection
+  // clears it: the operator picked a real ticket.
+  let protectedTicketId = opts.ticketId || null;
+  // #42: back/forward replays race — the newest popped entry must win. Each
+  // replay takes a number; an async refresh landing under a stale number
+  // (its entry was replaced by a newer replay) discards its work instead of
+  // overwriting the newer entry's thread.
+  let replayGeneration = 0;
   let body = "";
   let strip = "";
   let summarizeText = "";
@@ -485,7 +554,23 @@ export function createInboxOrgan(opts = {}) {
     return selected || listRows.find((ticket) => ticket.id === selectedId) || null;
   }
 
+  // #42: the deep-linked id can name a ticket this snapshot does not hold.
+  // The thread must say so, not silently show another row — but a ticket
+  // getTicket resolved (it merely sits outside the active view's rows) is
+  // not missing; its thread renders.
+  function missingTicketId() {
+    const requested = opts.ticketId;
+    if (!requested || selectedId !== requested || selected || listRows.some((ticket) => ticket.id === requested)) return null;
+    return requested;
+  }
+
   function ensureSelection() {
+    // #42: a deep-linked or replayed id that matches no visible row is not
+    // snapped to the first row — the operator landed on it, so the thread
+    // shows the not-found state (or getTicket resolves it) until they pick
+    // a real ticket. Operator-driven selection clears the protection.
+    if (protectedTicketId && !listRows.some((ticket) => ticket.id === protectedTicketId)
+      && selectedId === protectedTicketId) return;
     const visible = visibleTickets();
     if (!visible.some((ticket) => ticket.id === selectedId)) {
       selectedId = visible[0]?.id || null;
@@ -584,6 +669,9 @@ export function createInboxOrgan(opts = {}) {
     if (typeof shop.getTicket === "function") {
       try {
         const ticket = await shop.getTicket({ ticketId: id });
+        // #42: a back/forward replay may have moved on while this fetch was
+        // in flight — a stale thread must never overwrite the newer replay's.
+        if (selectedId !== id) return;
         if (ticket) {
           selected = shop.observedHistory ? withOperatorAssignee(ticket) : ticket;
           // #41: the detail fetch carries the rail snapshot (order name), so
@@ -981,7 +1069,7 @@ export function createInboxOrgan(opts = {}) {
     ensureSelection();
     const ticket = selectedTicket();
     const listModel = listTissue.update(listInput());
-    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket) });
+    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
     const composerModel = composerTissue.update(composerInput(ticket));
     const railHtml = !showsCustomerRail(ticket) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
     const html = `<div class="inbox" data-organ="inbox">
@@ -1107,7 +1195,7 @@ export function createInboxOrgan(opts = {}) {
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());
-      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket) });
+      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
         if (!showsCustomerRail(ticket)) {
@@ -1149,6 +1237,7 @@ export function createInboxOrgan(opts = {}) {
       resetUiState();
       refreshList().then(() => {
         ensureSelection();
+        syncUrl();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
@@ -1179,6 +1268,7 @@ export function createInboxOrgan(opts = {}) {
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SELECTED, ({ ticketId }) => {
       resetUiState(ticketId);
       markRead(ticketId);
+      syncUrl();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.BULK_TOGGLE, ({ ticketId, shiftKey }) => {
@@ -1239,6 +1329,12 @@ export function createInboxOrgan(opts = {}) {
       // #41: rename is first-party only — write the browser store, repaint.
       if (ticketId) writeTitle(ticketId, title);
       paint();
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_COPY_LINK, ({ ticketId }) => {
+      // #42: boot injects the clipboard; the organ owns the URL shape because
+      // it owns the active view. Same-origin relative link only.
+      const link = ticketLink(ticketId);
+      if (link) opts.clipboard?.writeText?.(link);
     });
     mailbox.subscribe(MAILBOX_TOPICS.WRITE_GATE_OPEN, () => {
       closeAllGates();
@@ -1329,6 +1425,9 @@ export function createInboxOrgan(opts = {}) {
 
     paintMounted = paint;
     paint();
+    // #42: stamp the landing entry with the resolved selection so reload,
+    // copy and bookmark all carry the deep link.
+    syncUrl({push: false});
     return snapshot();
   }
 
@@ -1350,6 +1449,10 @@ export function createInboxOrgan(opts = {}) {
       writeTitle(ticketId, raw);
       return afterUi();
     },
+    // #42: the console deep link for a ticket, carrying the active view.
+    ticketLink,
+    // #42: back/forward replay — restores both fields, never pushes.
+    replayEntry,
     // #39 review: display-order control. Sorting does not touch the shop; the
     // selection stays intact because the ids still render, only reordered.
     selectSort(next) {
@@ -1365,6 +1468,7 @@ export function createInboxOrgan(opts = {}) {
       resetUiState();
       return refreshList().then(() => {
         ensureSelection();
+        syncUrl();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
@@ -1392,9 +1496,15 @@ export function createInboxOrgan(opts = {}) {
       ensureSelection();
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
-    selectTicket(id) {
+    selectTicket(id, {fromHistory = false} = {}) {
+      // The operator picked a real row — the deep-link/replay protection
+      // must not hold a dead id over their choice.
+      if (id !== protectedTicketId) protectedTicketId = null;
       resetUiState(id);
       markRead(id);
+      // #42: operator-driven selection pushes a history entry; a popstate
+      // replay replaces so back/forward does not grow the stack.
+      syncUrl({push: !fromHistory});
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     collapseList(collapsed = true) {
@@ -1484,7 +1594,7 @@ export function createInboxOrgan(opts = {}) {
       const ticket = await escalateSelected(reason);
       if (ticket && !pinnedCatalog) await refreshThread();
       composerTissue.update(composerInput(selectedTicket()));
-      threadTissue.update({ ticket: selectedTicket(), capabilities });
+      threadTissue.update({ ticket: selectedTicket(), capabilities, missingTicketId: missingTicketId() });
       return snapshot();
     },
     openWriteGate() {
@@ -1565,6 +1675,9 @@ export function createInboxOrgan(opts = {}) {
       await refreshComposer();
       await refreshMacros(macroQuery);
       await refreshWriteGate();
+      // #42: stamp the landing entry with the resolved selection (replace,
+      // not push — reload keeps one entry).
+      syncUrl({push: false});
       return snapshot();
     },
     async ingestEmail(args) {
@@ -1572,6 +1685,8 @@ export function createInboxOrgan(opts = {}) {
       const result = await shop.ingestEmail(args);
       await refreshList();
       if (result?.id) {
+        // The operator just created/ingested this ticket — a real row now.
+        protectedTicketId = null;
         selectedId = result.id;
         unreadIds.add(result.id);
       }
@@ -1585,6 +1700,7 @@ export function createInboxOrgan(opts = {}) {
       const result = await shop.ingestChat(args);
       await refreshList();
       if (result?.id) {
+        protectedTicketId = null;
         selectedId = result.id;
         unreadIds.add(result.id);
       }
@@ -1599,6 +1715,7 @@ export function createInboxOrgan(opts = {}) {
       await refreshList();
       const first = Array.isArray(result?.ingested) ? result.ingested[0] : null;
       if (first?.id) {
+        protectedTicketId = null;
         selectedId = first.id;
         unreadIds.add(first.id);
       }

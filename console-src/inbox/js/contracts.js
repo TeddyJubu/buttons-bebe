@@ -195,6 +195,7 @@
  * `composer/summarize`   { ticketId }
  * `thread/escalate`      { ticketId, reason? } — first-party; never Send
  * `thread/rename`        { ticketId, title } — first-party browser store; never Gorgias
+ * `thread/copy-link`     { ticketId } — boot copies the console deep link; never Gorgias
  * `write-gate/open`      {} — This order hairline opens the payments sheet
  * `write-gate/close`     {}
  * `customer-join-gate/open`  {} — Find customer lock sheet (no live join)
@@ -232,6 +233,7 @@ export const MAILBOX_TOPICS = Object.freeze({
   COMPOSER_SUMMARIZE: "composer/summarize",
   THREAD_ESCALATE: "thread/escalate",
   THREAD_RENAME: "thread/rename",
+  THREAD_COPY_LINK: "thread/copy-link",
   WRITE_GATE_OPEN: "write-gate/open",
   WRITE_GATE_CLOSE: "write-gate/close",
   CUSTOMER_JOIN_GATE_OPEN: "customer-join-gate/open",

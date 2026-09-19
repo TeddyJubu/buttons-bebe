@@ -95,6 +95,13 @@ def send_whatsapp(
         "WHATSAPP_TICKET_BASE_URL",
         "https://buttonsbebe.gorgias.com/tickets",
     ).rstrip("/")
+    # Issue #42: the owner's tap lands on OUR console ticket, not Gorgias.
+    # The Gorgias back-office link stays as a secondary line. The base URL is
+    # overridable so the demo stack points at its loopback placeholder.
+    support_ticket_base_url = os.getenv(
+        "SUPPORT_TICKET_BASE_URL",
+        "https://support.buttonsbebe.com/inbox/",
+    ).rstrip("/")
     if demo_mode_enabled() and (
         not demo_url_allowed(
             url,
@@ -105,6 +112,11 @@ def send_whatsapp(
             ticket_base_url,
             port=8100,
             exact_path="/demo/tickets",
+        )
+        or not demo_url_allowed(
+            support_ticket_base_url,
+            port=8100,
+            exact_path="/demo-tickets",
         )
     ):
         log_event(
@@ -133,7 +145,8 @@ def send_whatsapp(
         f"Customer: {_one_line(customer_email, _MAX_EMAIL)}\n"
         f"Reason: {_one_line(reason, _MAX_REASON)}\n"
         f"Summary: {_one_line(message_summary, _MAX_SUMMARY)}\n"
-        f"Link: {ticket_base_url}/{safe_ticket_id}"
+        f"Link: {ticket_base_url}/{safe_ticket_id}\n"
+        f"Link: {support_ticket_base_url}/?ticket=gorgias:{safe_ticket_id}"
     )
 
     missing = []

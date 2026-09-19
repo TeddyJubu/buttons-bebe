@@ -28,7 +28,14 @@ export function createThreadTissue({ mailbox }) {
     // publishes, the organ owns the store. `ticket` being swapped for a new
     // object by refresh is normal — but the open rename editor keeps its
     // draft: a mid-edit repaint (bridge poll) must not wipe the typing.
-    return { ticket: input.ticket || null, capabilities: input.capabilities || {}, title: input.title || "" };
+    // #42: `missingTicketId` names a deep-linked id the snapshot does not
+    // hold; the thread says so instead of showing another ticket.
+    return {
+      ticket: input.ticket || null,
+      capabilities: input.capabilities || {},
+      title: input.title || "",
+      missingTicketId: input.missingTicketId || null,
+    };
   }
 
   function renderAttachments(message) {
@@ -115,6 +122,11 @@ export function createThreadTissue({ mailbox }) {
 
   function render(next = model) {
     const ticket = next.ticket;
+    if (next.missingTicketId) {
+      // #42: a deep link that names an unknown ticket must not quietly show
+      // a different row. The URL stays; picking any real ticket recovers.
+      return `<div class="pane-inner"><p class="empty-pane" role="alert">Ticket not found: ${esc(next.missingTicketId)}. It may be outside the observed history window. Pick a ticket from the list.</p></div>${renderLightbox()}`;
+    }
     if (!ticket) {
       return `<div class="pane-inner"><p class="empty-pane">Select a ticket.</p></div>${renderLightbox()}`;
     }
@@ -159,6 +171,8 @@ export function createThreadTissue({ mailbox }) {
           ${typeLine}
         </div>
         <div class="thread-head-actions">
+          <span class="ticket-id-badge" data-ticket-id-badge="${esc(ticket.id)}" title="Unique ticket id">${esc(ticket.id)}</span>
+          <button type="button" class="btn-hairline" data-copy-link data-ticket-id="${esc(ticket.id)}" title="Copy a link to this ticket. The link opens this inbox with this ticket selected.">Copy link</button>
           <span class="status-badge" title="Ticket status">${esc(observedTicketStatus(ticket))}</span>
           ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-badge" title="Gorgias priority">${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
           ${ticket.gorgiasSpam ? `<span class="status-badge" title="Marked as spam in Gorgias">Spam</span>` : ""}
@@ -249,6 +263,13 @@ export function createThreadTissue({ mailbox }) {
       }
       if (event.target.closest("[data-attach-lightbox]") === event.target) {
         closeLightbox();
+        return;
+      }
+      const copyLink = event.target.closest("[data-copy-link]");
+      if (copyLink) {
+        // #42: boot owns the clipboard and the address bar; the organ only
+        // publishes the id. Never a Gorgias link.
+        mailbox.publish(MAILBOX_TOPICS.THREAD_COPY_LINK, { ticketId: copyLink.dataset.ticketId });
         return;
       }
       const escalate = event.target.closest("[data-escalate]");

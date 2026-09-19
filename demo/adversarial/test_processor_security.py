@@ -407,9 +407,9 @@ class ProcessorSecurityTests(unittest.TestCase):
             )
 
         body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))["text"]
-        self.assertEqual(body.count("\n"), 5)
-        self.assertEqual(sum(line.startswith("Link: ") for line in body.split("\n")), 1)
-        self.assertTrue(body.endswith("/tickets/0"))
+        self.assertEqual(body.count("\n"), 6)
+        self.assertEqual(sum(line.startswith("Link: ") for line in body.split("\n")), 2)
+        self.assertTrue(body.endswith("inbox/?ticket=gorgias:0"))
         for forbidden in ("\r", "\v", "\f", "\x85", "\u2028", "\u2029", "\u202e", "\u200b"):
             self.assertNotIn(forbidden, body)
         self.assertNotIn("evil.example/approve\n", body)
@@ -436,7 +436,7 @@ class ProcessorSecurityTests(unittest.TestCase):
 
         body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))["text"]
         self.assertLess(len(body), 900)
-        self.assertTrue(body.endswith("/tickets/1001"))
+        self.assertTrue(body.endswith("inbox/?ticket=gorgias:1001"))
 
     def test_whatsapp_timeout_is_fail_soft_and_retries_are_bounded(self) -> None:
         with patch.dict(
