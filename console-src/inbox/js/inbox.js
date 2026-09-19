@@ -62,6 +62,23 @@ function safeMount(tissue, el, input) {
 export function createInboxOrgan(opts = {}) {
   const mailbox = opts.mailbox || createMailbox();
   const shop = opts.shop || createHelpdeskShop({ fail: opts.fail });
+  // #42: the URL is the operator's address bar, so boot owns history and
+  // injects it like the #39 downloads adapter. The organ calls syncUrl on
+  // every selection/view change; back/forward arrives as selectTicket with
+  // {fromHistory} so it replaces instead of pushing.
+  const history = opts.history || null;
+  let urlSuspended = false;
+  function syncUrl({push = true} = {}) {
+    if (!history || urlSuspended) return;
+    (push ? history.push : history.replace)?.({ticket: selectedId, view: viewId});
+  }
+  // #42: the deep link the badge/Copy-link control hands out: relative,
+  // same-origin, carrying the active view so the bookmark restores the
+  // partition as well as the ticket.
+  function ticketLink(ticketId) {
+    if (!ticketId) return "";
+    return `/inbox/?view=${encodeURIComponent(viewId)}&ticket=${encodeURIComponent(ticketId)}`;
+  }
   // #34: read state is the operator's browser state, persisted so a reload
   // keeps the distinction. The observed path's projection server is
   // read-only, so the read set lives here (localStorage in production, an
@@ -485,7 +502,21 @@ export function createInboxOrgan(opts = {}) {
     return selected || listRows.find((ticket) => ticket.id === selectedId) || null;
   }
 
+  // #42: the deep-linked id can name a ticket this snapshot does not hold.
+  // The thread must say so, not silently show another row.
+  function missingTicketId() {
+    const requested = opts.ticketId;
+    return requested && selectedId === requested && !listRows.some((ticket) => ticket.id === requested)
+      ? requested
+      : null;
+  }
+
   function ensureSelection() {
+    // #42: a deep-linked id that matches no visible row is not snapped to
+    // the first row — the operator landed on it, so the thread shows the
+    // not-found state until they pick a real ticket.
+    const requested = opts.ticketId || null;
+    if (requested && !listRows.some((ticket) => ticket.id === requested) && selectedId === requested) return;
     const visible = visibleTickets();
     if (!visible.some((ticket) => ticket.id === selectedId)) {
       selectedId = visible[0]?.id || null;
@@ -981,7 +1012,7 @@ export function createInboxOrgan(opts = {}) {
     ensureSelection();
     const ticket = selectedTicket();
     const listModel = listTissue.update(listInput());
-    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket) });
+    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
     const composerModel = composerTissue.update(composerInput(ticket));
     const railHtml = !showsCustomerRail(ticket) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
     const html = `<div class="inbox" data-organ="inbox">
@@ -1107,7 +1138,7 @@ export function createInboxOrgan(opts = {}) {
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());
-      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket) });
+      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
         if (!showsCustomerRail(ticket)) {
@@ -1149,6 +1180,7 @@ export function createInboxOrgan(opts = {}) {
       resetUiState();
       refreshList().then(() => {
         ensureSelection();
+        syncUrl();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
@@ -1179,6 +1211,7 @@ export function createInboxOrgan(opts = {}) {
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SELECTED, ({ ticketId }) => {
       resetUiState(ticketId);
       markRead(ticketId);
+      syncUrl();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
     mailbox.subscribe(MAILBOX_TOPICS.BULK_TOGGLE, ({ ticketId, shiftKey }) => {
@@ -1239,6 +1272,12 @@ export function createInboxOrgan(opts = {}) {
       // #41: rename is first-party only — write the browser store, repaint.
       if (ticketId) writeTitle(ticketId, title);
       paint();
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_COPY_LINK, ({ ticketId }) => {
+      // #42: boot injects the clipboard; the organ owns the URL shape because
+      // it owns the active view. Same-origin relative link only.
+      const link = ticketLink(ticketId);
+      if (link) opts.clipboard?.writeText?.(link);
     });
     mailbox.subscribe(MAILBOX_TOPICS.WRITE_GATE_OPEN, () => {
       closeAllGates();
@@ -1329,6 +1368,9 @@ export function createInboxOrgan(opts = {}) {
 
     paintMounted = paint;
     paint();
+    // #42: stamp the landing entry with the resolved selection so reload,
+    // copy and bookmark all carry the deep link.
+    syncUrl({push: false});
     return snapshot();
   }
 
@@ -1350,6 +1392,8 @@ export function createInboxOrgan(opts = {}) {
       writeTitle(ticketId, raw);
       return afterUi();
     },
+    // #42: the console deep link for a ticket, carrying the active view.
+    ticketLink,
     // #39 review: display-order control. Sorting does not touch the shop; the
     // selection stays intact because the ids still render, only reordered.
     selectSort(next) {
@@ -1365,6 +1409,7 @@ export function createInboxOrgan(opts = {}) {
       resetUiState();
       return refreshList().then(() => {
         ensureSelection();
+        syncUrl();
         return refreshThread();
       }).then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
@@ -1392,9 +1437,12 @@ export function createInboxOrgan(opts = {}) {
       ensureSelection();
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
-    selectTicket(id) {
+    selectTicket(id, {fromHistory = false} = {}) {
       resetUiState(id);
       markRead(id);
+      // #42: operator-driven selection pushes a history entry; a popstate
+      // replay replaces so back/forward does not grow the stack.
+      syncUrl({push: !fromHistory});
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     collapseList(collapsed = true) {
@@ -1484,7 +1532,7 @@ export function createInboxOrgan(opts = {}) {
       const ticket = await escalateSelected(reason);
       if (ticket && !pinnedCatalog) await refreshThread();
       composerTissue.update(composerInput(selectedTicket()));
-      threadTissue.update({ ticket: selectedTicket(), capabilities });
+      threadTissue.update({ ticket: selectedTicket(), capabilities, missingTicketId: missingTicketId() });
       return snapshot();
     },
     openWriteGate() {
@@ -1565,6 +1613,9 @@ export function createInboxOrgan(opts = {}) {
       await refreshComposer();
       await refreshMacros(macroQuery);
       await refreshWriteGate();
+      // #42: stamp the landing entry with the resolved selection (replace,
+      // not push — reload keeps one entry).
+      syncUrl({push: false});
       return snapshot();
     },
     async ingestEmail(args) {

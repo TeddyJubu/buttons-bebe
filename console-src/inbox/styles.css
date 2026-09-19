@@ -471,6 +471,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   border-radius: var(--radius-sm);
   padding: 3px 7px;
 }
+/* #42: the unique ticket id, always visible beside the status. */
+.ticket-id-badge {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--mute);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+}
 .thread-scroll { flex: 1; overflow: auto; padding: 18px 20px 8px; }
 .bubble { max-width: 38rem; margin: 0 0 14px; }
 .bubble-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--mute); font-size: 11px; flex-wrap: wrap; }
