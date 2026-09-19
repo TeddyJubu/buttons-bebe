@@ -83,17 +83,33 @@ export function createInboxOrgan(opts = {}) {
   // restamps the URL with what actually renders, so the bar and the UI
   // agree.
   async function replayEntry({ticket, view} = {}) {
+    const generation = ++replayGeneration;
+    const stale = () => generation !== replayGeneration;
     const nextView = availableViews.some((candidate) => candidate.id === view) ? view : "all";
     const changedView = nextView !== viewId;
     viewId = nextView;
+    // A replayed entry owns the whole URL, so dead facet filters must not
+    // survive into the restored view — selectView clears them and so does
+    // the back button, or the popped ticket could be filtered out of its
+    // own restored rows.
+    channelId = "";
+    statusId = "";
+    assigneeId = "";
+    tagId = "";
     selectedId = ticket || null;
     selected = null;
     resetUiState(ticket || null);
+    // The popped entry's ticket is protected exactly like a boot deep
+    // link: an id outside the rows stays put, whatever renders resolves.
+    protectedTicketId = ticket || null;
     if (changedView) await refreshList();
+    if (stale()) return afterUi();
     ensureSelection();
     syncUrl({push: false});
     await refreshThread();
+    if (stale()) return afterUi();
     await refreshRail();
+    if (stale()) return afterUi();
     await refreshComposer();
     return afterUi();
   }
@@ -424,6 +440,17 @@ export function createInboxOrgan(opts = {}) {
       .map(([id, count]) => ({ id, label: id, count }));
   }
   let selectedId = opts.ticketId || null;
+  // #42: the id the operator landed on — from the boot deep link or a
+  // back/forward replay — that no visible row matches. It stays selected
+  // (thread shows not-found, or getTicket resolves it) instead of being
+  // snapped to the first visible row. Every operator-driven selection
+  // clears it: the operator picked a real ticket.
+  let protectedTicketId = opts.ticketId || null;
+  // #42: back/forward replays race — the newest popped entry must win. Each
+  // replay takes a number; an async refresh landing under a stale number
+  // (its entry was replaced by a newer replay) discards its work instead of
+  // overwriting the newer entry's thread.
+  let replayGeneration = 0;
   let body = "";
   let strip = "";
   let summarizeText = "";
@@ -538,11 +565,12 @@ export function createInboxOrgan(opts = {}) {
   }
 
   function ensureSelection() {
-    // #42: a deep-linked id that matches no visible row is not snapped to
-    // the first row — the operator landed on it, so the thread shows the
-    // not-found state until they pick a real ticket.
-    const requested = opts.ticketId || null;
-    if (requested && !listRows.some((ticket) => ticket.id === requested) && selectedId === requested) return;
+    // #42: a deep-linked or replayed id that matches no visible row is not
+    // snapped to the first row — the operator landed on it, so the thread
+    // shows the not-found state (or getTicket resolves it) until they pick
+    // a real ticket. Operator-driven selection clears the protection.
+    if (protectedTicketId && !listRows.some((ticket) => ticket.id === protectedTicketId)
+      && selectedId === protectedTicketId) return;
     const visible = visibleTickets();
     if (!visible.some((ticket) => ticket.id === selectedId)) {
       selectedId = visible[0]?.id || null;
@@ -641,6 +669,9 @@ export function createInboxOrgan(opts = {}) {
     if (typeof shop.getTicket === "function") {
       try {
         const ticket = await shop.getTicket({ ticketId: id });
+        // #42: a back/forward replay may have moved on while this fetch was
+        // in flight — a stale thread must never overwrite the newer replay's.
+        if (selectedId !== id) return;
         if (ticket) {
           selected = shop.observedHistory ? withOperatorAssignee(ticket) : ticket;
           // #41: the detail fetch carries the rail snapshot (order name), so
@@ -1466,6 +1497,9 @@ export function createInboxOrgan(opts = {}) {
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
     selectTicket(id, {fromHistory = false} = {}) {
+      // The operator picked a real row — the deep-link/replay protection
+      // must not hold a dead id over their choice.
+      if (id !== protectedTicketId) protectedTicketId = null;
       resetUiState(id);
       markRead(id);
       // #42: operator-driven selection pushes a history entry; a popstate
@@ -1651,6 +1685,8 @@ export function createInboxOrgan(opts = {}) {
       const result = await shop.ingestEmail(args);
       await refreshList();
       if (result?.id) {
+        // The operator just created/ingested this ticket — a real row now.
+        protectedTicketId = null;
         selectedId = result.id;
         unreadIds.add(result.id);
       }
@@ -1664,6 +1700,7 @@ export function createInboxOrgan(opts = {}) {
       const result = await shop.ingestChat(args);
       await refreshList();
       if (result?.id) {
+        protectedTicketId = null;
         selectedId = result.id;
         unreadIds.add(result.id);
       }
@@ -1678,6 +1715,7 @@ export function createInboxOrgan(opts = {}) {
       await refreshList();
       const first = Array.isArray(result?.ingested) ? result.ingested[0] : null;
       if (first?.id) {
+        protectedTicketId = null;
         selectedId = first.id;
         unreadIds.add(first.id);
       }

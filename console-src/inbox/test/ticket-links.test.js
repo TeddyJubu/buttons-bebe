@@ -140,6 +140,77 @@ test("popstate replays the view as well as the ticket and clears an absent ticke
   assert.equal(restamped.kind, "replace");
 });
 
+test("a replay never carries stale facets into the restored view", async () => {
+  // The operator filters, then back lands on an unfiltered entry: the
+  // restored view must not inherit the dead facet, or ensureSelection
+  // snaps the popped ticket away.
+  const history = fakeHistory();
+  const organ = makeOrgan({
+    history,
+    shop: {
+      listTickets: async () => [projected(1), {...projected(2), channel: "email"}],
+      getTicket: async ({ticketId}) => [projected(1), projected(2)].find((row) => row.id === ticketId) || null,
+    },
+  });
+  await organ.ready();
+  await organ.selectChannel("email");
+  await organ.replayEntry({ticket: "gorgias:2", view: "all"});
+  const snap = organ.snapshot();
+  assert.equal(snap.channelId, "", "the replay clears the facet filters");
+  assert.equal(snap.selectedId, "gorgias:2", "the popped ticket survives selection");
+});
+
+test("a replayed ticket outside the rendered rows stays put until getTicket resolves", async () => {
+  // Back/forward to an entry whose ticket is not in the current rows: the
+  // replay must keep it selected (thread resolves it, or shows not-found)
+  // — never snap to the first visible row and restamp over the entry.
+  const history = fakeHistory();
+  const organ = makeOrgan({
+    history,
+    shop: {
+      listTickets: async () => [projected(1)],
+      getTicket: async ({ticketId}) => (ticketId === "gorgias:7" ? projected(7) : null),
+    },
+  });
+  await organ.ready();
+  await organ.selectTicket("gorgias:1");
+  await organ.replayEntry({ticket: "gorgias:7", view: "all"});
+  assert.equal(organ.snapshot().selectedId, "gorgias:7", "the replayed id is not snapped away");
+  const last = history.entries.at(-1);
+  assert.equal(last.ticket, "gorgias:7", "the popped entry keeps its ticket");
+  assert.match(organ.snapshot().html, /data-ticket-id-badge="gorgias:7"/, "the thread renders the resolved ticket");
+});
+
+test("an overlapping replay applies only the latest entry", async () => {
+  // Rapid back/forward: an earlier replay's refreshes must not overwrite
+  // the newest replay's thread. The slow path is armed only after ready()
+  // so the initial load never hangs.
+  const history = fakeHistory();
+  let slowTicket = false;
+  const slow = {resolve: null};
+  const organ = makeOrgan({
+    history,
+    shop: {
+      listTickets: async () => [projected(1), projected(2)],
+      getTicket: async ({ticketId}) => {
+        if (slowTicket && ticketId === "gorgias:1") {
+          return new Promise((resolve) => { slow.resolve = () => resolve(projected(1)); });
+        }
+        return ticketId === "gorgias:1" ? projected(1) : projected(2);
+      },
+    },
+  });
+  await organ.ready();
+  slowTicket = true;
+  const first = organ.replayEntry({ticket: "gorgias:1", view: "all"});
+  // The second replay must invalidate the first even while it hangs.
+  await organ.replayEntry({ticket: "gorgias:2", view: "all"});
+  slow.resolve?.();
+  await first;
+  assert.equal(organ.snapshot().selectedId, "gorgias:2", "the stale replay does not win");
+  assert.match(organ.snapshot().html, /data-ticket-id-badge="gorgias:2"/, "the thread shows the latest replay's ticket");
+});
+
 test("the copy link derives from the mounted path boot reports", async () => {
   // The review server serves the SPA at /, production at /inbox/ — the
   // copied deep link must carry the real mount path, not a hardcoded one.

@@ -265,7 +265,9 @@ def test_demo_mode_blocks_a_production_console_url() -> None:
         "DEMO_MODE": "1",
         "WHATSAPP_SEND_URL": "http://127.0.0.1:8185/connect-whatsapp/demo/send",
         "WHATSAPP_TICKET_BASE_URL": "http://127.0.0.1:8100/demo/tickets",
-        # SUPPORT_TICKET_BASE_URL left at the production default.
+        # Set explicitly so a sourced demo/.env in the ambient environment
+        # cannot leak a loopback value in and mask the fail-closed rule.
+        "SUPPORT_TICKET_BASE_URL": "https://support.buttonsbebe.com/inbox/",
         "WA_SEND_SECRET": AUTH_SECRET,
     }, clear=False), patch("whatsapp_notifier.urllib.request.urlopen") as urlopen:
         assert send_whatsapp(1, "subject", "demo@example.com", "summary", "reason") is False
