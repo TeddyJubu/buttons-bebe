@@ -1065,12 +1065,14 @@ export function createInboxOrgan(opts = {}) {
 
   // #40: the collapsed rail strip names what it hides — the customer pane
   // and the returns pane, with an open-return marker when one is in flight.
-  // cubic: the marker derives from the selected ticket's snapshot, not the
-  // rail tissue's last-loaded models — those go stale on the observed path
-  // when the next ticket carries no snapshot.
+  // The marker follows the path: observed tickets read their own snapshot
+  // (the rail's cached models go stale there when the next ticket carries
+  // no snapshot); connected tickets read the rail's live-loaded models.
   function railCollapsedHtml() {
-    const snapshot = shopifyRailSnapshot(selectedTicket());
-    const openReturn = Boolean(projectReturns(snapshot?.returns || null).inProgress);
+    const ticket = selectedTicket();
+    const openReturn = ticket?.projectionSource
+      ? Boolean(projectReturns(shopifyRailSnapshot(ticket)?.returns || null).inProgress)
+      : Boolean(rail.snapshot().models?.returns?.inProgress);
     return `<div class="pane-inner">
       <button type="button" class="rail-expand-btn" data-rail-expand aria-label="Expand customer rail" title="Show customer rail">
         ${RAIL_EXPAND_ICON}

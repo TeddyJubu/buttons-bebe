@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createInboxOrgan } from "../js/inbox.js";
 import { MAILBOX_TOPICS } from "../js/contracts.js";
+import { createHelpdeskClient } from "../js/shop/helpdesk-client.js";
+import { createHelpdeskShop } from "../js/shop/helpdesk-shop.js";
 import { forbiddenControlHits } from "../js/util.js";
 
 // Issue #40: the collapsed panes must stay useful. The list strip shows the
@@ -9,6 +14,37 @@ import { forbiddenControlHits } from "../js/util.js";
 // including the observed/production inbox — and its strip names what it
 // hides. Collapse state persists in the browser store across reloads.
 const OPERATOR = "operator@example.test";
+
+// The connected path runs against the same sample helpdesk the
+// helpdesk-shop tests use — t-ada-track carries an OPEN return.
+const here = dirname(fileURLToPath(import.meta.url));
+const helpdeskRoot = join(here, "../../helpdesk-agent");
+const selectedPython = process.env.INBOX_PYTHON || process.env.PYTHON || "python3";
+const python = selectedPython.includes("/") ? resolve(process.cwd(), selectedPython) : selectedPython;
+function clientFromPython(source = "sample") {
+  return createHelpdeskClient({
+    invoke(tool, args) {
+      const argv = [python, "-m", "helpdesk", "get-ticket", "--ticket-id", String(args.ticketId)];
+      const map = {
+        "helpdesk.list_tickets": ["list-tickets", "--view", String(args.view || "open"), "--limit", String(args.limit || 20)],
+        "helpdesk.get_customer": ["get-customer", "--shop", args.shop, "--customer-id", args.customerId],
+        "helpdesk.get_order": ["get-order", "--shop", args.shop, "--order-id", args.orderId],
+        "helpdesk.get_returns": ["get-returns", "--shop", args.shop, "--order-id", args.orderId],
+        "helpdesk.list_past_orders": ["list-past-orders", "--shop", args.shop, "--customer-id", args.customerId],
+      };
+      const tail = map[tool];
+      if (!tail) throw new Error(`tool ${tool} needs no CLI coverage here`);
+      argv.splice(2, argv.length - 2, ...tail);
+      const result = spawnSync(argv[0], argv.slice(1), {
+        cwd: helpdeskRoot,
+        encoding: "utf8",
+        env: {...process.env, PYTHONPATH: helpdeskRoot, HELPDESK_SOURCE: source},
+      });
+      assert.equal(result.error, undefined, result.stderr);
+      return JSON.parse(result.stdout);
+    },
+  });
+}
 
 function observedShop(rows) {
   return {
@@ -130,6 +166,21 @@ test("the open-return marker follows the selected ticket", async () => {
   await organ.selectTicket("gorgias:2");
   const html = organ.snapshot().html;
   assert.doesNotMatch(html, /data-strip-return="open"/, "ticket 2 carries no return marker");
+});
+
+test("the connected rail's open-return marker reads the loaded models", async () => {
+  // cubic round 2: the observed-path fix read only the ticket snapshot, but
+  // connected tickets carry no shopifyRail — their returns come from the
+  // rail tissue's live load. The marker must survive on that path too.
+  const shop = createHelpdeskShop({client: clientFromPython("sample"), shop: "demo-helpdesk.example"});
+  const organ = createInboxOrgan({shop, storage: freshStorage()});
+  await organ.ready();
+  // t-ada-track's order has an OPEN return in the sample shop.
+  const ada = (await shop.listTickets({view: "all", limit: 50})).find((row) => row.id === "t-ada-track");
+  assert.ok(ada, "the sample shop lists t-ada-track");
+  await organ.selectTicket(ada.id);
+  await organ.collapseRail(true);
+  assert.match(organ.snapshot().html, /data-strip-return="open"/, "the connected rail marks its live open return");
 });
 
 test("collapse state persists across organ instances", async () => {
