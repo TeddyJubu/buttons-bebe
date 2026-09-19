@@ -190,7 +190,7 @@ export function createListTissue({ mailbox }) {
             <button type="button" class="list-tool-btn${filterActive(next) ? " is-active" : ""}" data-list-filter title="Filter" aria-label="Filter" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen || filterActive(next) ? "true" : "false"}">${ICON_FILTER}</button>
             ${renderFilterMenu(next)}
           </div>` : ""}
-          <button type="button" class="list-tool-btn" data-list-sort title="Sort ${(model.sortId || "default") === "oldest" ? "newest first" : (model.sortId || "default") === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
+          <button type="button" class="list-tool-btn" data-list-sort title="Sort ${(next.sortId || "default") === "oldest" ? "newest first" : (next.sortId || "default") === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
           <button type="button" class="list-tool-btn" data-list-collapse title="Collapse list" aria-label="Collapse ticket list">${ICON_CLOSE}</button>
         </div>
       </div>

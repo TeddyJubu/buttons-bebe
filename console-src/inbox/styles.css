@@ -339,7 +339,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 /* #39 review: each row is a wrapper (positioning context + role=listitem)
  * holding the checkbox sibling and the row button. The checkbox gets its
  * own reserved slot left of the row content — no overlap. */
-.ticket-item { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; }
+.ticket-item { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; border-bottom: 1px solid var(--line); }
 .ticket-select { margin: 13px 0 0 8px; width: 14px; height: 14px; accent-color: var(--accent); }
 /* #39: the All-selected bar. */
 .bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--paper); }
@@ -352,7 +352,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   display: block;
   padding: 12px 16px 12px 18px;
   border: 0;
-  border-bottom: 1px solid var(--line);
   background: transparent;
   text-align: left;
   transition:

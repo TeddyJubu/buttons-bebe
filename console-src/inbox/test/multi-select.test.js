@@ -101,11 +101,13 @@ test("export neutralizes formula-shaped customer fields and escapes CR/LF", asyn
     projected(1),
     {...projected(2), subject: "=cmd|' /C calc'!A0"},
     {...projected(3), subject: "line1\r\nline2"},
+    {...projected(4), subject: 'Needs a "quote", a comma'},
   ];
   const downloads = freshDownloads();
   const handle = await organ({shop: observedShop(rows), downloads});
   await handle.toggleSelect("gorgias:2");
   await handle.toggleSelect("gorgias:3");
+  await handle.toggleSelect("gorgias:4");
   await handle.bulkExport();
   const [file] = downloads.downloads;
   const lines = file.text.split("\n");
@@ -115,9 +117,12 @@ test("export neutralizes formula-shaped customer fields and escapes CR/LF", asyn
   // CR/LF inside a cell collapse to a space so the row stays one physical
   // CSV line — row structure survives hostile cell content, and the text
   // stays readable instead of showing escape markers.
-  assert.equal(lines.length, 3, "header + both selected rows; the CRLF row stays on one line");
   assert.ok(lines[2].includes("line1 line2"));
   assert.ok(!/\r/.test(file.text), "no raw CR anywhere in the file");
+  // Comma/quote cells wrap in quotes with doubled inner quotes so the row
+  // still parses back to one subject cell.
+  assert.ok(lines[3].includes('"Needs a ""quote"", a comma"'), "quote/comma cell is quoted with doubled quotes");
+  assert.equal(lines.length, 4, "header + three selected rows, each on one line");
 });
 
 test("export keeps the observed assignee address, not the synthetic display value", async () => {
