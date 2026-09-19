@@ -28,6 +28,7 @@ import { createHelpdeskShop } from "./shop/production-shop.js";
 import { createComposerTissue } from "./tissues/composer.js";
 import { createListTissue } from "./tissues/list.js";
 import { createRailOrgan } from "./tissues/rail.js";
+import { projectReturns } from "./tissues/returns.js";
 import { createThreadTissue } from "./tissues/thread.js";
 import { esc, formatWhen, forbiddenControlHits, GATE_CONFIRM_LABEL } from "./util.js";
 
@@ -734,9 +735,14 @@ export function createInboxOrgan(opts = {}) {
       return {list: false, rail: false};
     }
   }
-  function persistCollapseState() {
+  // cubic: persist only the field this organ actually changed — writing the
+  // whole record would overwrite another tab's fresh choice with this
+  // organ's stale value for the untouched pane.
+  function persistCollapseState(changed) {
     try {
-      storage?.setItem?.(COLLAPSE_KEY, JSON.stringify({list: listCollapsed, rail: railCollapsed}));
+      const current = loadCollapseState();
+      current[changed] = changed === "list" ? listCollapsed : railCollapsed;
+      storage?.setItem?.(COLLAPSE_KEY, JSON.stringify(current));
     } catch {
       /* private-mode storage quota is not an inbox error */
     }
@@ -1059,14 +1065,18 @@ export function createInboxOrgan(opts = {}) {
 
   // #40: the collapsed rail strip names what it hides — the customer pane
   // and the returns pane, with an open-return marker when one is in flight.
+  // cubic: the marker derives from the selected ticket's snapshot, not the
+  // rail tissue's last-loaded models — those go stale on the observed path
+  // when the next ticket carries no snapshot.
   function railCollapsedHtml() {
-    const openReturn = Boolean(rail.snapshot().models?.returns?.inProgress);
+    const snapshot = shopifyRailSnapshot(selectedTicket());
+    const openReturn = Boolean(projectReturns(snapshot?.returns || null).inProgress);
     return `<div class="pane-inner">
       <button type="button" class="rail-expand-btn" data-rail-expand aria-label="Expand customer rail" title="Show customer rail">
         ${RAIL_EXPAND_ICON}
         <span class="rail-expand-label">Customer</span>
       </button>
-      <button type="button" class="rail-expand-btn rail-expand-returns" data-rail-expand aria-label="Expand customer rail" title="Show customer rail">
+      <button type="button" class="rail-expand-btn rail-expand-returns" data-rail-expand aria-label="Expand customer rail — Returns" title="Show the returns pane">
         ${RAIL_EXPAND_ICON}
         <span class="rail-expand-label">Returns</span>
         ${openReturn ? `<span class="rail-strip-return" data-strip-return="open" title="An open return is in flight" role="img" aria-label="Open return in flight">●</span>` : ""}
@@ -1582,12 +1592,12 @@ export function createInboxOrgan(opts = {}) {
     };
     mailbox.subscribe(MAILBOX_TOPICS.LIST_COLLAPSED, ({ collapsed }) => {
       listCollapsed = Boolean(collapsed);
-      persistCollapseState();
+      persistCollapseState("list");
       paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.RAIL_COLLAPSED, ({ collapsed }) => {
       railCollapsed = Boolean(collapsed);
-      persistCollapseState();
+      persistCollapseState("rail");
       paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.VIEW_SELECTED, ({ viewId: next }) => {
@@ -1772,7 +1782,7 @@ export function createInboxOrgan(opts = {}) {
     root.onclick = (event) => {
       if (event.target.closest("[data-rail-expand]")) {
         railCollapsed = false;
-        persistCollapseState();
+        persistCollapseState("rail");
         paint();
         return;
       }
@@ -1780,7 +1790,7 @@ export function createInboxOrgan(opts = {}) {
       // carries its toolbar's collapse click itself.
       if (event.target.closest("[data-rail-collapse]")) {
         railCollapsed = true;
-        persistCollapseState();
+        persistCollapseState("rail");
         paint();
         return;
       }
@@ -1923,12 +1933,12 @@ export function createInboxOrgan(opts = {}) {
     },
     collapseList(collapsed = true) {
       listCollapsed = Boolean(collapsed);
-      persistCollapseState();
+      persistCollapseState("list");
       return afterUi();
     },
     collapseRail(collapsed = true) {
       railCollapsed = Boolean(collapsed);
-      persistCollapseState();
+      persistCollapseState("rail");
       return afterUi();
     },
     toggleRail(key) {

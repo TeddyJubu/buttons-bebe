@@ -114,6 +114,24 @@ test("the collapsed rail strip marks an open return", async () => {
   assert.match(html, /data-strip-return="open"/, "the strip marks the open return");
 });
 
+test("the open-return marker follows the selected ticket", async () => {
+  // cubic: selecting a return ticket loaded the snapshot into the rail's
+  // cached models; moving to a ticket without one left the stale open-return
+  // dot on the collapsed strip. The marker must derive from the current
+  // ticket's snapshot, not the rail tissue's last-loaded models.
+  const storage = freshStorage();
+  const railSnapshot = {customer: {id: "c-1"}, returns: {returns: {nodes: [{id: "r-1", status: "OPEN"}]}}};
+  const rows = [observedRow(1, {shopifyRail: {status: "ok", ...railSnapshot}}), observedRow(2)];
+  const organ = createInboxOrgan({shop: observedShop(rows), storage});
+  await organ.ready();
+  await organ.selectTicket("gorgias:1");
+  await organ.collapseRail(true);
+  assert.match(organ.snapshot().html, /data-strip-return="open"/, "ticket 1 marks the open return");
+  await organ.selectTicket("gorgias:2");
+  const html = organ.snapshot().html;
+  assert.doesNotMatch(html, /data-strip-return="open"/, "ticket 2 carries no return marker");
+});
+
 test("collapse state persists across organ instances", async () => {
   const storage = freshStorage();
   const first = createInboxOrgan({shop: observedShop(observedRows), storage});
@@ -128,13 +146,32 @@ test("collapse state persists across organ instances", async () => {
   assert.match(html, /class="pane pane-rail is-collapsed"/, "the rail stays collapsed after reload");
 });
 
+test("two instances do not erase each other's collapse choices", async () => {
+  // cubic: tab A collapses the list, tab B collapses the rail. B's persist
+  // used to overwrite the whole record with its stale list value, so A's
+  // choice vanished on reload. Each write must preserve the other field.
+  const storage = freshStorage();
+  const tabA = createInboxOrgan({shop: observedShop(observedRows), storage});
+  const tabB = createInboxOrgan({shop: observedShop(observedRows), storage});
+  await tabA.ready();
+  await tabB.ready();
+  await tabA.collapseList(true);
+  await tabB.collapseRail(true);
+  // A reload in either tab reads the merged record.
+  const reloaded = createInboxOrgan({shop: observedShop(observedRows), storage});
+  await reloaded.ready();
+  assert.equal(reloaded.snapshot().listCollapsed, true, "the list choice survives the other tab's write");
+  assert.equal(reloaded.snapshot().railCollapsed, true, "the rail choice survives the other tab's write");
+});
+
 test("the collapsed list strip keeps keyboard-reachable controls", async () => {
   const storage = freshStorage();
   const organ = createInboxOrgan({shop: observedShop(observedRows), storage});
   await organ.ready();
   await organ.collapseList(true);
   const html = organ.snapshot().html;
-  // A visible focus ring exists for the strip's only interactive control.
-  assert.match(html, /data-list-expand[^>]*aria-label="Expand ticket list"/);
+  // A visible focus ring exists for the strip's only interactive control, and
+  // the accessible name carries the view/count/unread signal (cubic).
+  assert.match(html, /data-list-expand[^>]*aria-label="Expand ticket list \(/);
   assert.doesNotMatch(html, /tabindex="-1"[^>]*data-list-expand/, "the expand control is never focus-removed");
 });
