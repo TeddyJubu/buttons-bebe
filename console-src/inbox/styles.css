@@ -445,7 +445,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .title-edit { margin-left: 6px; padding: 1px 6px; font-size: 11px; color: var(--mute); background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
 .title-edit:hover { color: var(--ink); border-color: var(--mute); }
 .thread-rename { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.thread-rename-input { min-width: 0; flex: 1 1 200px; max-width: 340px; padding: 3px 8px; font-size: 13px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface); }
+.thread-rename-input { min-width: 0; flex: 1 1 200px; max-width: 340px; padding: 3px 8px; font-size: 13px; color: var(--ink); border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface); }
 .thread-request { font-size: 12px; margin-top: 4px; }
 .thread-request-row {
   display: flex;

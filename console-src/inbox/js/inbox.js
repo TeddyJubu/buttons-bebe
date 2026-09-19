@@ -111,25 +111,34 @@ export function createInboxOrgan(opts = {}) {
     }
   }
   let titles = loadTitles();
+  // #41: ids deleted by this organ since load. Removals win over the two-tab
+  // merge so a cleared rename can never be resurrected by a later persist.
+  const removedTitleIds = new Set();
+  // Fallback titles get the same guard as typed renames: collapsed
+  // whitespace, trimmed, capped at 120 — the derived line stays one row.
+  function screenTitle(raw) {
+    return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  }
   function derivedTitle(ticket) {
     if (!ticket) return "New ticket";
     const record = titles[ticket.id];
     // #41: records carry {title, by, at}; a bare string is a pre-#41 entry.
     const stored = typeof record === "string" ? record : record?.title;
-    if (typeof stored === "string" && stored.trim()) return stored;
-    const orderName = ticket.shopifyRail?.order?.name;
-    if (typeof orderName === "string" && orderName.trim()) return orderName;
-    const subject = typeof ticket.subject === "string" ? ticket.subject.trim() : "";
+    if (typeof stored === "string" && stored.trim()) return screenTitle(stored);
+    const orderName = screenTitle(ticket.shopifyRail?.order?.name);
+    if (orderName) return orderName;
+    const subject = screenTitle(ticket.subject);
     if (subject && subject.toLowerCase() !== "no subject") return subject;
     return "New ticket";
   }
   function persistTitles() {
     try {
       // Two-tab safety mirrors the read store: merge stored keys this organ
-      // has not itself changed, then write.
+      // has not itself changed, then write. A cleared rename is never merged
+      // back — removals win over the merge so they stick.
       const stored = loadTitles();
       for (const [id, value] of Object.entries(stored)) {
-        if (!(id in titles)) titles[id] = value;
+        if (!(id in titles) && !removedTitleIds.has(id)) titles[id] = value;
       }
       storage?.setItem?.(TITLE_KEY, JSON.stringify(titles));
     } catch {
@@ -139,8 +148,14 @@ export function createInboxOrgan(opts = {}) {
   // #41: who/when travel with the title — the store is auditable without a
   // server. The observed operator email is recorded, never invented.
   function writeTitle(ticketId, raw) {
-    const title = String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-    if (!title) return;
+    const title = screenTitle(raw);
+    if (!title) {
+      // Clearing the rename deletes the record; the derived fallback shows.
+      delete titles[ticketId];
+      removedTitleIds.add(ticketId);
+      persistTitles();
+      return;
+    }
     titles[ticketId] = {
       title,
       by: String(opts.operatorEmail ?? shop.operatorEmail ?? "operator").trim().toLowerCase() || "operator",
@@ -566,6 +581,12 @@ export function createInboxOrgan(opts = {}) {
         const ticket = await shop.getTicket({ ticketId: id });
         if (ticket) {
           selected = shop.observedHistory ? withOperatorAssignee(ticket) : ticket;
+          // #41: the detail fetch carries the rail snapshot (order name), so
+          // the selected row's title can match the thread's. Rows this organ
+          // never opened keep the bare list summary — projection.py only
+          // attaches the rail on get_ticket.
+          const row = listRows.find((rowTicket) => rowTicket.id === id);
+          if (row && ticket.shopifyRail) row.shopifyRail = ticket.shopifyRail;
           return;
         }
       } catch {

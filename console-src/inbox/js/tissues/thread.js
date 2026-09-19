@@ -25,7 +25,9 @@ export function createThreadTissue({ mailbox }) {
   function project(input) {
     // #41: `title` is the organ-derived display title (first-party rename →
     // linked order name → subject → "New ticket"); the rename control
-    // publishes, the organ owns the store.
+    // publishes, the organ owns the store. `ticket` being swapped for a new
+    // object by refresh is normal — but the open rename editor keeps its
+    // draft: a mid-edit repaint (bridge poll) must not wipe the typing.
     return { ticket: input.ticket || null, capabilities: input.capabilities || {}, title: input.title || "" };
   }
 
@@ -142,7 +144,7 @@ export function createThreadTissue({ mailbox }) {
     // #41: the derived title line, or the inline rename editor when open.
     const titleLine = renaming?.ticketId === ticket.id
       ? `<p class="thread-subject thread-rename" data-ticket-title="${esc(renaming.original)}">
-          <input class="thread-rename-input" data-rename-input value="${esc(renaming.original)}" maxlength="120" aria-label="Ticket title">
+          <input class="thread-rename-input" data-rename-input value="${esc(renaming.draft ?? renaming.original)}" maxlength="120" aria-label="Ticket title">
           <button type="button" class="btn-hairline" data-rename-save title="Save the title in your browser only">Save</button>
           <button type="button" class="btn-quiet" data-rename-cancel title="Keep the current title">Cancel</button>
         </p>`
@@ -176,13 +178,19 @@ export function createThreadTissue({ mailbox }) {
 
   function paint() {
     if (!host) return;
+    const wasRenaming = Boolean(renaming) && Boolean(host.querySelector?.("[data-rename-input]"));
     host.innerHTML = render(model);
-    // #41: reopening the editor after a repaint refocuses and selects so a
-    // reload never strands a half-open rename.
+    // #41: reopening the editor after a repaint refocuses. A mid-edit
+    // repaint keeps the draft (render uses renaming.draft) and moves the
+    // caret to the end — select-all would wipe the operator's typing.
     const editInput = host.querySelector("[data-rename-input]");
     if (editInput) {
       editInput.focus();
-      editInput.select();
+      if (wasRenaming) {
+        editInput.setSelectionRange?.(editInput.value.length, editInput.value.length);
+      } else {
+        editInput.select();
+      }
     }
   }
 
@@ -203,8 +211,14 @@ export function createThreadTissue({ mailbox }) {
         renaming = {
           ticketId: renameOpen.dataset.ticketId,
           original: renameOpen.dataset.ticketTitle || "",
+          draft: renameOpen.dataset.ticketTitle || "",
         };
         paint();
+        return;
+      }
+      const renameInput = event.target.closest?.("[data-rename-input]");
+      if (renameInput) {
+        // #41: clicks inside the input do nothing; the input event owns drafts.
         return;
       }
       const renameCancel = event.target.closest("[data-rename-cancel]");
@@ -257,6 +271,11 @@ export function createThreadTissue({ mailbox }) {
       const button = event.target.closest("[data-summarize]");
       if (!button) return;
       mailbox.publish(MAILBOX_TOPICS.COMPOSER_SUMMARIZE, { ticketId: button.dataset.summarize });
+    };
+    el.oninput = (event) => {
+      // #41: keep the typed draft so a mid-edit repaint re-renders it.
+      const input = event.target.closest?.("[data-rename-input]");
+      if (input && renaming) renaming.draft = input.value;
     };
     el.onkeydown = (event) => {
       if (event.key === "Escape" && lightbox) {

@@ -99,11 +99,63 @@ test("an empty or whitespace rename falls back to the derived title instead of b
   assert.equal(snap.titles["gorgias:1"], undefined, "nothing is stored for an empty rename");
 });
 
+test("clearing an existing rename removes it and falls back to the derived title", async () => {
+  const storage = freshStorage();
+  const handle = makeOrgan({storage});
+  await handle.ready();
+  await handle.renameTicket("gorgias:1", "Christmas order");
+  const cleared = await handle.renameTicket("gorgias:1", "   ");
+  assert.match(cleared.html, /data-ticket-title="Subject 1"/, "the rename is gone; the subject shows again");
+  assert.equal(cleared.titles["gorgias:1"], undefined, "the record is deleted, not kept");
+  // And the deletion survives a reload over the same storage.
+  const reloaded = makeOrgan({storage});
+  assert.equal((await reloaded.ready()).titles["gorgias:1"], undefined, "the deletion persists");
+});
+
+test("derived fallbacks get the same guard: whitespace collapses and length caps", async () => {
+  const handle = makeOrgan({
+    shop: {
+      listTickets: async () => [projected(1, {subject: "  Where   is\n\nmy parcel? "}), projected(2, {subject: "x".repeat(200)})],
+      getTicket: async ({ticketId}) => [
+        projected(1, {subject: "  Where   is\n\nmy parcel? "}),
+        projected(2, {subject: "x".repeat(200)}),
+      ].find((r) => r.id === ticketId) || null,
+    },
+  });
+  const snap = await handle.ready();
+  assert.match(snap.html, /data-ticket-title="Where is my parcel\?"/, "fallback whitespace collapses");
+  assert.doesNotMatch(snap.html, /data-ticket-title="x{121,}"/, "fallback caps at 120");
+  assert.match(snap.html, /data-ticket-title="x{120}"/, "exactly 120 survives");
+});
+
 test("the rename guard trims, collapses whitespace and caps length", async () => {
   const handle = makeOrgan();
   await handle.ready();
-  const snap = await handle.renameTicket("gorgias:1", "  A   very long  \n");
-  assert.equal(snap.titles["gorgias:1"].title, "A very long", "trimmed and collapsed");
+  const snap = await handle.renameTicket("gorgias:1", "y".repeat(140));
+  assert.equal(snap.titles["gorgias:1"].title, "y".repeat(120), "capped at 120");
+  const collapsed = await handle.renameTicket("gorgias:1", "  A   very long  \n");
+  assert.equal(collapsed.titles["gorgias:1"].title, "A very long", "trimmed and collapsed");
+});
+
+test("a cleared rename stays cleared through later persists in the same session", async () => {
+  // The two-tab merge re-adds stored keys this organ lacks — a deletion must
+  // not be resurrected by that merge on the NEXT persist (rename another
+  // ticket, clear a different one, any later write).
+  const storage = freshStorage();
+  const handle = makeOrgan({
+    storage,
+    shop: {
+      listTickets: async () => [projected(1), projected(2)],
+      getTicket: async ({ticketId}) => [projected(1), projected(2)].find((r) => r.id === ticketId) || null,
+    },
+  });
+  await handle.ready();
+  await handle.renameTicket("gorgias:1", "Christmas order");
+  await handle.renameTicket("gorgias:1", "   ");
+  await handle.renameTicket("gorgias:2", "Mine");
+  const store = JSON.parse(storage.getItem("bb-inbox-titles-v1") || "{}");
+  assert.equal(store["gorgias:1"], undefined, "the merge never resurrects a cleared rename");
+  assert.equal(store["gorgias:2"].title, "Mine");
 });
 
 test("a rename records who renamed it and when", async () => {
