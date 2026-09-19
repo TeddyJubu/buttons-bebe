@@ -69,6 +69,7 @@ class IntakeTests(unittest.TestCase):
         ticket = dispatch("helpdesk.get_ticket", {"ticketId": payload["ticketId"]})["ticket"]
         self.assertTrue(ticket["spam"])
         self.assertEqual(ticket["spamSource"], "intake-keywords")
+        self.assertEqual(ticket["messages"][0]["body"], PRIZE_SPAM["body"])
         for view in ("all", "open", "mine", "unassigned", "snoozed", "closed"):
             listed = dispatch("helpdesk.list_tickets", {"view": view, "limit": 100})["tickets"]
             self.assertFalse(any("prize" in f"{row['subject']} {row['snippet']}".lower() for row in listed), view)

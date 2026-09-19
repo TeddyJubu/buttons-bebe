@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from helpdesk.dispatch import dispatch, invoke
-from helpdesk.fixtures_intake import PRIZE_SPAM
+from helpdesk.fixtures_intake import ADA_TRACKING, PRIZE_SPAM
 from helpdesk.names import TOOL_INGEST_CHAT, TOOL_INGEST_EMAIL
 from helpdesk.tickets import reset as reset_tickets, ticket_in_view
 
@@ -79,8 +79,13 @@ class SpamParityTests(unittest.TestCase):
         ticket = dispatch("helpdesk.get_ticket", {"ticketId": payload["ticketId"]})["ticket"]
         self.assertIsNone(ticket["customerId"], "spam never joins Shopify")
         self.assertIsNone(ticket["orderId"], "spam never joins Shopify")
-        refused = invoke("helpdesk.send", {"ticketId": payload["ticketId"]})
-        self.assertEqual(refused["error"], "forbidden")
+        # Sends are locked by the global mutation gate, not by spam flags —
+        # pin that the refusal happens for any ticket while mutations are off.
+        plain = dispatch(TOOL_INGEST_EMAIL, ADA_TRACKING)
+        for tool in ("helpdesk.send", "helpdesk.refund", "helpdesk.cancel"):
+            for ticket_id in (payload["ticketId"], plain["ticketId"]):
+                refused = invoke(tool, {"ticketId": ticket_id})
+                self.assertEqual(refused["error"], "forbidden", tool)
 
 
 if __name__ == "__main__":

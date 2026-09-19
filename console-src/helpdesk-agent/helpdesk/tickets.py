@@ -2,7 +2,9 @@
 
 Ticket status is ours: open / closed / snoozed.
 Never Return.status OPEN and never Customer.displayName.
-Spam never becomes a ticket and never appears in list_tickets.
+Spam/trash are flag buckets, not statuses (#33): spam intake files a
+reviewable ticket in the Spam view, and every working view (all included)
+excludes flagged rows.
 """
 
 from __future__ import annotations
@@ -811,6 +813,10 @@ def _row(ticket: dict, gid_source: str = "sample") -> dict:
         "requestType": typed,
         "severity": severity,
         "device": device,
+        # #33: list rows carry the flags so a Spam/Trash view listing can
+        # re-filter client-side exactly like the JS view-model does.
+        "spam": ticket.get("spam") is True,
+        "trashed": ticket.get("trashed") is True,
     }
 
 

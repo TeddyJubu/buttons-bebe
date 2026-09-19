@@ -155,6 +155,21 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(len(ticket['messages']),100);self.assertTrue(ticket['truncated'])
         self.assertEqual(ticket['observedMessageCount'],103)
 
+    def test_metadata_counts_flagged_tickets_for_view_totals(self):
+        """#33: All-count must subtract flagged rows even beyond a loaded prefix."""
+        with sqlite3.connect(self.source) as db:
+            # Two spam tickets and one trashed ticket beyond ticket 1.
+            db.execute("INSERT INTO parsed_messages VALUES(2,'s1','customer','','','Spam one','email',NULL,NULL,NULL,NULL,1,0,0,'2099-01-02','2099-01-02',1,'Hello')")
+            db.execute("INSERT INTO parsed_messages VALUES(3,'s2','customer','','','Spam two','email',NULL,NULL,NULL,NULL,1,0,0,'2099-01-03','2099-01-03',1,'Hello')")
+            db.execute("INSERT INTO parsed_messages VALUES(4,'t1','customer','','','Trashed','email',NULL,NULL,NULL,NULL,0,1,0,'2099-01-04','2099-01-04',1,'Hello')")
+        meta=export(self.source,self.dest,now=self.now)
+        self.assertEqual(meta['ticketCount'],4)
+        self.assertEqual(meta['spamCount'],2)
+        self.assertEqual(meta['trashCount'],1)
+        status=query('helpdesk.projection_status',{},self.dest)['projection']
+        self.assertEqual(status['spamCount'],2)
+        self.assertEqual(status['trashCount'],1)
+
     def test_draft_lineage_withholds_superseded_customer_reply(self):
         with sqlite3.connect(self.source) as db:
             db.execute("INSERT INTO parsed_messages VALUES(1,'newer','customer','','','Followup','email',NULL,NULL,NULL,NULL,0,0,0,'2099-03-01','2099-03-01',1,'New question')")

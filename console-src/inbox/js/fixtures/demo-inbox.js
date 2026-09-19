@@ -634,6 +634,11 @@ export const IDS = {
 };
 
 export function ticketInView(ticket, viewId) {
+  // Mirrors the production view-model (#33): spam/trash are flag buckets
+  // that stay out of every working view, All included.
+  if (viewId === "spam") return ticket.spam === true;
+  if (viewId === "trash") return ticket.trashed === true;
+  if (ticket.spam === true || ticket.trashed === true) return false;
   if (viewId === "all") return true;
   if (viewId === "open") return ticket.status === "open";
   if (viewId === "mine") return ticket.assignee === "me" && ticket.status === "open";

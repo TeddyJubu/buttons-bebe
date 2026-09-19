@@ -73,3 +73,28 @@ test("spam rows keep their Spam badge and spam view copy stays honest", async ()
   assert.match(snap.html, /data-ticket="gorgias:3"/);
   assert.doesNotMatch(snap.html, /data-ticket="gorgias:1"/);
 });
+
+test("load more keeps flagged rows out of the working views and the All total exact", async () => {
+  // #33: a spam row beyond the first page must not leak into All after
+  // pagination, and the All total must subtract it even unfetched.
+  const rows = [];
+  for (let i = 0; i < 120; i++) {
+    rows.push(projected(`p${i}`, {status: "open"}));
+  }
+  rows.push(projected("spam-late", {spam: true}));
+  const shop = {
+    observedHistory: true, operatorEmail: OPERATOR,
+    projection: {generatedAt: "gen-1", stale: false, ticketCount: 121, spamCount: 1, trashCount: 0},
+    getCapabilities: async () => ({}),
+    listTickets: async ({offset, limit}) => rows.slice(offset, offset + limit),
+    getTicket: async ({ticketId}) => rows.find((row) => row.id === ticketId) || null,
+  };
+  const organ = createInboxOrgan({shop, viewId: "all"});
+  const first = await organ.ready();
+  assert.match(first.html, /Showing 100 of 120/);
+  assert.doesNotMatch(first.html, /data-ticket="gorgias:spam-late"/);
+  const more = await organ.loadMore();
+  // The row is loaded (raw prefix) but must stay out of the All render.
+  assert.doesNotMatch(more.html, /data-ticket="gorgias:spam-late"/);
+  assert.match(more.html, /Showing 121 of 120/);
+});

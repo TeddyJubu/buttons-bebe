@@ -231,6 +231,11 @@ export function createInboxOrgan(opts = {}) {
 
   function visibleTickets() {
     return listRows.filter((ticket) =>
+      // #33: on the observed path the view partition holds for every render,
+      // including rows appended by loadMore, so flagged rows never leak into
+      // working views. Server-filtered list rows carry no assignee field and
+      // are already view-filtered, so they must not be re-filtered here.
+      (!shop.observedHistory || ticketInView(ticket, viewId)) &&
       (!channelId || normalizeChannel(ticket?.channel) === channelId) &&
       (!statusId || normalizeStatus(ticket?.status) === statusId) &&
       assigneeMatches(ticket, assigneeId) &&
@@ -276,8 +281,11 @@ export function createInboxOrgan(opts = {}) {
           // Pagination reports the whole snapshot size, not the loaded prefix.
           // Spam/trash rows are excluded from All (#33), so the paginated
           // total is the working-view partition, not the raw snapshot count.
+          // Projection metadata carries exact flagged totals, so this holds
+          // even when the loaded prefix is smaller than the snapshot.
           counts.all = (shop.projection?.ticketCount ?? rows.length)
-            - counts.spam - counts.trash;
+            - (shop.projection?.spamCount ?? counts.spam)
+            - (shop.projection?.trashCount ?? counts.trash);
           projectionNotice = shop.projection?.stale
             ? "Observed history is stale; refresh is delayed."
             : "Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.";
@@ -614,10 +622,19 @@ export function createInboxOrgan(opts = {}) {
     paintListOnly?.();
     try {
       // Re-read the visible prefix so a newly published snapshot cannot cause
-      // duplicates or skipped tickets at an offset boundary.
+      // duplicates or skipped tickets at an offset boundary. listRows stays
+      // the raw prefix (pagination counts rows, not view members); the
+      // ticketInView filter in visibleTickets keeps flagged rows out of
+      // every render. The #33 All total subtracts exact flagged counts.
       const rows = await readObservedTickets(shop, listRows.length + 100);
       listRows = rows;
-      counts = {all: shop.projection?.ticketCount ?? rows.length};
+      const observed = viewCounts(rows);
+      counts = {
+        ...observed,
+        all: (shop.projection?.ticketCount ?? rows.length)
+          - (shop.projection?.spamCount ?? observed.spam)
+          - (shop.projection?.trashCount ?? observed.trash),
+      };
     } catch {
       moreError = "Could not load more tickets. Try again.";
     } finally {

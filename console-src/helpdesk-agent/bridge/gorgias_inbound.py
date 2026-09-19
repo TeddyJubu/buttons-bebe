@@ -136,7 +136,7 @@ def accept(payload: dict[str, Any] | None, *, invoke) -> dict[str, Any]:
             "message": result.get("message"),
         }
     if result.get("spam"):
-        return {"ok": True, "status": "spam", "http": 200, "ticketId": None}
+        return {"ok": True, "status": "spam", "http": 200, "ticketId": result.get("ticketId")}
     ticket_id = result.get("ticketId") or result.get("id")
     return {
         "ok": True,
