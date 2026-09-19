@@ -84,7 +84,7 @@ test("load more keeps flagged rows out of the working views and the All total ex
   rows.push(projected("spam-late", {spam: true}));
   const shop = {
     observedHistory: true, operatorEmail: OPERATOR,
-    projection: {generatedAt: "gen-1", stale: false, ticketCount: 121, spamCount: 1, trashCount: 0},
+    projection: {generatedAt: "gen-1", stale: false, ticketCount: 121, spamCount: 1, trashCount: 0, flaggedOverlap: 0},
     getCapabilities: async () => ({}),
     listTickets: async ({offset, limit}) => rows.slice(offset, offset + limit),
     getTicket: async ({ticketId}) => rows.find((row) => row.id === ticketId) || null,
@@ -94,7 +94,32 @@ test("load more keeps flagged rows out of the working views and the All total ex
   assert.match(first.html, /Showing 100 of 120/);
   assert.doesNotMatch(first.html, /data-ticket="gorgias:spam-late"/);
   const more = await organ.loadMore();
-  // The row is loaded (raw prefix) but must stay out of the All render.
+  // The row is loaded (raw prefix) but must stay out of the All render;
+  // pagination counts All-members (120), not raw rows (121).
   assert.doesNotMatch(more.html, /data-ticket="gorgias:spam-late"/);
-  assert.match(more.html, /Showing 121 of 120/);
+  assert.match(more.html, /Showing 120 of 120/);
+  assert.match(more.html, /All available tickets loaded/);
+});
+
+test("a both-flagged ticket leaves the All total once and spam view pagination shows its own domain", async () => {
+  // #33: spam∩trash subtracts once from All; the Spam view footer counts
+  // spam rows only, so it can say "all loaded" while All still paginates.
+  const rows = [projected(21, {status: "open"})];
+  for (let i = 0; i < 4; i++) rows.push(projected(`s${i}`, {spam: true}));
+  rows.push(projected("both", {spam: true, trashed: true}));
+  const shop = {
+    observedHistory: true, operatorEmail: OPERATOR,
+    projection: {generatedAt: "gen-1", stale: false, ticketCount: 6, spamCount: 5, trashCount: 1, flaggedOverlap: 1},
+    getCapabilities: async () => ({}),
+    listTickets: async ({offset, limit}) => rows.slice(offset, offset + limit),
+    getTicket: async ({ticketId}) => rows.find((row) => row.id === ticketId) || null,
+  };
+  const organ = createInboxOrgan({shop, viewId: "all"});
+  const snap = await organ.ready();
+  assert.match(snap.html, /Showing 1 of 1/);
+  assert.match(snap.html, /All available tickets loaded/);
+  const spam = await organ.selectView("spam");
+  assert.match(spam.html, /Showing 5 of 5/);
+  assert.match(spam.html, /All available tickets loaded/);
+  assert.doesNotMatch(spam.html, /data-load-more/);
 });

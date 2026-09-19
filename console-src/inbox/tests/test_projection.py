@@ -166,9 +166,20 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(meta['ticketCount'],4)
         self.assertEqual(meta['spamCount'],2)
         self.assertEqual(meta['trashCount'],1)
+        self.assertEqual(meta['flaggedOverlap'],0)
         status=query('helpdesk.projection_status',{},self.dest)['projection']
         self.assertEqual(status['spamCount'],2)
         self.assertEqual(status['trashCount'],1)
+
+    def test_metadata_counts_a_both_flagged_ticket_once(self):
+        """#33: a ticket that is both spam and trashed leaves All once."""
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(2,'b1','customer','','','Both','email',NULL,NULL,NULL,NULL,1,1,0,'2099-01-02','2099-01-02',1,'Hello')")
+        meta=export(self.source,self.dest,now=self.now)
+        self.assertEqual(meta['ticketCount'],2)
+        self.assertEqual(meta['spamCount'],1)
+        self.assertEqual(meta['trashCount'],1)
+        self.assertEqual(meta['flaggedOverlap'],1)
 
     def test_draft_lineage_withholds_superseded_customer_reply(self):
         with sqlite3.connect(self.source) as db:

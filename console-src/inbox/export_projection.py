@@ -221,6 +221,7 @@ def export(source, destination, *, now=None, group=None):
             metadata={'version':VERSION,'generatedAtEpoch':now,'generatedAt':datetime.fromtimestamp(now,timezone.utc).isoformat(),
                       'ticketCount':len(tickets),'windowDays':90,'ticketLimit':None,'messageLimit':100,'truncated':truncated,'historyIncomplete':True,
                       'spamCount':sum(1 for t in tickets if t.get('spam')),'trashCount':sum(1 for t in tickets if t.get('trashed')),
+                      'flaggedOverlap':sum(1 for t in tickets if t.get('spam') and t.get('trashed')),
                       'sourceWatermark':max((t['updatedAt'] for t in tickets),default=None)}
             db.execute('INSERT INTO metadata VALUES(1,?)',(json.dumps(metadata),))
             for ticket in tickets:
