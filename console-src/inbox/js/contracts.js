@@ -182,6 +182,8 @@
  * `assignee/selected`    { assigneeId } — observed-history assignee filter; never Send
  * `tag/selected`         { tagId } — observed-history tag filter; never Send
  * `list/selected`        { ticketId }
+ * `list/bulk-toggle`     { ticketId, shiftKey } — row checkbox toggle; never Send
+ * `list/sort-selected`   { sortId } — display order only ("default"|"newest"|"oldest"); never Send
  * `list/collapsed`       { collapsed: boolean }
  * `rail/collapsed`       { collapsed: boolean }
  * `composer/body`        { text }
@@ -217,6 +219,7 @@ export const MAILBOX_TOPICS = Object.freeze({
   TAG_SELECTED: "tag/selected",
   LIST_SELECTED: "list/selected",
   BULK_TOGGLE: "list/bulk-toggle",
+  SORT_SELECTED: "list/sort-selected",
   LIST_COLLAPSED: "list/collapsed",
   RAIL_COLLAPSED: "rail/collapsed",
   COMPOSER_BODY: "composer/body",

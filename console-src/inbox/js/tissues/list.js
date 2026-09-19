@@ -54,7 +54,9 @@ export function createListTissue({ mailbox }) {
     collapsed: false,
     unreadIds: [],
   };
-  let ui = { sort: "default", viewOpen: false, filterOpen: false };
+  // #39 review: sort state lives in the organ; the tissue mirrors the id it
+  // receives so the toolbar title matches what rendered.
+  let ui = { viewOpen: false, filterOpen: false };
   let host = null;
 
   function project(input) {
@@ -77,20 +79,9 @@ export function createListTissue({ mailbox }) {
       selectedTagId: typeof input.selectedTagId === "string" ? input.selectedTagId : "",
       collapsed: Boolean(input.collapsed),
       unreadIds: Array.isArray(input.unreadIds) ? input.unreadIds : [],
+      sortId: input.sortId || "default",
       bulkSelection: input.bulkSelection || null,
     };
-  }
-
-  function sortedTickets(tickets) {
-    let rows = Array.isArray(tickets) ? [...tickets] : [];
-    if (ui.sort === "newest" || ui.sort === "oldest") {
-      rows.sort((a, b) => {
-        const left = Date.parse(a.updatedAt || 0) || 0;
-        const right = Date.parse(b.updatedAt || 0) || 0;
-        return ui.sort === "oldest" ? left - right : right - left;
-      });
-    }
-    return rows;
   }
 
   function menuItem(attrs, on, label, count) {
@@ -199,7 +190,7 @@ export function createListTissue({ mailbox }) {
             <button type="button" class="list-tool-btn${filterActive(next) ? " is-active" : ""}" data-list-filter title="Filter" aria-label="Filter" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen || filterActive(next) ? "true" : "false"}">${ICON_FILTER}</button>
             ${renderFilterMenu(next)}
           </div>` : ""}
-          <button type="button" class="list-tool-btn" data-list-sort title="Sort ${ui.sort === "oldest" ? "newest first" : ui.sort === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
+          <button type="button" class="list-tool-btn" data-list-sort title="Sort ${(model.sortId || "default") === "oldest" ? "newest first" : (model.sortId || "default") === "newest" ? "oldest first" : "newest first"}" aria-label="Sort list">${ICON_SORT}</button>
           <button type="button" class="list-tool-btn" data-list-collapse title="Collapse list" aria-label="Collapse ticket list">${ICON_CLOSE}</button>
         </div>
       </div>
@@ -228,8 +219,10 @@ export function createListTissue({ mailbox }) {
   function renderRow(ticket, selectedId, unreadIds, bulk) {
     const on = ticket.id === selectedId;
     const unread = unreadIds.includes(ticket.id);
-    // #39: real checkbox, absolutely positioned over the row's left edge.
-    // It never opens the thread; the organ's toggleSelect owns the logic.
+    // #39 review: the checkbox is a SIBLING of the row button, not a child —
+    // input-in-button is invalid interactive nesting. The wrapper div gives
+    // the absolute-positioned controls their positioning context and the
+    // list its role=listitem children.
     const checked = Boolean(bulk?.ids?.includes(ticket.id));
     const selectHtml = `<input type="checkbox" class="ticket-select" data-select-ticket="${esc(ticket.id)}" aria-label="Select ticket for ${esc(listCustomerName(ticket))}" ${checked ? "checked" : ""}>`;
     const status = ticket.status || "";
@@ -275,8 +268,9 @@ export function createListTissue({ mailbox }) {
     const unreadHtml = unread
       ? `<span class="ticket-unread-dot" data-unread-dot role="img" aria-label="Unread"></span>`
       : "";
-    return `<button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
+    return `<div class="ticket-item" role="listitem">
       ${selectHtml}
+      <button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
       <span class="ticket-bar" aria-hidden="true"></span>
       ${unreadHtml}
       <span class="ticket-top">
@@ -298,7 +292,8 @@ export function createListTissue({ mailbox }) {
       </span>
       <span class="ticket-subject">${esc(ticket.subject)}</span>
       <span class="ticket-snippet">${esc(ticket.snippet || "")}</span>
-    </button>`;
+    </button>
+    </div>`;
   }
 
   function render(next = model) {
@@ -310,7 +305,8 @@ export function createListTissue({ mailbox }) {
         </button>
       </div>`;
     }
-    const tickets = sortedTickets(next.tickets);
+    // #39 review: the organ hands us the rendered order (sort applied there).
+    const tickets = next.tickets;
     const unreadIds = next.unreadIds || [];
     const bulk = next.bulkSelection;
     const rows = tickets.length
@@ -376,10 +372,12 @@ export function createListTissue({ mailbox }) {
         return;
       }
       if (event.target.closest("[data-list-sort]")) {
+        // #39 review: the organ owns the sort; publish and let it repaint.
+        const current = model.sortId || "default";
         const nextSort =
-          ui.sort === "default" ? "newest" : ui.sort === "newest" ? "oldest" : "default";
-        ui = { ...ui, sort: nextSort, viewOpen: false, filterOpen: false };
-        paint();
+          current === "default" ? "newest" : current === "newest" ? "oldest" : "default";
+        ui = { ...ui, viewOpen: false, filterOpen: false };
+        mailbox.publish(MAILBOX_TOPICS.SORT_SELECTED, { sortId: nextSort });
         return;
       }
       if (event.target.closest("[data-list-collapse]")) {
@@ -394,7 +392,6 @@ export function createListTissue({ mailbox }) {
       // to opening the thread.
       const selectBox = event.target.closest("[data-select-ticket]");
       if (selectBox) {
-        event.stopPropagation();
         mailbox.publish(MAILBOX_TOPICS.BULK_TOGGLE, {
           ticketId: selectBox.dataset.selectTicket,
           shiftKey: Boolean(event.shiftKey),

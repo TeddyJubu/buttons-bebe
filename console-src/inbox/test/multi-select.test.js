@@ -80,13 +80,106 @@ test("selecting via the organ toggles membership and shows the All-selected bar"
   assert.deepEqual(snap.bulkSelection.ids, ["gorgias:3"]);
 });
 
-test("shift-click range select spans the visible rows between anchor and target", async () => {
-  const handle = await organ();
-  let snap = await handle.toggleSelect("gorgias:1");
-  assert.deepEqual(snap.bulkSelection.ids, ["gorgias:1"]);
-  snap = await handle.toggleSelect("gorgias:4", {shiftKey: true});
-  // List sorts newest first: rows 4,3,2,1 — anchor 1 to target 4 spans all.
-  assert.deepEqual(snap.bulkSelection.ids, ["gorgias:1", "gorgias:2", "gorgias:3", "gorgias:4"]);
+test("shift-click range select spans the rendered rows between anchor and target", async () => {
+  // Discriminating case: the shop returns rows in an order that differs from
+  // the newest-first sort the operator applies, so the rendered order is
+  // 5,4,3,2,1 while the raw order is 3,1,4,2,5. Anchor 2, shift-click 4: the
+  // rendered span is 4,3,2 — the raw span would be just 4,2.
+  const rows = [projected(3), projected(1), projected(4), projected(2), projected(5)];
+  const handle = await organ({shop: observedShop(rows)});
+  const sorted = await handle.selectSort("newest");
+  assert.match(sorted.html, /data-ticket="gorgias:5"[\s\S]*?data-ticket="gorgias:4"[\s\S]*?data-ticket="gorgias:3"/, "rows render newest first");
+  await handle.toggleSelect("gorgias:2");
+  const snap = await handle.toggleSelect("gorgias:4", {shiftKey: true});
+  assert.deepEqual(snap.bulkSelection.ids.slice().sort(), ["gorgias:2", "gorgias:3", "gorgias:4"]);
+  assert.equal(snap.bulkSelection.ids.includes("gorgias:1"), false, "1 is outside the rendered range 4..2");
+  assert.equal(snap.bulkSelection.ids.includes("gorgias:5"), false, "5 is outside the rendered range 4..2");
+});
+
+test("export neutralizes formula-shaped customer fields and escapes CR/LF", async () => {
+  const rows = [
+    projected(1),
+    {...projected(2), subject: "=cmd|' /C calc'!A0"},
+    {...projected(3), subject: "line1\r\nline2"},
+  ];
+  const downloads = freshDownloads();
+  const handle = await organ({shop: observedShop(rows), downloads});
+  await handle.toggleSelect("gorgias:2");
+  await handle.toggleSelect("gorgias:3");
+  await handle.bulkExport();
+  const [file] = downloads.downloads;
+  const lines = file.text.split("\n");
+  // Formula-leading cells are prefixed so spreadsheets render them as text
+  // (injection is about the cell START; the chars may remain mid-cell).
+  assert.ok(lines[1].includes(",'=cmd"), "the subject cell starts with the text prefix");
+  // CR/LF inside a cell collapse to a space so the row stays one physical
+  // CSV line — row structure survives hostile cell content, and the text
+  // stays readable instead of showing escape markers.
+  assert.equal(lines.length, 3, "header + both selected rows; the CRLF row stays on one line");
+  assert.ok(lines[2].includes("line1 line2"));
+  assert.ok(!/\r/.test(file.text), "no raw CR anywhere in the file");
+});
+
+test("export keeps the observed assignee address, not the synthetic display value", async () => {
+  const rows = [
+    projected(1),
+    {...projected(2), assigneeEmail: OPERATOR, assignee: OPERATOR},
+    {...projected(3), assigneeEmail: "colleague@example.test", assignee: "colleague@example.test"},
+  ];
+  const downloads = freshDownloads();
+  const handle = await organ({shop: observedShop(rows), downloads});
+  await handle.toggleSelect("gorgias:2");
+  await handle.toggleSelect("gorgias:3");
+  await handle.bulkExport();
+  const [file] = downloads.downloads;
+  const lines = file.text.split("\n");
+  assert.ok(lines[1].endsWith(`,${OPERATOR},`), "mine row exports the operator address");
+  assert.ok(lines[2].includes(",colleague@example.test,"), "colleague row exports the observed address");
+  assert.ok(!/"me"/.test(file.text) && !/,"me",/.test(file.text), "synthetic 'me' never appears in the export");
+});
+
+test("a refresh that hides a selected row reconciles the selection before acting", async () => {
+  const rows = [projected(1), projected(2), projected(3)];
+  let visible = rows;
+  const shop = {
+    observedHistory: true, operatorEmail: OPERATOR, projection: {generatedAt: "gen-1", stale: false},
+    getCapabilities: async () => ({}),
+    listTickets: async () => visible,
+    getTicket: async ({ticketId}) => visible.find((row) => row.id === ticketId) || null,
+  };
+  const handle = createInboxOrgan({shop, storage: freshStorage(), downloads: freshDownloads()});
+  await handle.ready();
+  await handle.toggleSelect("gorgias:2");
+  // The next list refresh drops ticket 2 from the visible rows; the stale id
+  // must not survive into bulk actions.
+  visible = [projected(1), projected(3)];
+  const snap = await handle.loadMore();
+  assert.deepEqual(snap.bulkSelection.ids, [], "hidden ids are dropped from the selection");
+});
+
+test("bulk escalate continues past failures and reports every unconfirmed ticket", async () => {
+  const rows = [projected(1), projected(2), projected(3)];
+  const attempts = [];
+  const shop = {
+    observedHistory: true, operatorEmail: OPERATOR, projection: {generatedAt: "gen-1", stale: false},
+    getCapabilities: async () => ({escalateTicket: true}),
+    listTickets: async () => rows,
+    getTicket: async ({ticketId}) => rows.find((row) => row.id === ticketId) || null,
+    escalateTicket: async ({ticketId}) => {
+      attempts.push(ticketId);
+      if (ticketId === "gorgias:2") throw new Error("boom");
+      return {...rows.find((row) => row.id === ticketId), escalated: true};
+    },
+  };
+  const handle = createInboxOrgan({shop, storage: freshStorage(), downloads: freshDownloads()});
+  await handle.ready();
+  await handle.toggleSelect("gorgias:1");
+  await handle.toggleSelect("gorgias:2");
+  await handle.toggleSelect("gorgias:3");
+  const snap = await handle.bulkEscalate();
+  assert.deepEqual(attempts, ["gorgias:1", "gorgias:2", "gorgias:3"], "every ticket is attempted");
+  assert.deepEqual(snap.bulkSelection.escalated, ["gorgias:1", "gorgias:3"], "successes are kept");
+  assert.match(snap.html, /gorgias:2[^<]*<\/span>|Not escalated: gorgias:2/, "the failure names the ticket");
 });
 
 test("selection survives load more inside the view and clears on view change", async () => {

@@ -115,6 +115,28 @@ export function createInboxOrgan(opts = {}) {
   let bulkAnchorId = null;
   let bulkEscalated = [];
   let bulkError = "";
+  // #39 review: sort lives in the organ so the rendered order (what the
+  // operator shift-clicks across) and the selection range use one source of
+  // truth. The tissue renders the rows in the order it receives them.
+  let sortId = "default";
+  function sortedVisibleTickets() {
+    const rows = visibleTickets();
+    if (sortId === "newest" || sortId === "oldest") {
+      rows.sort((a, b) => {
+        const left = Date.parse(a.updatedAt || 0) || 0;
+        const right = Date.parse(b.updatedAt || 0) || 0;
+        return sortId === "oldest" ? left - right : right - left;
+      });
+    }
+    return rows;
+  }
+  function reconcileBulk() {
+    // #39 review: a refresh can drop a selected row from the visible set; a
+    // stale id must never survive into bulk actions.
+    const visible = new Set(visibleIds());
+    for (const id of [...bulkIds]) if (!visible.has(id)) bulkIds.delete(id);
+    if (bulkAnchorId && !visible.has(bulkAnchorId)) bulkAnchorId = null;
+  }
   function clearBulk() {
     bulkIds = new Set();
     bulkAnchorId = null;
@@ -122,7 +144,7 @@ export function createInboxOrgan(opts = {}) {
     bulkError = "";
   }
   function visibleIds() {
-    return visibleTickets().map((ticket) => ticket.id);
+    return sortedVisibleTickets().map((ticket) => ticket.id);
   }
   function toggleSelect(ticketId, {shiftKey = false} = {}) {
     if (!ticketId) return afterUi();
@@ -157,17 +179,26 @@ export function createInboxOrgan(opts = {}) {
     persistRead(removed);
     return afterUi();
   }
-  function csvEscape(value) {
-    const text = String(value ?? "");
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  function csvCell(value) {
+    let text = String(value ?? "").replace(/[\r\n]+/g, " ");
+    // #39 review: formula-shaped cells get a leading apostrophe so
+    // spreadsheets render them as text, never execute them.
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return /[",]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
   function bulkExport() {
     if (!downloads || !bulkIds.size) return afterUi();
     const selected = listRows.filter((ticket) => bulkIds.has(ticket.id));
     const header = "id,subject,status,updatedAt,assignee,channel";
     const lines = selected.map((ticket) => [
-      ticket.id, ticket.subject, ticket.status, ticket.updatedAt, ticket.assignee || "", ticket.channel || "",
-    ].map(csvEscape).join(","));
+      ticket.id,
+      ticket.subject,
+      ticket.status,
+      ticket.updatedAt,
+      // #39 review: export the observed address, not the synthetic "me".
+      ticket.assigneeEmail ?? ticket.assignee ?? "",
+      ticket.channel || "",
+    ].map(csvCell).join(","));
     downloads.download(
       `inbox-tickets-${Date.now()}.csv`,
       [header, ...lines].join("\n"),
@@ -182,17 +213,22 @@ export function createInboxOrgan(opts = {}) {
       return afterUi();
     }
     bulkEscalated = [];
+    const targetIds = [...bulkIds];
+    const unconfirmed = [];
     return (async () => {
-      try {
-        for (const id of bulkIds) {
+      // #39 review: one ticket failing must not abort the batch or hide the
+      // others' progress — attempt every ticket, report every unconfirmed id.
+      for (const id of targetIds) {
+        try {
           const result = await shop.escalateTicket({ticketId: id});
           if (result?.id === id && result.escalated) bulkEscalated.push(id);
+          else unconfirmed.push(id);
+        } catch {
+          unconfirmed.push(id);
         }
-        if (bulkEscalated.length !== bulkIds.size) {
-          bulkError = "Some escalations were not confirmed. Please try again.";
-        }
-      } catch {
-        bulkError = "Escalation failed. No change was confirmed.";
+      }
+      if (unconfirmed.length) {
+        bulkError = `Not escalated: ${unconfirmed.join(", ")}. Please try again.`;
       }
       return afterUi();
     })();
@@ -405,6 +441,7 @@ export function createInboxOrgan(opts = {}) {
     listError = "";
     if (pinnedCatalog) {
       listRows = pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId));
+      reconcileBulk();
       counts = viewCounts(pinnedCatalog);
       return;
     }
@@ -419,6 +456,7 @@ export function createInboxOrgan(opts = {}) {
             knownTicketIds.add(row.id);
           }
           listRows = rows.filter((ticket) => ticketInView(ticket, viewId));
+          reconcileBulk();
           counts = viewCounts(rows);
           // #33: pagination totals stay in the active view's domain. For All,
           // the exact working total is the snapshot minus the flagged union
@@ -459,6 +497,7 @@ export function createInboxOrgan(opts = {}) {
       }
     }
     listRows = fixtureTickets.filter((ticket) => ticketInView(ticket, viewId));
+    reconcileBulk();
     counts = viewCounts(fixtureTickets);
   }
 
@@ -777,6 +816,7 @@ export function createInboxOrgan(opts = {}) {
         knownTicketIds.add(row.id);
       }
       listRows = rows;
+      reconcileBulk();
       const observed = viewCounts(rows);
       const flaggedInSnapshot = (shop.projection?.spamCount ?? observed.spam)
         + (shop.projection?.trashCount ?? observed.trash)
@@ -825,7 +865,7 @@ export function createInboxOrgan(opts = {}) {
       loadMore,
     } : null;
     return {
-      tickets: visibleTickets(),
+      tickets: sortedVisibleTickets(),
       error: listError,
       notice: projectionNotice,
       pagination,
@@ -843,6 +883,7 @@ export function createInboxOrgan(opts = {}) {
       selectedTagId: tagId,
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
+      sortId,
       bulkSelection: bulkSelectionInput(),
     };
   }
@@ -1067,6 +1108,11 @@ export function createInboxOrgan(opts = {}) {
       // #39: checkbox toggle never opens the thread; toggleSelect repaints.
       toggleSelect(ticketId, {shiftKey});
     });
+    mailbox.subscribe(MAILBOX_TOPICS.SORT_SELECTED, ({ sortId: next }) => {
+      // #39 review: the tissue asks for a display order; the organ owns it.
+      sortId = next === "newest" || next === "oldest" ? next : "default";
+      paint();
+    });
     mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_BODY, ({ text }) => {
       body = text;
     });
@@ -1216,6 +1262,12 @@ export function createInboxOrgan(opts = {}) {
     bulkMarkUnread,
     bulkExport,
     bulkEscalate,
+    // #39 review: display-order control. Sorting does not touch the shop; the
+    // selection stays intact because the ids still render, only reordered.
+    selectSort(next) {
+      sortId = next === "newest" || next === "oldest" ? next : "default";
+      return afterUi();
+    },
     selectView(next) {
       viewId = next;
       channelId = "";

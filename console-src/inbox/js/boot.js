@@ -18,6 +18,16 @@ const organ = createInboxOrgan({
   viewId,
   ticketId: params.get("ticket") || undefined,
   privacyGate: params.get("gate") === "privacy",
+  // #39: Export is a local download of observed rows only. It never posts
+  // anywhere; the blob lives and dies in this tab.
+  downloads: {
+    download(name, text, type) {
+      const url = URL.createObjectURL(new Blob([text], {type}));
+      const link = Object.assign(document.createElement("a"), {href: url, download: name});
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+  },
 });
 organ.mount(root);
 
