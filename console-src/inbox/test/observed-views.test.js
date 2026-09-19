@@ -38,12 +38,10 @@ test('trash and spam are flag buckets that stay out of the working views', () =>
   const spam = projected(10,{status:'closed',spam:true});
   assert.equal(ticketInView(trashed,'trash'), true);
   assert.equal(ticketInView(spam,'spam'), true);
-  for (const viewId of ['mine','unassigned','open','snoozed','closed']) {
+  for (const viewId of ['mine','unassigned','open','snoozed','closed','all']) {
     assert.equal(ticketInView(trashed,viewId), false, viewId);
     assert.equal(ticketInView(spam,viewId), false, viewId);
   }
-  assert.equal(ticketInView(trashed,'all'), true);
-  assert.equal(ticketInView(spam,'all'), true);
 });
 
 test('a ticket whose status was never observed appears only in All', () => {
@@ -61,7 +59,8 @@ test('observed history offers the default views with honest counts', async () =>
   assert.doesNotMatch(snap.html, /Observed history<\/span>/);
   assert.match(snap.html, /Status and assignment are shown when the latest observed webhook carried them/);
   assert.equal(snap.viewId, 'all');
-  assert.equal(snap.html.match(/class="ticket-row/g).length, ROWS.length);
+  // All excludes the spam/trash rows (#33): 8 rows partition into 6 + 1 + 1.
+  assert.equal(snap.html.match(/class="ticket-row/g).length, ROWS.length - 2);
 });
 
 test('Assigned to me matches only the configured operator address', async () => {
@@ -86,7 +85,7 @@ test('an unset operator address leaves Assigned to me empty rather than guessing
 test('each observed view filters the same snapshot without inventing rows', async () => {
   const organ = createInboxOrgan({shop:observedShop()});
   await organ.ready();
-  const expected = {all:8, open:3, mine:1, unassigned:1, snoozed:1, closed:1, trash:1, spam:1};
+  const expected = {all:6, open:3, mine:1, unassigned:1, snoozed:1, closed:1, trash:1, spam:1};
   for (const [viewId, count] of Object.entries(expected)) {
     const snap = await organ.selectView(viewId);
     assert.equal(snap.html.match(/class="ticket-row/g)?.length ?? 0, count, viewId);

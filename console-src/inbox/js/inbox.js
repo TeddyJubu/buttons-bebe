@@ -274,7 +274,10 @@ export function createInboxOrgan(opts = {}) {
           listRows = rows.filter((ticket) => ticketInView(ticket, viewId));
           counts = viewCounts(rows);
           // Pagination reports the whole snapshot size, not the loaded prefix.
-          counts.all = shop.projection?.ticketCount ?? rows.length;
+          // Spam/trash rows are excluded from All (#33), so the paginated
+          // total is the working-view partition, not the raw snapshot count.
+          counts.all = (shop.projection?.ticketCount ?? rows.length)
+            - counts.spam - counts.trash;
           projectionNotice = shop.projection?.stale
             ? "Observed history is stale; refresh is delayed."
             : "Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.";
