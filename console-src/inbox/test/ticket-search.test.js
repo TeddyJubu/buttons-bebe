@@ -260,6 +260,7 @@ test("overlong queries never prefix-match: the bound is a miss, not a truncation
   const snap = await organ.selectSearch("x".repeat(5000));
   assert.doesNotMatch(snap.html, /data-ticket="gorgias:1"/, "an over-limit query is a miss");
   assert.match(snap.html, /No tickets match/i);
+  assert.match(snap.html, /limited to 200 characters/, "the over-limit state says so, not a bare miss");
   const ok = await organ.selectSearch("x".repeat(100));
   assert.match(ok.html, /data-ticket="gorgias:1"/, "a within-bound query still matches");
 });

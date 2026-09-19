@@ -55,6 +55,7 @@ export function createListTissue({ mailbox }) {
     unreadIds: [],
     searchQuery: "",
     searchAllViews: false,
+    searchBounded: false,
     searchResults: null,
   };
   // #39 review: sort state lives in the organ; the tissue mirrors the id it
@@ -86,6 +87,7 @@ export function createListTissue({ mailbox }) {
       bulkSelection: input.bulkSelection || null,
       searchQuery: typeof input.searchQuery === "string" ? input.searchQuery : "",
       searchAllViews: Boolean(input.searchAllViews),
+      searchBounded: Boolean(input.searchBounded),
       searchResults: typeof input.searchResults === "number" ? input.searchResults : null,
     };
   }
@@ -345,7 +347,9 @@ export function createListTissue({ mailbox }) {
       : next.searchQuery
         // #37: the search miss state names the query; the no-tickets state
         // never stands in for it.
-        ? `<div class="empty-pane" role="status"><strong>No tickets match</strong><p>Nothing in the loaded history matches “${esc(next.searchQuery)}”. ${next.searchAllViews ? "Try fewer words." : "Try fewer words, or search every view."}</p></div>`
+        ? `<div class="empty-pane" role="status"><strong>No tickets match</strong><p>${next.searchBounded
+          ? "Queries are limited to 200 characters — this one is longer, so it matches nothing. Try fewer words."
+          : `Nothing in the loaded history matches “${esc(next.searchQuery)}”. ${next.searchAllViews ? "Try fewer words." : "Try fewer words, or search every view."}`}</p></div>`
         : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/">Open support console</a></div>`;
     return `<div class="pane-inner">
       ${renderToolbar(next)}
