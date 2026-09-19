@@ -98,6 +98,76 @@ export function createInboxOrgan(opts = {}) {
       /* private-mode storage quota is not an inbox error */
     }
   }
+  // #41: the operator's own ticket titles are first-party state like the
+  // read set — a browser store, never a Gorgias write. A rename here never
+  // leaves the operator's browser.
+  const TITLE_KEY = "bb-inbox-titles-v1";
+  function loadTitles() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(TITLE_KEY) || "null");
+      return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    } catch {
+      return {};
+    }
+  }
+  let titles = loadTitles();
+  // #41: ids this organ has renamed or cleared since load. Key presence in
+  // `titles` is not local ownership (it also holds load-time copies), so
+  // persistence is anchored to this set instead. Untouched keys follow
+  // storage, so a stale tab's persist never clobbers another tab's rename
+  // and never resurrects another tab's clear.
+  const localTitleIds = new Set();
+  // Fallback titles get the same guard as typed renames: collapsed
+  // whitespace, trimmed, capped at 120 — the derived line stays one row.
+  function screenTitle(raw) {
+    return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+  function derivedTitle(ticket) {
+    if (!ticket) return "New ticket";
+    const record = titles[ticket.id];
+    // #41: records carry {title, by, at}; a bare string is a pre-#41 entry.
+    const stored = typeof record === "string" ? record : record?.title;
+    if (typeof stored === "string" && stored.trim()) return screenTitle(stored);
+    const orderName = screenTitle(ticket.shopifyRail?.order?.name);
+    if (orderName) return orderName;
+    const subject = screenTitle(ticket.subject);
+    if (subject && subject.toLowerCase() !== "no subject") return subject;
+    return "New ticket";
+  }
+  function persistTitles() {
+    try {
+      // Two-tab merge: adopt storage for every key this organ has not
+      // touched, then apply this organ's own renames (present in `titles`)
+      // and clears (touched but absent) on top.
+      const merged = {...loadTitles()};
+      for (const id of localTitleIds) {
+        if (id in titles) merged[id] = titles[id];
+        else delete merged[id];
+      }
+      titles = merged;
+      storage?.setItem?.(TITLE_KEY, JSON.stringify(titles));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
+  // #41: who/when travel with the title — the store is auditable without a
+  // server. The observed operator email is recorded, never invented.
+  function writeTitle(ticketId, raw) {
+    const title = screenTitle(raw);
+    localTitleIds.add(ticketId);
+    if (!title) {
+      // Clearing the rename deletes the record; the derived fallback shows.
+      delete titles[ticketId];
+      persistTitles();
+      return;
+    }
+    titles[ticketId] = {
+      title,
+      by: String(opts.operatorEmail ?? shop.operatorEmail ?? "operator").trim().toLowerCase() || "operator",
+      at: Date.now(),
+    };
+    persistTitles();
+  }
   let capabilities = { ...(shop.capabilities || {}) };
   const shopHost = opts.shopHost || shop.shop || SHOP;
   const pinnedCatalog = opts.tickets || null;
@@ -516,6 +586,12 @@ export function createInboxOrgan(opts = {}) {
         const ticket = await shop.getTicket({ ticketId: id });
         if (ticket) {
           selected = shop.observedHistory ? withOperatorAssignee(ticket) : ticket;
+          // #41: the detail fetch carries the rail snapshot (order name), so
+          // the selected row's title can match the thread's. Rows this organ
+          // never opened keep the bare list summary — projection.py only
+          // attaches the rail on get_ticket.
+          const row = listRows.find((rowTicket) => rowTicket.id === id);
+          if (row && ticket.shopifyRail) row.shopifyRail = ticket.shopifyRail;
           return;
         }
       } catch {
@@ -865,7 +941,7 @@ export function createInboxOrgan(opts = {}) {
       loadMore,
     } : null;
     return {
-      tickets: sortedVisibleTickets(),
+      tickets: sortedVisibleTickets().map((ticket) => ({...ticket, derivedTitle: derivedTitle(ticket)})),
       error: listError,
       notice: projectionNotice,
       pagination,
@@ -905,7 +981,7 @@ export function createInboxOrgan(opts = {}) {
     ensureSelection();
     const ticket = selectedTicket();
     const listModel = listTissue.update(listInput());
-    const threadModel = threadTissue.update({ ticket, capabilities });
+    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket) });
     const composerModel = composerTissue.update(composerInput(ticket));
     const railHtml = !showsCustomerRail(ticket) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
     const html = `<div class="inbox" data-organ="inbox">
@@ -926,6 +1002,7 @@ export function createInboxOrgan(opts = {}) {
       tagId,
       selectedId,
       unreadIds: [...unreadIds],
+      titles,
       bulkSelection: bulkSelectionInput(),
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
       sendDisabled: composerTissue.sendDisabled(composerModel),
@@ -1030,7 +1107,7 @@ export function createInboxOrgan(opts = {}) {
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());
-      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities });
+      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket) });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
         if (!showsCustomerRail(ticket)) {
@@ -1158,6 +1235,11 @@ export function createInboxOrgan(opts = {}) {
       if (ticketId && ticketId !== selectedId) selectedId = ticketId;
       escalateSelected(reason).then(() => refreshThread()).then(paint).catch(showActionError);
     });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_RENAME, ({ ticketId, title }) => {
+      // #41: rename is first-party only — write the browser store, repaint.
+      if (ticketId) writeTitle(ticketId, title);
+      paint();
+    });
     mailbox.subscribe(MAILBOX_TOPICS.WRITE_GATE_OPEN, () => {
       closeAllGates();
       writeGateOpen = true;
@@ -1262,6 +1344,12 @@ export function createInboxOrgan(opts = {}) {
     bulkMarkUnread,
     bulkExport,
     bulkEscalate,
+    // #41: first-party rename. Persists in the browser store only; the
+    // observed Gorgias subject is never touched.
+    async renameTicket(ticketId, raw) {
+      writeTitle(ticketId, raw);
+      return afterUi();
+    },
     // #39 review: display-order control. Sorting does not touch the shop; the
     // selection stays intact because the ids still render, only reordered.
     selectSort(next) {

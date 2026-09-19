@@ -290,7 +290,7 @@ export function createListTissue({ mailbox }) {
           <time class="ticket-time" datetime="${esc(ticket.updatedAt || "")}" title="${esc(formatWhen(ticket.updatedAt))}">${esc(formatWhen(ticket.updatedAt, { relative: true }))}</time>
         </span>
       </span>
-      <span class="ticket-subject">${esc(ticket.subject)}</span>
+      <span class="ticket-subject" data-ticket-title="${esc(ticket.derivedTitle || ticket.subject)}">${esc(ticket.derivedTitle || ticket.subject)}</span>
       <span class="ticket-snippet">${esc(ticket.snippet || "")}</span>
     </button>
     </div>`;

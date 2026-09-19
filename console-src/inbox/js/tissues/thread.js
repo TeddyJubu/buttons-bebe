@@ -19,10 +19,16 @@ export function createThreadTissue({ mailbox }) {
   }
   let model = { ticket: null };
   let lightbox = null;
+  let renaming = null;
   let host = null;
 
   function project(input) {
-    return { ticket: input.ticket || null, capabilities: input.capabilities || {} };
+    // #41: `title` is the organ-derived display title (first-party rename →
+    // linked order name → subject → "New ticket"); the rename control
+    // publishes, the organ owns the store. `ticket` being swapped for a new
+    // object by refresh is normal — but the open rename editor keeps its
+    // draft: a mid-edit repaint (bridge poll) must not wipe the typing.
+    return { ticket: input.ticket || null, capabilities: input.capabilities || {}, title: input.title || "" };
   }
 
   function renderAttachments(message) {
@@ -135,11 +141,21 @@ export function createThreadTissue({ mailbox }) {
           ${mark}
         </div>`
       : "";
+    // #41: the derived title line, or the inline rename editor when open.
+    const titleLine = renaming?.ticketId === ticket.id
+      ? `<p class="thread-subject thread-rename" data-ticket-title="${esc(renaming.original)}">
+          <input class="thread-rename-input" data-rename-input value="${esc(renaming.draft ?? renaming.original)}" maxlength="120" aria-label="Ticket title">
+          <button type="button" class="btn-hairline" data-rename-save title="Save the title in your browser only">Save</button>
+          <button type="button" class="btn-quiet" data-rename-cancel title="Keep the current title">Cancel</button>
+        </p>`
+      : `<p class="thread-subject" data-ticket-title="${esc(next.title)}">${esc(next.title)}
+          <button type="button" class="title-edit" data-rename-open data-ticket-id="${esc(ticket.id)}" data-ticket-title="${esc(next.title)}" title="Rename this ticket in your browser only. The Gorgias subject never changes." aria-label="Rename ticket">Rename</button>
+        </p>`;
     return `<div class="pane-inner thread-inner">
       <header class="thread-head">
         <div>
           <h2>${esc(listCustomerName(ticket))}</h2>
-          <p class="thread-subject">${esc(ticket.subject)}</p>
+          ${titleLine}
           ${typeLine}
         </div>
         <div class="thread-head-actions">
@@ -162,7 +178,20 @@ export function createThreadTissue({ mailbox }) {
 
   function paint() {
     if (!host) return;
+    const wasRenaming = Boolean(renaming) && Boolean(host.querySelector?.("[data-rename-input]"));
     host.innerHTML = render(model);
+    // #41: reopening the editor after a repaint refocuses. A mid-edit
+    // repaint keeps the draft (render uses renaming.draft) and moves the
+    // caret to the end — select-all would wipe the operator's typing.
+    const editInput = host.querySelector("[data-rename-input]");
+    if (editInput) {
+      editInput.focus();
+      if (wasRenaming) {
+        editInput.setSelectionRange?.(editInput.value.length, editInput.value.length);
+      } else {
+        editInput.select();
+      }
+    }
   }
 
   function closeLightbox() {
@@ -175,6 +204,40 @@ export function createThreadTissue({ mailbox }) {
     host = el;
     paint();
     el.onclick = (event) => {
+      const renameOpen = event.target.closest("[data-rename-open]");
+      if (renameOpen) {
+        // #41: swap the title line for an inline input. Save on Enter or
+        // blur; Escape cancels. The organ owns the persisted store.
+        renaming = {
+          ticketId: renameOpen.dataset.ticketId,
+          original: renameOpen.dataset.ticketTitle || "",
+          draft: renameOpen.dataset.ticketTitle || "",
+        };
+        paint();
+        return;
+      }
+      const renameInput = event.target.closest?.("[data-rename-input]");
+      if (renameInput) {
+        // #41: clicks inside the input do nothing; the input event owns drafts.
+        return;
+      }
+      const renameCancel = event.target.closest("[data-rename-cancel]");
+      if (renameCancel) {
+        renaming = null;
+        paint();
+        return;
+      }
+      const renameSave = event.target.closest("[data-rename-save]");
+      if (renameSave) {
+        const input = host.querySelector("[data-rename-input]");
+        mailbox.publish(MAILBOX_TOPICS.THREAD_RENAME, {
+          ticketId: renaming?.ticketId,
+          title: input?.value || "",
+        });
+        renaming = null;
+        paint();
+        return;
+      }
       const openAttach = event.target.closest("[data-attach-open]");
       if (openAttach) {
         lightbox = {
@@ -209,11 +272,44 @@ export function createThreadTissue({ mailbox }) {
       if (!button) return;
       mailbox.publish(MAILBOX_TOPICS.COMPOSER_SUMMARIZE, { ticketId: button.dataset.summarize });
     };
+    el.oninput = (event) => {
+      // #41: keep the typed draft so a mid-edit repaint re-renders it.
+      const input = event.target.closest?.("[data-rename-input]");
+      if (input && renaming) renaming.draft = input.value;
+    };
     el.onkeydown = (event) => {
       if (event.key === "Escape" && lightbox) {
         event.preventDefault?.();
         closeLightbox();
       }
+      const input = event.target.closest?.("[data-rename-input]");
+      if (input) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          mailbox.publish(MAILBOX_TOPICS.THREAD_RENAME, {
+            ticketId: renaming?.ticketId,
+            title: input.value || "",
+          });
+          renaming = null;
+          paint();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          renaming = null;
+          paint();
+        }
+      }
+    };
+    el.onfocusout = (event) => {
+      // #41: blur saves unless the blur went to Save/Cancel themselves.
+      const input = event.target.closest?.("[data-rename-input]");
+      if (!input || !renaming) return;
+      if (event.relatedTarget?.closest?.("[data-rename-save],[data-rename-cancel]")) return;
+      mailbox.publish(MAILBOX_TOPICS.THREAD_RENAME, {
+        ticketId: renaming.ticketId,
+        title: input.value || "",
+      });
+      renaming = null;
+      paint();
     };
   }
 
