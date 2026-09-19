@@ -43,6 +43,14 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    beside any local override. Gorgias-side status/priority/assignment changes
    remain Gorgias writes under (2)/(3): not implemented, and any future
    exception needs the owner's sign-off plus an audit trail.
+7. The inbox's "New ticket" entry point creates a **local-only ticket**
+   (issue #38's model 1): the ticket lives in the operator's browser store
+   (`bb-inbox-local-tickets-v1`) with the same message shape as agent-side
+   intake, renders in our inbox only, and never writes Gorgias, never
+   notifies any customer. A real Gorgias-side create stays refused under
+   (2)/(3) until the owner names the exact write; a link-out "compose in
+   Gorgias" would be a UI-only change and still needs the owner's call. No
+   customer is notified without a human send under (3).
 
 ## 3. Where it runs
 

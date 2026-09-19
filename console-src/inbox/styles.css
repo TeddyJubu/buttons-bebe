@@ -845,6 +845,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .gate-sheet p { font-size: 14px; line-height: 1.5; }
 .gate-sheet-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+/* #38: the New ticket sheet rides the gate-sheet frame; its fields stack. */
+.create-sheet .create-field { display: grid; gap: 4px; margin-top: 12px; font-size: 12px; color: var(--mute); }
+.create-sheet .create-field input, .create-sheet .create-field select, .create-sheet .create-field textarea {
+  font-family: inherit; font-size: 13px; color: var(--ink);
+  background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.create-sheet .create-field textarea { min-height: 72px; resize: vertical; }
 
 .rail-inner { overflow: auto; padding: 10px; }
 .rail-card {

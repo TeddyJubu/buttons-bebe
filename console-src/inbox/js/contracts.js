@@ -190,6 +190,8 @@
  * `list/sort-selected`   { sortId } — display order only ("default"|"newest"|"oldest"); never Send
  * `list/collapsed`       { collapsed: boolean }
  * `rail/collapsed`       { collapsed: boolean }
+ * `create-ticket/open`   {} — New ticket sheet; the created ticket is first-party browser store only; never Gorgias, never a customer notification
+ * `create-ticket/close`  {}
  * `composer/body`        { text }
  * `composer/insert`      { text } — Use draft; never Send
  * `composer/discard`     {} — Dismiss strip; never Send
@@ -236,6 +238,8 @@ export const MAILBOX_TOPICS = Object.freeze({
   SORT_SELECTED: "list/sort-selected",
   LIST_COLLAPSED: "list/collapsed",
   RAIL_COLLAPSED: "rail/collapsed",
+  CREATE_TICKET_OPEN: "create-ticket/open",
+  CREATE_TICKET_CLOSE: "create-ticket/close",
   COMPOSER_BODY: "composer/body",
   COMPOSER_INSERT: "composer/insert",
   COMPOSER_DISCARD: "composer/discard",

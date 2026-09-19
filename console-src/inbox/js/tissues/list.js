@@ -96,6 +96,9 @@ export function createListTissue({ mailbox }) {
       filterMatch: input.filterMatch === "any" ? "any" : "all",
       filterFields: Array.isArray(input.filterFields) ? input.filterFields : [],
       savedViews: Array.isArray(input.savedViews) ? input.savedViews : [],
+      // #38: the New ticket entry point renders only when the capability is
+      // not explicitly off.
+      canCreateTicket: input.canCreateTicket !== false,
     };
   }
 
@@ -332,6 +335,7 @@ export function createListTissue({ mailbox }) {
           ${next.searchQuery && !next.searchAllViews ? `<button type="button" class="btn-quiet" data-search-all title="No results in this view? Search every working view" aria-label="Search every view">Search every view</button>` : ""}
         </div>
         <div class="list-tools" role="group" aria-label="List tools">
+          ${next.canCreateTicket !== false ? `<button type="button" class="list-tool-btn" data-create-ticket title="New ticket" aria-label="Create a new ticket in this browser only">New ticket</button>` : ""}
           ${facets ? `<div class="list-filter-wrap">
             <button type="button" class="list-tool-btn${filterActive(next) ? " is-active" : ""}" data-list-filter title="Filter" aria-label="Filter" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen || filterActive(next) ? "true" : "false"}">${ICON_FILTER}</button>
             ${renderFilterMenu(next)}
@@ -700,6 +704,13 @@ export function createListTissue({ mailbox }) {
           current === "default" ? "newest" : current === "newest" ? "oldest" : "default";
         ui = { ...ui, viewOpen: false, filterOpen: false };
         mailbox.publish(MAILBOX_TOPICS.SORT_SELECTED, { sortId: nextSort });
+        return;
+      }
+      if (event.target.closest("[data-create-ticket]")) {
+        // #38: the organ owns the sheet state; the toolbar button just asks
+        // for it to open.
+        ui = { ...ui, viewOpen: false, filterOpen: false };
+        mailbox.publish(MAILBOX_TOPICS.CREATE_TICKET_OPEN, {});
         return;
       }
       if (event.target.closest("[data-list-collapse]")) {
