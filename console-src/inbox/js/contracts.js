@@ -216,6 +216,7 @@ export const MAILBOX_TOPICS = Object.freeze({
   ASSIGNEE_SELECTED: "assignee/selected",
   TAG_SELECTED: "tag/selected",
   LIST_SELECTED: "list/selected",
+  BULK_TOGGLE: "list/bulk-toggle",
   LIST_COLLAPSED: "list/collapsed",
   RAIL_COLLAPSED: "rail/collapsed",
   COMPOSER_BODY: "composer/body",

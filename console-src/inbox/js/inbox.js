@@ -85,12 +85,14 @@ export function createInboxOrgan(opts = {}) {
     }
   }
   let readIds = loadReadIds();
-  function persistRead() {
+  function persistRead(removed = []) {
     try {
       // Merge with the stored set first: a second tab may have marked other
       // tickets read since this organ loaded, and its reads must survive.
+      // Removals (mark unread) win over the merge so they stick.
       const stored = loadReadIds();
-      for (const id of stored) readIds.add(id);
+      const removedSet = new Set(removed);
+      for (const id of stored) if (!removedSet.has(id)) readIds.add(id);
       storage?.setItem?.(READ_KEY, JSON.stringify([...readIds]));
     } catch {
       /* private-mode storage quota is not an inbox error */
@@ -105,6 +107,96 @@ export function createInboxOrgan(opts = {}) {
   const rail = createRailOrgan({ shop, mailbox });
 
   let viewId = opts.viewId || (shop.observedHistory ? "all" : "mine");
+  // #39: multi-select is operator-browser state. Selection lives in the
+  // visible order so shift-click can span ranges; view/filter changes clear
+  // it because ids may no longer be visible or in the same domain.
+  const downloads = opts.downloads || null;
+  let bulkIds = new Set();
+  let bulkAnchorId = null;
+  let bulkEscalated = [];
+  let bulkError = "";
+  function clearBulk() {
+    bulkIds = new Set();
+    bulkAnchorId = null;
+    bulkEscalated = [];
+    bulkError = "";
+  }
+  function visibleIds() {
+    return visibleTickets().map((ticket) => ticket.id);
+  }
+  function toggleSelect(ticketId, {shiftKey = false} = {}) {
+    if (!ticketId) return afterUi();
+    const ids = visibleIds();
+    if (!ids.includes(ticketId)) return afterUi();
+    if (shiftKey && bulkAnchorId && ids.includes(bulkAnchorId)) {
+      const from = ids.indexOf(bulkAnchorId);
+      const to = ids.indexOf(ticketId);
+      for (const id of ids.slice(Math.min(from, to), Math.max(from, to) + 1)) bulkIds.add(id);
+    } else {
+      if (bulkIds.has(ticketId)) bulkIds.delete(ticketId);
+      else bulkIds.add(ticketId);
+      bulkAnchorId = ticketId;
+    }
+    bulkError = "";
+    return afterUi();
+  }
+  function clearSelection() {
+    clearBulk();
+    return afterUi();
+  }
+  function bulkMarkRead() {
+    for (const id of bulkIds) markRead(id);
+    return afterUi();
+  }
+  function bulkMarkUnread() {
+    const removed = [...bulkIds];
+    for (const id of removed) {
+      unreadIds.add(id);
+      readIds.delete(id);
+    }
+    persistRead(removed);
+    return afterUi();
+  }
+  function csvEscape(value) {
+    const text = String(value ?? "");
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+  function bulkExport() {
+    if (!downloads || !bulkIds.size) return afterUi();
+    const selected = listRows.filter((ticket) => bulkIds.has(ticket.id));
+    const header = "id,subject,status,updatedAt,assignee,channel";
+    const lines = selected.map((ticket) => [
+      ticket.id, ticket.subject, ticket.status, ticket.updatedAt, ticket.assignee || "", ticket.channel || "",
+    ].map(csvEscape).join(","));
+    downloads.download(
+      `inbox-tickets-${Date.now()}.csv`,
+      [header, ...lines].join("\n"),
+      "text/csv",
+    );
+    return afterUi();
+  }
+  function bulkEscalate() {
+    if (!bulkIds.size) return afterUi();
+    if (capabilities.escalateTicket === false || typeof shop.escalateTicket !== "function") {
+      bulkError = "Bulk escalate is not available in this inbox.";
+      return afterUi();
+    }
+    bulkEscalated = [];
+    return (async () => {
+      try {
+        for (const id of bulkIds) {
+          const result = await shop.escalateTicket({ticketId: id});
+          if (result?.id === id && result.escalated) bulkEscalated.push(id);
+        }
+        if (bulkEscalated.length !== bulkIds.size) {
+          bulkError = "Some escalations were not confirmed. Please try again.";
+        }
+      } catch {
+        bulkError = "Escalation failed. No change was confirmed.";
+      }
+      return afterUi();
+    })();
+  }
   const availableViews = views;
   let channelId = "";
   function normalizeChannel(value) {
@@ -304,6 +396,9 @@ export function createInboxOrgan(opts = {}) {
     discarded = false;
     selectedMacroId = "";
     macrosOpen = false;
+    // #39: view/filter changes clear the multi-select — ids may no longer be
+    // visible, so a stale selection would act on hidden rows.
+    clearBulk();
   }
 
   async function refreshList() {
@@ -699,6 +794,24 @@ export function createInboxOrgan(opts = {}) {
     return snapshot();
   }
 
+  // #39: the bulk bar renders inside the list; the tissue only needs ids,
+  // the count and the action markers.
+  function bulkSelectionInput() {
+    return {
+      ids: [...bulkIds],
+      escalated: bulkEscalated,
+      error: bulkError,
+      canEscalate: capabilities.escalateTicket !== false && typeof shop.escalateTicket === "function",
+      actions: {
+        markRead: bulkMarkRead,
+        markUnread: bulkMarkUnread,
+        export: bulkExport,
+        escalate: bulkEscalate,
+        clear: clearSelection,
+      },
+    };
+  }
+
   function listInput() {
     // #33: pagination totals live in the active view's domain — Spam shows
     // "3 of 3", All shows the working partition. `loaded` counts view
@@ -730,6 +843,7 @@ export function createInboxOrgan(opts = {}) {
       selectedTagId: tagId,
       collapsed: listCollapsed,
       unreadIds: [...unreadIds],
+      bulkSelection: bulkSelectionInput(),
     };
   }
 
@@ -771,6 +885,7 @@ export function createInboxOrgan(opts = {}) {
       tagId,
       selectedId,
       unreadIds: [...unreadIds],
+      bulkSelection: bulkSelectionInput(),
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
       sendDisabled: composerTissue.sendDisabled(composerModel),
       hideSendAndClose: composerTissue.hideSendAndClose(composerModel),
@@ -948,6 +1063,10 @@ export function createInboxOrgan(opts = {}) {
       markRead(ticketId);
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
     });
+    mailbox.subscribe(MAILBOX_TOPICS.BULK_TOGGLE, ({ ticketId, shiftKey }) => {
+      // #39: checkbox toggle never opens the thread; toggleSelect repaints.
+      toggleSelect(ticketId, {shiftKey});
+    });
     mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_BODY, ({ text }) => {
       body = text;
     });
@@ -1091,6 +1210,12 @@ export function createInboxOrgan(opts = {}) {
     mount,
     snapshot,
     loadMore,
+    toggleSelect,
+    clearSelection,
+    bulkMarkRead,
+    bulkMarkUnread,
+    bulkExport,
+    bulkEscalate,
     selectView(next) {
       viewId = next;
       channelId = "";

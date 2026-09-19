@@ -77,6 +77,7 @@ export function createListTissue({ mailbox }) {
       selectedTagId: typeof input.selectedTagId === "string" ? input.selectedTagId : "",
       collapsed: Boolean(input.collapsed),
       unreadIds: Array.isArray(input.unreadIds) ? input.unreadIds : [],
+      bulkSelection: input.bulkSelection || null,
     };
   }
 
@@ -205,9 +206,32 @@ export function createListTissue({ mailbox }) {
     </header>`;
   }
 
-  function renderRow(ticket, selectedId, unreadIds) {
+  // #39: "All selected" bar — count, per-action buttons (disabled state is
+  // inherent: the bar only renders with a non-empty selection), Clear, and
+  // role=status so the count is announced.
+  function renderBulkBar(bulk) {
+    const count = bulk.ids.length;
+    return `<div class="bulk-bar" data-bulk-bar role="status" aria-label="${count} selected">
+      <strong>${count} selected</strong>
+      <div class="bulk-actions" role="group" aria-label="Bulk actions">
+        <button type="button" class="btn-hairline" data-bulk-read title="Mark selected tickets read">Mark read</button>
+        <button type="button" class="btn-hairline" data-bulk-unread title="Mark selected tickets unread">Mark unread</button>
+        <button type="button" class="btn-hairline" data-bulk-export title="Download the selected observed rows as CSV">Export</button>
+        ${bulk.canEscalate ? `<button type="button" class="btn-hairline" data-bulk-escalate title="Flag selected tickets for a human lead. Does not email the customer.">Escalate</button>` : ""}
+      </div>
+      ${bulk.escalated?.length ? `<span class="mute">Escalated ${bulk.escalated.length} ticket${bulk.escalated.length === 1 ? "" : "s"}</span>` : ""}
+      ${bulk.error ? `<span class="bulk-error">${esc(bulk.error)}</span>` : ""}
+      <button type="button" class="btn-quiet" data-bulk-clear title="Clear the ticket selection">Clear selection</button>
+    </div>`;
+  }
+
+  function renderRow(ticket, selectedId, unreadIds, bulk) {
     const on = ticket.id === selectedId;
     const unread = unreadIds.includes(ticket.id);
+    // #39: real checkbox, absolutely positioned over the row's left edge.
+    // It never opens the thread; the organ's toggleSelect owns the logic.
+    const checked = Boolean(bulk?.ids?.includes(ticket.id));
+    const selectHtml = `<input type="checkbox" class="ticket-select" data-select-ticket="${esc(ticket.id)}" aria-label="Select ticket for ${esc(listCustomerName(ticket))}" ${checked ? "checked" : ""}>`;
     const status = ticket.status || "";
     const statusWord = status === "open" || status === "unknown" ? "" : screenStatus(status);
     const typeWord = requestTypeLabel(ticket.requestType);
@@ -252,6 +276,7 @@ export function createListTissue({ mailbox }) {
       ? `<span class="ticket-unread-dot" data-unread-dot role="img" aria-label="Unread"></span>`
       : "";
     return `<button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
+      ${selectHtml}
       <span class="ticket-bar" aria-hidden="true"></span>
       ${unreadHtml}
       <span class="ticket-top">
@@ -287,11 +312,13 @@ export function createListTissue({ mailbox }) {
     }
     const tickets = sortedTickets(next.tickets);
     const unreadIds = next.unreadIds || [];
+    const bulk = next.bulkSelection;
     const rows = tickets.length
-      ? tickets.map((ticket) => renderRow(ticket, next.selectedTicketId, unreadIds)).join("")
+      ? tickets.map((ticket) => renderRow(ticket, next.selectedTicketId, unreadIds, bulk)).join("")
       : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/">Open support console</a></div>`;
     return `<div class="pane-inner">
       ${renderToolbar(next)}
+      ${bulk?.ids?.length ? renderBulkBar(bulk) : ""}
       ${next.notice ? `<p class="history-notice" role="status">${esc(next.notice)}</p>` : ""}
       <div class="ticket-list" role="list">${rows}</div>
       ${next.pagination && tickets.length ? `<div class="list-pagination">
@@ -361,6 +388,27 @@ export function createListTissue({ mailbox }) {
       }
       if (event.target.closest("[data-list-expand]")) {
         mailbox.publish(MAILBOX_TOPICS.LIST_COLLAPSED, { collapsed: false });
+        return;
+      }
+      // #39: checkbox and bulk-bar clicks select/act; they never fall through
+      // to opening the thread.
+      const selectBox = event.target.closest("[data-select-ticket]");
+      if (selectBox) {
+        event.stopPropagation();
+        mailbox.publish(MAILBOX_TOPICS.BULK_TOGGLE, {
+          ticketId: selectBox.dataset.selectTicket,
+          shiftKey: Boolean(event.shiftKey),
+        });
+        return;
+      }
+      const bulkAction = event.target.closest("[data-bulk-read],[data-bulk-unread],[data-bulk-export],[data-bulk-escalate],[data-bulk-clear]");
+      if (bulkAction) {
+        const action = bulkAction.dataset.bulkRead ? "markRead"
+          : bulkAction.dataset.bulkUnread ? "markUnread"
+          : bulkAction.dataset.bulkExport ? "export"
+          : bulkAction.dataset.bulkEscalate ? "escalate"
+          : "clear";
+        model.bulkSelection?.actions?.[action]?.();
         return;
       }
       const button = event.target.closest("[data-ticket]");

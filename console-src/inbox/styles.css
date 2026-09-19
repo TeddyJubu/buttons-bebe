@@ -336,6 +336,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .view-count { font-variant-numeric: tabular-nums; font-size: 12px; }
 
 .ticket-list { overflow: auto; }
+/* #39: row checkbox, absolutely positioned over the row's left edge like
+ * .ticket-bar so it never shifts layout. */
+.ticket-select { position: absolute; left: 20px; top: 14px; margin: 0; width: 14px; height: 14px; accent-color: var(--accent); z-index: 1; }
+/* #39: the All-selected bar. */
+.bulk-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--paper); }
+.bulk-bar strong { font-size: 13px; }
+.bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.bulk-error { color: #b3261e; font-size: 12px; }
 .ticket-row {
   position: relative;
   width: 100%;
