@@ -162,6 +162,9 @@ test("pinned-catalog rows honor local state in views and counts", async () => {
   await organ.selectView("closed");
   const snap = organ.snapshot();
   assert.match(snap.html, /data-ticket="gorgias:1"/, "the locally-closed pinned ticket appears in the Closed view");
+  const closedCount = snap.html.match(/data-view="closed"[^>]*>[\s\S]*?<span class="list-menu-count">(\d+)<\/span>/);
+  assert.ok(closedCount, "the Closed view count renders");
+  assert.equal(closedCount[1], "1", "the Closed view count includes the local override");
 });
 
 test("the observed Gorgias status stays visible beside a local override", async () => {
@@ -221,4 +224,9 @@ test("a locally-set assignee survives the picker's round trip", async () => {
   await organ.setTicketState("gorgias:1", {assignee: longAddress});
   const snap = organ.snapshot();
   assert.equal(snap.ticketState.assignee, longAddress, "the full address round-trips untruncated");
+  // The picker itself must offer the full address — a truncated option would
+  // silently strand the override.
+  const control = snap.html.match(/<select data-detail-assignee[^>]*>([\s\S]*?)<\/select>/);
+  assert.ok(control, "the assignee control renders");
+  assert.match(control[1], new RegExp(`value="${longAddress.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`), "the picker offers the full address");
 });

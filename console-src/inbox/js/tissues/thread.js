@@ -170,6 +170,12 @@ export function createThreadTissue({ mailbox }) {
       ...(observedAssignee && observedAssignee !== next.operatorEmail
         ? [`<option value="${esc(observedAssignee)}"${assigneeSelected(observedAssignee)}>${esc(observedAssignee)}</option>`]
         : []),
+      // A saved pick whose observed value moved on stays selectable, so the
+      // badge and the picker never disagree.
+      ...(assigneeOverride && assigneeOverride !== next.operatorEmail
+        && assigneeOverride !== "unassigned" && assigneeOverride !== observedAssignee
+        ? [`<option value="${esc(assigneeOverride)}"${assigneeSelected(assigneeOverride)}>${esc(assigneeOverride)}</option>`]
+        : []),
       `<option value="unassigned"${assigneeSelected("unassigned")}>Unassigned</option>`,
     ].join("");
     const overrideBadge = (field) => overridden[field] ? `<span class="local-override-badge" title="This value is a console-only override. Clearing the control restores the observed value.">Console only</span>` : "";
