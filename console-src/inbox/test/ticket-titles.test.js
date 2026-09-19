@@ -158,6 +158,49 @@ test("a cleared rename stays cleared through later persists in the same session"
   assert.equal(store["gorgias:2"].title, "Mine");
 });
 
+test("a stale tab's persist follows storage for tickets it never touched", async () => {
+  // Two tabs load a store that already holds ticket 1's old title. Tab A
+  // renames ticket 1; tab B — still holding the load-time copy — renames a
+  // different ticket. B's persist must adopt A's newer title instead of
+  // writing its stale copy: key presence is not local ownership.
+  const storage = freshStorage();
+  storage.setItem("bb-inbox-titles-v1", JSON.stringify({"gorgias:1": {title: "Old title", by: OPERATOR, at: 1}}));
+  const shop = {
+    listTickets: async () => [projected(1), projected(2)],
+    getTicket: async ({ticketId}) => [projected(1), projected(2)].find((r) => r.id === ticketId) || null,
+  };
+  const tabA = makeOrgan({storage, shop});
+  const tabB = makeOrgan({storage, shop});
+  await tabA.ready();
+  await tabB.ready();
+  await tabA.renameTicket("gorgias:1", "A's title");
+  await tabB.renameTicket("gorgias:2", "Mine");
+  const store = JSON.parse(storage.getItem("bb-inbox-titles-v1") || "{}");
+  assert.equal(store["gorgias:1"]?.title, "A's title", "B's persist adopts A's newer rename");
+  assert.equal(store["gorgias:2"]?.title, "Mine");
+});
+
+test("a stale tab's persist drops a title another tab cleared", async () => {
+  // Mirror case: A clears ticket 1's stored title; B, which still holds the
+  // load-time copy and never touched ticket 1, persists after renaming a
+  // different ticket. B must drop ticket 1 — not resurrect it.
+  const storage = freshStorage();
+  storage.setItem("bb-inbox-titles-v1", JSON.stringify({"gorgias:1": {title: "Old title", by: OPERATOR, at: 1}}));
+  const shop = {
+    listTickets: async () => [projected(1), projected(2)],
+    getTicket: async ({ticketId}) => [projected(1), projected(2)].find((r) => r.id === ticketId) || null,
+  };
+  const tabA = makeOrgan({storage, shop});
+  const tabB = makeOrgan({storage, shop});
+  await tabA.ready();
+  await tabB.ready();
+  await tabA.renameTicket("gorgias:1", "   ");
+  await tabB.renameTicket("gorgias:2", "Mine");
+  const store = JSON.parse(storage.getItem("bb-inbox-titles-v1") || "{}");
+  assert.equal(store["gorgias:1"], undefined, "B's persist does not resurrect the cleared title");
+  assert.equal(store["gorgias:2"]?.title, "Mine");
+});
+
 test("a rename records who renamed it and when", async () => {
   const handle = makeOrgan();
   await handle.ready();

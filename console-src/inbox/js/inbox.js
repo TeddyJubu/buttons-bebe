@@ -111,9 +111,12 @@ export function createInboxOrgan(opts = {}) {
     }
   }
   let titles = loadTitles();
-  // #41: ids deleted by this organ since load. Removals win over the two-tab
-  // merge so a cleared rename can never be resurrected by a later persist.
-  const removedTitleIds = new Set();
+  // #41: ids this organ has renamed or cleared since load. Key presence in
+  // `titles` is not local ownership (it also holds load-time copies), so
+  // persistence is anchored to this set instead. Untouched keys follow
+  // storage, so a stale tab's persist never clobbers another tab's rename
+  // and never resurrects another tab's clear.
+  const localTitleIds = new Set();
   // Fallback titles get the same guard as typed renames: collapsed
   // whitespace, trimmed, capped at 120 — the derived line stays one row.
   function screenTitle(raw) {
@@ -133,13 +136,15 @@ export function createInboxOrgan(opts = {}) {
   }
   function persistTitles() {
     try {
-      // Two-tab safety mirrors the read store: merge stored keys this organ
-      // has not itself changed, then write. A cleared rename is never merged
-      // back — removals win over the merge so they stick.
-      const stored = loadTitles();
-      for (const [id, value] of Object.entries(stored)) {
-        if (!(id in titles) && !removedTitleIds.has(id)) titles[id] = value;
+      // Two-tab merge: adopt storage for every key this organ has not
+      // touched, then apply this organ's own renames (present in `titles`)
+      // and clears (touched but absent) on top.
+      const merged = {...loadTitles()};
+      for (const id of localTitleIds) {
+        if (id in titles) merged[id] = titles[id];
+        else delete merged[id];
       }
+      titles = merged;
       storage?.setItem?.(TITLE_KEY, JSON.stringify(titles));
     } catch {
       /* private-mode storage quota is not an inbox error */
@@ -149,10 +154,10 @@ export function createInboxOrgan(opts = {}) {
   // server. The observed operator email is recorded, never invented.
   function writeTitle(ticketId, raw) {
     const title = screenTitle(raw);
+    localTitleIds.add(ticketId);
     if (!title) {
       // Clearing the rename deletes the record; the derived fallback shows.
       delete titles[ticketId];
-      removedTitleIds.add(ticketId);
       persistTitles();
       return;
     }

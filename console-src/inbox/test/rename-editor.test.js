@@ -25,26 +25,50 @@ function threadFixture(overrides = {}) {
   };
 }
 
-function fakeHost() {
-  return { innerHTML: "", querySelector() { return null; } };
+function renameHost() {
+  // A host whose [data-rename-input] query answers with a focusable stub —
+  // real repaints go through paint(), which focuses the input, so the stub
+  // records focus/select/caret for the assertions.
+  const calls = { focus: 0, select: 0, caret: [] };
+  let draft = "";
+  const input = {
+    get value() { return draft; },
+    set value(next) { draft = next; },
+    focus() { calls.focus += 1; },
+    select() { calls.select += 1; },
+    setSelectionRange(start, end) { calls.caret.push([start, end]); },
+  };
+  const host = {
+    innerHTML: "",
+    calls,
+    input,
+    set draft(next) { draft = next; },
+    querySelector(selector) {
+      return selector === "[data-rename-input]" && host.innerHTML.includes("data-rename-input") ? input : null;
+    },
+  };
+  return host;
 }
 
 test("the rename editor carries its draft over a mid-edit repaint", () => {
   const mailbox = createMailbox();
   const tissue = createThreadTissue({ mailbox });
-  const host = fakeHost();
+  const host = renameHost();
   tissue.mount(host);
   tissue.update({ ticket: threadFixture(), capabilities: {}, title: "Subject 1" });
-  // Open the editor, type a draft, then a repaint happens (paint() re-renders).
+  // Open the editor: a fresh open focuses and selects all.
   host.onclick({ target: { closest: (sel) => (sel === "[data-rename-open]" ? { dataset: { ticketId: "gorgias:1", ticketTitle: "Subject 1" } } : null) } });
-  const typed = "Christmas order in progress";
-  host.querySelector = (sel) => (sel === "[data-rename-input]" ? { value: typed } : null);
-  host.oninput?.({ target: { closest: (sel) => (sel === "[data-rename-input]" ? { value: typed } : null) } });
-  // Repaint: the organ calls paint() (host.innerHTML = render(model)), the
-  // update() that precedes it re-derives the model title from the store.
+  assert.ok(host.innerHTML.includes("data-rename-input"), "the editor is open");
+  assert.equal(host.calls.select, 1, "a fresh open selects all");
+  // The operator types.
+  host.draft = "Christmas order in progress";
+  host.oninput({ target: { closest: (sel) => (sel === "[data-rename-input]" ? host.input : null) } });
+  // The organ's repaint path is safeMount: update() then mount() → paint().
   tissue.update({ ticket: threadFixture(), capabilities: {}, title: "Subject 1" });
-  const html = tissue.render();
-  assert.match(html, /value="Christmas order in progress"/, "the draft survives the repaint");
+  tissue.mount(host);
+  assert.match(host.innerHTML, /value="Christmas order in progress"/, "the draft survives the repaint");
+  assert.equal(host.calls.select, 1, "a mid-edit repaint does not select-all over the typing");
+  assert.deepEqual(host.calls.caret.slice(-1), [[27, 27]], "the caret lands after the draft");
 });
 
 test("selecting a ticket carries its rail title into the list row", async () => {
