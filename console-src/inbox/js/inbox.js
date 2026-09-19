@@ -98,6 +98,56 @@ export function createInboxOrgan(opts = {}) {
       /* private-mode storage quota is not an inbox error */
     }
   }
+  // #41: the operator's own ticket titles are first-party state like the
+  // read set — a browser store, never a Gorgias write. A rename here never
+  // leaves the operator's browser.
+  const TITLE_KEY = "bb-inbox-titles-v1";
+  function loadTitles() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(TITLE_KEY) || "null");
+      return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    } catch {
+      return {};
+    }
+  }
+  let titles = loadTitles();
+  function derivedTitle(ticket) {
+    if (!ticket) return "New ticket";
+    const record = titles[ticket.id];
+    // #41: records carry {title, by, at}; a bare string is a pre-#41 entry.
+    const stored = typeof record === "string" ? record : record?.title;
+    if (typeof stored === "string" && stored.trim()) return stored;
+    const orderName = ticket.shopifyRail?.order?.name;
+    if (typeof orderName === "string" && orderName.trim()) return orderName;
+    const subject = typeof ticket.subject === "string" ? ticket.subject.trim() : "";
+    if (subject && subject.toLowerCase() !== "no subject") return subject;
+    return "New ticket";
+  }
+  function persistTitles() {
+    try {
+      // Two-tab safety mirrors the read store: merge stored keys this organ
+      // has not itself changed, then write.
+      const stored = loadTitles();
+      for (const [id, value] of Object.entries(stored)) {
+        if (!(id in titles)) titles[id] = value;
+      }
+      storage?.setItem?.(TITLE_KEY, JSON.stringify(titles));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
+  // #41: who/when travel with the title — the store is auditable without a
+  // server. The observed operator email is recorded, never invented.
+  function writeTitle(ticketId, raw) {
+    const title = String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!title) return;
+    titles[ticketId] = {
+      title,
+      by: String(opts.operatorEmail ?? shop.operatorEmail ?? "operator").trim().toLowerCase() || "operator",
+      at: Date.now(),
+    };
+    persistTitles();
+  }
   let capabilities = { ...(shop.capabilities || {}) };
   const shopHost = opts.shopHost || shop.shop || SHOP;
   const pinnedCatalog = opts.tickets || null;
@@ -865,7 +915,7 @@ export function createInboxOrgan(opts = {}) {
       loadMore,
     } : null;
     return {
-      tickets: sortedVisibleTickets(),
+      tickets: sortedVisibleTickets().map((ticket) => ({...ticket, derivedTitle: derivedTitle(ticket)})),
       error: listError,
       notice: projectionNotice,
       pagination,
@@ -905,7 +955,7 @@ export function createInboxOrgan(opts = {}) {
     ensureSelection();
     const ticket = selectedTicket();
     const listModel = listTissue.update(listInput());
-    const threadModel = threadTissue.update({ ticket, capabilities });
+    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket) });
     const composerModel = composerTissue.update(composerInput(ticket));
     const railHtml = !showsCustomerRail(ticket) ? emptyRailHtml() : railCollapsed ? railCollapsedHtml() : rail.render();
     const html = `<div class="inbox" data-organ="inbox">
@@ -926,6 +976,7 @@ export function createInboxOrgan(opts = {}) {
       tagId,
       selectedId,
       unreadIds: [...unreadIds],
+      titles,
       bulkSelection: bulkSelectionInput(),
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
       sendDisabled: composerTissue.sendDisabled(composerModel),
@@ -1030,7 +1081,7 @@ export function createInboxOrgan(opts = {}) {
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());
-      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities });
+      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket) });
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
         if (!showsCustomerRail(ticket)) {
@@ -1158,6 +1209,11 @@ export function createInboxOrgan(opts = {}) {
       if (ticketId && ticketId !== selectedId) selectedId = ticketId;
       escalateSelected(reason).then(() => refreshThread()).then(paint).catch(showActionError);
     });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_RENAME, ({ ticketId, title }) => {
+      // #41: rename is first-party only — write the browser store, repaint.
+      if (ticketId) writeTitle(ticketId, title);
+      paint();
+    });
     mailbox.subscribe(MAILBOX_TOPICS.WRITE_GATE_OPEN, () => {
       closeAllGates();
       writeGateOpen = true;
@@ -1262,6 +1318,12 @@ export function createInboxOrgan(opts = {}) {
     bulkMarkUnread,
     bulkExport,
     bulkEscalate,
+    // #41: first-party rename. Persists in the browser store only; the
+    // observed Gorgias subject is never touched.
+    async renameTicket(ticketId, raw) {
+      writeTitle(ticketId, raw);
+      return afterUi();
+    },
     // #39 review: display-order control. Sorting does not touch the shop; the
     // selection stays intact because the ids still render, only reordered.
     selectSort(next) {

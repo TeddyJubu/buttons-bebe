@@ -441,6 +441,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .thread-head h2 { overflow-wrap: anywhere; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
 .thread-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; }
 .thread-subject { overflow-wrap: anywhere; color: var(--mute); font-size: 13px; margin-top: 2px; }
+/* #41: inline rename — pencil-like quiet affordance, in-place input. */
+.title-edit { margin-left: 6px; padding: 1px 6px; font-size: 11px; color: var(--mute); background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
+.title-edit:hover { color: var(--ink); border-color: var(--mute); }
+.thread-rename { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.thread-rename-input { min-width: 0; flex: 1 1 200px; max-width: 340px; padding: 3px 8px; font-size: 13px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface); }
 .thread-request { font-size: 12px; margin-top: 4px; }
 .thread-request-row {
   display: flex;
