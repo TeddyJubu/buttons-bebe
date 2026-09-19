@@ -62,6 +62,40 @@ function safeMount(tissue, el, input) {
 export function createInboxOrgan(opts = {}) {
   const mailbox = opts.mailbox || createMailbox();
   const shop = opts.shop || createHelpdeskShop({ fail: opts.fail });
+  // #34: read state is the operator's browser state, persisted so a reload
+  // keeps the distinction. The observed path's projection server is
+  // read-only, so the read set lives here (localStorage in production, an
+  // injectable shim for tests) — never in the webhook snapshot.
+  const READ_KEY = "bb-inbox-read-v1";
+  // Merely referencing localStorage throws in browsers that block it, so
+  // resolve it inside try/catch; the inbox degrades to session-local.
+  const storage = opts.storage || (() => {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage : null;
+    } catch {
+      return null;
+    }
+  })();
+  function loadReadIds() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(READ_KEY) || "null");
+      return new Set(Array.isArray(raw) ? raw.filter((id) => typeof id === "string") : []);
+    } catch {
+      return new Set();
+    }
+  }
+  let readIds = loadReadIds();
+  function persistRead() {
+    try {
+      // Merge with the stored set first: a second tab may have marked other
+      // tickets read since this organ loaded, and its reads must survive.
+      const stored = loadReadIds();
+      for (const id of stored) readIds.add(id);
+      storage?.setItem?.(READ_KEY, JSON.stringify([...readIds]));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
   let capabilities = { ...(shop.capabilities || {}) };
   const shopHost = opts.shopHost || shop.shop || SHOP;
   const pinnedCatalog = opts.tickets || null;
@@ -162,9 +196,11 @@ export function createInboxOrgan(opts = {}) {
   let macrosOpen = false;
   let listCollapsed = false;
   let railCollapsed = false;
-  /** Session-local unread ids. Fixtures start unread; selecting marks read. No Shopify field. */
+  // #34: first-seen ids start unread unless the persisted read store already
+  // marks them read. Fixtures seed unread exactly like before; the observed
+  // path learns ids from the snapshot itself.
   const unreadIds = new Set(
-    (pinnedCatalog || fixtureTickets).map((ticket) => ticket.id).filter(Boolean),
+    (pinnedCatalog || fixtureTickets).map((ticket) => ticket.id).filter(Boolean).filter((id) => !readIds.has(id)),
   );
   const knownTicketIds = new Set(unreadIds);
   let writeGate = {
@@ -203,7 +239,12 @@ export function createInboxOrgan(opts = {}) {
   }
 
   function markRead(ticketId) {
-    if (ticketId) unreadIds.delete(ticketId);
+    if (!ticketId) return;
+    unreadIds.delete(ticketId);
+    if (!readIds.has(ticketId)) {
+      readIds.add(ticketId);
+      persistRead();
+    }
   }
 
   /**
@@ -276,6 +317,12 @@ export function createInboxOrgan(opts = {}) {
       try {
         if (shop.observedHistory) {
           const rows = (await readObservedTickets(shop)).map(withOperatorAssignee);
+          // #34: first-seen ids become unread here too — the observed inbox
+          // is the production path and must not render everything as read.
+          for (const row of rows) {
+            if (!knownTicketIds.has(row.id) && !readIds.has(row.id)) unreadIds.add(row.id);
+            knownTicketIds.add(row.id);
+          }
           listRows = rows.filter((ticket) => ticketInView(ticket, viewId));
           counts = viewCounts(rows);
           // #33: pagination totals stay in the active view's domain. For All,
@@ -628,6 +675,12 @@ export function createInboxOrgan(opts = {}) {
       // flagged rows out of every render, and pagination totals stay in the
       // active view's domain via the same helpers refreshList uses.
       const rows = await readObservedTickets(shop, listRows.length + 100);
+      // #34: newly paged-in ids are first-seen here too, so page 2 renders
+      // its unread dots just like page 1.
+      for (const row of rows) {
+        if (!knownTicketIds.has(row.id) && !readIds.has(row.id)) unreadIds.add(row.id);
+        knownTicketIds.add(row.id);
+      }
       listRows = rows;
       const observed = viewCounts(rows);
       const flaggedInSnapshot = (shop.projection?.spamCount ?? observed.spam)
