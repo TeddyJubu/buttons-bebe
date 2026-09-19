@@ -109,3 +109,55 @@ test('a projection without observed state keeps every view except All empty', as
     assert.equal(rendered, view.id === 'all' ? rows.length : 0, view.id);
   }
 });
+
+// #34: read/unread must work on the observed inbox. First-seen rows start
+// unread with a dot + screen-reader label; opening marks read; the read set
+// persists to localStorage so a reload keeps the distinction instead of
+// regressing to "everything read" (or "everything unread").
+function freshStorage() {
+  const backing = new Map();
+  return {
+    getItem: (k) => (backing.has(k) ? backing.get(k) : null),
+    setItem: (k, v) => backing.set(k, String(v)),
+    removeItem: (k) => backing.delete(k),
+  };
+}
+
+test('first-seen observed rows render unread with a dot and screen-reader label', async () => {
+  const rows = [projected(21,{status:'open'}), projected(22,{status:'open'})];
+  const organ = createInboxOrgan({shop:observedShop(rows), storage:freshStorage()});
+  const snap = await organ.ready();
+  // The auto-opened first row is already read (its thread is displayed); the
+  // second row was never opened, so it starts unread with a dot.
+  assert.match(snap.html, /class="ticket-row is-unread"[^>]*data-ticket="gorgias:22"/);
+  assert.match(snap.html, /data-ticket="gorgias:22"[\s\S]*?data-unread-dot[^>]*aria-label="Unread"/);
+  assert.equal(snap.unreadIds.includes('gorgias:22'), true);
+  // Opening the unread row marks it read and drops the dot.
+  const after = await organ.selectTicket('gorgias:22');
+  assert.doesNotMatch(after.html, /class="ticket-row[^"]*is-unread[^"]*"[^>]*data-ticket="gorgias:22"/);
+  assert.doesNotMatch(after.html, /data-unread-dot/);
+  assert.equal(after.unreadIds.includes('gorgias:22'), false);
+});
+
+test('read state survives reload via the persisted store', async () => {
+  const rows = [projected(21,{status:'open'}), projected(22,{status:'open'})];
+  const storage = freshStorage();
+  const first = createInboxOrgan({shop:observedShop(rows), storage});
+  await first.ready();
+  await first.selectTicket('gorgias:21');
+  // New organ, same storage: simulates a reload. Row 21 stays read, row 22
+  // was never opened so it starts unread again.
+  const reloaded = await createInboxOrgan({shop:observedShop(rows), storage}).ready();
+  assert.doesNotMatch(reloaded.html, /class="ticket-row[^"]*is-unread[^"]*"[^>]*data-ticket="gorgias:21"/);
+  assert.match(reloaded.html, /class="ticket-row is-unread"[^>]*data-ticket="gorgias:22"/);
+  assert.deepEqual(reloaded.unreadIds, ['gorgias:22']);
+});
+
+test('persisted read ids are honored on first paint and never re-mark unread', async () => {
+  const rows = [projected(21,{status:'open'}), projected(22,{status:'open'})];
+  const storage = freshStorage();
+  storage.setItem('bb-inbox-read-v1', JSON.stringify(['gorgias:21','gorgias:22']));
+  const snap = await createInboxOrgan({shop:observedShop(rows), storage}).ready();
+  assert.deepEqual(snap.unreadIds, []);
+  assert.doesNotMatch(snap.html, /is-unread/);
+});

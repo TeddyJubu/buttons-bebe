@@ -248,8 +248,12 @@ export function createListTissue({ mailbox }) {
       : "";
     const deviceAttr = ticket.device ? ` data-device="${esc(ticket.device)}"` : "";
     const unreadClass = unread ? " is-unread" : "";
+    const unreadHtml = unread
+      ? `<span class="ticket-unread-dot" data-unread-dot aria-label="Unread"></span>`
+      : "";
     return `<button type="button" class="ticket-row${on ? " is-selected" : ""}${unreadClass}" data-ticket="${esc(ticket.id)}" data-status="${esc(status)}"${typeAttr}${severityAttr}${deviceAttr} aria-current="${on ? "true" : "false"}">
       <span class="ticket-bar" aria-hidden="true"></span>
+      ${unreadHtml}
       <span class="ticket-top">
         <span title="${esc(listCustomerName(ticket))}" class="ticket-name">${esc(listCustomerName(ticket))}</span>
         <span class="ticket-meta">
