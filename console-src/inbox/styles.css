@@ -496,6 +496,55 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   border-radius: var(--radius-sm);
   padding: 3px 7px;
 }
+/* #44: first-party ticket-detail controls — browser store, never Gorgias. */
+.thread-detail-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.detail-field { display: flex; align-items: center; gap: 4px; margin: 0; }
+.detail-label { font-size: 11px; font-weight: 500; color: var(--mute); letter-spacing: .02em; }
+.detail-field select {
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  max-width: 140px;
+}
+.detail-field select:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
+.local-override-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--mute);
+  border: 1px dashed var(--mute);
+  border-radius: 999px;
+  padding: 1px 6px;
+  text-transform: uppercase;
+}
+/* The anchor span wraps trigger + menu so the absolute item positions off
+   a box that actually contains the trigger. */
+.thread-menu-anchor { position: relative; display: inline-flex; }
+.thread-menu { display: inline-flex; }
+.thread-menu[hidden] { display: none; }
+.thread-menu-item {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: block;
+  width: max-content;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+  cursor: pointer;
+}
+.detail-nav { display: flex; align-items: center; gap: 4px; }
 /* #42: the unique ticket id, always visible beside the status. */
 .ticket-id-badge {
   font-size: 11px;

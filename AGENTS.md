@@ -36,6 +36,13 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    a clearly prefixed sensitive draft, HIGH/CRITICAL priority, and an owner
    alert. The human remains the safety gate.
 5. Jobs, results, alerts, and learning actions are all logged.
+6. The inbox's ticket-detail controls (status, priority, assignee, mark
+   read/unread, rename) are **first-party local state** — writes persist in
+   the operator's browser store only (`bb-inbox-*-v1` keys), visible in our
+   inbox, and never write Gorgias. The observed Gorgias values stay visible
+   beside any local override. Gorgias-side status/priority/assignment changes
+   remain Gorgias writes under (2)/(3): not implemented, and any future
+   exception needs the owner's sign-off plus an audit trail.
 
 ## 3. Where it runs
 

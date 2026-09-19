@@ -13,13 +13,20 @@ import { esc, formatWeekday, formatWhen, initials, requestTypeChrome, safeWebUrl
  */
 export function createThreadTissue({ mailbox }) {
   function observedTicketStatus(ticket) {
-    const status = typeof ticket?.status === "string" ? ticket.status.trim().toLowerCase() : "";
-    if (!status || status === "unknown") return ticket?.projectionSource ? "Status unknown" : screenStatus(ticket?.status);
+    // #44: the badge keeps naming what Gorgias reported — the observed
+    // status, never the console-only override the picker carries.
+    const raw = ticket?.observedStatus ?? ticket?.status;
+    const status = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (!status || status === "unknown") return ticket?.projectionSource ? "Status unknown" : screenStatus(raw);
     return screenStatus(status);
   }
   let model = { ticket: null };
   let lightbox = null;
   let renaming = null;
+  // #44: the three-dot overflow menu's open state. Like the rename editor,
+  // a mid-edit repaint keeps it open.
+  let menuOpen = false;
+  let menuTicketId = null;
   let host = null;
 
   function project(input) {
@@ -35,6 +42,13 @@ export function createThreadTissue({ mailbox }) {
       capabilities: input.capabilities || {},
       title: input.title || "",
       missingTicketId: input.missingTicketId || null,
+      // #44: list-position context for previous/next, and the operator's own
+      // address as the local-assignee choice.
+      nav: input.nav || {position: -1, total: 0, hasPrev: false, hasNext: false},
+      operatorEmail: input.operatorEmail || "",
+      // #44: the raw local overrides, for re-selecting picker values the
+      // row model normalizes away (an "Unassigned" pick reads as null).
+      ticketState: input.ticketState || null,
     };
   }
 
@@ -120,6 +134,86 @@ export function createThreadTissue({ mailbox }) {
     return items.map((item) => item.html).join("");
   }
 
+  // #44: first-party ticket-detail controls. Every control is a browser
+  // write — the Gorgias value stays visible, and the local override is
+  // badged "Console only" so the operator can tell the two apart.
+  const STATE_OPTIONS = {
+    status: ["open", "closed", "snoozed"],
+    priority: ["low", "normal", "high", "urgent"],
+  };
+  const stateOptionLabel = (value) => String(value).charAt(0).toUpperCase() + String(value).slice(1);
+  function detailControls(ticket, next) {
+    const nav = next.nav || {hasPrev: false, hasNext: false, position: -1, total: 0};
+    const overridden = ticket.localOverrides || {};
+    const stamp = (field) => overridden[field]
+      ? ` title="Console-only override set by ${esc(next.operatorEmail || "the operator")}. The observed value never changes."`
+      : "";
+    const statusEscape = overridden.status || !STATE_OPTIONS.status.includes(ticket.status)
+      ? `<option value=""${overridden.status ? "" : " selected"}>Observed</option>`
+      : "";
+    const statusOptions = statusEscape + STATE_OPTIONS.status.map((value) =>
+      `<option value="${value}"${ticket.status === value ? " selected" : ""}>${stateOptionLabel(value)}</option>`).join("");
+    const priorityOptions = ["", ...STATE_OPTIONS.priority].map((value) =>
+      `<option value="${value}"${(ticket.priority || "").toLowerCase() === value ? " selected" : ""}>${value ? stateOptionLabel(value) : "Observed"}</option>`).join("");
+    const observedAssignee = typeof ticket.observedAssignee === "string" && ticket.observedAssignee.trim()
+      ? ticket.observedAssignee.trim() : "";
+    const assigneeOverride = next.ticketState?.assignee?.value ?? "";
+    const assigneeSelected = (value) => assigneeOverride
+      ? (assigneeOverride === value ? " selected" : "")
+      : "";
+    const observedSelected = assigneeOverride ? "" : " selected";
+    const assigneeOptions = [
+      `<option value=""${observedSelected}>Observed${observedAssignee ? ` (${esc(observedAssignee)})` : ""}</option>`,
+      ...(next.operatorEmail
+        ? [`<option value="${esc(next.operatorEmail)}"${assigneeSelected(next.operatorEmail)}>Me</option>`]
+        : []),
+      ...(observedAssignee && observedAssignee !== next.operatorEmail
+        ? [`<option value="${esc(observedAssignee)}"${assigneeSelected(observedAssignee)}>${esc(observedAssignee)}</option>`]
+        : []),
+      // A saved pick whose observed value moved on stays selectable, so the
+      // badge and the picker never disagree.
+      ...(assigneeOverride && assigneeOverride !== next.operatorEmail
+        && assigneeOverride !== "unassigned" && assigneeOverride !== observedAssignee
+        ? [`<option value="${esc(assigneeOverride)}"${assigneeSelected(assigneeOverride)}>${esc(assigneeOverride)}</option>`]
+        : []),
+      `<option value="unassigned"${assigneeSelected("unassigned")}>Unassigned</option>`,
+    ].join("");
+    const overrideBadge = (field) => overridden[field] ? `<span class="local-override-badge" title="This value is a console-only override. Clearing the control restores the observed value.">Console only</span>` : "";
+    return `<div class="thread-detail-controls">
+          <label class="detail-field">
+            <span class="detail-label">Status</span>
+            <select data-detail-status data-ticket-id="${esc(ticket.id)}" aria-label="Ticket status (console only)"${stamp("status")}>
+              ${statusOptions}
+            </select>
+            ${overrideBadge("status")}
+          </label>
+          <label class="detail-field">
+            <span class="detail-label">Priority</span>
+            <select data-detail-priority data-ticket-id="${esc(ticket.id)}" aria-label="Ticket priority (console only)"${stamp("priority")}>
+              ${priorityOptions}
+            </select>
+            ${overrideBadge("priority")}
+          </label>
+          <label class="detail-field">
+            <span class="detail-label">Assignee</span>
+            <select data-detail-assignee data-ticket-id="${esc(ticket.id)}" aria-label="Ticket assignee (console only)"${stamp("assignee")}>
+              ${assigneeOptions}
+            </select>
+            ${overrideBadge("assignee")}
+          </label>
+          <span class="thread-menu-anchor">
+            <button type="button" class="btn-quiet" data-detail-menu data-menu-toggle aria-expanded="${menuOpen ? "true" : "false"}" aria-haspopup="menu" title="Other first-party actions for this ticket (browser only)">⋯</button>
+            <span class="thread-menu" role="menu" ${menuOpen ? "" : "hidden"}>
+              <button type="button" class="thread-menu-item" role="menuitem" data-menu-mark-unread data-ticket-id="${esc(ticket.id)}" title="Mark this ticket unread in your browser only. Never writes Gorgias.">Mark as unread</button>
+            </span>
+          </span>
+          <span class="detail-nav">
+            <button type="button" class="btn-quiet" data-ticket-prev ${nav.hasPrev ? "" : "disabled"} title="Go to the previous ticket in this view">Previous</button>
+            <button type="button" class="btn-quiet" data-ticket-next ${nav.hasNext ? "" : "disabled"} title="Go to the next ticket in this view">Next</button>
+          </span>
+        </div>`;
+  }
+
   function render(next = model) {
     const ticket = next.ticket;
     if (next.missingTicketId) {
@@ -179,6 +273,7 @@ export function createThreadTissue({ mailbox }) {
           ${ticket.gorgiasTrashed ? `<span class="status-badge" title="Trashed in Gorgias">Trashed</span>` : ""}
           ${ticket.gorgiasSnoozed ? `<span class="status-badge" title="Snoozed in Gorgias">Snoozed</span>` : ""}
           ${escalateControl}
+          ${detailControls(ticket, next)}
         </div>
       </header>
       <div class="thread-scroll">${ticket.projectionSource ? `<p class="history-notice" role="status">Partial webhook history; earlier messages may be missing. ${ticket.truncated ? "History or text is truncated." : ""} ${ticket.projection?.stale ? "Snapshot is stale; refresh is delayed." : ""}</p>` : ""}${timeline(ticket)}
@@ -290,8 +385,53 @@ export function createThreadTissue({ mailbox }) {
         return;
       }
       const button = event.target.closest("[data-summarize]");
-      if (!button) return;
-      mailbox.publish(MAILBOX_TOPICS.COMPOSER_SUMMARIZE, { ticketId: button.dataset.summarize });
+      if (button) {
+        mailbox.publish(MAILBOX_TOPICS.COMPOSER_SUMMARIZE, { ticketId: button.dataset.summarize });
+        return;
+      }
+      // #44: first-party detail controls publish through the mailbox; the
+      // organ owns the browser store. Nothing here is a Gorgias write.
+      const menuToggle = event.target.closest("[data-detail-menu]");
+      if (menuToggle) {
+        menuOpen = !menuOpen;
+        menuTicketId = menuOpen ? model.ticket?.id || null : null;
+        paint();
+        return;
+      }
+      const markUnread = event.target.closest("[data-menu-mark-unread]");
+      if (markUnread) {
+        menuOpen = false;
+        mailbox.publish(MAILBOX_TOPICS.THREAD_MARK_UNREAD, { ticketId: markUnread.dataset.ticketId });
+        paint();
+        return;
+      }
+      const prev = event.target.closest("[data-ticket-prev]");
+      if (prev && !prev.disabled) {
+        mailbox.publish(MAILBOX_TOPICS.THREAD_STEP, { delta: -1 });
+        return;
+      }
+      const nextTicket = event.target.closest("[data-ticket-next]");
+      if (nextTicket && !nextTicket.disabled) {
+        mailbox.publish(MAILBOX_TOPICS.THREAD_STEP, { delta: 1 });
+        return;
+      }
+    };
+    el.onchange = (event) => {
+      const status = event.target.closest?.("[data-detail-status]");
+      if (status) {
+        mailbox.publish(MAILBOX_TOPICS.THREAD_STATE, { ticketId: status.dataset.ticketId, field: "status", value: status.value });
+        return;
+      }
+      const priority = event.target.closest?.("[data-detail-priority]");
+      if (priority) {
+        mailbox.publish(MAILBOX_TOPICS.THREAD_STATE, { ticketId: priority.dataset.ticketId, field: "priority", value: priority.value });
+        return;
+      }
+      const assignee = event.target.closest?.("[data-detail-assignee]");
+      if (assignee) {
+        mailbox.publish(MAILBOX_TOPICS.THREAD_STATE, { ticketId: assignee.dataset.ticketId, field: "assignee", value: assignee.value });
+        return;
+      }
     };
     el.oninput = (event) => {
       // #41: keep the typed draft so a mid-edit repaint re-renders it.
@@ -339,7 +479,10 @@ export function createThreadTissue({ mailbox }) {
     project,
     render,
     update(input) {
-      model = project(input);
+      const next = project(input);
+      // #44: the overflow menu is per-ticket; navigating away closes it.
+      if (menuOpen && menuTicketId && next.ticket?.id !== menuTicketId) menuOpen = false;
+      model = next;
       return model;
     },
     mount,

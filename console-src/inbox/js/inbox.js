@@ -236,6 +236,155 @@ export function createInboxOrgan(opts = {}) {
     };
     persistTitles();
   }
+  // #44: the operator's ticket-detail overrides — status, priority, assignee
+  // — are first-party state like titles and the read set: a browser store,
+  // never a Gorgias write. The observed values stay rendered beside any
+  // override; clearing an override falls back to what Gorgias reported.
+  const STATE_KEY = "bb-inbox-ticket-state-v1";
+  const STATE_FIELDS = ["status", "priority", "assignee"];
+  function loadTicketState() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(STATE_KEY) || "null");
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+      // null records are deletions this tab owns; keep them so the merge
+      // below preserves the deletion instead of resurrecting stale values.
+      return raw;
+    } catch {
+      return {};
+    }
+  }
+  let ticketState = loadTicketState();
+  // #41-style ownership anchor, field-level: a tab owns only the fields it
+  // changed, so two tabs editing different fields never erase each other.
+  // A cleared field persists as null inside the record (a field tombstone)
+  // so the deletion itself survives the merge.
+  const ownedStateFields = new Map();
+  function persistTicketState() {
+    try {
+      const merged = {...loadTicketState()};
+      for (const [id, fields] of ownedStateFields) {
+        const record = {...(merged[id] && typeof merged[id] === "object" ? merged[id] : {})};
+        for (const field of fields) {
+          const value = ticketState[id]?.[field];
+          if (value) record[field] = value;
+          else record[field] = null; // this tab's field deletion
+        }
+        merged[id] = Object.keys(record).length ? record : null;
+      }
+      ticketState = merged;
+      storage?.setItem?.(STATE_KEY, JSON.stringify(ticketState));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
+  // Who/when travel with each change — the store is auditable without a
+  // server. The observed operator email is recorded, never invented.
+  function operatorStamp() {
+    return String(opts.operatorEmail ?? shop.operatorEmail ?? "operator").trim().toLowerCase() || "operator";
+  }
+  function setTicketStateLocal(ticketId, changes = {}) {
+    const fields = {};
+    for (const field of STATE_FIELDS) {
+      if (field in changes) fields[field] = changes[field];
+    }
+    if (!Object.keys(fields).length) return;
+    const record = ticketState[ticketId] && ticketState[ticketId] !== null && typeof ticketState[ticketId] === "object" ? {...ticketState[ticketId]} : {};
+    const stamp = {by: operatorStamp(), at: Date.now()};
+    for (const [field, value] of Object.entries(fields)) {
+      // Values come from the picker's own option lists or the operator's
+      // address — trim, never truncate (a sliced address breaks the Me pick).
+      const clean = typeof value === "string" ? value.trim() : null;
+      if (clean) record[field] = {value: clean, ...stamp};
+      else delete record[field];
+      // Field-level ownership: this tab now owns the field, value or clear.
+      if (!ownedStateFields.has(ticketId)) ownedStateFields.set(ticketId, new Set());
+      ownedStateFields.get(ticketId).add(field);
+    }
+    ticketState[ticketId] = Object.keys(record).length ? record : null;
+    persistTicketState();
+  }
+  // #44: the closure bodies behind the organ methods — subscriptions live
+  // in mount() where organ methods are unreachable by bare name.
+  function stepTicketSelection(delta) {
+    const order = sortedVisibleTickets().map((ticket) => ticket.id);
+    const index = order.indexOf(selectedId);
+    if (index < 0 || !delta) return Promise.resolve();
+    const next = order[Math.max(0, Math.min(order.length - 1, index + (delta > 0 ? 1 : -1)))];
+    if (next === selectedId) return Promise.resolve();
+    protectedTicketId = null;
+    resetUiState(next);
+    markRead(next);
+    syncUrl({push: true});
+    return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery));
+  }
+  async function applyTicketState() {
+    await refreshList();
+    ensureSelection();
+    await refreshThread();
+    await refreshRail();
+    await refreshComposer();
+  }
+
+  // The observed value for a field, before any local override. The
+  // Gorgias priority lives under gorgiasPriority (ticket.priority is the
+  // draft's); the assignee address may sit in either assignee field.
+  function observedState(ticket, field) {
+    if (field === "status") return ticket.observedStatus ?? ticket.status ?? null;
+    if (field === "priority") return ticket.gorgiasPriority ?? null;
+    return ticket.assigneeEmail ?? ticket.assignee ?? null;
+  }
+  // The effective value for a field: the local override, else the observed
+  // one. View filters read through this so a locally-closed ticket is
+  // honestly in the Closed view; the thread badge keeps the observed value.
+  function effectiveState(ticket, field) {
+    const override = ticketState[ticket.id]?.[field]?.value;
+    if (typeof override === "string" && override.trim()) return override.trim();
+    const observed = observedState(ticket, field);
+    return typeof observed === "string" && observed.trim() ? observed.trim() : null;
+  }
+
+  // Local assignee picks speak the observed "me"/"other" dialect: the picker
+  // stores the operator's address, but rows and views compare against "me".
+  function normalizedAssignee(raw) {
+    const mine = String(opts.operatorEmail ?? shop.operatorEmail ?? "").trim().toLowerCase();
+    const value = String(raw ?? "").trim();
+    // "unassigned" is the picker's reserved id — rows speak null, matching
+    // the observed-assignee dialect the view predicates already use.
+    if (!value || value === "unassigned") return null;
+    if (value === mine && mine) return "me";
+    return value;
+  }
+  // #44: rows entering the organ carry the operator's local overrides on
+  // top of the observed values, so every view/filter/count that reads
+  // status or assignee sees the effective value without per-site patches.
+  // The observed values ride along as observedStatus/observedAssignee so
+  // the header badge can keep naming what Gorgias reported.
+  function applyLocalState(ticket) {
+    if (!ticket) return ticket;
+    const status = effectiveState(ticket, "status");
+    const priority = effectiveState(ticket, "priority");
+    const assignee = ticketState[ticket.id]?.assignee
+      ? normalizedAssignee(ticketState[ticket.id].assignee.value)
+      : withOperatorAssignee(ticket).assignee;
+    const local = stateOverrides(ticket);
+    return {
+      ...ticket,
+      observedStatus: ticket.status ?? null,
+      observedAssignee: ticket.assigneeEmail ?? ticket.assignee ?? null,
+      status: status || ticket.status,
+      priority: priority || ticket.priority,
+      assignee,
+      localOverrides: Object.keys(local).length ? local : undefined,
+    };
+  }
+  function stateOverrides(ticket) {
+    // Which fields the operator overrode locally — the header badges them.
+    const fields = {};
+    for (const field of STATE_FIELDS) {
+      if (ticketState[ticket.id]?.[field]) fields[field] = true;
+    }
+    return fields;
+  }
   let capabilities = { ...(shop.capabilities || {}) };
   const shopHost = opts.shopHost || shop.shop || SHOP;
   const pinnedCatalog = opts.tickets || null;
@@ -781,11 +930,11 @@ export function createInboxOrgan(opts = {}) {
   let loadingMore = false;
   let moreError = "";
   let paintListOnly = null;
-  let listRows = pinnedCatalog ? pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId)) : [];
+  let listRows = pinnedCatalog ? pinnedCatalog.map(applyLocalState).filter((ticket) => ticketInView(ticket, viewId)) : [];
   // #37: the unfiltered loaded snapshot — the search-every-view escalation
   // matches against this, not the view-partitioned listRows.
   let allRows = pinnedCatalog || [];
-  let selected = pinnedCatalog?.find((ticket) => ticket.id === selectedId) || null;
+  let selected = pinnedCatalog ? applyLocalState(pinnedCatalog.find((ticket) => ticket.id === selectedId)) || null : null;
   let counts = pinnedCatalog ? viewCounts(pinnedCatalog) : viewCounts(fixtureTickets);
   /** Set by mount(); programmatic organ APIs remount chrome when present. */
   let paintMounted = null;
@@ -888,15 +1037,16 @@ export function createInboxOrgan(opts = {}) {
   async function refreshList() {
     listError = "";
     if (pinnedCatalog) {
-      listRows = pinnedCatalog.filter((ticket) => ticketInView(ticket, viewId));
+      const overlaid = pinnedCatalog.map(applyLocalState);
+      listRows = overlaid.filter((ticket) => ticketInView(ticket, viewId));
       reconcileBulk();
-      counts = viewCounts(pinnedCatalog);
+      counts = viewCounts(overlaid);
       return;
     }
     if (typeof shop.listTickets === "function") {
       try {
         if (shop.observedHistory) {
-          const rows = (await readObservedTickets(shop)).map(withOperatorAssignee);
+          const rows = (await readObservedTickets(shop)).map(withOperatorAssignee).map(applyLocalState);
           // #34: first-seen ids become unread here too — the observed inbox
           // is the production path and must not render everything as read.
           for (const row of rows) {
@@ -929,12 +1079,16 @@ export function createInboxOrgan(opts = {}) {
           ...availableViews.map((view) => shop.listTickets({ view: view.id, limit: 100 })),
         ]);
         if (Array.isArray(rows)) {
-          listRows = rows;
+          // #44: the overlay must reach every list source — a locally-closed
+          // ticket must leave the Open view here too, not just in the
+          // observed history path.
+          const overlaid = rows.map(applyLocalState);
+          listRows = overlaid;
           // #37: the union of the loaded per-view pages is the escalation's
           // snapshot on non-observed shops — there is no single unfiltered
           // list to hold.
           const seen = new Map();
-          for (const batch of [rows, ...viewRows]) {
+          for (const batch of [overlaid, ...viewRows.map((batch) => Array.isArray(batch) ? batch.map(applyLocalState) : batch)]) {
             if (!Array.isArray(batch)) continue;
             for (const row of batch) if (row?.id && !seen.has(row.id)) seen.set(row.id, row);
           }
@@ -957,8 +1111,9 @@ export function createInboxOrgan(opts = {}) {
         }
       }
     }
-    listRows = fixtureTickets.filter((ticket) => ticketInView(ticket, viewId));
-    allRows = fixtureTickets;
+    const fixtureRows = fixtureTickets.map(applyLocalState);
+    listRows = fixtureRows.filter((ticket) => ticketInView(ticket, viewId));
+    allRows = fixtureRows;
     reconcileBulk();
     counts = viewCounts(fixtureTickets);
   }
@@ -970,7 +1125,7 @@ export function createInboxOrgan(opts = {}) {
       return;
     }
     if (pinnedCatalog) {
-      selected = pinnedCatalog.find((ticket) => ticket.id === id) || null;
+      selected = applyLocalState(pinnedCatalog.find((ticket) => ticket.id === id)) || null;
       return;
     }
     if (typeof shop.getTicket === "function") {
@@ -980,7 +1135,7 @@ export function createInboxOrgan(opts = {}) {
         // in flight — a stale thread must never overwrite the newer replay's.
         if (selectedId !== id) return;
         if (ticket) {
-          selected = shop.observedHistory ? withOperatorAssignee(ticket) : ticket;
+          selected = applyLocalState(shop.observedHistory ? withOperatorAssignee(ticket) : ticket);
           // #41: the detail fetch carries the rail snapshot (order name), so
           // the selected row's title can match the thread's. Rows this organ
           // never opened keep the bare list summary — projection.py only
@@ -1195,7 +1350,7 @@ export function createInboxOrgan(opts = {}) {
         if (!selectedId) {
           selected = null;
         } else if (shop.observedHistory && selectedId === previousId) {
-          try { selected = withOperatorAssignee(await shop.getTicket({ticketId:selectedId})); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
+          try { selected = applyLocalState(withOperatorAssignee(await shop.getTicket({ticketId:selectedId}))); } catch { if (selected) selected = {...selected,historyUnavailable:true}; }
         }
         if (selectedId !== previousId) {
           await refreshThread();
@@ -1415,11 +1570,31 @@ export function createInboxOrgan(opts = {}) {
     return true;
   }
 
+  // #44: the thread header's nav + first-party-state context. All thread
+  // update sites share this so the controls never disagree with the list.
+  function threadInput(ticket) {
+    const order = sortedVisibleTickets().map((row) => row.id);
+    const index = order.indexOf(ticket?.id);
+    return {
+      ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId(),
+      nav: {
+        position: index,
+        total: order.length,
+        hasPrev: index > 0,
+        hasNext: index >= 0 && index < order.length - 1,
+      },
+      operatorEmail: String(opts.operatorEmail ?? shop.operatorEmail ?? "").trim().toLowerCase(),
+      // #44: the raw override record, so the picker can re-select values the
+      // normalized row model flattens away (an "Unassigned" pick reads null).
+      ticketState: ticket ? ticketState[ticket.id] || null : null,
+    };
+  }
+
   function snapshot() {
     ensureSelection();
     const ticket = selectedTicket();
     const listModel = listTissue.update(listInput());
-    const threadModel = threadTissue.update({ ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
+    const threadModel = threadTissue.update(threadInput(ticket));
     const composerModel = composerTissue.update(composerInput(ticket));
     // #40: collapsed wins over empty — observed tickets never show a customer
     // rail, so the empty check first would make the collapse strip unreachable.
@@ -1448,6 +1623,14 @@ export function createInboxOrgan(opts = {}) {
       selectedId,
       unreadIds: [...unreadIds],
       titles,
+      // #44: the selected ticket's effective first-party state — local
+      // overrides over observed values — plus which fields are overridden.
+      ticketState: selectedTicket() ? {
+        status: ticketState[selectedTicket().id]?.status?.value ?? null,
+        priority: ticketState[selectedTicket().id]?.priority?.value ?? null,
+        assignee: ticketState[selectedTicket().id]?.assignee?.value ?? null,
+        overridden: stateOverrides(selectedTicket()),
+      } : null,
       bulkSelection: bulkSelectionInput(),
       selectedHasInkBar: Boolean(selectedId) && html.includes(`data-ticket="${selectedId}"`) && html.includes("is-selected"),
       sendDisabled: composerTissue.sendDisabled(composerModel),
@@ -1567,7 +1750,7 @@ export function createInboxOrgan(opts = {}) {
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());
       listTissue.afterPaint?.();
-      const threadResult = safeMount(threadTissue, panes.thread, { ticket, capabilities, title: derivedTitle(ticket), missingTicketId: missingTicketId() });
+      const threadResult = safeMount(threadTissue, panes.thread, threadInput(ticket));
       safeMount(composerTissue, panes.composer, composerInput(ticket));
       try {
         if (railCollapsed) {
@@ -1723,6 +1906,28 @@ export function createInboxOrgan(opts = {}) {
       // it owns the active view. Same-origin relative link only.
       const link = ticketLink(ticketId);
       if (link) opts.clipboard?.writeText?.(link);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_STEP, ({ delta }) => {
+      // #44: prev/next walk the current filtered list. Display-only nav.
+      stepTicketSelection(Number(delta) || 0).then(afterUi);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_STATE, ({ ticketId, field, value }) => {
+      // #44: first-party detail controls — browser store only, never Gorgias.
+      if (!ticketId || !STATE_FIELDS.includes(field)) return;
+      const changes = {};
+      changes[field] = value === "" ? null : value;
+      setTicketStateLocal(ticketId, changes);
+      applyTicketState().then(afterUi);
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.THREAD_MARK_UNREAD, ({ ticketId }) => {
+      // #44: first-party read state, same store the list already uses.
+      if (!ticketId) return;
+      if (!unreadIds.has(ticketId)) {
+        unreadIds.add(ticketId);
+        readIds.delete(ticketId);
+        persistRead();
+      }
+      paint();
     });
     mailbox.subscribe(MAILBOX_TOPICS.WRITE_GATE_OPEN, () => {
       closeAllGates();
@@ -1933,6 +2138,19 @@ export function createInboxOrgan(opts = {}) {
       syncUrl({push: !fromHistory});
       return refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(afterUi);
     },
+    // #44: previous/next walk the current filtered list in its rendered
+    // order and stop at the ends (explicit, no wrap). They route through
+    // selectTicket so composer/draft state follows the new ticket.
+    stepTicket(delta) {
+      return stepTicketSelection(Number(delta) || 0).then(afterUi);
+    },
+    // #44: first-party ticket state. Only the named fields are writable;
+    // each change persists in the browser store with who/when. A null value
+    // clears the override and falls back to the observed value.
+    async setTicketState(ticketId, changes) {
+      setTicketStateLocal(ticketId, changes || {});
+      return applyTicketState().then(afterUi);
+    },
     collapseList(collapsed = true) {
       listCollapsed = Boolean(collapsed);
       persistCollapseState("list");
@@ -2022,7 +2240,7 @@ export function createInboxOrgan(opts = {}) {
       const ticket = await escalateSelected(reason);
       if (ticket && !pinnedCatalog) await refreshThread();
       composerTissue.update(composerInput(selectedTicket()));
-      threadTissue.update({ ticket: selectedTicket(), capabilities, missingTicketId: missingTicketId() });
+      threadTissue.update(threadInput(selectedTicket()));
       return snapshot();
     },
     openWriteGate() {
