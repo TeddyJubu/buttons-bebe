@@ -66,8 +66,16 @@ export function createInboxOrgan(opts = {}) {
   // keeps the distinction. The observed path's projection server is
   // read-only, so the read set lives here (localStorage in production, an
   // injectable shim for tests) — never in the webhook snapshot.
-  const storage = opts.storage || (typeof localStorage !== "undefined" ? localStorage : null);
   const READ_KEY = "bb-inbox-read-v1";
+  // Merely referencing localStorage throws in browsers that block it, so
+  // resolve it inside try/catch; the inbox degrades to session-local.
+  const storage = opts.storage || (() => {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage : null;
+    } catch {
+      return null;
+    }
+  })();
   function loadReadIds() {
     try {
       const raw = JSON.parse(storage?.getItem?.(READ_KEY) || "null");
@@ -79,6 +87,10 @@ export function createInboxOrgan(opts = {}) {
   let readIds = loadReadIds();
   function persistRead() {
     try {
+      // Merge with the stored set first: a second tab may have marked other
+      // tickets read since this organ loaded, and its reads must survive.
+      const stored = loadReadIds();
+      for (const id of stored) readIds.add(id);
       storage?.setItem?.(READ_KEY, JSON.stringify([...readIds]));
     } catch {
       /* private-mode storage quota is not an inbox error */

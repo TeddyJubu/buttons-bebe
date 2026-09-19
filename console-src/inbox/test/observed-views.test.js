@@ -130,7 +130,7 @@ test('first-seen observed rows render unread with a dot and screen-reader label'
   // The auto-opened first row is already read (its thread is displayed); the
   // second row was never opened, so it starts unread with a dot.
   assert.match(snap.html, /class="ticket-row is-unread"[^>]*data-ticket="gorgias:22"/);
-  assert.match(snap.html, /data-ticket="gorgias:22"[\s\S]*?data-unread-dot[^>]*aria-label="Unread"/);
+  assert.match(snap.html, /data-ticket="gorgias:22"[\s\S]*?data-unread-dot[^>]*role="img"[^>]*aria-label="Unread"/);
   assert.equal(snap.unreadIds.includes('gorgias:22'), true);
   // Opening the unread row marks it read and drops the dot.
   const after = await organ.selectTicket('gorgias:22');
@@ -140,17 +140,18 @@ test('first-seen observed rows render unread with a dot and screen-reader label'
 });
 
 test('read state survives reload via the persisted store', async () => {
-  const rows = [projected(21,{status:'open'}), projected(22,{status:'open'})];
+  const rows = [projected(21,{status:'open'}), projected(22,{status:'open'}), projected(23,{status:'open'})];
   const storage = freshStorage();
   const first = createInboxOrgan({shop:observedShop(rows), storage});
   await first.ready();
-  await first.selectTicket('gorgias:21');
-  // New organ, same storage: simulates a reload. Row 21 stays read, row 22
-  // was never opened so it starts unread again.
+  // Row 21 is auto-opened by ready(); row 22 is opened explicitly, so the
+  // reload below only passes if BOTH the auto-open and the explicit open
+  // persisted. Row 23 stays unread.
+  await first.selectTicket('gorgias:22');
   const reloaded = await createInboxOrgan({shop:observedShop(rows), storage}).ready();
-  assert.doesNotMatch(reloaded.html, /class="ticket-row[^"]*is-unread[^"]*"[^>]*data-ticket="gorgias:21"/);
-  assert.match(reloaded.html, /class="ticket-row is-unread"[^>]*data-ticket="gorgias:22"/);
-  assert.deepEqual(reloaded.unreadIds, ['gorgias:22']);
+  assert.doesNotMatch(reloaded.html, /class="ticket-row[^"]*is-unread[^"]*"[^>]*data-ticket="gorgias:2[12]"/);
+  assert.match(reloaded.html, /class="ticket-row is-unread"[^>]*data-ticket="gorgias:23"/);
+  assert.deepEqual(reloaded.unreadIds, ['gorgias:23']);
 });
 
 test('persisted read ids are honored on first paint and never re-mark unread', async () => {
@@ -160,4 +161,30 @@ test('persisted read ids are honored on first paint and never re-mark unread', a
   const snap = await createInboxOrgan({shop:observedShop(rows), storage}).ready();
   assert.deepEqual(snap.unreadIds, []);
   assert.doesNotMatch(snap.html, /is-unread/);
+});
+
+test('a blocked localStorage keeps the observed inbox session-local instead of throwing', async () => {
+  Object.defineProperty(globalThis, 'localStorage', {get() { throw new Error('blocked'); }, configurable: true});
+  try {
+    const rows = [projected(24,{status:'open'})];
+    const snap = await createInboxOrgan({shop:observedShop(rows)}).ready();
+    assert.match(snap.html, /data-ticket="gorgias:24"/);
+    assert.deepEqual(snap.unreadIds, []);
+    const after = await createInboxOrgan({shop:observedShop(rows)}).selectTicket('gorgias:24');
+    assert.equal(after.unreadIds.includes('gorgias:24'), false);
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
+test('two tabs merge read sets instead of the stale tab clobbering the fresh one', async () => {
+  const rows = [projected(25,{status:'open'}), projected(26,{status:'open'}), projected(27,{status:'open'})];
+  const storage = freshStorage();
+  const tabA = createInboxOrgan({shop:observedShop(rows), storage});
+  await tabA.ready();  // auto-opens 25; tabA's in-memory read set is now stale
+  // Another tab persists 25 and 26 behind tabA's back.
+  storage.setItem('bb-inbox-read-v1', JSON.stringify(['gorgias:25','gorgias:26']));
+  await tabA.selectTicket('gorgias:27');
+  const stored = JSON.parse(storage.getItem('bb-inbox-read-v1'));
+  assert.deepEqual([...stored].sort(), ['gorgias:25','gorgias:26','gorgias:27']);
 });
