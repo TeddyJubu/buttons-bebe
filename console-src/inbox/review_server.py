@@ -85,8 +85,14 @@ class TicketArguments(Arguments):
     ticketId: StrictStr = Field(min_length=1, max_length=200)
 
 
+class SearchArguments(ListArguments):
+    # #37: the query is bounded at the door; projection.py clamps again.
+    query: StrictStr = Field(min_length=0, max_length=500)
+
+
 SCHEMAS = {
     "helpdesk.list_tickets": ListArguments,
+    "helpdesk.search_tickets": SearchArguments,
     "helpdesk.get_ticket": TicketArguments,
     "helpdesk.capabilities": Arguments,
     "helpdesk.projection_status": Arguments,
@@ -170,7 +176,7 @@ async def invoke(request: Request):
         args = schema.model_validate(invocation.arguments).model_dump()
         if invocation.tool == "helpdesk.capabilities":
             return {"ok": True, "capabilities": CAPABILITIES, "operatorEmail": OPERATOR_EMAIL}
-        if invocation.tool in {"helpdesk.list_tickets", "helpdesk.get_ticket", "helpdesk.projection_status"}:
+        if invocation.tool in {"helpdesk.list_tickets", "helpdesk.search_tickets", "helpdesk.get_ticket", "helpdesk.projection_status"}:
             return await run_in_threadpool(projection_query, invocation.tool, args)
         # All exposed operations are bounded local state operations; external
         # providers and model execution are absent from SCHEMAS.

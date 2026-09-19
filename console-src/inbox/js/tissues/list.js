@@ -53,6 +53,10 @@ export function createListTissue({ mailbox }) {
     selectedTagId: "",
     collapsed: false,
     unreadIds: [],
+    searchQuery: "",
+    searchAllViews: false,
+    searchBounded: false,
+    searchResults: null,
   };
   // #39 review: sort state lives in the organ; the tissue mirrors the id it
   // receives so the toolbar title matches what rendered.
@@ -81,7 +85,29 @@ export function createListTissue({ mailbox }) {
       unreadIds: Array.isArray(input.unreadIds) ? input.unreadIds : [],
       sortId: input.sortId || "default",
       bulkSelection: input.bulkSelection || null,
+      searchQuery: typeof input.searchQuery === "string" ? input.searchQuery : "",
+      searchAllViews: Boolean(input.searchAllViews),
+      searchBounded: Boolean(input.searchBounded),
+      searchResults: typeof input.searchResults === "number" ? input.searchResults : null,
     };
+  }
+
+  // #37: highlight the matched fragment. The needle is escaped for regex
+  // assembly and the wrapped text goes through esc() so nothing renders raw.
+  // #37: highlight the matched fragment. The match is found on folded text
+  // but sliced from the RAW text — toLowerCase() can change string length
+  // (e.g. İ → i̇), so a folded offset must never index the raw string. If
+  // the needle folds to a different length the highlight is skipped rather
+  // than misplaced. Both halves go through esc() so nothing renders raw.
+  function markMatch(text, query) {
+    const raw = String(text ?? "");
+    const needle = String(query || "").trim();
+    if (!needle) return esc(raw);
+    const foldedNeedle = needle.toLowerCase();
+    if (foldedNeedle.length !== needle.length) return esc(raw);
+    const at = raw.toLowerCase().indexOf(foldedNeedle);
+    if (at < 0 || at + needle.length > raw.length) return esc(raw);
+    return `${esc(raw.slice(0, at))}<mark class="ticket-hit">${esc(raw.slice(at, at + needle.length))}</mark>${esc(raw.slice(at + needle.length))}`;
   }
 
   function menuItem(attrs, on, label, count) {
@@ -185,6 +211,10 @@ export function createListTissue({ mailbox }) {
           </button>
           ${renderViewMenu(next)}
         </div>
+        <div class="list-search">
+          <input type="search" class="list-search-input" data-search-input placeholder="Search tickets" aria-label="Search tickets" value="${esc(next.searchQuery)}" autocomplete="off">
+          ${next.searchQuery && !next.searchAllViews ? `<button type="button" class="btn-quiet" data-search-all title="No results in this view? Search every working view" aria-label="Search every view">Search every view</button>` : ""}
+        </div>
         <div class="list-tools" role="group" aria-label="List tools">
           ${facets ? `<div class="list-filter-wrap">
             <button type="button" class="list-tool-btn${filterActive(next) ? " is-active" : ""}" data-list-filter title="Filter" aria-label="Filter" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen || filterActive(next) ? "true" : "false"}">${ICON_FILTER}</button>
@@ -194,6 +224,9 @@ export function createListTissue({ mailbox }) {
           <button type="button" class="list-tool-btn" data-list-collapse title="Collapse list" aria-label="Collapse ticket list">${ICON_CLOSE}</button>
         </div>
       </div>
+      ${next.searchQuery ? `<p class="list-search-status" role="status">${next.searchAllViews
+        ? `Searching all views · ${esc(next.searchResults)} result${next.searchResults === 1 ? "" : "s"} in the loaded history <button type="button" class="btn-quiet" data-search-view title="Back to searching the ${esc((next.views.find((view) => view.id === next.selectedViewId) || {label: "current"}).label)} view">Back to this view</button>`
+        : `${esc(next.searchResults)} result${next.searchResults === 1 ? "" : "s"} in the loaded history`}</p>` : ""}
     </header>`;
   }
 
@@ -216,7 +249,7 @@ export function createListTissue({ mailbox }) {
     </div>`;
   }
 
-  function renderRow(ticket, selectedId, unreadIds, bulk) {
+  function renderRow(ticket, selectedId, unreadIds, bulk, query = "") {
     const on = ticket.id === selectedId;
     const unread = unreadIds.includes(ticket.id);
     // #39 review: the checkbox is a SIBLING of the row button, not a child —
@@ -274,7 +307,7 @@ export function createListTissue({ mailbox }) {
       <span class="ticket-bar" aria-hidden="true"></span>
       ${unreadHtml}
       <span class="ticket-top">
-        <span title="${esc(listCustomerName(ticket))}" class="ticket-name">${esc(listCustomerName(ticket))}</span>
+        <span title="${esc(listCustomerName(ticket))}" class="ticket-name">${markMatch(listCustomerName(ticket), query)}</span>
         <span class="ticket-meta">
           ${typeHtml}
           ${severityHtml}
@@ -290,8 +323,8 @@ export function createListTissue({ mailbox }) {
           <time class="ticket-time" datetime="${esc(ticket.updatedAt || "")}" title="${esc(formatWhen(ticket.updatedAt))}">${esc(formatWhen(ticket.updatedAt, { relative: true }))}</time>
         </span>
       </span>
-      <span class="ticket-subject" data-ticket-title="${esc(ticket.derivedTitle || ticket.subject)}">${esc(ticket.derivedTitle || ticket.subject)}</span>
-      <span class="ticket-snippet">${esc(ticket.snippet || "")}</span>
+      <span class="ticket-subject" data-ticket-title="${esc(ticket.derivedTitle || ticket.subject)}">${markMatch(ticket.derivedTitle || ticket.subject, query)}</span>
+      <span class="ticket-snippet">${markMatch(ticket.snippet, query)}</span>
     </button>
     </div>`;
   }
@@ -310,8 +343,14 @@ export function createListTissue({ mailbox }) {
     const unreadIds = next.unreadIds || [];
     const bulk = next.bulkSelection;
     const rows = tickets.length
-      ? tickets.map((ticket) => renderRow(ticket, next.selectedTicketId, unreadIds, bulk)).join("")
-      : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/">Open support console</a></div>`;
+      ? tickets.map((ticket) => renderRow(ticket, next.selectedTicketId, unreadIds, bulk, next.searchQuery)).join("")
+      : next.searchQuery
+        // #37: the search miss state names the query; the no-tickets state
+        // never stands in for it.
+        ? `<div class="empty-pane" role="status"><strong>No tickets match</strong><p>${next.searchBounded
+          ? "Queries are limited to 200 characters — this one is longer, so it matches nothing. Try fewer words."
+          : `Nothing in the loaded history matches “${esc(next.searchQuery)}”. ${next.searchAllViews ? "Try fewer words." : "Try fewer words, or search every view."}`}</p></div>`
+        : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/">Open support console</a></div>`;
     return `<div class="pane-inner">
       ${renderToolbar(next)}
       ${bulk?.ids?.length ? renderBulkBar(bulk) : ""}
@@ -327,13 +366,47 @@ export function createListTissue({ mailbox }) {
   function paint() {
     if (!host) return;
     host.innerHTML = render(model);
+    afterPaint();
+  }
+
+  // #37: render is also the organ's paint path (safeMount calls render
+  // through mount), so the focus restore must run there too — not just on
+  // the tissue's own paint(). A query-model render with no live input
+  // focus intent is a no-op. The repaint replaces the input node, so the
+  // tissue restores focus and caret after every paint — the composer's
+  // macro-search idiom — or typing would die on the first keystroke.
+  let restoreSearchFocus = null;
+  function afterPaint() {
+    if (!restoreSearchFocus) return;
+    const again = host?.querySelector?.("[data-search-input]");
+    if (again?.focus) {
+      again.focus();
+      if (typeof restoreSearchFocus.start === "number") again.setSelectionRange?.(restoreSearchFocus.start, restoreSearchFocus.start);
+    }
+    restoreSearchFocus = null;
   }
 
   function mount(el) {
     host = el;
     paint();
+    // #37: the operator's keystrokes publish live; the organ owns the bound
+    // and the match.
+    el.oninput = (event) => {
+      const input = event.target.closest?.("[data-search-input]");
+      if (!input) return;
+      restoreSearchFocus = { start: input.selectionStart };
+      mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: input.value || "" });
+    };
     el.onclick = (event) => {
       if (event.target.closest("[data-load-more]")) { model.pagination?.loadMore?.(); return; }
+      if (event.target.closest("[data-search-all]")) {
+        mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: model.searchQuery, allViews: true });
+        return;
+      }
+      if (event.target.closest("[data-search-view]")) {
+        mailbox.publish(MAILBOX_TOPICS.LIST_SEARCHED, { query: model.searchQuery, allViews: false });
+        return;
+      }
       const viewPick = event.target.closest("[data-view]");
       if (viewPick) {
         ui = { ...ui, viewOpen: false, filterOpen: false };
@@ -417,7 +490,12 @@ export function createListTissue({ mailbox }) {
   return {
     id: "list",
     project,
-    render,
+    render(next = model) {
+      return render(next);
+    },
+    // #37: after the organ paints the list html into the pane, the
+    // tissue's pending focus restore (if any) runs against the live DOM.
+    afterPaint,
     update(input) {
       model = project(input);
       return model;
