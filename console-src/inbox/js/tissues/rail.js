@@ -197,7 +197,9 @@ export function createRailOrgan({ shop, mailbox }) {
     const snapshot = rail || {};
     models = {
       fromSnapshot: true,
-      snapshotNotice: `Shopify snapshot${snapshot.fetchedAt ? " · " + formatWhen(snapshot.fetchedAt) : ""}${snapshot.stale ? " · Refresh delayed; details may be outdated." : ""}`,
+      // #48: the store scope is explicit — the snapshot names the single
+      // store it was built for.
+      snapshotNotice: `Shopify snapshot${snapshot.shop ? " · " + snapshot.shop : ""}${snapshot.fetchedAt ? " · " + formatWhen(snapshot.fetchedAt) : ""}${snapshot.stale ? " · Refresh delayed; details may be outdated." : ""}`,
       customer: projectCustomer(snapshot.customer || null),
       order: projectOrder(snapshot.order || null),
       returns: projectReturns(snapshot.returns || null),

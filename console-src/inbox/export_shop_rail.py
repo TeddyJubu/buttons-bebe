@@ -334,6 +334,9 @@ def lookup_ticket(env, token, ticket, caches):
         'status': 'found' if customer or order else 'missing',
         'email': email, 'customerId': customer_id,
         'orderId': (order or {}).get('id'),
+        # #48: the store scope is explicit — the snapshot names the one store
+        # it was built for (a myshopify.com host, never a credential).
+        'shop': env.get('SHOPIFY_SHOP') or None,
         'customer': customer,
         'order': _clerk_order(order) if order else None,
         'returns': _clerk_returns(order) if order else None,
@@ -385,7 +388,9 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
                 payloads[ticket_id] = entry['payload']
             continue
         except (HTTPError, URLError, TimeoutError, RuntimeError, json.JSONDecodeError):
-            payload = dict((entry or {}).get('payload') or {'status': 'error', 'email': ticket_keys(ticket)[0], 'keysHash': keys_hash(ticket)})
+            # cubic: the fallback a failed refresh writes must still name the
+            # store scope — every exported snapshot names the one store.
+            payload = dict((entry or {}).get('payload') or {'status': 'error', 'email': ticket_keys(ticket)[0], 'keysHash': keys_hash(ticket), 'shop': env.get('SHOPIFY_SHOP') or None})
             payload['refreshError'] = True
         payloads[ticket_id] = payload
     fd, name = tempfile.mkstemp(prefix='.shop-rail-', suffix='.sqlite3', dir=directory)
