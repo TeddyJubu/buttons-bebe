@@ -1973,22 +1973,64 @@ export function createInboxOrgan(opts = {}) {
     </div>`;
   }
 
+  // #47: the observed-mode customer-details card. Every observed identity
+  // field renders with its source and timestamp; a never-observed field is
+  // an explicit unknown, never blank, never invented. Conflicts stay visible.
+  // Notes and customer type are out of scope for this issue — no editor, no
+  // field, only observed identity (AGENTS.md §2(6)).
+  function observedCustomerCardHtml(ticket) {
+    const context = ticket?.customerContext;
+    const unknown = (label) => `<span class="ticket-detail-unknown" data-detail-unknown="${esc(label)}">Unknown</span>`;
+    const row = (label, value) => `<dt>${esc(label)}</dt><dd>${typeof value === "string" && value.trim() ? esc(value) : unknown(label)}</dd>`;
+    const identity = context?.source === "canonical_webhook" && !context.conflict && context.status === "observed" ? (context.identity || {}) : {};
+    const rows = `${row("Name", identity.name)}${row("Email", identity.email)}${row("Phone", identity.phone)}${row("Gorgias customer ID", identity.id)}`;
+    // The same-address history strip: other observed tickets from this
+    // address, read-only. The whole loaded snapshot holds them (a closed
+    // ticket still counts while the operator is in Open); nothing is
+    // invented here. A different address — and a local-only row that was
+    // never observed — never appears.
+    const address = String(ticket?.fromEmail || "").trim().toLowerCase();
+    const others = address ? allRows.filter((r) => r.projectionSource && r.id !== ticket?.id
+      && !(r.spam || r.trashed)
+      && String(r.fromEmail || "").trim().toLowerCase() === address) : [];
+    const history = others.length
+      ? `<dl class="customer-history" data-customer-history>
+          <dt>Ticket history</dt><dd>
+            <p class="customer-history-count">${others.length} ${others.length === 1 ? "ticket" : "tickets"} from this address</p>
+            ${others.slice(0, 5).map((r) => `<p class="customer-history-row" data-history-ticket="${esc(r.id)}">${esc(r.subject || r.id)}</p>`).join("")}
+          </dd>
+        </dl>`
+      : "";
+    return `<section class="rail-card customer-details" data-customer-details>
+      <h2>Customer details</h2>
+      <dl class="ticket-detail-fields">
+        ${rows}
+      </dl>
+      ${context?.conflict
+        ? `<p class="customer-conflict">Conflicting customer details were observed; identity needs review.</p>`
+        : ""}
+      <p class="customer-source">${context
+        ? `Source: observed Gorgias webhook${context.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. ${ticket.projection?.stale || shop.projection?.stale ? "Snapshot is stale." : "This is a snapshot, not a live customer lookup."}`
+        : "Customer identity was not included in the observed history."}</p>
+      ${history}
+    </section>`;
+  }
+
   function emptyRailHtml() {
     const ticket = selectedTicket();
     const context = ticket?.customerContext;
     if (ticket?.projectionSource) {
-      const identity = context?.source === "canonical_webhook" && !context.conflict && context.status === "observed" ? context.identity : null;
-      const fields = [["Name", identity?.name], ["Email", identity?.email], ["Phone", identity?.phone], ["Gorgias customer ID", identity?.id]]
-        .filter(([, value]) => typeof value === "string" && value.trim())
-        .map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("");
-      return `${railToolbarHtml()}${ticketDetailsHtml(ticket)}<div class="empty-pane observed-customer"><strong>Customer details</strong>
-        ${fields ? `<dl>${fields}</dl>` : `<p>${context?.conflict ? "Conflicting customer details were observed; identity needs review." : "Customer identity was not included in the observed history."}</p>`}
-        <p class="customer-source">Source: observed Gorgias webhook${context?.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. ${ticket.projection?.stale ? "Snapshot is stale." : "This is a snapshot, not a live customer lookup."}</p>
+      return `${railToolbarHtml()}${ticketDetailsHtml(ticket)}${observedCustomerCardHtml(ticket)}
+      <div class="empty-pane observed-customer">
         <strong>Orders and returns</strong><p>${ticket.shopifyRail?.status === "missing" ? "No matching Shopify customer or order was found." : ticket.shopifyRail?.status === "error" ? "Shopify details could not be refreshed. We will retry automatically." : "Shopify details are awaiting refresh. They will appear here when available."}</p>
       </div>`;
     }
+    // cubic: everything below is the never-observed path (no selection,
+    // local-only rows, disconnected inboxes) — there is no observed
+    // identity to show, so the observed card does not render here.
     return `${railToolbarHtml()}${ticketDetailsHtml(ticket)}<div class="empty-pane"><strong>Customer details</strong><p>${capabilities.customerDetails === false ? "Customer and order lookup is not connected to this inbox." : "Select a conversation to see customer and order details."}</p></div>`;
   }
+
 
   async function refreshRail() {
     const ticket = selectedTicket();
