@@ -39,6 +39,26 @@ class ShopRailTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 3)
         self.assertEqual(self.calls[0][1]['query'], 'email:"qa@example.com"')
 
+    def test_payload_names_the_store_scope_it_was_built_for(self):
+        """#48: the snapshot must name the one store it was built for."""
+        result, _ = exporter.lookup_ticket({'SHOPIFY_SHOP': 'buttons-bebe.myshopify.com'}, '', TICKET, self.caches())
+        self.assertEqual(result['shop'], 'buttons-bebe.myshopify.com')
+
+    def test_the_upstream_error_fallback_still_names_the_store_scope(self):
+        """cubic: every exported snapshot names the store, including the
+        error fallback a failed refresh writes for an uncached ticket."""
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / 'rail.sqlite3'
+            def failed(*args):
+                raise RuntimeError('upstream unavailable')
+            with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                 patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': 'buttons-bebe.myshopify.com'}):
+                exporter.export('', dest, '', now=1000, graphql_call=failed, mint=lambda _: '')
+                entry = exporter.load_cache(dest)[TICKET['id']]
+                self.assertEqual(entry['payload']['status'], 'error')
+                self.assertTrue(entry['payload']['refreshError'])
+                self.assertEqual(entry['payload']['shop'], 'buttons-bebe.myshopify.com')
+
     def test_wrong_customer_order_and_fuzzy_order_name_are_not_attached(self):
         for changes in ({'name': '#103191480'}, {'customer': {'id': 'other'}, 'email': 'other@example.com'}):
             order = {**ORDER, **changes}
