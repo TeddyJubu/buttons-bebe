@@ -134,6 +134,49 @@ def extract(source, now):
                 if event:
                     raw=event[0];identity_bytes+=len(raw.encode('utf-8')) if isinstance(raw,str) else 0
             record['customer_context']=identity_context(record,raw)
+        # #43: the ingest-time stripper cleaned message_text; each message's
+        # verbatim body (stripped_text/body_text from the raw event) rides
+        # along as originalText so the inbox can show it behind a toggle.
+        # Bounded per message, only while the budget lasts. Newest messages
+        # spend the budget first, like the identity pass above; one batched
+        # read per ticket keeps this off the per-row N+1 path.
+        original_bytes=0
+        position=len(rows)
+        while position>0 and original_bytes<8_000_000:
+            end=position;ticket_id=rows[end-1]['ticket_id'];start=end-1
+            while start>0 and rows[start-1]['ticket_id']==ticket_id:start-=1
+            # cubic: fetches are sized by the remaining budget against the
+            # worst-case row (a 1 MiB slice), never by the ticket's message
+            # count — a 100-message ticket must not load ~100 MiB to spend
+            # an 8 MiB budget.
+            ids=[r['message_id'] for r in rows[start:end]]
+            while ids:
+                if original_bytes>=8_000_000:break
+                chunk_size=max(1,(8_000_000-original_bytes)//1_048_577+1)
+                batch=ids[-chunk_size:];ids=ids[:-chunk_size]
+                events=dict(db.execute(
+                    'SELECT message_id,substr(raw_payload,1,1048577) FROM webhook_events '
+                    f'WHERE ticket_id=? AND message_id IN ({",".join("?"*len(batch))})',
+                    (ticket_id,*batch)))
+                for record in reversed(rows[start:end]):
+                    if record['message_id'] not in batch:continue
+                    raw=events.get(record['message_id'])
+                    if not isinstance(raw,str) or not raw:continue
+                    original_bytes+=len(raw.encode('utf-8'))
+                    try:payload=json.loads(raw)
+                    except (ValueError,TypeError,RecursionError):continue
+                    if not isinstance(payload,dict):continue
+                    message=payload.get('message')
+                    if not isinstance(message,dict):
+                        data=payload.get('data')
+                        message=data.get('message') if isinstance(data,dict) else None
+                    if not isinstance(message,dict):continue
+                    body=message.get('body_text')
+                    if isinstance(body,str) and body.strip() and body.strip() != record['message_text']:
+                        original=body.strip()
+                        record['original_text']=original[:20000]
+                        if len(original)>20000:record['original_text_truncated']=True
+            position=start
         return rows,False
 
 
@@ -148,7 +191,10 @@ def build(rows):
             agent=not bool(r['is_customer_message'])
             messages.append({'id':r['message_id'],'from':'agent' if agent else 'customer','fromAgent':agent,
               'fromName':r['author_email'] or ('Observed agent' if agent else 'Customer'),'fromEmail':r['author_email'] or '',
-              'body':body,'at':r['created_at'] or r['received_at'],'truncated':cut,'via':'gorgias'})
+              'body':body,'at':r['created_at'] or r['received_at'],'truncated':cut,'via':'gorgias',
+              **({'originalText':r['original_text'],
+                  **({'originalTextTruncated':True} if r.get('original_text_truncated') else {})}
+                 if r.get('original_text') else {})})
         draft_rows=[r for r in items if r['draft_text']]
         draft=max(draft_rows,key=lambda r:r['processed_at'] or '') if draft_rows else None
         latest_customer=next((r for r in reversed(items) if r['is_customer_message']),None)

@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from export_projection import export, identity_context
 from projection import query, connect, ProjectionUnavailable
+from shop_rail import connect as shop_rail_connect
 
 class ProjectionTests(unittest.TestCase):
     def setUp(self):
@@ -199,12 +200,102 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(ticket['draftSourceMessageId'],'newer')
         self.assertEqual(ticket['draftSourceMessageAt'],'2099-03-01')
 
+    def test_message_body_stripped_at_ingest_keeps_original_behind_the_toggle(self):
+        """#43: the ingest-time stripper cleans message_text; the exporter
+        reads the verbatim body from raw_payload as originalText so the
+        inbox can show it behind a toggle. Identical texts carry no toggle."""
+        raw={'event':'ticket-message-created','ticket':{'id':1},
+             'message':{'id':'m1','body_text':
+                        'Please change it to a 12.\nSent from my Galaxy\n'
+                        '-------- Original message --------\nFrom: Buttons Bebe <hello@bb.com> Subject: Order 1001'}}
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE parsed_messages SET message_text='Please change it to a 12.' WHERE message_id='m1'")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,'m1',json.dumps(raw)))
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        message=ticket['messages'][0]
+        self.assertEqual(message['body'],'Please change it to a 12.')
+        self.assertEqual(message['originalText'],raw['message']['body_text'])
+        self.assertFalse(message.get('originalTextTruncated'))
+        # A raw body identical to the stored text exports no toggle payload.
+        with sqlite3.connect(self.source) as db:
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m2','customer','qa@example.com','qa@example.com','Plain','email',NULL,NULL,NULL,NULL,0,0,0,'2099-01-02','2099-01-02',1,'Clean words')")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,'m2',json.dumps({'ticket':{'id':1},'message':{'id':'m2','body_text':'Clean words'}})))
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        by_id={m['id']:m for m in ticket['messages']}
+        self.assertEqual(by_id['m2']['body'],'Clean words')
+        self.assertNotIn('originalText',by_id['m2'])
+
+    def test_original_text_survives_odd_payload_shapes(self):
+        """#43 cubic: a valid-JSON non-object payload must not crash the
+        export, and the data.message envelope yields its body too."""
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE parsed_messages SET message_text='Please change it to a 12.' WHERE message_id='m1'")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,'m1',json.dumps([1,'not an object'])))
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m3','customer','qa@example.com','qa@example.com','Deep','email',NULL,NULL,NULL,NULL,0,0,0,'2099-01-03','2099-01-03',1,'Deep words')")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,'m3',json.dumps({'data':{'message':{'id':'m3','body_text':'Deep words\nSent from my iPhone'}}})))
+        export(self.source,self.dest,now=self.now)  # must not raise
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        by_id={m['id']:m for m in ticket['messages']}
+        self.assertNotIn('originalText',by_id['m1'])
+        self.assertEqual(by_id['m3']['body'],'Deep words')
+        self.assertEqual(by_id['m3']['originalText'],'Deep words\nSent from my iPhone')
+
+    def test_original_text_over_20k_is_flagged_truncated(self):
+        # cubic: a body longer than the 20k export bound must say so, not
+        # shrink silently.
+        body='Fresh words.\n'+'q'*25000+'\nSent from my Galaxy'
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE parsed_messages SET message_text='Fresh words.' WHERE message_id='m1'")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,'m1',json.dumps({'message':{'id':'m1','body_text':body}})))
+        export(self.source,self.dest,now=self.now)
+        message=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']['messages'][0]
+        self.assertEqual(len(message['originalText']),20000)
+        self.assertTrue(message['originalTextTruncated'])
+        self.assertNotIn('Sent from my Galaxy',message['originalText'])
+
     def test_stale_schema_and_pagination(self):
         export(self.source,self.dest,now=self.now-181)
         self.assertTrue(query('helpdesk.projection_status',{},self.dest)['projection']['stale'])
         self.assertEqual(query('helpdesk.list_tickets',{'offset':1,'limit':1},self.dest)['tickets'],[])
         with sqlite3.connect(self.dest) as db:db.execute("UPDATE metadata SET payload='{}'")
         with self.assertRaises(ProjectionUnavailable):query('helpdesk.list_tickets',{},self.dest)
+
+    def test_original_text_fetches_stay_budget_sized(self):
+        """#43 cubic: one ticket can hold up to 100 observed messages; the
+        per-ticket batched read must not fetch a full 1 MiB slice for every
+        row when the 8 MiB originalText budget allows only a few — fetches
+        happen in chunks no larger than the remaining budget plus headroom."""
+        big=('w'*1000)  # ~1KB rows; 100 of them ≈ 100KB, under any chunk cap
+        with sqlite3.connect(self.source) as db:
+            for i in range(2,32):
+                mid=f'mx{i}'
+                db.execute("INSERT INTO parsed_messages VALUES(1,?,'customer','qa@example.com','qa@example.com','S','email',NULL,NULL,NULL,NULL,0,0,0,'2099-01-04','2099-01-04',1,?)",(mid,'clean body '+str(i)))
+                db.execute('INSERT INTO webhook_events VALUES(?,?,?)',(1,mid,json.dumps({'message':{'id':mid,'body_text':big+' '+mid}})))
+        fetched=[]
+        def traced(sql):
+            if 'message_id IN (' in sql and 'webhook_events' in sql:
+                # the trace renders params inline: count the IN-list members
+                fetched.append(sql.split('message_id IN (')[1].count(',')+1)
+        # The export reads through export_projection.connect; trace it.
+        real_connect=shop_rail_connect
+        def traced_connect(path):
+            db=real_connect(path)
+            db.set_trace_callback(traced)
+            return db
+        with patch('export_projection.connect',traced_connect):
+            export(self.source,self.dest,now=self.now)
+        self.assertTrue(fetched,'no originalText fetches traced')
+        # cubic: each fetch must be sized by the remaining budget against the
+        # worst-case row (a 1 MiB slice), never by the ticket's message count —
+        # 31 rows must NOT arrive as one batch.
+        cap=9  # 8 MiB budget / ~1 MiB worst-case row, plus one row headroom
+        self.assertLessEqual(max(fetched),cap,
+            f'a single fetch pulled {max(fetched)} rows; budget-sized chunks cap at {cap}')
+        self.assertGreaterEqual(len(fetched),4,'31 rows must arrive in ≥4 budget-sized chunks')
+        tickets=query('helpdesk.list_tickets',{},self.dest)['tickets']
+        self.assertEqual(len(tickets),1)
 
     def test_customer_name_derives_from_email_when_none_observed(self):
         # Issue #35: no observed name ⇒ derive a Gorgias-style display name
