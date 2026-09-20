@@ -27,6 +27,9 @@ export function createThreadTissue({ mailbox }) {
   // a mid-edit repaint keeps it open.
   let menuOpen = false;
   let menuTicketId = null;
+  // #43: message ids whose Show-original disclosure is open. The details
+  // element's open state is native DOM a repaint would otherwise discard.
+  const openOriginals = new Set();
   let host = null;
 
   function project(input) {
@@ -105,6 +108,9 @@ export function createThreadTissue({ mailbox }) {
         <time>${esc(formatWhen(message.at))}</time>
       </div>
       <p>${esc(message.body)}</p>
+      ${message.originalText && message.originalText !== message.body
+        ? `<details class="bubble-original"${openOriginals.has(message.id) ? " open" : ""} data-original-toggle data-original-id="${esc(message.id)}"><summary>Show original</summary><p class="mute">${esc(message.originalText)}</p></details>`
+        : ""}
       ${renderAttachments(message)}
     </article>`;
   }
@@ -345,6 +351,14 @@ export function createThreadTissue({ mailbox }) {
         });
         renaming = null;
         paint();
+        return;
+      }
+      // #43: native details toggling plus remembered state — a later
+      // repaint re-renders the disclosure as it was left.
+      const originalToggle = event.target.closest?.("[data-original-toggle]");
+      if (originalToggle) {
+        const id = originalToggle.dataset.originalId;
+        if (id) originalToggle.hasAttribute("open") ? openOriginals.delete(id) : openOriginals.add(id);
         return;
       }
       const openAttach = event.target.closest("[data-attach-open]");
