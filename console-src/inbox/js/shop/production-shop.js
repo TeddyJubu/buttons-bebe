@@ -12,7 +12,7 @@ export function createHelpdeskShop(opts = {}) {
   }
   const shop = {
     id: 'shop', shop: '', client, observedHistory: true, operatorEmail: '',
-    capabilities: Object.fromEntries(['draftReply','summarizeThread','searchMacros','applyMacro','escalateTicket','markPrivacyHandled','markUnsubscribed','markBugHandled','customerDetails','sendReply'].map(key => [key, false])),
+    capabilities: Object.fromEntries(['draftReply','summarizeThread','searchMacros','applyMacro','escalateTicket','markPrivacyHandled','markUnsubscribed','markBugHandled','customerDetails','sendReply','createTicket'].map(key => [key, false])),
     getCapabilities: async () => {
       // Only the inbox service knows the operator. Clearing first means a
       // failed refresh leaves "Assigned to me" empty instead of stale.

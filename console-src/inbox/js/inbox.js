@@ -325,6 +325,54 @@ export function createInboxOrgan(opts = {}) {
     await refreshComposer();
   }
 
+  // #38: create-flow closure bodies — both the mailbox subscriptions and
+  // the organ methods route through these (subscriptions cannot reach organ
+  // methods by bare name).
+  function openCreateSheetLocal() {
+    createSheetOpen = true;
+    createError = "";
+    return afterUi();
+  }
+  function closeCreateSheetLocal() {
+    createSheetOpen = false;
+    createError = "";
+    // Closing abandons the draft — the operator chose not to file it.
+    createDraft = {customerName: "", fromEmail: "", subject: "", channel: "email", body: ""};
+    return afterUi();
+  }
+  // The form submit handler hands the raw field values here; validation and
+  // the capability gate both refuse with createError instead of throwing,
+  // so the sheet stays open and the operator can fix the fields.
+  async function createLocalTicketLocal(fields = {}) {
+    if (capabilities.createTicket === false) {
+      createError = "Ticket creation is not enabled.";
+      return afterUi();
+    }
+    const error = validateCreateForm(fields);
+    if (error) {
+      createError = error;
+      // The draft keeps the typed fields across the error repaint.
+      createDraft = {...createDraft, ...fields};
+      return afterUi();
+    }
+    const record = addLocalTicket(fields);
+    createSheetOpen = false;
+    createError = "";
+    createDraft = {customerName: "", fromEmail: "", subject: "", channel: "email", body: ""};
+    // The operator just created this ticket — it is a real row now.
+    protectedTicketId = null;
+    resetUiState(record.id);
+    markRead(record.id);
+    syncUrl({push: true});
+    await refreshList();
+    ensureSelection();
+    await refreshThread();
+    await refreshRail();
+    await refreshComposer();
+    await refreshMacros(macroQuery);
+    return afterUi();
+  }
+
   // The observed value for a field, before any local override. The
   // Gorgias priority lives under gorgiasPriority (ticket.priority is the
   // draft's); the assignee address may sit in either assignee field.
@@ -353,6 +401,98 @@ export function createInboxOrgan(opts = {}) {
     if (!value || value === "unassigned") return null;
     if (value === mine && mine) return "me";
     return value;
+  }
+  // #38: the operator's own local-only tickets — model 1 in the issue,
+  // recorded in AGENTS.md §2(7). The record mirrors agent-side intake's
+  // message shape ({from, fromName, fromEmail, body, at}) so the thread
+  // renders one customer bubble. First-party browser state like titles and
+  // the read set: never a Gorgias write, never a customer notification.
+  const LOCAL_TICKETS_KEY = "bb-inbox-local-tickets-v1";
+  function screenCreateText(raw, cap = 2000) {
+    return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, cap);
+  }
+  function loadLocalTickets() {
+    try {
+      const raw = JSON.parse(storage?.getItem?.(LOCAL_TICKETS_KEY) || "null");
+      if (!Array.isArray(raw)) return [];
+      return raw.filter((row) => row && typeof row.id === "string"
+        && typeof row.customerName === "string");
+    } catch {
+      return [];
+    }
+  }
+  let localTickets = loadLocalTickets();
+  // ponytail: append-only union merge — two tabs each adding tickets keeps
+  // both. There is no edit/delete surface for local tickets yet, so id
+  // adoption is the whole merge story.
+  function persistLocalTickets() {
+    try {
+      const merged = [...localTickets];
+      const seen = new Set(merged.map((row) => row.id));
+      for (const row of loadLocalTickets()) if (!seen.has(row.id)) merged.push(row);
+      localTickets = merged;
+      storage?.setItem?.(LOCAL_TICKETS_KEY, JSON.stringify(localTickets));
+    } catch {
+      /* private-mode storage quota is not an inbox error */
+    }
+  }
+  // A local ticket as a list row: the intake shape, plus the row fields the
+  // tissues already read (snippet/updatedAt/status/assignee/channel).
+  function localTicketRow(record) {
+    return {
+      id: record.id,
+      customerName: record.customerName,
+      fromEmail: record.fromEmail,
+      subject: record.subject,
+      snippet: screenCreateText(record.body, 120),
+      body: record.body,
+      channel: record.channel,
+      status: "open",
+      assignee: null,
+      updatedAt: record.createdAt,
+      messages: [{
+        from: "customer",
+        fromName: record.customerName,
+        fromEmail: record.fromEmail,
+        body: record.body,
+        at: record.createdAt,
+      }],
+      statusEvents: [],
+      localOnly: true,
+    };
+  }
+  // The store's records are the source of truth; rows derive from them.
+  function localTicketRows() {
+    return localTickets.map(localTicketRow);
+  }
+  function validateCreateForm({customerName, fromEmail, subject, body, channel} = {}) {
+    if (!screenCreateText(customerName, 120)) return "Customer name is required.";
+    if (!screenCreateText(body, 2000)) return "Message is required.";
+    const email = String(fromEmail ?? "").trim();
+    if (email && !/^[^\s@]+@[^\s@]+$/.test(email)) return "Enter a valid email address, or leave it blank.";
+    if (channel && !["email", "chat", "phone", "whatsapp"].includes(String(channel).trim().toLowerCase())) {
+      return "Pick a supported channel.";
+    }
+    return "";
+  }
+  function addLocalTicket({customerName, fromEmail, subject, body, channel} = {}) {
+    const now = new Date().toISOString();
+    const record = {
+      id: `local:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      customerName: screenCreateText(customerName, 120),
+      fromEmail: String(fromEmail ?? "").trim().toLowerCase() || null,
+      // Subject may auto-title from the body when blank, like intake's
+      // chat path derives one — the field is optional.
+      subject: screenCreateText(subject, 120) || screenCreateText(body, 60),
+      body: String(body ?? "").trim().slice(0, 2000),
+      channel: ["email", "chat", "phone", "whatsapp"].includes(String(channel).trim().toLowerCase())
+        ? String(channel).trim().toLowerCase() : "email",
+      createdAt: now,
+      by: String(opts.operatorEmail ?? shop.operatorEmail ?? "operator").trim().toLowerCase() || "operator",
+    };
+    localTickets.push(record);
+    persistLocalTickets();
+    return record;
   }
   // #44: rows entering the organ carry the operator's local overrides on
   // top of the observed values, so every view/filter/count that reads
@@ -925,17 +1065,40 @@ export function createInboxOrgan(opts = {}) {
   let orderLinkGateOpen = false;
   let privacyGateOpen = Boolean(opts.privacyGate);
   let marketingGateOpen = Boolean(opts.marketingGate);
+  // #38: the New ticket sheet — first-party like the gate sheets. The form
+  // draft is session-local organ state (like the rename editor's) so an
+  // error repaint keeps what the operator typed; only the created ticket
+  // persists.
+  let createSheetOpen = false;
+  let createError = "";
+  let createDraft = {customerName: "", fromEmail: "", subject: "", channel: "email", body: ""};
   let listError = "";
   let projectionNotice = "";
   let loadingMore = false;
   let moreError = "";
   let paintListOnly = null;
-  let listRows = pinnedCatalog ? pinnedCatalog.map(applyLocalState).filter((ticket) => ticketInView(ticket, viewId)) : [];
+  // #38: local-only tickets union into every list source — the same rows the
+  // shop hands back, plus this browser's own. They flow through applyLocalState
+  // like every other row so the #44 overrides still reach them.
+  function unionLocalRows(rows = []) {
+    const seen = new Set(rows.map((row) => row.id));
+    return [...rows, ...localTicketRows().filter((row) => !seen.has(row.id)).map(applyLocalState)];
+  }
+  let listRows = pinnedCatalog
+    ? unionLocalRows(pinnedCatalog.map(applyLocalState)).filter((ticket) => ticketInView(ticket, viewId))
+    : [];
   // #37: the unfiltered loaded snapshot — the search-every-view escalation
   // matches against this, not the view-partitioned listRows.
-  let allRows = pinnedCatalog || [];
-  let selected = pinnedCatalog ? applyLocalState(pinnedCatalog.find((ticket) => ticket.id === selectedId)) || null : null;
-  let counts = pinnedCatalog ? viewCounts(pinnedCatalog) : viewCounts(fixtureTickets);
+  let allRows = pinnedCatalog ? unionLocalRows(pinnedCatalog) : localTicketRows();
+  function localTicketById(id) {
+    const record = localTickets.find((row) => row.id === id);
+    return record ? applyLocalState(localTicketRow(record)) : null;
+  }
+  let selected = pinnedCatalog
+    ? (applyLocalState(pinnedCatalog.find((ticket) => ticket.id === selectedId))
+      || (selectedId?.startsWith?.("local:") ? localTicketById(selectedId) : null))
+    : (selectedId?.startsWith?.("local:") ? localTicketById(selectedId) : null);
+  let counts = pinnedCatalog ? viewCounts(unionLocalRows(pinnedCatalog)) : viewCounts(unionLocalRows(fixtureTickets));
   /** Set by mount(); programmatic organ APIs remount chrome when present. */
   let paintMounted = null;
 
@@ -1037,7 +1200,7 @@ export function createInboxOrgan(opts = {}) {
   async function refreshList() {
     listError = "";
     if (pinnedCatalog) {
-      const overlaid = pinnedCatalog.map(applyLocalState);
+      const overlaid = unionLocalRows(pinnedCatalog.map(applyLocalState));
       listRows = overlaid.filter((ticket) => ticketInView(ticket, viewId));
       reconcileBulk();
       counts = viewCounts(overlaid);
@@ -1046,7 +1209,7 @@ export function createInboxOrgan(opts = {}) {
     if (typeof shop.listTickets === "function") {
       try {
         if (shop.observedHistory) {
-          const rows = (await readObservedTickets(shop)).map(withOperatorAssignee).map(applyLocalState);
+          const rows = unionLocalRows((await readObservedTickets(shop)).map(withOperatorAssignee).map(applyLocalState));
           // #34: first-seen ids become unread here too — the observed inbox
           // is the production path and must not render everything as read.
           for (const row of rows) {
@@ -1068,7 +1231,10 @@ export function createInboxOrgan(opts = {}) {
           const flaggedInSnapshot = (shop.projection?.spamCount ?? counts.spam)
             + (shop.projection?.trashCount ?? counts.trash)
             - (shop.projection?.flaggedOverlap ?? Math.min(counts.spam, counts.trash));
-          counts.all = (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot;
+          // #38: the projection's metadata counts observed tickets only, so
+          // this browser's local tickets add on top of the All total.
+          counts.all = (shop.projection?.ticketCount ?? rows.length - localTickets.length)
+            - flaggedInSnapshot + localTickets.length;
           projectionNotice = shop.projection?.stale
             ? "Observed history is stale; refresh is delayed."
             : "Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.";
@@ -1081,14 +1247,22 @@ export function createInboxOrgan(opts = {}) {
         if (Array.isArray(rows)) {
           // #44: the overlay must reach every list source — a locally-closed
           // ticket must leave the Open view here too, not just in the
-          // observed history path.
+          // observed history path. #38: the server page is already view-
+          // filtered and its rows may not even carry the status/assignee
+          // fields ticketInView reads, so only the local additions are
+          // filtered — a local ticket joins only the views it belongs to.
           const overlaid = rows.map(applyLocalState);
-          listRows = overlaid;
+          const localInView = localTicketRows().map(applyLocalState)
+            .filter((ticket) => ticketInView(ticket, viewId));
+          listRows = [...overlaid, ...localInView];
           // #37: the union of the loaded per-view pages is the escalation's
           // snapshot on non-observed shops — there is no single unfiltered
-          // list to hold.
+          // list to hold. #38: the local rows union in here too, or the
+          // search-every-view escalation loses them.
           const seen = new Map();
-          for (const batch of [overlaid, ...viewRows.map((batch) => Array.isArray(batch) ? batch.map(applyLocalState) : batch)]) {
+          // One batch (not a spread — each local row is not itself an array)
+          // or the Array.isArray guard silently skips it.
+          for (const batch of [overlaid, localTicketRows().map(applyLocalState), ...viewRows.map((batch) => Array.isArray(batch) ? batch.map(applyLocalState) : batch)]) {
             if (!Array.isArray(batch)) continue;
             for (const row of batch) if (row?.id && !seen.has(row.id)) seen.set(row.id, row);
           }
@@ -1102,6 +1276,13 @@ export function createInboxOrgan(opts = {}) {
           view.id,
           Array.isArray(viewRows[index]) ? viewRows[index].length : 0,
         ]));
+        // #38: the per-view server counts know nothing about this browser's
+        // local tickets — add each one to every view it belongs to.
+        for (const row of localTicketRows()) {
+          for (const view of availableViews) {
+            if (ticketInView(row, view.id)) counts[view.id] += 1;
+          }
+        }
         return;
       } catch {
         listError = "Could not load tickets. Refresh to try again.";
@@ -1111,17 +1292,24 @@ export function createInboxOrgan(opts = {}) {
         }
       }
     }
-    const fixtureRows = fixtureTickets.map(applyLocalState);
+    const fixtureRows = unionLocalRows(fixtureTickets.map(applyLocalState));
     listRows = fixtureRows.filter((ticket) => ticketInView(ticket, viewId));
     allRows = fixtureRows;
     reconcileBulk();
-    counts = viewCounts(fixtureTickets);
+    counts = viewCounts(fixtureRows);
   }
 
   async function refreshThread() {
     const id = selectedId;
     if (!id) {
       selected = null;
+      return;
+    }
+    // #38: a local-only ticket resolves from this browser's store, never
+    // from the shop — the shop has never seen it.
+    if (id.startsWith?.("local:")) {
+      const record = localTickets.find((row) => row.id === id);
+      selected = record ? applyLocalState(localTicketRow(record)) : null;
       return;
     }
     if (pinnedCatalog) {
@@ -1162,6 +1350,42 @@ export function createInboxOrgan(opts = {}) {
     marketingGateOpen = false;
     customerJoinGateOpen = false;
     orderLinkGateOpen = false;
+  }
+
+  // #38: the New ticket sheet. Local-only model (AGENTS.md §2(7)): the
+  // created ticket lives in this browser's store; nothing here reaches
+  // Gorgias or notifies the customer. The form itself is unlabeled <input>s
+  // the tissue holds in the DOM — the organ only needs the shell, the
+  // confirm button, and the error line.
+  function createSheetHtml() {
+    if (!createSheetOpen) return "";
+    return `<div class="gate-sheet-backdrop" data-create-sheet-backdrop>
+      <form class="gate-sheet create-sheet" role="dialog" aria-modal="true" aria-labelledby="create-sheet-copy" data-create-sheet>
+        <p id="create-sheet-copy"><strong>New ticket</strong> — saved in this browser only. It never reaches Gorgias and never notifies the customer.</p>
+        <label class="create-field">Customer name
+          <input name="customerName" data-create-customer maxlength="120" autocomplete="off" value="${esc(createDraft.customerName)}" required>
+        </label>
+        <label class="create-field">Customer email (optional)
+          <input name="fromEmail" data-create-email type="email" maxlength="200" autocomplete="off" value="${esc(createDraft.fromEmail)}">
+        </label>
+        <label class="create-field">Subject (optional — titled from the message when blank)
+          <input name="subject" data-create-subject maxlength="120" autocomplete="off" value="${esc(createDraft.subject)}">
+        </label>
+        <label class="create-field">Channel
+          <select name="channel" data-create-channel>
+            ${["email", "chat", "phone", "whatsapp"].map((value) => `<option value="${value}"${createDraft.channel === value ? " selected" : ""}>${value === "whatsapp" ? "WhatsApp" : value.charAt(0).toUpperCase() + value.slice(1)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="create-field">Message
+          <textarea name="body" data-create-body maxlength="2000" required>${esc(createDraft.body)}</textarea>
+        </label>
+        ${createError ? `<p class="bulk-error" role="alert">${esc(createError)}</p>` : ""}
+        <div class="gate-sheet-actions">
+          <button type="button" class="btn-ink" data-create-confirm title="Save this ticket in your browser only. No Gorgias write, no customer notification.">Create ticket</button>
+          <button type="button" class="btn-hairline" data-create-sheet-dismiss title="Close this form">Close</button>
+        </div>
+      </form>
+    </div>`;
   }
 
   function gateSheetHtml() {
@@ -1216,6 +1440,10 @@ export function createInboxOrgan(opts = {}) {
         </div>
       </div>
     </div>`;
+  }
+
+  function sheetHtml() {
+    return `${gateSheetHtml()}${createSheetHtml()}`;
   }
 
   // #40: the collapsed rail strip names what it hides — the customer pane
@@ -1455,16 +1683,22 @@ export function createInboxOrgan(opts = {}) {
         if (!knownTicketIds.has(row.id) && !readIds.has(row.id)) unreadIds.add(row.id);
         knownTicketIds.add(row.id);
       }
-      listRows = rows;
-      allRows = rows;
+      // #38: the re-read is observed rows only — the local union rides on
+      // top, or Load more erases this browser's local tickets.
+      const unioned = unionLocalRows(rows);
+      listRows = unioned;
+      allRows = unioned;
       reconcileBulk();
       const observed = viewCounts(rows);
       const flaggedInSnapshot = (shop.projection?.spamCount ?? observed.spam)
         + (shop.projection?.trashCount ?? observed.trash)
         - (shop.projection?.flaggedOverlap ?? Math.min(observed.spam, observed.trash));
+      // #38: local tickets count on top of the observed totals, matching
+      // refreshList's observed path.
+      const localCount = unioned.length - rows.length;
       counts = {
         ...observed,
-        all: (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot,
+        all: (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot + localCount,
       };
     } catch {
       moreError = "Could not load more tickets. Try again.";
@@ -1554,6 +1788,9 @@ export function createInboxOrgan(opts = {}) {
         return {id, label: field.label, ops: field.ops, values: [...offered, ...active]};
       }),
       savedViews: savedViewList(),
+      // #38: the New ticket entry point — offered whenever the capability is
+      // not explicitly off (the default-on matches the other capabilities).
+      canCreateTicket: capabilities.createTicket !== false,
     };
   }
 
@@ -1604,7 +1841,7 @@ export function createInboxOrgan(opts = {}) {
       <section class="pane pane-list${listCollapsed ? " is-collapsed" : ""}" data-pane="list">${listTissue.render(listModel)}</section>
       <section class="pane pane-thread" id="inbox-thread" data-pane="thread" tabindex="-1">${threadTissue.render(threadModel)}${composerTissue.render(composerModel)}</section>
       <aside class="pane pane-rail${railCollapsed ? " is-collapsed" : ""}" data-pane="rail">${railHtml}</aside>
-    </div>${gateSheetHtml()}`;
+    </div>${sheetHtml()}`;
     return {
       html,
       panes: { views: false, list: true, thread: true, rail: true },
@@ -1618,6 +1855,12 @@ export function createInboxOrgan(opts = {}) {
       filterConditions: filterConditions.map((condition) => ({...condition})),
       filterMatch,
       savedViews: savedViewList(),
+      // #38: the create flow's state — the error names the last refusal, and
+      // the selected ticket rides along for tests (selectedId alone cannot
+      // tell a local row from a deep-linked id).
+      createError,
+      ticket: selectedTicket(),
+      counts,
       searchQuery,
       searchAllViews,
       selectedId,
@@ -1768,7 +2011,7 @@ export function createInboxOrgan(opts = {}) {
         mailbox.publish(MAILBOX_TOPICS.TISSUE_ERROR, { tissueId: "thread", message: threadResult.error });
       }
       const host = root.querySelector("[data-gate-host]");
-      if (host) host.innerHTML = gateSheetHtml();
+      if (host) host.innerHTML = sheetHtml();
     };
 
     const showActionError = error => {
@@ -1938,6 +2181,16 @@ export function createInboxOrgan(opts = {}) {
       writeGateOpen = false;
       paint();
     });
+    // #38: the New ticket sheet's open/close — the toolbar button and the
+    // sheet's own Close both publish; the organ owns the state.
+    mailbox.subscribe(MAILBOX_TOPICS.CREATE_TICKET_OPEN, () => {
+      openCreateSheetLocal();
+      paint();
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.CREATE_TICKET_CLOSE, () => {
+      closeCreateSheetLocal();
+      paint();
+    });
     mailbox.subscribe(MAILBOX_TOPICS.CUSTOMER_JOIN_GATE_OPEN, () => {
       closeAllGates();
       customerJoinGateOpen = true;
@@ -2019,6 +2272,27 @@ export function createInboxOrgan(opts = {}) {
       if (event.target.closest("[data-gate-dismiss]") || event.target.closest("[data-gate-sheet]") === event.target) {
         closeAllGates();
         paint();
+      }
+      // #38: the sheet's Close button and the backdrop click dismiss; the
+      // form's confirm click reads the named inputs directly (click fires
+      // before submit, and the organ's own markup means the form node is
+      // reachable here without a second listener).
+      if (event.target.closest("[data-create-sheet-dismiss]")
+        || event.target.closest("[data-create-sheet-backdrop]") === event.target) {
+        closeCreateSheetLocal();
+        paint();
+      }
+      const createConfirm = event.target.closest("[data-create-confirm]");
+      if (createConfirm) {
+        const form = createConfirm.closest("[data-create-sheet]");
+        const fields = {
+          customerName: form?.elements?.customerName?.value ?? "",
+          fromEmail: form?.elements?.fromEmail?.value ?? "",
+          subject: form?.elements?.subject?.value ?? "",
+          channel: form?.elements?.channel?.value ?? "email",
+          body: form?.elements?.body?.value ?? "",
+        };
+        createLocalTicketLocal(fields).then(paint);
       }
     };
     mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_SEND, () => {
@@ -2287,6 +2561,18 @@ export function createInboxOrgan(opts = {}) {
     closeMarketingGate() {
       marketingGateOpen = false;
       return snapshot();
+    },
+    // #38: the New ticket sheet + create. Local-only (AGENTS.md §2(7)):
+    // browser-store persistence, never a Gorgias write, never a customer
+    // notification. The capability gate refuses the flow when off.
+    openCreateSheet() {
+      return openCreateSheetLocal();
+    },
+    closeCreateSheet() {
+      return closeCreateSheetLocal();
+    },
+    createLocalTicket(fields) {
+      return createLocalTicketLocal(fields);
     },
     async markPrivacyHandled() {
       const ticket = await markPrivacyHandled();
