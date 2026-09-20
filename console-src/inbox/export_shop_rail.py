@@ -135,7 +135,11 @@ query InboxOrderByName($query: String!) {
       shippingAddress { name address1 address2 city province zip country }
       lineItems(first: 50) { nodes { title sku quantity unfulfilledQuantity originalUnitPriceSet { shopMoney { amount currencyCode } } image { url altText } } }
       fulfillments { displayStatus estimatedDeliveryAt trackingInfo { number url company } fulfillmentLineItems(first: 50) { nodes { quantity lineItem { title } } } }
-      returns(first: 20) { nodes { id name status totalQuantity } }
+      returns(first: 5) { nodes { id name status createdAt totalQuantity
+        returnLineItems(first: 25) { nodes { __typename id quantity returnReasonDefinition { name } returnReasonNote
+          withCodeDiscountedTotalPriceSet { shopMoney { amount currencyCode } }
+          ... on ReturnLineItem { fulfillmentLineItem { lineItem { title } } } } }
+        exchangeLineItems(first: 5) { nodes { id } } } }
       customer { id defaultEmailAddress { emailAddress } }
     }
   }
@@ -202,12 +206,45 @@ def _clerk_order(node):
     }
 
 
+def _return_item(line):
+    # ReturnLineItemType: the title sits behind the fulfillment line item on
+    # verified rows (UnverifiedReturnLineItem carries no fulfillment link).
+    fulfillment = line.get('fulfillmentLineItem') if isinstance(line.get('fulfillmentLineItem'), dict) else {}
+    linked = fulfillment.get('lineItem') if isinstance(fulfillment.get('lineItem'), dict) else {}
+    price = line.get('withCodeDiscountedTotalPriceSet') if isinstance(line.get('withCodeDiscountedTotalPriceSet'), dict) else {}
+    shop_money = price.get('shopMoney') if isinstance(price.get('shopMoney'), dict) else {}
+    reason = line.get('returnReasonDefinition') if isinstance(line.get('returnReasonDefinition'), dict) else {}
+    return {
+        'title': linked.get('title'),
+        'quantity': line.get('quantity'),
+        'price': {'shopMoney': {'amount': shop_money.get('amount'), 'currencyCode': shop_money.get('currencyCode')}} if shop_money else None,
+        'reason': reason.get('name'),
+        'note': line.get('returnReasonNote'),
+    }
+
+
 def _clerk_returns(node):
     nodes = []
     connection = node.get('returns') if isinstance(node.get('returns'), dict) else {}
     for item in connection.get('nodes') or []:
-        if isinstance(item, dict):
-            nodes.append({'id': item.get('id'), 'name': item.get('name'), 'status': item.get('status'), 'totalQuantity': item.get('totalQuantity')})
+        if not isinstance(item, dict):
+            continue
+        items_connection = item.get('returnLineItems') if isinstance(item.get('returnLineItems'), dict) else {}
+        items = [_return_item(line) for line in items_connection.get('nodes') or [] if isinstance(line, dict)]
+        # cubic: more line items than the page read is honest data the pane
+        # must show, never a silently partial list.
+        page_info = items_connection.get('pageInfo') if isinstance(items_connection.get('pageInfo'), dict) else {}
+        items_truncated = bool(page_info.get('hasNextPage'))
+        exchange_connection = item.get('exchangeLineItems') if isinstance(item.get('exchangeLineItems'), dict) else {}
+        exchanges = len(exchange_connection.get('nodes') or [])
+        # #46: Gorgias's "return type" — a return with exchange line items is
+        # an exchange; without them it is a plain return.
+        nodes.append({
+            'id': item.get('id'), 'name': item.get('name'), 'status': item.get('status'),
+            'createdAt': item.get('createdAt'), 'totalQuantity': item.get('totalQuantity'),
+            'returnType': 'EXCHANGE' if exchanges else 'RETURN',
+            'items': items, 'itemsTruncated': items_truncated,
+        })
     return {
         'orderReturnStatus': node.get('returnStatus') or 'NO_RETURN',
         'returns': {'nodes': nodes},

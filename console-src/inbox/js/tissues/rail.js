@@ -114,7 +114,11 @@ export function createRailOrgan({ shop, mailbox }) {
         warrantyOpen: open.warranty,
         etaOpen: open.eta,
       });
-    const returnsHtml = models.fromSnapshot && !models.order.ok
+    // #46: the placeholder only holds when the snapshot carried no returns
+    // payload at all — a returns-only snapshot (no customer/order match) and
+    // a resolved-but-empty returns state both render the returns card.
+    const snapshotHasReturns = models.fromSnapshot && models.snapshotHasReturns !== false;
+    const returnsHtml = models.fromSnapshot && !models.order.ok && !snapshotHasReturns
       ? `<section class="rail-card"><h2>Returns</h2><p class="mute">Select a ticket with a matching order to see its returns.</p></section>`
       : models.returns.error
       ? renderError("returns", "Returns", models.returns.peek)
@@ -197,6 +201,10 @@ export function createRailOrgan({ shop, mailbox }) {
     const snapshot = rail || {};
     models = {
       fromSnapshot: true,
+      // #46: whether the snapshot carried a returns payload at all — a
+      // resolved-but-empty returns state is honest data ("No returns"), not
+      // the no-order-match placeholder.
+      snapshotHasReturns: Boolean(snapshot.returns),
       // #48: the store scope is explicit — the snapshot names the single
       // store it was built for.
       snapshotNotice: `Shopify snapshot${snapshot.shop ? " · " + snapshot.shop : ""}${snapshot.fetchedAt ? " · " + formatWhen(snapshot.fetchedAt) : ""}${snapshot.stale ? " · Refresh delayed; details may be outdated." : ""}`,
