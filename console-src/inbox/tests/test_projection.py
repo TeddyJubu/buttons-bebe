@@ -284,4 +284,24 @@ class ProjectionTests(unittest.TestCase):
         page_one=query('helpdesk.search_tickets',{'query':'e','limit':1},self.dest)
         self.assertEqual(page_one['nextOffset'],1)
 
+
+    def test_ticket_details_panel_fields_survive_the_projection_contract(self):
+        """The rail's ticket-details card reads these observed fields (#45).
+
+        tags (bounded chips), channel, assigneeEmail, priority and the
+        processor's classified draftAction must survive export+query so the
+        panel renders observations, never inventions. An unobserved field is
+        null — the UI renders its explicit unknown.
+        """
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['tags'],['vip'])
+        self.assertEqual(ticket['channel'],'email')
+        self.assertEqual(ticket['assigneeEmail'],'agent@example.com')
+        self.assertEqual(ticket['priority'],'high')
+        self.assertEqual(ticket['draftAction'],'sensitive_draft')
+        # No observed createdAt exists in the exporter; the panel must not
+        # invent one — updatedAt is the only timestamp it can show.
+        self.assertNotIn('createdAt',ticket)
+
 if __name__=='__main__':unittest.main()
