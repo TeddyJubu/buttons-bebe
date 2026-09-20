@@ -1797,7 +1797,12 @@ export function createInboxOrgan(opts = {}) {
   function shopifyRailSnapshot(ticket) {
     const snapshot = ticket?.shopifyRail;
     if (!snapshot || typeof snapshot !== "object") return null;
-    return snapshot.customer || snapshot.order ? snapshot : null;
+    // #46: a snapshot with only returns still attaches — a ticket can have a
+    // return with no resolved customer/order match. The current exporter only
+    // emits returns alongside a matched order, so `snapshot.returns` alone is
+    // forward-looking: it makes the payload contract correct for the day the
+    // exporter learns returns-without-order (cubic review, PR 66).
+    return snapshot.customer || snapshot.order || snapshot.returns ? snapshot : null;
   }
 
   function showsCustomerRail(ticket) {

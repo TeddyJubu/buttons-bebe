@@ -44,6 +44,72 @@ class ShopRailTests(unittest.TestCase):
         result, _ = exporter.lookup_ticket({'SHOPIFY_SHOP': 'buttons-bebe.myshopify.com'}, '', TICKET, self.caches())
         self.assertEqual(result['shop'], 'buttons-bebe.myshopify.com')
 
+    def test_returns_export_items_prices_reason_created_and_exchanges(self):
+        """#46: the returns pane needs per-item prices, reason, created date
+        and the return/exchange distinction — all from the read-only
+        snapshot channel (Admin GraphQL Return fields)."""
+        order = {**ORDER, 'returns': {'nodes': [{
+            'id': 'r1', 'name': '#1001-1', 'status': 'OPEN', 'totalQuantity': 2,
+            'createdAt': '2026-09-01T00:00:00Z',
+            'returnLineItems': {'nodes': [{
+                '__typename': 'ReturnLineItem', 'id': 'rli1', 'quantity': 2,
+                'returnReasonDefinition': {'name': 'Wrong size'},
+                'returnReasonNote': 'too small',
+                'withCodeDiscountedTotalPriceSet': {'shopMoney': {'amount': '24.00', 'currencyCode': 'USD'}},
+                'fulfillmentLineItem': {'lineItem': {'title': 'Teal button 2-pack'}},
+            }]},
+            'exchangeLineItems': {'nodes': []},
+        }]}}
+        result, _ = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order))
+        exported = result['returns']['returns']['nodes'][0]
+        self.assertEqual(exported['createdAt'], '2026-09-01T00:00:00Z')
+        self.assertEqual(exported['returnType'], 'RETURN')
+        self.assertEqual(exported['items'][0]['title'], 'Teal button 2-pack')
+        self.assertEqual(exported['items'][0]['quantity'], 2)
+        self.assertEqual(exported['items'][0]['price'], {'shopMoney': {'amount': '24.00', 'currencyCode': 'USD'}})
+        self.assertEqual(exported['items'][0]['reason'], 'Wrong size')
+        self.assertEqual(exported['items'][0]['note'], 'too small')
+        # An exchange shows as an exchange, not a plain return.
+        order_exchange = {**ORDER, 'returns': {'nodes': [{
+            'id': 'r1', 'status': 'OPEN', 'totalQuantity': 1, 'createdAt': None,
+            'returnLineItems': {'nodes': []}, 'exchangeLineItems': {'nodes': [{'id': 'x1'}, {'id': 'x2'}]},
+        }]}}
+        exchanged = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order_exchange))[0]['returns']['returns']['nodes'][0]
+        self.assertEqual(exchanged['returnType'], 'EXCHANGE')
+        self.assertEqual(exchanged['items'], [])
+
+    def test_returns_export_marks_truncated_item_lists(self):
+        """cubic: a return with more line items than the exporter reads must
+        say so — the pane never renders a partial list as complete."""
+        # A paged connection like Shopify returns: 25 nodes, another page
+        # behind hasNextPage.
+        page = [{'__typename': 'ReturnLineItem', 'id': f'rli{i}'} for i in range(25)]
+        order = {**ORDER, 'returns': {'nodes': [{
+            'id': 'r1', 'status': 'OPEN', 'totalQuantity': 31, 'createdAt': None,
+            'returnLineItems': {'nodes': page, 'pageInfo': {'hasNextPage': True}},
+            'exchangeLineItems': {'nodes': []},
+        }]}}
+        exported = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order))[0]['returns']['returns']['nodes'][0]
+        self.assertEqual(len(exported['items']), 25)
+        self.assertTrue(exported['itemsTruncated'])
+        # Under the page cap the flag stays absent/false — no invented cuts.
+        order_full = {**ORDER, 'returns': {'nodes': [{
+            'id': 'r1', 'status': 'OPEN', 'totalQuantity': 2, 'createdAt': None,
+            'returnLineItems': {'nodes': page[:2], 'pageInfo': {'hasNextPage': False}},
+            'exchangeLineItems': {'nodes': []},
+        }]}}
+        full = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order_full))[0]['returns']['returns']['nodes'][0]
+        self.assertFalse(full['itemsTruncated'])
+
+    def test_the_order_query_caps_return_fan_out(self):
+        """cubic: 20 returns x 50 nested line items inflates the Admin GraphQL
+        requested-cost of a single order lookup toward the 1,000-point hard
+        cap. The pane renders a handful — the query reads only that."""
+        for banned in ('returns(first: 20)', 'returnLineItems(first: 50)', 'exchangeLineItems(first: 50)'):
+            self.assertNotIn(banned, exporter.ORDER_BY_NAME)
+        for capped in ('returns(first: 5)', 'returnLineItems(first: 25)', 'exchangeLineItems(first: 5)'):
+            self.assertIn(capped, exporter.ORDER_BY_NAME)
+
     def test_the_upstream_error_fallback_still_names_the_store_scope(self):
         """cubic: every exported snapshot names the store, including the
         error fallback a failed refresh writes for an uncached ticket."""
