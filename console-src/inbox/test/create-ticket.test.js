@@ -123,12 +123,19 @@ test("a created ticket appears in the Open and All views and not in Closed", asy
 // keep local tickets inside their views: the union may not drop a local
 // open/unassigned row into Mine, Closed, Trash, or Spam, and the per-view
 // counts must include it.
-test("a local ticket joins only its views on a per-view connected shop and lifts the counts", async () => {
+function perViewShop() {
   const rows = [observedRow(1), observedRow(2)].map((row) => ({...row, projectionSource: false}));
-  const shop = {...observedShop(rows), observedHistory: false, listTickets: async ({view}) => {
-    return view === "closed" ? [observedRow(3, {status: "closed"})] : rows;
+  const closedRow = observedRow(3, {status: "closed", projectionSource: false});
+  return {...observedShop([...rows, closedRow]), observedHistory: false, listTickets: async ({view}) => {
+    if (view === "closed") return [closedRow];
+    if (view === "all") return [...rows, closedRow];
+    if (view === "open" || view === "mine" || view === "unassigned") return rows;
+    return [];
   }};
-  const organ = createInboxOrgan({shop, storage: freshStorage(), operatorEmail: OPERATOR, viewId: "open"});
+}
+
+test("a local ticket joins only its views on a per-view connected shop and lifts the counts", async () => {
+  const organ = createInboxOrgan({shop: perViewShop(), storage: freshStorage(), operatorEmail: OPERATOR, viewId: "open"});
   await organ.ready();
   await organ.createLocalTicket({customerName: "Ada", fromEmail: "ada@example.test", subject: "Hi", body: "Local question", channel: "email"});
   const openHtml = organ.snapshot().html;
@@ -137,6 +144,30 @@ test("a local ticket joins only its views on a per-view connected shop and lifts
     const html = (await organ.selectView(viewId)).html;
     assert.doesNotMatch(html, /data-ticket="local:/, `the local ticket stays out of ${viewId}`);
   }
+  // The per-view counts must carry the local row: Open and Unassigned see one
+  // more than the server-only count; Closed/Spam stay at the server-only
+  // numbers (the local row is open and unassigned).
+  const counts = organ.snapshot().counts;
+  assert.equal(counts.open, 3, "Open counts the local ticket");
+  assert.equal(counts.unassigned, 3, "Unassigned counts the local ticket");
+  assert.equal(counts.all, 4, "All counts the local ticket");
+  assert.equal(counts.closed, 1, "Closed keeps the server-only count");
+  assert.equal(counts.spam, 0, "Spam stays empty");
+  assert.equal(counts.mine, 2, "Mine keeps the server-only count");
+});
+
+// A scoped search over the per-view shop must still escalate to every view
+// and find the local ticket there — the escalation's source is allRows.
+test("the search-every-view escalation finds a local ticket on a per-view shop", async () => {
+  const organ = createInboxOrgan({shop: perViewShop(), storage: freshStorage(), operatorEmail: OPERATOR, viewId: "open"});
+  await organ.ready();
+  await organ.createLocalTicket({customerName: "Ada", fromEmail: "ada@example.test", subject: "Hi", body: "Local question", channel: "email"});
+  // Scoped to Open the local ticket matches its own body.
+  const scoped = await organ.selectSearch("Local question");
+  assert.match(scoped.html, /data-ticket="local:[^"]+"/, "a scoped search finds the local ticket");
+  // Escalated to every view, it must still match — allRows holds it.
+  const escalated = await organ.selectSearch("Local question", {allViews: true});
+  assert.match(escalated.html, /data-ticket="local:[^"]+"/, "the all-views escalation still finds the local ticket");
 });
 
 // Load more re-reads the observed prefix; the local rows must survive the

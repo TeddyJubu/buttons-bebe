@@ -1257,9 +1257,12 @@ export function createInboxOrgan(opts = {}) {
           listRows = [...overlaid, ...localInView];
           // #37: the union of the loaded per-view pages is the escalation's
           // snapshot on non-observed shops — there is no single unfiltered
-          // list to hold.
+          // list to hold. #38: the local rows union in here too, or the
+          // search-every-view escalation loses them.
           const seen = new Map();
-          for (const batch of [overlaid, ...viewRows.map((batch) => Array.isArray(batch) ? batch.map(applyLocalState) : batch)]) {
+          // One batch (not a spread — each local row is not itself an array)
+          // or the Array.isArray guard silently skips it.
+          for (const batch of [overlaid, localTicketRows().map(applyLocalState), ...viewRows.map((batch) => Array.isArray(batch) ? batch.map(applyLocalState) : batch)]) {
             if (!Array.isArray(batch)) continue;
             for (const row of batch) if (row?.id && !seen.has(row.id)) seen.set(row.id, row);
           }
@@ -1857,6 +1860,7 @@ export function createInboxOrgan(opts = {}) {
       // tell a local row from a deep-linked id).
       createError,
       ticket: selectedTicket(),
+      counts,
       searchQuery,
       searchAllViews,
       selectedId,
