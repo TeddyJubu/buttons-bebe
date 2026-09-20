@@ -43,6 +43,21 @@ test('helpdesk.capabilities wires operatorEmail and clears on failure', async ()
   assert.equal(shop.operatorEmail, '');
 });
 
+// The production shop's capability vocabulary must name every gate the organ
+// consults, or refreshCapabilities can never flip that gate off: it only
+// refreshes keys already present in the vocabulary.
+test('the production capability vocabulary covers the createTicket gate', async () => {
+  const shop = createHelpdeskShop({client:{invoke:async () => ({ok:true, source:'inbox', tickets:[]})}});
+  assert.equal(typeof shop.capabilities.createTicket, 'boolean', 'createTicket is in the vocabulary');
+  const organ = createInboxOrgan({shop, viewId:'all'});
+  const result = await organ.ready();
+  // The gate must be live in production: an absent service value flips it
+  // off after refreshCapabilities, hiding the button.
+  assert.doesNotMatch(result.html, /data-create-ticket/);
+  const snap = await organ.createLocalTicket({customerName:'Ada', fromEmail:'ada@example.test', subject:'Hi', body:'Help', channel:'email'});
+  assert.equal(snap.createError, 'Ticket creation is not enabled.');
+});
+
 const localTicket = {id:'t-in-test',customerName:'Local test',subject:'Privacy request',snippet:'Test',status:'open',updatedAt:'2026-09-07T00:00:00Z',messages:[],statusEvents:[],requestType:'privacy_request'};
 
 test('failed mutations never fabricate a completed workflow', async () => {

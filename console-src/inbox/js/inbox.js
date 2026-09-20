@@ -1247,9 +1247,14 @@ export function createInboxOrgan(opts = {}) {
         if (Array.isArray(rows)) {
           // #44: the overlay must reach every list source — a locally-closed
           // ticket must leave the Open view here too, not just in the
-          // observed history path.
-          const overlaid = unionLocalRows(rows.map(applyLocalState));
-          listRows = overlaid;
+          // observed history path. #38: the server page is already view-
+          // filtered and its rows may not even carry the status/assignee
+          // fields ticketInView reads, so only the local additions are
+          // filtered — a local ticket joins only the views it belongs to.
+          const overlaid = rows.map(applyLocalState);
+          const localInView = localTicketRows().map(applyLocalState)
+            .filter((ticket) => ticketInView(ticket, viewId));
+          listRows = [...overlaid, ...localInView];
           // #37: the union of the loaded per-view pages is the escalation's
           // snapshot on non-observed shops — there is no single unfiltered
           // list to hold.
@@ -1268,6 +1273,13 @@ export function createInboxOrgan(opts = {}) {
           view.id,
           Array.isArray(viewRows[index]) ? viewRows[index].length : 0,
         ]));
+        // #38: the per-view server counts know nothing about this browser's
+        // local tickets — add each one to every view it belongs to.
+        for (const row of localTicketRows()) {
+          for (const view of availableViews) {
+            if (ticketInView(row, view.id)) counts[view.id] += 1;
+          }
+        }
         return;
       } catch {
         listError = "Could not load tickets. Refresh to try again.";
@@ -1668,16 +1680,22 @@ export function createInboxOrgan(opts = {}) {
         if (!knownTicketIds.has(row.id) && !readIds.has(row.id)) unreadIds.add(row.id);
         knownTicketIds.add(row.id);
       }
-      listRows = rows;
-      allRows = rows;
+      // #38: the re-read is observed rows only — the local union rides on
+      // top, or Load more erases this browser's local tickets.
+      const unioned = unionLocalRows(rows);
+      listRows = unioned;
+      allRows = unioned;
       reconcileBulk();
       const observed = viewCounts(rows);
       const flaggedInSnapshot = (shop.projection?.spamCount ?? observed.spam)
         + (shop.projection?.trashCount ?? observed.trash)
         - (shop.projection?.flaggedOverlap ?? Math.min(observed.spam, observed.trash));
+      // #38: local tickets count on top of the observed totals, matching
+      // refreshList's observed path.
+      const localCount = unioned.length - rows.length;
       counts = {
         ...observed,
-        all: (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot,
+        all: (shop.projection?.ticketCount ?? rows.length) - flaggedInSnapshot + localCount,
       };
     } catch {
       moreError = "Could not load more tickets. Try again.";

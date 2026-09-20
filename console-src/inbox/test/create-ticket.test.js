@@ -107,14 +107,56 @@ test("a created ticket appears in the Open and All views and not in Closed", asy
   const organ = createInboxOrgan({shop: observedShop(observedRows), storage: freshStorage(), operatorEmail: OPERATOR});
   await organ.ready();
   await organ.createLocalTicket({customerName: "Ada", fromEmail: "ada@example.test", subject: "Hi", body: "Hello there", channel: "email"});
-  let html = organ.snapshot().html;
-  assert.match(html, /data-ticket="local:[^"]+"/, "the local ticket renders in Open (default)");
+  // The observed shop defaults to All, so Open must be selected explicitly —
+  // the default view is not "open" there.
+  let html = (await organ.selectView("open")).html;
+  assert.match(html, /data-ticket="local:[^"]+"/, "the local ticket renders in Open");
   await organ.selectView("closed");
   html = organ.snapshot().html;
   assert.doesNotMatch(html, /data-ticket="local:/, "the local ticket stays out of Closed");
   await organ.selectView("all");
   html = organ.snapshot().html;
   assert.match(html, /data-ticket="local:[^"]+"/, "the local ticket renders in All");
+});
+
+// A connected shop that serves per-view rows (observedHistory absent) must
+// keep local tickets inside their views: the union may not drop a local
+// open/unassigned row into Mine, Closed, Trash, or Spam, and the per-view
+// counts must include it.
+test("a local ticket joins only its views on a per-view connected shop and lifts the counts", async () => {
+  const rows = [observedRow(1), observedRow(2)].map((row) => ({...row, projectionSource: false}));
+  const shop = {...observedShop(rows), observedHistory: false, listTickets: async ({view}) => {
+    return view === "closed" ? [observedRow(3, {status: "closed"})] : rows;
+  }};
+  const organ = createInboxOrgan({shop, storage: freshStorage(), operatorEmail: OPERATOR, viewId: "open"});
+  await organ.ready();
+  await organ.createLocalTicket({customerName: "Ada", fromEmail: "ada@example.test", subject: "Hi", body: "Local question", channel: "email"});
+  const openHtml = organ.snapshot().html;
+  assert.match(openHtml, /data-ticket="local:[^"]+"/, "the local ticket renders in Open");
+  for (const viewId of ["mine", "closed", "trash", "spam"]) {
+    const html = (await organ.selectView(viewId)).html;
+    assert.doesNotMatch(html, /data-ticket="local:/, `the local ticket stays out of ${viewId}`);
+  }
+});
+
+// Load more re-reads the observed prefix; the local rows must survive the
+// re-read instead of being overwritten by the observed-only response.
+test("Load more keeps the local tickets in the loaded list", async () => {
+  const pages = [
+    observedRow(1), observedRow(2),
+  ];
+  const bigShop = {
+    ...observedShop([]),
+    observedHistory: true,
+    projection: {generatedAt: "gen-1", stale: false, ticketCount: 2},
+    listTickets: async ({limit = 100}) => pages.slice(0, limit),
+  };
+  const organ = createInboxOrgan({shop: bigShop, storage: freshStorage(), operatorEmail: OPERATOR});
+  await organ.ready();
+  await organ.createLocalTicket({customerName: "Ada", fromEmail: "ada@example.test", subject: "Hi", body: "Local question", channel: "email"});
+  const html = (await organ.loadMore()).html;
+  assert.match(html, /data-ticket="local:[^"]+"/, "the local ticket survives Load more");
+  assert.match(html, /data-ticket="gorgias:1"/, "the observed rows survive Load more");
 });
 
 test("two tabs do not erase each other's local tickets", async () => {
