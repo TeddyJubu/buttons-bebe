@@ -1220,8 +1220,10 @@ mark.ticket-hit {
 .list-filter-wrap .list-filter-menu { left: 0; right: auto; max-width: 100vw; }
 
 /* #45: the rail's ticket-details card — read-only observed fields, explicit
-   unknowns, tag chips without a write control. */
-.ticket-details h2 {
+   unknowns, tag chips without a write control. #47: the customer-details
+   card's heading shares this rule so both rail cards read identically. */
+.ticket-details h2,
+.customer-details h2 {
   margin: 0;
   padding: 10px 12px;
   font-size: 13px;
@@ -1255,3 +1257,13 @@ mark.ticket-hit {
   color: var(--ink);
   background: var(--paper);
 }
+
+/* #47: the observed-mode customer-details card — same rail-card look, with
+   the conflict callout and the same-address ticket history strip. */
+.customer-details .customer-source { margin: 0; padding: 0 12px 12px; font-size: 11px; color: var(--mute); }
+.customer-conflict { margin: 0; padding: 8px 12px; color: var(--warn); font-size: 12px; }
+.customer-history { display: grid; gap: 2px; padding: 0 12px 12px; }
+.customer-history dt { color: var(--mute); font-size: 11px; }
+.customer-history dd { margin: 0; display: grid; gap: 4px; }
+.customer-history-count { margin: 0; font-size: 11px; color: var(--mute); }
+.customer-history-row { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
