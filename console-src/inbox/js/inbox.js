@@ -1807,6 +1807,65 @@ export function createInboxOrgan(opts = {}) {
     return true;
   }
 
+  // #45: the ticket-details card — the rail's first card, Gorgias-style. Only
+  // observed snapshot or first-party values render; anything the snapshot does
+  // not carry is an explicit unknown, never invented (AGENTS.md §2). Tags are
+  // read-only chips — the tag write question is the ticket-controls issue's.
+  function ticketDetailsHtml(ticket) {
+    if (!ticket) return "";
+    const known = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
+    const unknown = (label) => `<span class="ticket-detail-unknown" data-detail-unknown="${esc(label)}">Unknown</span>`;
+    // cubic P1: escape at this boundary — observed statuses/priorities are
+    // projection strings and must never render as markup. Callers pass raw.
+    const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value == null ? unknown(label) : esc(value)}</dd>`;
+    // Contact reason: agent rows carry the intake classifier's requestType;
+    // observed projection rows carry the processor's classified draftAction.
+    // Neither is a Gorgias write — both are read-only observations.
+    const reason = known(ticket.requestType) || known(ticket.draftAction);
+    const channel = known(ticket.channel);
+    // cubic: the card shows what Gorgias reported, like the thread badge —
+    // never the operator's local override. observedState() reads the observed
+    // status and the Gorgias priority (ticket.priority is the processor
+    // draft's, not the ticket's). A projection row with no observed status
+    // ("unknown" sentinel) renders the explicit unknown, never the sentinel.
+    const rawStatus = observedState(ticket, "status");
+    const status = rawStatus && rawStatus !== "unknown" ? rawStatus : null;
+    const priority = observedState(ticket, "priority");
+    // Product and resolution have no observed source in the projection yet —
+    // they render as explicit unknowns rather than invented values. When the
+    // order join carries them, known() picks them up unchanged.
+    const product = known(ticket.product);
+    const resolution = known(ticket.resolution);
+    // Assignee: the observed address wins; the organ's "me" is first-party
+    // knowledge, never an invented address.
+    const assignee = known(ticket.assigneeEmail) || (ticket.assignee === "me" ? "me" : known(ticket.assignee) && ticket.assignee !== "other" ? ticket.assignee : null);
+    const tags = Array.isArray(ticket.tags)
+      ? ticket.tags.filter((tag) => typeof tag === "string" && tag.trim()).slice(0, 12)
+      : [];
+    // The stale flag rides the shop's projection for observed rows; a
+    // per-ticket snapshot may carry its own. Either observed source counts.
+    const stale = Boolean(ticket.projection?.stale || (ticket.projectionSource && shop.projection?.stale));
+    return `<section class="rail-card ticket-details" data-ticket-details${stale ? ' data-stale="true"' : ""}>
+      <h2>Ticket details${stale ? ' <span class="ticket-detail-stale" role="status">Stale snapshot; details may be outdated.</span>' : ""}</h2>
+      <dl class="ticket-detail-fields">
+        ${row("Ticket ID", known(ticket.id))}
+        ${row("Channel", channel)}
+        ${row("Status", known(status))}
+        ${row("Priority", known(priority))}
+        ${row("Assignee", assignee)}
+        ${row("Contact reason", reason)}
+        ${row("Product", product)}
+        ${row("Resolution", resolution)}
+        ${row("Created", known(formatWhen(ticket.createdAt)))}
+        ${row("Updated", known(formatWhen(ticket.updatedAt)))}
+      </dl>
+      <div class="ticket-detail-tags">
+        <dt>Tags</dt>
+        <dd>${tags.length ? tags.map((tag) => `<span class="ticket-detail-tag">${esc(tag)}</span>`).join("") : unknown("Tags")}</dd>
+      </div>
+    </section>`;
+  }
+
   // #44: the thread header's nav + first-party-state context. All thread
   // update sites share this so the controls never disagree with the list.
   function threadInput(ticket) {
@@ -1833,6 +1892,9 @@ export function createInboxOrgan(opts = {}) {
     const listModel = listTissue.update(listInput());
     const threadModel = threadTissue.update(threadInput(ticket));
     const composerModel = composerTissue.update(composerInput(ticket));
+    // #45: the organ hands the rendered ticket-details card to the rail so it
+    // leads the rail in every mode (live, snapshot, observed early-return).
+    rail.setTicketDetails(ticketDetailsHtml(ticket));
     // #40: collapsed wins over empty — observed tickets never show a customer
     // rail, so the empty check first would make the collapse strip unreachable.
     const railHtml = railCollapsed ? railCollapsedHtml() : !showsCustomerRail(ticket) ? emptyRailHtml() : rail.render();
@@ -1919,13 +1981,13 @@ export function createInboxOrgan(opts = {}) {
       const fields = [["Name", identity?.name], ["Email", identity?.email], ["Phone", identity?.phone], ["Gorgias customer ID", identity?.id]]
         .filter(([, value]) => typeof value === "string" && value.trim())
         .map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("");
-      return `${railToolbarHtml()}<div class="empty-pane observed-customer"><strong>Customer details</strong>
+      return `${railToolbarHtml()}${ticketDetailsHtml(ticket)}<div class="empty-pane observed-customer"><strong>Customer details</strong>
         ${fields ? `<dl>${fields}</dl>` : `<p>${context?.conflict ? "Conflicting customer details were observed; identity needs review." : "Customer identity was not included in the observed history."}</p>`}
         <p class="customer-source">Source: observed Gorgias webhook${context?.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. ${ticket.projection?.stale ? "Snapshot is stale." : "This is a snapshot, not a live customer lookup."}</p>
         <strong>Orders and returns</strong><p>${ticket.shopifyRail?.status === "missing" ? "No matching Shopify customer or order was found." : ticket.shopifyRail?.status === "error" ? "Shopify details could not be refreshed. We will retry automatically." : "Shopify details are awaiting refresh. They will appear here when available."}</p>
       </div>`;
     }
-    return `${railToolbarHtml()}<div class="empty-pane"><strong>Customer details</strong><p>${capabilities.customerDetails === false ? "Customer and order lookup is not connected to this inbox." : "Select a conversation to see customer and order details."}</p></div>`;
+    return `${railToolbarHtml()}${ticketDetailsHtml(ticket)}<div class="empty-pane"><strong>Customer details</strong><p>${capabilities.customerDetails === false ? "Customer and order lookup is not connected to this inbox." : "Select a conversation to see customer and order details."}</p></div>`;
   }
 
   async function refreshRail() {
@@ -1989,6 +2051,8 @@ export function createInboxOrgan(opts = {}) {
     };
     const paint = () => {
       const ticket = selectedTicket();
+      // #45: keep the rail's ticket-details card in sync with the selection.
+      rail.setTicketDetails(ticketDetailsHtml(ticket));
       panes.list?.classList?.toggle?.("is-collapsed", listCollapsed);
       panes.rail?.classList?.toggle?.("is-collapsed", railCollapsed);
       safeMount(listTissue, panes.list, listInput());

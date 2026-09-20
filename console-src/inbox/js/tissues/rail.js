@@ -43,6 +43,8 @@ export function createRailOrgan({ shop, mailbox }) {
     returns: { ok: true, peek: "No returns", collapsedDefault: true, record: null },
     history: { ok: true, peek: formatOrderCount(0), rows: [] },
   };
+  // #45: rendered ticket-details HTML owned by the inbox organ.
+  let ticketDetails = "";
   let peekedHistoryId = null;
   let currentOrderId = null;
   let currentTicketKey = null;
@@ -89,8 +91,14 @@ export function createRailOrgan({ shop, mailbox }) {
 
   function render() {
     if (shop.observedHistory && !models.fromSnapshot) {
-      return `<div class="pane-inner"><h2>Context</h2><p class="mute">This view contains observed webhook messages and review drafts. Live customer, order and return details are not connected. Ticket status and assignment are shown only when the latest observed webhook carried them.</p></div>`;
+      // #45: the organ-owned ticket-details card still leads this
+      // observed-mode rail — a local or observed ticket needs its panel.
+      return `<div class="pane-inner">${ticketDetails}<h2>Context</h2><p class="mute">This view contains observed webhook messages and review drafts. Live customer, order and return details are not connected. Ticket status and assignment are shown only when the latest observed webhook carried them.</p></div>`;
     }
+    // #45: the organ-owned ticket-details card leads the rail in every mode;
+    // the organ hands over its rendered HTML so the card never depends on
+    // rail models (it renders for tickets with no Shopify data at all).
+    const detailsHtml = ticketDetails || "";
     const customerHtml = models.customer.error
       ? renderError("customer", "Customer", models.customer.peek)
       : renderCustomer(models.customer, { open: open.customer, giftCardsOpen: open.giftCards, compact: models.fromSnapshot });
@@ -128,6 +136,7 @@ export function createRailOrgan({ shop, mailbox }) {
         </button>
       </div>
       <div class="rail-inner">
+        ${detailsHtml}
         ${models.fromSnapshot ? `<p class="mute customer-source">${esc(models.snapshotNotice)}</p>` : ""}
         ${customerHtml}
         ${models.fromSnapshot && models.returns.inProgress ? returnsHtml + orderHtml : orderHtml + returnsHtml}
@@ -265,6 +274,10 @@ export function createRailOrgan({ shop, mailbox }) {
     loadSnapshot,
     render,
     mount,
+    // #45: the organ hands over its rendered ticket-details HTML.
+    setTicketDetails(html) {
+      ticketDetails = typeof html === "string" ? html : "";
+    },
     toggle(key) {
       if (!(key in open)) return open[key];
       open[key] = !open[key];
