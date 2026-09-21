@@ -60,11 +60,18 @@ test('the production capability vocabulary covers the createTicket gate', async 
 
 // The live service reports createTicket (review_server.py CAPABILITIES) — the
 // §2(7) local-only flow. The organ must surface the button and create into the
-// browser store; the service offers no create tool, so nothing leaves the page.
+// browser store. The mock is closed-world: every tool outside the read
+// vocabulary (capabilities/list_tickets/write_gate_status) throws, so a
+// regression routing the create through any server RPC fails loudly instead
+// of quietly passing — "nothing leaves the page" stays asserted, not assumed.
 test('a live createTicket capability surfaces the New ticket button end to end', async () => {
+  const invoked = [];
   const client = {invoke: async (tool) => {
+    invoked.push(tool);
     if (tool === 'helpdesk.capabilities') return {ok:true, source:'inbox', capabilities:{listTickets:true, getTicket:true, createTicket:true}};
-    return {ok:true, source:'inbox', tickets:[], projection:{generatedAt:'gen-1', stale:false}};
+    if (tool === 'helpdesk.list_tickets') return {ok:true, source:'inbox', tickets:[], projection:{generatedAt:'gen-1', stale:false}};
+    if (tool === 'helpdesk.write_gate_status') return {ok:true, source:'inbox', gorgiasEnabled:false, outboundEnabled:false};
+    throw new Error(`unexpected tool invoked: ${tool}`);
   }};
   const shop = createHelpdeskShop({client});
   const backing = new Map();
@@ -79,6 +86,8 @@ test('a live createTicket capability surfaces the New ticket button end to end',
   const snap = await organ.createLocalTicket({customerName:'Ada Lovelace', fromEmail:'ada@example.test', subject:'Hello', body:'A question', channel:'email'});
   assert.equal(snap.createError, '', 'the local create succeeds');
   assert.match(JSON.stringify(backing.get('bb-inbox-local-tickets-v1')), /Ada Lovelace/, 'the ticket lands in the browser store');
+  // The create path must be pure browser state: no create-shaped RPC ever ran.
+  assert.ok(!invoked.some(tool => /create|ingest|intake/i.test(tool)), 'no server tool took part in the create');
 });
 
 const localTicket = {id:'t-in-test',customerName:'Local test',subject:'Privacy request',snippet:'Test',status:'open',updatedAt:'2026-09-07T00:00:00Z',messages:[],statusEvents:[],requestType:'privacy_request'};
