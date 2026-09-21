@@ -36,7 +36,7 @@ export function projectOrderHistory(rows) {
 export function renderOrderHistory(model, { open = false, peekedId = null } = {}) {
   const rows = (model.rows || []).map((row) => {
     const on = row.id === peekedId;
-    return `<button type="button" class="history-row${on ? " is-peeked" : ""}" data-history="${esc(row.id)}">
+    return `<button type="button" class="history-row${on ? " is-peeked" : ""}" data-history="${esc(row.id)}" title="Peek this past order. It does not replace This order.">
       <span class="mono">${esc(row.name)}</span>
       <span>${esc(statusLabel(row.fulfillmentStatus))}</span>
       <span class="mono">${esc(row.total)}</span>
@@ -44,7 +44,7 @@ export function renderOrderHistory(model, { open = false, peekedId = null } = {}
     </button>`;
   }).join("");
   return `<section class="rail-card" data-tissue="order-history" data-open="${open ? "true" : "false"}">
-    <button type="button" class="rail-toggle" data-toggle="order-history" aria-expanded="${open ? "true" : "false"}">
+    <button type="button" class="rail-toggle" data-toggle="order-history" aria-expanded="${open ? "true" : "false"}" title="Show or hide Past orders">
       <h2>Past orders</h2>
       <span class="peek">${esc(model.peek)}</span>
     </button>

@@ -106,7 +106,7 @@ export function renderReturns(model, { open, compact = false, orderName = "" } =
       ${rec.creditTotal ? `<p>Credit ${esc(formatMoney(rec.creditTotal))}</p>` : ""}`;
   }
   return `<section class="rail-card${compact && model.inProgress ? " return-active" : ""}" data-tissue="returns" data-open="${isOpen ? "true" : "false"}">
-    <button type="button" class="rail-toggle" data-toggle="returns" aria-expanded="${isOpen ? "true" : "false"}">
+    <button type="button" class="rail-toggle" data-toggle="returns" aria-expanded="${isOpen ? "true" : "false"}" title="Show or hide Returns">
       <h2>Returns</h2>
       <span class="peek">${esc(snapshotPeek)}</span>
     </button>

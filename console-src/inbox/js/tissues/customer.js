@@ -50,7 +50,7 @@ function renderGiftCards(model, giftCardsOpen) {
   const cards = model.giftCards || [];
   if (!cards.length) {
     return `<div class="rail-sub" data-open="${giftCardsOpen ? "true" : "false"}">
-      <button type="button" class="rail-sub-toggle" data-toggle="giftCards" aria-expanded="${giftCardsOpen ? "true" : "false"}">
+      <button type="button" class="rail-sub-toggle" data-toggle="giftCards" aria-expanded="${giftCardsOpen ? "true" : "false"}" title="Show or hide Gift cards">
         <h3>Gift cards</h3> <span class="peek">${esc(GIFT_CARDS_MISSING_LABEL)}</span>
       </button>
       <div class="rail-sub-body"${giftCardsOpen ? "" : " hidden"}>
@@ -68,7 +68,7 @@ function renderGiftCards(model, giftCardsOpen) {
     </p>`;
   }).join("");
   return `<div class="rail-sub" data-open="${giftCardsOpen ? "true" : "false"}">
-    <button type="button" class="rail-sub-toggle" data-toggle="giftCards" aria-expanded="${giftCardsOpen ? "true" : "false"}">
+    <button type="button" class="rail-sub-toggle" data-toggle="giftCards" aria-expanded="${giftCardsOpen ? "true" : "false"}" title="Show or hide Gift cards">
       <h3>Gift cards</h3> <span class="peek">${esc(model.giftCardPeek)}</span>
     </button>
     <div class="rail-sub-body"${giftCardsOpen ? "" : " hidden"}>
@@ -105,7 +105,7 @@ export function renderCustomer(model, { open = true, giftCardsOpen, compact = fa
       ${model.hasGiftCards ? renderGiftCards(model, cardsOpen) : ""}`;
   }
   return `<section class="rail-card" data-tissue="customer" data-open="${open ? "true" : "false"}">
-    <button type="button" class="rail-toggle" data-toggle="customer" aria-expanded="${open ? "true" : "false"}">
+    <button type="button" class="rail-toggle" data-toggle="customer" aria-expanded="${open ? "true" : "false"}" title="Show or hide Customer">
       <h2>${compact && model.ok ? esc(model.peek) : "Customer"}</h2>
       ${compact && model.ok ? "" : `<span class="peek">${esc(model.peek)}</span>`}
     </button>

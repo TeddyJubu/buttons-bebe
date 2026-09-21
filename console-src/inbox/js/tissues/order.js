@@ -128,7 +128,7 @@ function renderShipment(model, shipOpen, compact = false) {
       ? ` <span class="peek">${esc(model.shipmentPeek)}</span>`
       : "";
     return `<div class="rail-sub" data-open="${shipOpen ? "true" : "false"}">
-        <button type="button" class="rail-sub-toggle" data-toggle="shipment" aria-expanded="${shipOpen ? "true" : "false"}"><h3>Shipment</h3>${peek}</button>
+        <button type="button" class="rail-sub-toggle" data-toggle="shipment" aria-expanded="${shipOpen ? "true" : "false"}" title="Show or hide Shipment"><h3>Shipment</h3>${peek}</button>
         <div class="rail-sub-body"${shipOpen ? "" : " hidden"}>
           ${renderTrackingCopy(tracking)}
           ${compact ? "" : shipLines}
@@ -136,7 +136,7 @@ function renderShipment(model, shipOpen, compact = false) {
       </div>`;
   }
   return `<div class="rail-sub" data-open="${shipOpen ? "true" : "false"}">
-      <button type="button" class="rail-sub-toggle" data-toggle="shipment" aria-expanded="${shipOpen ? "true" : "false"}">
+      <button type="button" class="rail-sub-toggle" data-toggle="shipment" aria-expanded="${shipOpen ? "true" : "false"}" title="Show or hide Shipment">
         <h3>Shipment</h3> <span class="peek">${esc(model.shipmentPeek || TRACKING_MISSING_LABEL)}</span>
       </button>
       <div class="rail-sub-body"${shipOpen ? "" : " hidden"}>
@@ -149,7 +149,7 @@ function renderDiscounts(model, discountsOpen) {
   const codes = model.discountCodes || [];
   if (!codes.length) {
     return `<div class="rail-sub" data-open="${discountsOpen ? "true" : "false"}">
-      <button type="button" class="rail-sub-toggle" data-toggle="discounts" aria-expanded="${discountsOpen ? "true" : "false"}">
+      <button type="button" class="rail-sub-toggle" data-toggle="discounts" aria-expanded="${discountsOpen ? "true" : "false"}" title="Show or hide Discounts">
         <h3>Discounts</h3> <span class="peek">${esc(DISCOUNTS_MISSING_LABEL)}</span>
       </button>
       <div class="rail-sub-body"${discountsOpen ? "" : " hidden"}>
@@ -159,7 +159,7 @@ function renderDiscounts(model, discountsOpen) {
   }
   const rows = codes.map((code) => `<p class="mono discount-code">${esc(code)}</p>`).join("");
   return `<div class="rail-sub" data-open="${discountsOpen ? "true" : "false"}">
-    <button type="button" class="rail-sub-toggle" data-toggle="discounts" aria-expanded="${discountsOpen ? "true" : "false"}">
+    <button type="button" class="rail-sub-toggle" data-toggle="discounts" aria-expanded="${discountsOpen ? "true" : "false"}" title="Show or hide Discounts">
       <h3>Discounts</h3> <span class="peek">${esc(model.discountPeek)}</span>
     </button>
     <div class="rail-sub-body"${discountsOpen ? "" : " hidden"}>
@@ -172,7 +172,7 @@ function renderInvoice(model, invoiceOpen) {
   const url = safeWebUrl(model.invoiceUrl);
   if (!url) {
     return `<div class="rail-sub" data-open="${invoiceOpen ? "true" : "false"}">
-      <button type="button" class="rail-sub-toggle" data-toggle="invoice" aria-expanded="${invoiceOpen ? "true" : "false"}">
+      <button type="button" class="rail-sub-toggle" data-toggle="invoice" aria-expanded="${invoiceOpen ? "true" : "false"}" title="Show or hide Invoice">
         <h3>Invoice</h3> <span class="peek">${esc(INVOICE_MISSING_LABEL)}</span>
       </button>
       <div class="rail-sub-body"${invoiceOpen ? "" : " hidden"}>
@@ -181,7 +181,7 @@ function renderInvoice(model, invoiceOpen) {
     </div>`;
   }
   return `<div class="rail-sub" data-open="${invoiceOpen ? "true" : "false"}">
-    <button type="button" class="rail-sub-toggle" data-toggle="invoice" aria-expanded="${invoiceOpen ? "true" : "false"}">
+    <button type="button" class="rail-sub-toggle" data-toggle="invoice" aria-expanded="${invoiceOpen ? "true" : "false"}" title="Show or hide Invoice">
       <h3>Invoice</h3> <span class="peek">${esc(model.invoicePeek)}</span>
     </button>
     <div class="rail-sub-body"${invoiceOpen ? "" : " hidden"}>
@@ -194,7 +194,7 @@ function renderWarranty(model, warrantyOpen) {
   const warranty = model.warranty;
   if (!warranty) {
     return `<div class="rail-sub" data-open="${warrantyOpen ? "true" : "false"}">
-      <button type="button" class="rail-sub-toggle" data-toggle="warranty" aria-expanded="${warrantyOpen ? "true" : "false"}">
+      <button type="button" class="rail-sub-toggle" data-toggle="warranty" aria-expanded="${warrantyOpen ? "true" : "false"}" title="Show or hide Warranty">
         <h3>Warranty</h3> <span class="peek">${esc(WARRANTY_MISSING_LABEL)}</span>
       </button>
       <div class="rail-sub-body"${warrantyOpen ? "" : " hidden"}>
@@ -211,7 +211,7 @@ function renderWarranty(model, warrantyOpen) {
     ends ? `<p class="mute warranty-line">${esc(ends)}</p>` : "",
   ].filter(Boolean).join("");
   return `<div class="rail-sub" data-open="${warrantyOpen ? "true" : "false"}">
-    <button type="button" class="rail-sub-toggle" data-toggle="warranty" aria-expanded="${warrantyOpen ? "true" : "false"}">
+    <button type="button" class="rail-sub-toggle" data-toggle="warranty" aria-expanded="${warrantyOpen ? "true" : "false"}" title="Show or hide Warranty">
       <h3>Warranty</h3> <span class="peek">${esc(peek)}</span>
     </button>
     <div class="rail-sub-body"${warrantyOpen ? "" : " hidden"}>
@@ -225,7 +225,7 @@ function renderEta(model, etaOpen) {
   const zoneLine = formatShippingZone(model.shippingZone);
   if (!etaLine && !zoneLine) {
     return `<div class="rail-sub" data-open="${etaOpen ? "true" : "false"}">
-      <button type="button" class="rail-sub-toggle" data-toggle="eta" aria-expanded="${etaOpen ? "true" : "false"}">
+      <button type="button" class="rail-sub-toggle" data-toggle="eta" aria-expanded="${etaOpen ? "true" : "false"}" title="Show or hide ETA">
         <h3>ETA</h3> <span class="peek">${esc(ETA_MISSING_LABEL)}</span>
       </button>
       <div class="rail-sub-body"${etaOpen ? "" : " hidden"}>
@@ -239,7 +239,7 @@ function renderEta(model, etaOpen) {
     zoneLine ? `<p class="mute eta-line">${esc(zoneLine)}</p>` : "",
   ].filter(Boolean).join("");
   return `<div class="rail-sub" data-open="${etaOpen ? "true" : "false"}">
-    <button type="button" class="rail-sub-toggle" data-toggle="eta" aria-expanded="${etaOpen ? "true" : "false"}">
+    <button type="button" class="rail-sub-toggle" data-toggle="eta" aria-expanded="${etaOpen ? "true" : "false"}" title="Show or hide ETA">
       <h3>ETA</h3> <span class="peek">${esc(peek)}</span>
     </button>
     <div class="rail-sub-body"${etaOpen ? "" : " hidden"}>
@@ -264,7 +264,7 @@ export function renderOrder(model, { open = true, addressesOpen = false, shipmen
     : "";
   if (!model.ok || !record) {
     return `<section class="rail-card" data-tissue="order" data-open="${open ? "true" : "false"}">
-      <button type="button" class="rail-toggle" data-toggle="order" aria-expanded="${open ? "true" : "false"}">
+      <button type="button" class="rail-toggle" data-toggle="order" aria-expanded="${open ? "true" : "false"}" title="Show or hide This order">
         <h2>This order</h2><span class="peek">${esc(model.peek)}</span>
       </button>
       <div class="rail-body">
@@ -307,7 +307,7 @@ export function renderOrder(model, { open = true, addressesOpen = false, shipmen
   }).join("");
   const shipment = renderShipment(model, shipOpen, compact);
   return `<section class="rail-card" data-tissue="order" data-open="${open ? "true" : "false"}">
-    <button type="button" class="rail-toggle" data-toggle="order" aria-expanded="${open ? "true" : "false"}">
+    <button type="button" class="rail-toggle" data-toggle="order" aria-expanded="${open ? "true" : "false"}" title="Show or hide This order">
       <h2>${compact ? `Order ${esc(record.name)}` : "This order"}</h2>
       ${compact ? "" : `<span class="peek">${esc(model.peek)}</span>`}
     </button>
@@ -327,7 +327,7 @@ export function renderOrder(model, { open = true, addressesOpen = false, shipmen
       ${!compact || model.hasInvoice ? renderInvoice(model, invoiceIsOpen) : ""}
       ${!compact || model.hasWarranty ? renderWarranty(model, warrantyIsOpen) : ""}
       <div class="rail-sub" data-open="${addressesOpen ? "true" : "false"}">
-        <button type="button" class="rail-sub-toggle" data-toggle="addresses" aria-expanded="${addressesOpen ? "true" : "false"}">
+        <button type="button" class="rail-sub-toggle" data-toggle="addresses" aria-expanded="${addressesOpen ? "true" : "false"}" title="Show or hide Addresses">
           <h3>Addresses</h3> <span class="peek">${esc(model.addressPeek)}</span>
         </button>
         <div class="rail-sub-body addr-stack"${addressesOpen ? "" : " hidden"}>

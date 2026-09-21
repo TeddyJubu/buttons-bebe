@@ -500,6 +500,30 @@ test("shipment Track is a separate control and the number stays mono text", asyn
   assert.doesNotMatch(noUrlHtml, />Track</);
 });
 
+test("every customer-rail button carries a hover title", async () => {
+  const untitled = (html) => (html.match(/<button\b[^>]*>/g) || []).filter((tag) => !/\stitle="/.test(tag));
+  const rail = createRailOrgan({ shop, mailbox: createMailbox() });
+  await rail.load({ shop: SHOP, customerId: IDS.ADA, orderId: IDS.ORDER_1001, ticketId: "t-ada-track" });
+  const adaHtml = rail.render();
+  await rail.load({ shop: SHOP, customerId: IDS.CASEY, orderId: IDS.ORDER_1002, ticketId: "t-casey-visor" });
+  const caseyHtml = rail.render();
+  const base = createFixtureShop();
+  const throwing = { ...base, getReturns: () => { throw new Error("down"); } };
+  const errRail = createRailOrgan({ shop: throwing, mailbox: createMailbox() });
+  await errRail.load({ shop: SHOP, customerId: IDS.ADA, orderId: IDS.ORDER_1001, ticketId: "t-err-returns" });
+  const variants = [
+    ["ada rail", adaHtml],
+    ["casey rail", caseyHtml],
+    ["error rail", errRail.render()],
+    ["no customer", renderCustomer(projectCustomer(null))],
+    ["no order", renderOrder(projectOrder(null))],
+    ["empty returns", renderReturns(projectReturns(null))],
+  ];
+  const missing = variants.flatMap(([name, html]) => untitled(html).map((tag) => `${name}: ${tag}`));
+  assert.deepEqual(missing, []);
+  assert.ok((adaHtml.match(/<button\b/g) || []).length > 10, "fixture should exercise many rail buttons");
+});
+
 test("shop tissue has no mutation surface", () => {
   assert.equal("getCustomer" in shop && "getOrder" in shop, true);
   assert.equal("mutate" in shop, false);

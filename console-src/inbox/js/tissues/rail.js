@@ -79,7 +79,7 @@ export function createRailOrgan({ shop, mailbox }) {
 
   function renderError(tissueId, label, peek) {
     return `<section class="rail-card is-error" data-tissue="${esc(tissueId)}" data-open="true">
-      <button type="button" class="rail-toggle" data-toggle="${esc(tissueId)}" aria-expanded="true">
+      <button type="button" class="rail-toggle" data-toggle="${esc(tissueId)}" aria-expanded="true" title="Show or hide ${esc(label)}">
         <h2>${esc(label)}</h2><span class="peek">${esc(peek)}</span>
       </button>
       <div class="rail-body">
