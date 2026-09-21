@@ -60,6 +60,17 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.post({"tool": "helpdesk.list_tickets"}).status_code, 503)
         self.assertEqual(self.client.get("/ready").status_code, 503)
 
+    def test_create_ticket_is_local_only_in_the_live_inbox(self):
+        # AGENTS.md §2(7): the New ticket entry point is first-party browser
+        # state. The service reports the capability so the organ can render the
+        # button, but no server-side create tool exists to call — the flow
+        # stays refused under §2(2)/(3) at the backend surface.
+        caps = self.post({"tool": "helpdesk.capabilities"}).json()["capabilities"]
+        self.assertTrue(caps["createTicket"])
+        self.assertNotIn("helpdesk.create_ticket", server.SCHEMAS)
+        self.assertEqual(
+            self.post({"tool": "helpdesk.create_ticket", "arguments": {}}).status_code, 403)
+
 
     def test_operator_email_is_validated_and_never_widens_capabilities(self):
         body = self.post({"tool": "helpdesk.capabilities"}).json()

@@ -42,6 +42,10 @@ CAPABILITIES = {
     "draftReply": False, "summarizeThread": False, "searchMacros": False,
     "applyMacro": False, "escalateTicket": False, "markPrivacyHandled": False,
     "markUnsubscribed": False, "markBugHandled": False, "customerDetails": False,
+    # AGENTS.md §2(7): the New ticket flow is first-party browser state — the
+    # created ticket lives in the operator's store, never Gorgias. The button
+    # needs this true; the server keeps no create tool (SCHEMAS stays closed).
+    "createTicket": True,
     "intake": False,
 }
 STATIC_FILES = frozenset(json.loads((INBOX / "static-manifest.json").read_text()))

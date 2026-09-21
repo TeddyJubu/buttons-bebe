@@ -58,6 +58,29 @@ test('the production capability vocabulary covers the createTicket gate', async 
   assert.equal(snap.createError, 'Ticket creation is not enabled.');
 });
 
+// The live service reports createTicket (review_server.py CAPABILITIES) — the
+// §2(7) local-only flow. The organ must surface the button and create into the
+// browser store; the service offers no create tool, so nothing leaves the page.
+test('a live createTicket capability surfaces the New ticket button end to end', async () => {
+  const client = {invoke: async (tool) => {
+    if (tool === 'helpdesk.capabilities') return {ok:true, source:'inbox', capabilities:{listTickets:true, getTicket:true, createTicket:true}};
+    return {ok:true, source:'inbox', tickets:[], projection:{generatedAt:'gen-1', stale:false}};
+  }};
+  const shop = createHelpdeskShop({client});
+  const backing = new Map();
+  const organ = createInboxOrgan({shop, viewId:'all', storage:{
+    getItem:k => backing.has(k) ? backing.get(k) : null,
+    setItem:(k,v) => backing.set(k, String(v)),
+    removeItem:k => backing.delete(k),
+  }});
+  const result = await organ.ready();
+  assert.match(result.html, /data-create-ticket/, 'the New ticket button renders');
+  assert.match(result.html, /New ticket/, 'the button is labeled');
+  const snap = await organ.createLocalTicket({customerName:'Ada Lovelace', fromEmail:'ada@example.test', subject:'Hello', body:'A question', channel:'email'});
+  assert.equal(snap.createError, '', 'the local create succeeds');
+  assert.match(JSON.stringify(backing.get('bb-inbox-local-tickets-v1')), /Ada Lovelace/, 'the ticket lands in the browser store');
+});
+
 const localTicket = {id:'t-in-test',customerName:'Local test',subject:'Privacy request',snippet:'Test',status:'open',updatedAt:'2026-09-07T00:00:00Z',messages:[],statusEvents:[],requestType:'privacy_request'};
 
 test('failed mutations never fabricate a completed workflow', async () => {
