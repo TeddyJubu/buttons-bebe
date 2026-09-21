@@ -456,6 +456,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .thread-inner { min-height: 0; }
 .thread-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
@@ -464,7 +465,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .thread-head > div:first-child { min-width: 0; }
 .thread-head h2 { overflow-wrap: anywhere; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
-.thread-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; }
+.thread-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; max-width: 100%; }
 .thread-subject { overflow-wrap: anywhere; color: var(--mute); font-size: 13px; margin-top: 2px; }
 /* #41: inline rename — pencil-like quiet affordance, in-place input. */
 .title-edit { margin-left: 6px; padding: 1px 6px; font-size: 11px; color: var(--mute); background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
