@@ -20,6 +20,25 @@ export function createThreadTissue({ mailbox }) {
     if (!status || status === "unknown") return ticket?.projectionSource ? "Status unknown" : screenStatus(raw);
     return screenStatus(status);
   }
+  // Task 4: the status word always carries the meaning; the dot is decoration
+  // only (aria-hidden, no contrast requirement). Open reads as attention
+  // (brand accent), urgent priority as red, snoozed/medium as amber.
+  function statusDotClass(kind, value) {
+    const text = String(value || "").trim().toLowerCase();
+    if (kind === "priority") {
+      if (/urgent|high|critical/.test(text)) return "is-urgent";
+      if (/medium/.test(text)) return "is-warn";
+      return "";
+    }
+    if (text === "open") return "is-open";
+    if (text === "closed") return "is-closed";
+    if (text === "snoozed") return "is-snoozed";
+    return "is-unknown";
+  }
+  function statusDot(kind, value) {
+    const cls = statusDotClass(kind, value);
+    return `<span class="status-dot${cls ? ` ${cls}` : ""}" aria-hidden="true"></span>`;
+  }
   let model = { ticket: null };
   let lightbox = null;
   let renaming = null;
@@ -273,11 +292,11 @@ export function createThreadTissue({ mailbox }) {
         <div class="thread-head-actions">
           <span class="ticket-id-badge" data-ticket-id-badge="${esc(ticket.id)}" title="Unique ticket id">${esc(ticket.id)}</span>
           <button type="button" class="btn-hairline" data-copy-link data-ticket-id="${esc(ticket.id)}" title="Copy a link to this ticket. The link opens this inbox with this ticket selected.">Copy link</button>
-          <span class="status-badge" title="Ticket status">${esc(observedTicketStatus(ticket))}</span>
-          ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-badge" title="Gorgias priority">${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
-          ${ticket.gorgiasSpam ? `<span class="status-badge" title="Marked as spam in Gorgias">Spam</span>` : ""}
-          ${ticket.gorgiasTrashed ? `<span class="status-badge" title="Trashed in Gorgias">Trashed</span>` : ""}
-          ${ticket.gorgiasSnoozed ? `<span class="status-badge" title="Snoozed in Gorgias">Snoozed</span>` : ""}
+          <span class="status-line" title="Ticket status">${statusDot("status", observedTicketStatus(ticket))}${esc(observedTicketStatus(ticket))}</span>
+          ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-line" title="Gorgias priority">${statusDot("priority", ticket.gorgiasPriority)}${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
+          ${ticket.gorgiasSpam ? `<span class="status-line" title="Marked as spam in Gorgias">${statusDot()}Spam</span>` : ""}
+          ${ticket.gorgiasTrashed ? `<span class="status-line" title="Trashed in Gorgias">${statusDot()}Trashed</span>` : ""}
+          ${ticket.gorgiasSnoozed ? `<span class="status-line" title="Snoozed in Gorgias">${statusDot("status", "snoozed")}Snoozed</span>` : ""}
           ${escalateControl}
           ${detailControls(ticket, next)}
         </div>

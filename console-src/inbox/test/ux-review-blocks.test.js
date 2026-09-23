@@ -56,9 +56,9 @@ test("UX Pro blocks fail the default Ada paint", async () => {
   assert.match(snap.html, /<p class="mute warranty-line">Ends 12 Mar 2027<\/p>/);
   assert.match(snap.html, /<h3>ETA<\/h3>\s*<span class="peek">ETA Tue 8 Sep<\/span>/);
   assert.match(snap.html, /<p class="mute eta-line">Zone: Domestic<\/p>/);
-  assert.match(snap.html, /status-badge[^>]*>Open</);
+  assert.match(snap.html, /status-line[^>]*>[\s\S]*?Open</);
   assert.match(snap.html, /Status Open/);
-  assert.doesNotMatch(snap.html, /status-badge">OPEN</);
+  assert.doesNotMatch(snap.html, /status-line">OPEN</);
   assert.doesNotMatch(snap.html, /Status OPEN/);
   assert.doesNotMatch(snap.html, /<(button|a)\b[^>]*>\s*(?:Customer\s+)?Edit\b/i);
 });
@@ -231,7 +231,7 @@ test("chrome has no Gaia, Ask Gaia, or Gorgias purple", () => {
   assert.match(page, /min-height:\s*40px/);
   assert.match(page, /\.draft-kicker[^}]*color:\s*var\(--mute\)/);
   assert.doesNotMatch(page, /\.draft-kicker[^}]*color:\s*var\(--accent\)/);
-  assert.doesNotMatch(page, /\.status-badge\s*\{[^}]*text-transform:\s*uppercase/);
+  assert.doesNotMatch(page, /\.status-line\s*\{[^}]*text-transform:\s*uppercase/);
 });
 
 test("review-block detector flags the wall and a printed null SKU", () => {

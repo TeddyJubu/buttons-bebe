@@ -20,6 +20,7 @@ test('observed history escapes customer text and keeps the readonly draft out of
   assert.match(html,/Partial webhook history/);
   assert.doesNotMatch(html,/Snapshot is stale/);
   assert.match(html,/Status unknown/);
+  assert.match(html,/status-dot[^>]*><\/span>Status unknown</, "the unknown status reads as dot + word");
   assert.doesNotMatch(html,/data-escalate=/);
 });
 
@@ -30,7 +31,7 @@ test('observed history thread shows Gorgias status when it was stored', () => {
     id:'gorgias:1',projectionSource:true,customerName:'Customer',subject:'Hello',status:'open',statusEvents:[],
     messages:[{id:'m1',from:'customer',body:'Hi',at:'2026-01-01'}]
   }});
-  assert.match(html,/title="Ticket status">Open<\/span>/);
+  assert.match(html,/title="Ticket status">[\s\S]*?Open<\/span>/);
   assert.doesNotMatch(html,/>Status unknown</);
 });
 

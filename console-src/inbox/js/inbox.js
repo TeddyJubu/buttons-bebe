@@ -1039,6 +1039,24 @@ export function createInboxOrgan(opts = {}) {
   const collapseSeed = loadCollapseState();
   let listCollapsed = collapseSeed.list;
   let railCollapsed = collapseSeed.rail;
+  // Task 6: on phones the open ticket owns the viewport — selecting one
+  // drops the list to its collapsed strip so the composer starts visible.
+  // Session-local and never persisted: an explicit expand survives polls and
+  // refreshes, and desktop never inherits the phone's choice. matchMedia is
+  // guarded so non-DOM tests simply never take this path.
+  function narrowViewport() {
+    try {
+      return typeof window !== "undefined" && typeof window.matchMedia === "function"
+        && window.matchMedia("(max-width: 780px)").matches;
+    } catch {
+      return false;
+    }
+  }
+  function collapseListForNarrow() {
+    if (narrowViewport() && selectedId && !listCollapsed) {
+      listCollapsed = true;
+    }
+  }
   // The rail's Ticket details card starts toggled off — the vague unknowns
   // stay one click away instead of leading the rail. Session-local like the
   // other rail toggles; reset on context switch in resetUiState.
@@ -2180,6 +2198,7 @@ export function createInboxOrgan(opts = {}) {
     await refreshCapabilities();
     await refreshList();
     ensureSelection();
+    collapseListForNarrow();
     await refreshThread();
     await refreshRail();
     await refreshComposer();
@@ -2296,6 +2315,7 @@ export function createInboxOrgan(opts = {}) {
     });
     mailbox.subscribe(MAILBOX_TOPICS.LIST_SELECTED, ({ ticketId }) => {
       resetUiState(ticketId);
+      collapseListForNarrow();
       markRead(ticketId);
       syncUrl();
       refreshThread().then(refreshRail).then(refreshComposer).then(() => refreshMacros(macroQuery)).then(paint);
@@ -2834,6 +2854,7 @@ export function createInboxOrgan(opts = {}) {
       await refreshCapabilities();
       await refreshList();
       ensureSelection();
+      collapseListForNarrow();
       await refreshThread();
       await refreshRail();
       await refreshComposer();

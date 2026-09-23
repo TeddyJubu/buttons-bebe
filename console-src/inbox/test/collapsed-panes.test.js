@@ -192,3 +192,36 @@ test("the collapsed list strip keeps keyboard-reachable controls", async () => {
   assert.match(html, /data-list-expand[^>]*aria-label="Expand ticket list \(/);
   assert.doesNotMatch(html, /tabindex="-1"[^>]*data-list-expand/, "the expand control is never focus-removed");
 });
+
+test("a narrow phone starts with the list collapsed so the composer shows", async () => {
+  // Task 6: selecting a ticket on a <=780px viewport drops the list to its
+  // strip. Session-local only — the persisted record must not learn it, or
+  // desktop would inherit the phone's choice.
+  globalThis.window = { matchMedia: () => ({ matches: true }) };
+  try {
+    const storage = freshStorage();
+    const organ = createInboxOrgan({shop: observedShop(observedRows), storage});
+    const snap = await organ.ready();
+    assert.ok(snap.selectedId, "a ticket is selected");
+    assert.equal(snap.listCollapsed, true, "the list starts collapsed on narrow");
+    assert.match(snap.html, /data-list-expand/, "the expand strip renders");
+    assert.equal(storage.dump().get("bb-inbox-collapsed-v1") ?? null, null, "nothing persisted");
+    // An explicit expand is the operator's choice and survives.
+    await organ.collapseList(false);
+    assert.equal(organ.snapshot().listCollapsed, false, "explicit expand holds");
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test("a wide viewport never auto-collapses the list", async () => {
+  globalThis.window = { matchMedia: () => ({ matches: false }) };
+  try {
+    const organ = createInboxOrgan({shop: observedShop(observedRows), storage: freshStorage()});
+    const snap = await organ.ready();
+    assert.ok(snap.selectedId, "a ticket is selected");
+    assert.equal(snap.listCollapsed, false, "the list stays open on wide");
+  } finally {
+    delete globalThis.window;
+  }
+});

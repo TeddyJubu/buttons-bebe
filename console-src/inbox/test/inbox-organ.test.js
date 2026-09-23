@@ -460,7 +460,7 @@ test("escalate marks the ticket and does not Send", async () => {
   await organ.ready();
   const snap = await organ.escalate("pending review");
   assert.match(snap.html, /status-line"[^>]*data-escalated[^>]*>Escalated · /);
-  assert.doesNotMatch(snap.html, /status-badge[^>]*>Escalated</);
+  assert.doesNotMatch(snap.html, /status-line[^>]*>[\s\S]*?Escalated</);
   assert.doesNotMatch(snap.html, /data-escalate=/);
   assert.equal(snap.sent.length, 0);
 });
