@@ -35,6 +35,20 @@ export function createComposerTissue({ mailbox }) {
     macros: [],
     body: "",
     strip: "",
+    rewriteViaParent: false,
+    sendViaParent: false,
+    sendConfirm: false,
+    sendBusy: false,
+    sendInfo: "",
+    sendCloseRequested: false,
+    rewriteInstruction: "",
+    rewriteError: "",
+    rewriteBusy: false,
+    noteViaParent: false,
+    noteConfirm: false,
+    noteBusy: false,
+    noteError: "",
+    noteInfo: "",
     query: "",
     selectedMacroId: "",
     searchOpen: false,
@@ -52,6 +66,20 @@ export function createComposerTissue({ mailbox }) {
       macros: input.macros || [],
       body: input.body || "",
       strip: input.strip ?? input.draft ?? "",
+      rewriteViaParent: input.rewriteViaParent === true,
+      rewriteInstruction: input.rewriteInstruction || "",
+      rewriteError: input.rewriteError || "",
+      rewriteBusy: input.rewriteBusy === true,
+      sendViaParent: input.sendViaParent === true,
+      sendConfirm: input.sendConfirm === true,
+      sendBusy: input.sendBusy === true,
+      sendInfo: input.sendInfo || "",
+      sendCloseRequested: input.sendCloseRequested === true,
+      noteViaParent: input.noteViaParent === true,
+      noteConfirm: input.noteConfirm === true,
+      noteBusy: input.noteBusy === true,
+      noteError: input.noteError || "",
+      noteInfo: input.noteInfo || "",
       stripReadonly: input.stripReadonly === true,
       stripNote: input.stripNote || "",
       query: input.query || "",
@@ -150,6 +178,14 @@ export function createComposerTissue({ mailbox }) {
     // No live draft lane, no Regenerate: there is nothing to ask for a new
     // draft from. Use draft still copies the shown text; Dismiss still hides it.
     const canRegenerate = next.capabilities?.draftReply !== false;
+    const showRegenerate = next.rewriteViaParent || canRegenerate;
+    const noteBtn = next.noteViaParent ? `<button type="button" class="btn-quiet" data-note${next.noteBusy ? " disabled" : ""} title="Post this draft as a staff-only internal note">Post as note</button>` : "";
+    const noteConfirmPanel = next.noteViaParent && next.noteConfirm ? `<div class="note-confirm" data-note-confirm><p class="note-confirm-title">Post as a staff-only internal note?</p><p class="note-confirm-text">${esc(next.strip)}</p><div class="note-confirm-actions"><button type="button" class="btn-quiet" data-note-confirm>Confirm post</button><button type="button" class="btn-quiet btn-dismiss" data-note-cancel>Cancel</button></div></div>` : "";
+    const noteStatus = next.noteInfo ? `<p class="note-info" role="status">${esc(next.noteInfo)}</p>` : next.noteError ? `<p class="rewrite-error" role="alert">${esc(next.noteError)}</p>` : "";
+    const regenLabel = next.rewriteBusy ? "Rewriting…" : "Regenerate";
+    const regenDisabled = next.rewriteBusy ? " disabled" : "";
+    const regenBtn = showRegenerate ? `<button type="button" class="btn-quiet" data-regenerate${regenDisabled} title="Ask the console for a new AI draft">${regenLabel}</button>` : "";
+    const rewriteRow = next.rewriteViaParent ? `<label class="rewrite-row"><span>Tell the AI how to change it</span><input class="rewrite-input" data-rewrite-instruction type="text" placeholder="e.g. make it warmer and offer to reship free" value="${esc(next.rewriteInstruction)}"></label>${next.rewriteError ? `<p class="rewrite-error" role="alert">${esc(next.rewriteError)}</p>` : ""}` : "";
     const strip = stripText
       ? `<div class="draft-strip${sensitive ? " is-sensitive" : ""}" data-draft-strip${sensitive ? ' data-sensitive="true"' : ""}>
           <div class="draft-body">
@@ -159,12 +195,22 @@ export function createComposerTissue({ mailbox }) {
           </div>
           <div class="draft-actions">
             <button type="button" class="btn-quiet" data-insert title="Copy the AI draft into the reply box">Use draft</button>
-            ${canRegenerate ? `<button type="button" class="btn-quiet" data-regenerate title="Ask for a new AI draft">Regenerate</button>` : ""}
+            ${regenBtn}
+            ${rewriteRow}
+            ${noteBtn}
+            ${noteConfirmPanel}
+            ${noteStatus}
             <button type="button" class="btn-quiet btn-dismiss" data-discard title="Hide this AI draft">Dismiss</button>
           </div>
         </div>`
       : "";
     const idle = sendDisabled(next);
+    const sendTitle = next.sendViaParent ? "Send this reply to the customer via the console" : ACTIVATE_SEND_MESSAGE;
+    const sendLabel = next.sendBusy ? "Sending…" : "Send";
+    const sendBtn = `<button type="button" class="btn-ink btn-send${idle && !next.sendViaParent ? " is-disabled" : ""}" data-send ${idle && !next.sendViaParent ? "disabled" : ""} title="${esc(sendTitle)}">${sendLabel}</button>`;
+    // Fail-closed: an organ repaint clears a stale confirm instead of posting it.
+    const sendConfirmPanel = next.sendViaParent && next.sendConfirm ? `<div class="note-confirm" data-send-confirm><p class="note-confirm-title">Send this reply to ${esc(to.name || to.email)}${to.name && to.email ? ` (${esc(to.email)})` : ""}${next.sendCloseRequested ? " and mark closed in this inbox" : ""}?</p><p class="note-confirm-text">${esc(next.body)}</p>${next.sendCloseRequested ? `<p class="mute">Gorgias stays as-is; only this inbox view changes.</p>` : ""}<label class="send-approve"><input type="checkbox" data-send-approve> Approve as a learning example after confirmed delivery</label><div class="note-confirm-actions"><button type="button" class="btn-ink btn-send" data-send-confirm>Confirm send</button><button type="button" class="btn-quiet btn-dismiss" data-send-cancel>Cancel</button></div></div>` : "";
+    const sendStatus = next.sendInfo ? `<p class="note-info" role="status">${esc(next.sendInfo)}</p>` : "";
     const sendClose = hideSendAndClose(next)
       ? ""
       : `<button type="button" class="btn-hairline${idle ? " is-disabled" : ""}" data-send-close ${idle ? "disabled" : ""} title="${esc(ACTIVATE_SEND_MESSAGE)}">Send &amp; close</button>`;
@@ -189,16 +235,18 @@ export function createComposerTissue({ mailbox }) {
       ${strip}
       <div class="composer-box" data-macro-open="${searchOpen ? "true" : "false"}">
         ${picker}
-        <textarea data-body placeholder="Write the reply. The human always sends." title="Type the customer reply here. You still choose Send.">${esc(next.body)}</textarea>
+        <textarea data-body placeholder="Write the reply. The human always sends." title="Type the customer reply here. You still choose Send."${next.sendConfirm ? " disabled" : ""}>${esc(next.body)}</textarea>
       </div>
       <div class="composer-actions">
         ${next.capabilities?.searchMacros === false ? "" : `<button type="button" class="btn-hairline" data-macros aria-expanded="${searchOpen ? "true" : "false"}" title="Open saved reply macros">Macros</button>`}
         <div class="composer-send">
-          <button type="button" class="btn-ink btn-send${idle ? " is-disabled" : ""}" data-send ${idle ? "disabled" : ""} title="${esc(ACTIVATE_SEND_MESSAGE)}">Send</button>
+          ${sendBtn}
           ${sendClose}
         </div>
       </div>
       ${routeLine}
+      ${sendConfirmPanel}
+      ${sendStatus}
       ${err}
     </section>`;
   }
@@ -248,6 +296,7 @@ export function createComposerTissue({ mailbox }) {
     let macrosPointer = false;
     el.oninput = (event) => {
       if (event.target.matches("[data-body]")) emitBody(event.target.value);
+      if (event.target.matches("[data-rewrite-instruction]")) model = { ...model, rewriteInstruction: event.target.value };
       if (event.target.matches("[data-macro-search]")) {
         model = { ...model, query: event.target.value, searchOpen: true };
         const keep = event.target;
@@ -313,7 +362,7 @@ export function createComposerTissue({ mailbox }) {
         return;
       }
       if (event.target.closest("[data-regenerate]")) {
-        mailbox.publish(MAILBOX_TOPICS.COMPOSER_REGENERATE, {});
+        mailbox.publish(MAILBOX_TOPICS.COMPOSER_REGENERATE, { instruction: model.rewriteInstruction || "" });
         return;
       }
       if (event.target.closest("[data-discard]")) {
@@ -322,14 +371,67 @@ export function createComposerTissue({ mailbox }) {
         el.innerHTML = render(model);
         return;
       }
+      if (event.target.closest("[data-note]")) {
+        if (model.noteBusy) return;
+        model = { ...model, noteConfirm: true, noteError: "", noteInfo: "" };
+        el.innerHTML = render(model);
+        return;
+      }
+      if (event.target.closest("[data-note-cancel]")) {
+        model = { ...model, noteConfirm: false };
+        el.innerHTML = render(model);
+        return;
+      }
+      if (event.target.closest("[data-note-confirm]")) {
+        model = { ...model, noteConfirm: false, noteBusy: true, noteError: "", noteInfo: "" };
+        el.innerHTML = render(model);
+        mailbox.publish(MAILBOX_TOPICS.COMPOSER_NOTE, { text: model.strip || "" });
+        return;
+      }
       if (event.target.closest("[data-send-close]")) {
+        if (model.sendViaParent) {
+          if (model.sendBusy) return;
+          if (hideSendAndClose(model)) return;
+          if (!String(model.body || "").trim()) {
+            model = { ...model, sendError: "Write the reply first." };
+            el.innerHTML = render(model);
+            return;
+          }
+          model = { ...model, sendConfirm: true, sendCloseRequested: true, sendError: "", sendInfo: "" };
+          el.innerHTML = render(model);
+          return;
+        }
         if (sendDisabled(model) || hideSendAndClose(model)) return;
         mailbox.publish(MAILBOX_TOPICS.COMPOSER_SEND, { text: model.body, close: true });
         return;
       }
       if (event.target.closest("[data-send]")) {
+        if (model.sendViaParent) {
+          if (model.sendBusy) return;
+          if (!String(model.body || "").trim()) {
+            model = { ...model, sendError: "Write the reply first." };
+            el.innerHTML = render(model);
+            return;
+          }
+          model = { ...model, sendConfirm: true, sendError: "", sendInfo: "" };
+          el.innerHTML = render(model);
+          return;
+        }
         if (sendDisabled(model)) return;
         mailbox.publish(MAILBOX_TOPICS.COMPOSER_SEND, { text: model.body, close: false });
+      }
+      if (event.target.closest("[data-send-cancel]")) {
+        model = { ...model, sendConfirm: false, sendCloseRequested: false };
+        el.innerHTML = render(model);
+        return;
+      }
+      if (event.target.closest("[data-send-confirm]")) {
+        const approveBox = el.querySelector("[data-send-approve]");
+        model = { ...model, sendConfirm: false, sendBusy: true, sendError: "", sendInfo: "" };
+        el.innerHTML = render(model);
+        mailbox.publish(MAILBOX_TOPICS.COMPOSER_SEND_CONFIRMED, { text: model.body || "", approveLearning: !!(approveBox && approveBox.checked), close: model.sendCloseRequested === true });
+        model = { ...model, sendCloseRequested: false };
+        return;
       }
     };
   }

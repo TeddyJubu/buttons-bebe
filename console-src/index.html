@@ -382,7 +382,144 @@ body.bb-connect img{max-width:100%;height:auto;aspect-ratio:1}
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
 let stats={},tickets=[],learn={},tab="overview",openTk=null,filter="all";
+ let ticketFeedSource='legacy';
+ try{
+  var qpFeed=new URLSearchParams(location.search).get('feed');
+  if(qpFeed==='inbox'||qpFeed==='legacy'){ticketFeedSource=qpFeed;try{localStorage.setItem('bb-ticket-feed-v1',qpFeed);}catch(e){}}
+  else{try{ticketFeedSource=localStorage.getItem('bb-ticket-feed-v1')==='inbox'?'inbox':'legacy';}catch(e){ticketFeedSource='legacy';}}
+ }catch(e){ticketFeedSource='legacy';}
+function setTicketFeedSource(next){ticketFeedSource=next==='inbox'?'inbox':'legacy';openTk=null;try{localStorage.setItem('bb-ticket-feed-v1',ticketFeedSource);}catch(e){} render();}
+var bbArmed=false;
+try{bbArmed=new URLSearchParams(location.search).get("live")==="1";}catch(e){bbArmed=false;}
+var bbDryRun=!bbArmed;
+function bbFindConsoleTicket(inboxId){
+var m=/^gorgias:([1-9][0-9]*)$/.exec(String(inboxId||""));
+if(!m) return null;
+var id=m[1];
+var rows=tickets.filter(function(t){return String(t.ticket_id)===id;});
+var i;
+for(i=0;i<rows.length;i++){if(rows[i].draft_text) return rows[i];}
+return rows[0]||null;
+}
+function bbRewriteTicket(ticket,instruction){
+return fetch(API+"/ticket/"+ticket.ticket_id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({draft:ticket.draft_text||"",instruction:instruction,source_message_id:String(ticket.message_id)})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
+}
+function bbHashText(value){
+return crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(value||""))).then(function(bytes){return Array.from(new Uint8Array(bytes),function(x){return x.toString(16).padStart(2,"0");}).join("");},function(){throw new Error("This browser cannot hash the draft.");});
+}
+function bbNoteTicket(ticket,text){
+if(!ticket.draft_text){return Promise.reject(new Error("No current draft in this console feed - open the Legacy feed."));}
+return bbHashText(ticket.draft_text||"").then(function(revision){
+var opId=null;
+try{opId=crypto.randomUUID();}catch(e){throw new Error("This browser cannot mint an operation id.");}
+return fetch(API+"/ticket/"+ticket.ticket_id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text,confirmed:true,operation_id:opId,source_message_id:String(ticket.message_id),draft_revision:revision,approve_learning:false})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
+});
+}
+function bbRefuseWrite(kind){
+function bbSendErrorText(code){
+if(code==="draft_changed_refresh_ticket") return "The draft changed - reopen in the Legacy feed and review it again.";
+if(code==="recipient_unavailable") return "No recipient address on file for this ticket.";
+if(code==="previous_delivery_unresolved") return "A previous action is unresolved - check its status in the Legacy feed first.";
+if(code==="source_message_not_in_console"||code==="ticket_not_in_console") return "That ticket is no longer in this console feed.";
+if(code==="delivery_unconfirmed") return "Delivery unconfirmed - check status in the Legacy feed before sending again. No automatic resend.";
+return "";
+}
+function bbSendTicket(ticket,text,approveLearning){
+if(!ticket.draft_text){return Promise.reject(new Error("No current draft in this console feed - open the Legacy feed."));}
+return bbHashText(ticket.draft_text||"").then(function(revision){
+var opId=null;
+try{opId=crypto.randomUUID();}catch(e){throw new Error("This browser cannot mint an operation id.");}
+return fetch(API+"/ticket/"+ticket.ticket_id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text,confirmed:true,operation_id:opId,source_message_id:String(ticket.message_id),draft_revision:revision,approve_learning:!!approveLearning})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
+});
+}
+try{console.info("[dry-run] blocked "+kind+" - phase 1 wires rewrite only.");}catch(e){}
+return Promise.resolve({ok:false,status:0,body:{error:"dry_run"}});
+}
+function bbPerformWrite(kind,ticket,instruction){
+if(kind==="rewrite") return bbRewriteTicket(ticket,instruction);
+if(kind==="send"){
+if(!bbArmed){try{console.info("[dry-run] send validated for ticket "+ticket.ticket_id+" - nothing sent.");}catch(e){}return Promise.resolve({ok:true,dryRun:true});}
+var p=instruction||{};
+return bbSendTicket(ticket,String(p.text||""),!!p.approveLearning);
+}
+if(kind==="note"&&bbArmed) return bbNoteTicket(ticket,instruction);
+if(kind==="note"){try{console.info("[dry-run] note validated for ticket "+ticket.ticket_id+" - nothing posted.");}catch(e){}return Promise.resolve({ok:true,dryRun:true});}
+return bbRefuseWrite(kind);
+}
+function bbReplyRewrite(frame,msgId,ok,draft,error){
+try{frame.contentWindow.postMessage({type:"bb-console-rewrite-result",id:msgId,ok:!!ok,draft:draft||"",error:error||""},location.origin);}catch(e){}
+}
+function bbReplyNote(frame,msgId,ok,dryRun,status,error){
+try{frame.contentWindow.postMessage({type:"bb-console-note-result",id:msgId,kind:"note",ok:!!ok,dryRun:!!dryRun,deliveryStatus:status||"",error:error||""},location.origin);}catch(e){}
+}
+function bbReplySend(frame,msgId,ok,dryRun,status,error){
+try{frame.contentWindow.postMessage({type:"bb-console-send-result",id:msgId,kind:"send",ok:!!ok,dryRun:!!dryRun,deliveryStatus:status||"",error:error||""},location.origin);}catch(e){}
+}
+if(!window.__bbInboxBridge){
+window.__bbInboxBridge=true;
+window.addEventListener("message",function(event){
+if(!event||event.origin!==location.origin) return;
+var data=event.data||{};
+if(!data||(data.type!=="bb-inbox-rewrite"&&data.type!=="bb-inbox-note"&&data.type!=="bb-inbox-send")) return;
+var frame=document.getElementById("inbox-preview-frame");
+if(!frame||event.source!==frame.contentWindow) return;
+if(ticketFeedSource!=="inbox") return;
+if(data.kind==="note"){
+(function(){
+var ticket=bbFindConsoleTicket(data.ticketId);
+if(!ticket){bbReplyNote(frame,data.id,false,false,"","That ticket is not in this console feed.");return;}
+var text=String(data.text||"").trim();
+if(!text){bbReplyNote(frame,data.id,false,false,"","Nothing to post.");return;}
+if(text.length>50000){bbReplyNote(frame,data.id,false,false,"","Note too long.");return;}
+bbPerformWrite("note",ticket,text).then(function(res){
+if(res.dryRun){bbReplyNote(frame,data.id,true,true,"","");return;}
+var ok=res.ok&&res.body&&!!res.body.ok;
+var status=res.body&&res.body.delivery_status||"";
+var err=res.body&&(res.body.error||res.body.message)||"";
+bbReplyNote(frame,data.id,ok,false,status,ok?"":("Note failed"+(err?": "+err:" ("+res.status+")")));
+},function(err){bbReplyNote(frame,data.id,false,false,"",(err&&err.message)||"Note failed.");});
+})();
+return;
+}
+if(data.kind==="send"){
+(function(){
+var ticket=bbFindConsoleTicket(data.ticketId);
+if(!ticket){bbReplySend(frame,data.id,false,false,"","That ticket is not in this console feed.");return;}
+var text=String(data.text||"").trim();
+if(!text){bbReplySend(frame,data.id,false,false,"","Nothing to send.");return;}
+if(text.length>50000){bbReplySend(frame,data.id,false,false,"","Reply too long.");return;}
+bbPerformWrite("send",ticket,{text:text,approveLearning:!!data.approveLearning}).then(function(res){
+if(res.dryRun){bbReplySend(frame,data.id,true,true,"","");return;}
+var body=res.body||{};
+var ok=res.ok&&body.ok===true&&body.delivery_status==="sent";
+var status=body.delivery_status||"";
+var err=body.message||bbSendErrorText(body.error||"");
+bbReplySend(frame,data.id,ok,false,status,ok?"":(err||("Send failed ("+res.status+")")));
+},function(err){bbReplySend(frame,data.id,false,false,"",(err&&err.message)||"Send failed.");});
+})();
+return;
+}
+if(data.kind&&data.kind!=="rewrite"){bbReplyRewrite(frame,data.id,false,"","Unknown write kind.");return;}
+var ticket=bbFindConsoleTicket(data.ticketId);
+if(!ticket){bbReplyRewrite(frame,data.id,false,"","That ticket is not in this console feed.");return;}
+var instruction=String(data.instruction||"").trim();
+if(!instruction){bbReplyRewrite(frame,data.id,false,"","Type an instruction first.");return;}
+bbPerformWrite("rewrite",ticket,instruction).then(function(res){
+if(res.ok&&res.body&&res.body.draft){bbReplyRewrite(frame,data.id,true,res.body.draft,"");}
+else{bbReplyRewrite(frame,data.id,false,"","Rewrite failed"+(res.body&&res.body.error?": "+res.body.error:" ("+res.status+")"));}
+},function(err){bbReplyRewrite(frame,data.id,false,"",(err&&err.message)||"Rewrite failed.");});
+});
+}
+ function feedToggleHtml(){
+  var leg=ticketFeedSource==='legacy'?'on':'';
+  var inb=ticketFeedSource==='inbox'?'on':'';
+  return '<div class="filters"><span>Feed: </span><button class="chip '+leg+'" data-feed="legacy">Legacy feed</button><button class="chip '+inb+'" data-feed="inbox">Inbox preview</button></div>';
+ }
 let opsData=null,opsState="loading",opsPoll=null,opsBusy=false;
+function inboxPreviewHtml(){
+  var modeLine=bbArmed?"LIVE — confirmed notes and sends post to Gorgias.":"Dry run on — nothing posts.";
+  return feedToggleHtml() + '<div class="panel"><h3>Inbox preview (read-only)</h3><div class="ph">Same tickets, isolated inbox service. Rewrite, notes, and sends run here through the console. "+modeLine+"</div></div>' + '<iframe id="inbox-preview-frame" src="/inbox/" title="Inbox preview" style="width:calc(100% - 32px);height:70vh;margin:0 16px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>' + '<div class="hint" style="margin-left:16px;margin-right:16px">Preview only. "+(bbArmed?"Notes and sends arm live with ?live=1.":"Dry run on — posting disabled.")+"</div>';
+ }
 let kbData=null,kbHealth=null,kbHealthError="",kbSel=null,kbBuf="",kbMsg="",kbReindexing=false,kbLoaded=false,kbLoadError="";
 let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
@@ -567,13 +704,17 @@ function learnPanel(){
   <div class="hint" style="margin-top:12px">A rising “sent unchanged” means the AI's drafts increasingly match how you reply. Raw lessons stay out of search with restricted file permissions; personal details are masked before nightly promotion into the indexed knowledge base.</div></div>`;
 }
 
-function ticketsView(){
+function legacyTicketsView(){
  if(loadErrors.includes("tickets"))return `<div class="panel" role="alert"><h3>Ticket data is unavailable</h3><div class="ph">Refresh to retry. This is not an empty queue.</div></div>`;
  const fl=[["all","All"],["draft","AI drafts"],["escalated","Escalated"],["failed","Failed"],["queue","In queue"]];
  if(filter.startsWith("risk:"))fl.push([filter,filter.slice(5).replace(/^./,c=>c.toUpperCase())+" risk"]);
  const list=tickets.filter(t=>{const js=(t.job_status||"").toLowerCase(),p=(t.priority||"normal").toLowerCase();if(filter==="all")return true;if(filter==="draft")return !isEsc(t);if(filter==="escalated")return isEsc(t);if(filter==="failed")return js==="failed";if(filter==="queue")return ["queued","pending","processing","running"].includes(js);if(filter.startsWith("risk:"))return p===filter.slice(5);return true;});
  return `<div class="filters">${fl.map(f=>`<button class="chip ${filter===f[0]?'on':''}" data-f="${f[0]}">${f[1]}</button>`).join("")}</div>
  <div class="tk">${list.length?list.map(row).join(""):'<div class="empty">No tickets here yet.</div>'}</div>`;
+}
+function ticketsView(){
+ if(ticketFeedSource==='inbox' && !openTk){return inboxPreviewHtml();}
+return feedToggleHtml() + legacyTicketsView();
 }
 function cleanDraft(s){return (s||"").replace(/^\s*\[SENSITIVE[^\]]*\]\s*/i,"").trim();}
 function cleanMessage(raw){
@@ -985,8 +1126,11 @@ function bind(){
  const retryNotifications=document.getElementById("retry-notifications");if(retryNotifications)retryNotifications.onclick=()=>loadNotifications();
  const markAllNotifications=document.getElementById("mark-all-notifications");if(markAllNotifications)markAllNotifications.onclick=async()=>{await markNotificationsRead([],true);render();};
  document.querySelectorAll("[data-notification-index]").forEach(button=>button.onclick=()=>openDashboardNotification(Number(button.dataset.notificationIndex)));
- document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{filter=c.dataset.f;openTk=null;render();});
- document.querySelectorAll(".row[data-tk]").forEach(r=>{r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}};r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();r.click();}};});
+document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{filter=c.dataset.f;openTk=null;render();});
+document.querySelectorAll("[data-feed]").forEach(b=>b.onclick=()=>setTicketFeedSource(b.dataset.feed));
+var previewFrame=document.getElementById("inbox-preview-frame");
+if(previewFrame&&!previewFrame.dataset.helloBound){previewFrame.dataset.helloBound="1";previewFrame.onload=function(){try{previewFrame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}};}
+document.querySelectorAll(".row[data-tk]").forEach(r=>{r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}};r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();r.click();}};});
  const as=document.getElementById("act-send");if(as)as.onclick=sendReply;
  const an=document.getElementById("act-note");if(an)an.onclick=noteReply;
  const ast=document.getElementById("act-status");if(ast)ast.onclick=checkActionStatus;

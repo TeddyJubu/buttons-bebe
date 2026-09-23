@@ -91,7 +91,13 @@ class EvidenceDraftTests(unittest.TestCase):
                        'For refunds/chargebacks without a confirmed outcome'):
             self.assertIn(phrase,prompt)
         self.assertIn('without claiming it has happened',prompt)
-        self.assertIn("I can't confirm an outcome for this request",prompt)
+        # Audit fix: the customer draft must name the refund topic plainly and
+        # keep uncertainty to one short sentence; the old hedging formula is
+        # banned from customer-facing text (it belongs in AGENT NOTE at most).
+        self.assertIn('about your refund request',prompt)
+        self.assertIn('from the information available',prompt)
+        self.assertIn('belongs, at most, in the AGENT NOTE',prompt)
+        self.assertNotIn("I can't confirm an outcome for this request from the information",prompt)
 
     def test_review_commitment_detector_has_bounded_cpu_on_adversarial_near_matches(self):
         samples=('we '+' '*100000+'are not checking',('we will follow '+'x'*100+' ')*1000,('our team is '+ 'currently '*20)*1000)

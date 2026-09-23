@@ -526,6 +526,16 @@ export function createInboxOrgan(opts = {}) {
     return fields;
   }
   let capabilities = { ...(shop.capabilities || {}) };
+  let parentRewrite = null;
+  let rewriteBusy = false;
+  let rewriteError = "";
+  let lastRewriteInstruction = "";
+  let parentNote = null;
+  let parentSend = null;
+  let noteConfirm = false;
+  let noteBusy = false;
+  let noteError = "";
+  let noteInfo = "";
   const shopHost = opts.shopHost || shop.shop || SHOP;
   const pinnedCatalog = opts.tickets || null;
   const listTissue = createListTissue({ mailbox });
@@ -1741,9 +1751,23 @@ export function createInboxOrgan(opts = {}) {
     return snapshot();
   }
 
+  let sendInfo = "";
+  let sendBusy = false;
   function composerInput(ticket) {
     return {
-      capabilities,
+      capabilities: parentRewrite ? Object.assign({}, capabilities, { draftReply: true }) : capabilities,
+      rewriteViaParent: parentRewrite !== null,
+      rewriteInstruction: lastRewriteInstruction,
+      rewriteBusy: rewriteBusy,
+      rewriteError: rewriteError,
+      noteViaParent: parentNote !== null,
+      noteConfirm: noteConfirm,
+      noteBusy: noteBusy,
+      noteError: noteError,
+      noteInfo: noteInfo,
+      sendViaParent: parentSend !== null,
+      sendBusy: sendBusy,
+      sendInfo: sendInfo,
       ticket: withRecipient(ticket, toEmail),
       draft: effectiveStrip(ticket).text,
       summarize: summarizeText,
@@ -2351,13 +2375,143 @@ export function createInboxOrgan(opts = {}) {
       discarded = true;
       paint();
     });
-    mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_REGENERATE, () => {
+    mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_REGENERATE, (payload) => {
       discarded = false;
       const ticket = selectedTicket();
       const requestTicketId = ticket?.id || null;
-      loadDraft(ticket).then((text) => {
+      lastRewriteInstruction = String((payload && payload.instruction) || "");
+      if (typeof parentRewrite !== "function") {
+        loadDraft(ticket).then((text) => {
+          if (selectedId !== requestTicketId) return;
+          strip = text;
+          paint();
+        });
+        return;
+      }
+      const instruction = lastRewriteInstruction.trim();
+      if (!instruction) {
+        rewriteBusy = false;
+        rewriteError = "Type an instruction first.";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+        return;
+      }
+      rewriteBusy = true;
+      rewriteError = "";
+      composerTissue.update(composerInput(selectedTicket()));
+      paint();
+      parentRewrite(requestTicketId, instruction).then((text) => {
         if (selectedId !== requestTicketId) return;
-        strip = text;
+        strip = String(text || "");
+        rewriteBusy = false;
+        rewriteError = "";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+      }).catch((err) => {
+        if (selectedId !== requestTicketId) return;
+        rewriteBusy = false;
+        rewriteError = String((err && err.message) || err || "Rewrite failed.");
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+      });
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_NOTE, (payload) => {
+      const ticket = selectedTicket();
+      const requestTicketId = ticket?.id || null;
+      const text = String((payload && payload.text) || "").trim();
+      noteConfirm = false;
+      if (typeof parentNote !== "function") {
+        noteBusy = false;
+        noteError = "Notes are not connected.";
+        noteInfo = "";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+        return;
+      }
+      if (!text) {
+        noteBusy = false;
+        noteError = "Nothing to post.";
+        noteInfo = "";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+        return;
+      }
+      noteBusy = true;
+      noteError = "";
+      noteInfo = "";
+      sendInfo = "";
+      sendError = "";
+      composerTissue.update(composerInput(selectedTicket()));
+      paint();
+      parentNote(requestTicketId, text).then((result) => {
+        if (selectedId !== requestTicketId) return;
+        noteBusy = false;
+        noteError = "";
+        noteInfo = result && result.dryRun ? "Dry run — validated, nothing posted." : "Posted as an internal note in Gorgias.";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+      }).catch((err) => {
+        if (selectedId !== requestTicketId) return;
+        noteBusy = false;
+        noteError = String((err && err.message) || err || "Note failed.");
+        noteInfo = "";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+      });
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.COMPOSER_SEND_CONFIRMED, (payload) => {
+      const ticket = selectedTicket();
+      const requestTicketId = ticket?.id || null;
+      const text = String((payload && payload.text) || "").trim();
+      const approveLearning = !!(payload && payload.approveLearning);
+      const closeRequested = !!(payload && payload.close);
+      if (typeof parentSend !== "function") {
+        sendBusy = false;
+        sendError = "Sending is not connected.";
+        sendInfo = "";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+        return;
+      }
+      if (!text) {
+        sendBusy = false;
+        sendError = "Write the reply first.";
+        sendInfo = "";
+        composerTissue.update(composerInput(selectedTicket()));
+        paint();
+        return;
+      }
+      sendBusy = true;
+      sendError = "";
+      sendInfo = "";
+      noteInfo = "";
+      noteError = "";
+      composerTissue.update(composerInput(selectedTicket()));
+      paint();
+      parentSend(requestTicketId, text, approveLearning).then((result) => {
+        if (selectedId !== requestTicketId) return;
+        sendBusy = false;
+        sendError = "";
+        if (result && result.dryRun) {
+          sendInfo = "Dry run — validated, nothing sent.";
+          composerTissue.update(composerInput(selectedTicket()));
+          paint();
+          return;
+        }
+        sendInfo = "Sent to the customer.";
+        composerTissue.update(composerInput(selectedTicket()));
+        if (closeRequested && result && result.deliveryStatus === "sent") {
+          setTicketStateLocal(requestTicketId, { status: "closed" });
+          applyTicketState().then(afterUi);
+          return;
+        }
+        paint();
+      }).catch((err) => {
+        if (selectedId !== requestTicketId) return;
+        sendBusy = false;
+        sendError = String((err && err.message) || err || "Send failed.");
+        sendInfo = "";
+        composerTissue.update(composerInput(selectedTicket()));
         paint();
       });
     });
@@ -2694,6 +2848,22 @@ export function createInboxOrgan(opts = {}) {
       body = text;
       composerTissue.update(composerInput(selectedTicket()));
       afterUi();
+    },
+    setParentBridge(hooks) {
+      parentRewrite = (hooks && typeof hooks.rewrite === "function") ? hooks.rewrite : null;
+      parentNote = (hooks && typeof hooks.note === "function") ? hooks.note : null;
+      parentSend = (hooks && typeof hooks.send === "function") ? hooks.send : null;
+      rewriteBusy = false;
+      rewriteError = "";
+      noteConfirm = false;
+      noteBusy = false;
+      noteError = "";
+      noteInfo = "";
+      sendBusy = false;
+      sendError = "";
+      sendInfo = "";
+      composerTissue.update(composerInput(selectedTicket()));
+      return afterUi();
     },
     attemptSend(close = false) {
       mailbox.publish(MAILBOX_TOPICS.COMPOSER_SEND, { text: body, close: Boolean(close) });

@@ -196,8 +196,14 @@
  * `composer/insert`      { text } — Use draft; never Send
  * `composer/discard`     {} — Dismiss strip; never Send
  * `composer/regenerate`  {} — re-call draft_reply; never Send
+ * `composer/note`        { text } — staff-only internal note via the parent
+ *   console confirm; never customer-facing, never Send
  * `composer/macros`      { open } — picker only; never Send
  * `composer/send`        { text, close: boolean }
+ * `composer/send-confirmed` { text, approveLearning } — human-confirmed
+ *   customer send via the parent console only; never from this service.
+ *   `close: true` also marks the ticket closed in the first-party browser
+ *   store after confirmed delivery — never Gorgias
  * `composer/summarize`   { ticketId }
  * `thread/step`          { delta } — previous/next nav over the current list; never Send
  * `thread/state`         { ticketId, field, value } — first-party browser store; never Gorgias
@@ -245,8 +251,10 @@ export const MAILBOX_TOPICS = Object.freeze({
   COMPOSER_INSERT: "composer/insert",
   COMPOSER_DISCARD: "composer/discard",
   COMPOSER_REGENERATE: "composer/regenerate",
+  COMPOSER_NOTE: "composer/note",
   COMPOSER_MACROS: "composer/macros",
   COMPOSER_SEND: "composer/send",
+  COMPOSER_SEND_CONFIRMED: "composer/send-confirmed",
   COMPOSER_SUMMARIZE: "composer/summarize",
   THREAD_ESCALATE: "thread/escalate",
   THREAD_RENAME: "thread/rename",

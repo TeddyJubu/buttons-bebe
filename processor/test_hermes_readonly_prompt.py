@@ -59,6 +59,21 @@ class HermesReadOnlyPromptTests(unittest.TestCase):
         self.assertIn("Everything between the DRAFT tags must be customer-facing prose only", built_prompt)
         self.assertIn("Never claim that a human or the store has already or will definitely", built_prompt)
         self.assertIn("4 sentences for normal tickets, 5 for sensitive", built_prompt)
+        # Audit fixes: greeting/name discipline, can-do-first, direct
+        # questions, signoff+links, paragraph break, 24-48h restraint,
+        # refund-topic naming, spam/thanks routing.
+        for phrase in (
+            "Take the name ONLY from the newest customer-authored message",
+            "Never open a draft with 'We don't",
+            "end with a direct question ending in '?'",
+            "Close with a brief sign-off line",
+            "Put the request or next step on its own line",
+            "only when the order could still be inside it",
+            "Naming the topic is REQUIRED, not forbidden",
+            "Never prefix it [SENSITIVE]",
+            "Never write 'from the information available'",
+        ):
+            self.assertIn(phrase, built_prompt)
         self.assertNotIn("gorgias_writes_enabled", inspect.signature(prompt._build_prompt).parameters)
         self.assertNotIn(
             "gorgias_writes_enabled",
