@@ -123,9 +123,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .list-toolbar-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   min-height: 28px;
+}
+.list-toolbar-row--search {
+  margin-bottom: 8px;
+}
+.list-toolbar-row--search .list-search {
+  flex: 1 1 100%;
+}
+.list-toolbar-row--search .list-search-input {
+  max-width: none;
+}
+.list-toolbar-row--controls {
+  justify-content: space-between;
 }
 .list-scope { position: relative; min-width: 0; }
 .list-scope-btn {

@@ -322,17 +322,19 @@ export function createListTissue({ mailbox }) {
     const facets = hasFacetFilters(next) || (next.filterFields || []).length > 0;
     return `<header class="pane-head list-toolbar">
       <a class="console-link" href="/console/">Console</a>
-      <div class="list-toolbar-row">
+      <div class="list-toolbar-row list-toolbar-row--search">
+        <div class="list-search">
+          <input type="search" class="list-search-input" data-search-input placeholder="Search tickets" aria-label="Search tickets" value="${esc(next.searchQuery)}" autocomplete="off">
+          ${next.searchQuery && !next.searchAllViews ? `<button type="button" class="btn-quiet" data-search-all title="No results in this view? Search every working view" aria-label="Search every view">Search every view</button>` : ""}
+        </div>
+      </div>
+      <div class="list-toolbar-row list-toolbar-row--controls">
         <div class="list-scope">
           <button type="button" class="list-scope-btn" data-list-inbox aria-label="Inbox" title="Open the views menu" aria-haspopup="listbox" aria-expanded="${ui.viewOpen ? "true" : "false"}">
             <span class="list-scope-label">Inbox</span>
             ${ICON_CHEVRON}
           </button>
           ${renderViewMenu(next)}
-        </div>
-        <div class="list-search">
-          <input type="search" class="list-search-input" data-search-input placeholder="Search tickets" aria-label="Search tickets" value="${esc(next.searchQuery)}" autocomplete="off">
-          ${next.searchQuery && !next.searchAllViews ? `<button type="button" class="btn-quiet" data-search-all title="No results in this view? Search every working view" aria-label="Search every view">Search every view</button>` : ""}
         </div>
         <div class="list-tools" role="group" aria-label="List tools">
           ${next.canCreateTicket !== false ? `<button type="button" class="list-tool-btn" data-create-ticket title="New ticket" aria-label="Create a new ticket in this browser only">New ticket</button>` : ""}
