@@ -381,22 +381,20 @@ body.bb-connect img{max-width:100%;height:auto;aspect-ratio:1}
 <div id="app-status" class="sr-only" role="status" aria-live="polite"></div>
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
-let stats={},tickets=[],learn={},tab="overview",openTk=null,filter="all";
- let ticketFeedSource='legacy';
- try{
-  var qpFeed=new URLSearchParams(location.search).get('feed');
-  if(qpFeed==='inbox'||qpFeed==='legacy'){ticketFeedSource=qpFeed;try{localStorage.setItem('bb-ticket-feed-v1',qpFeed);}catch(e){}}
-  else{try{ticketFeedSource=localStorage.getItem('bb-ticket-feed-v1')==='inbox'?'inbox':'legacy';}catch(e){ticketFeedSource='legacy';}}
- }catch(e){ticketFeedSource='legacy';}
-function setTicketFeedSource(next){ticketFeedSource=next==='inbox'?'inbox':'legacy';openTk=null;try{localStorage.setItem('bb-ticket-feed-v1',ticketFeedSource);}catch(e){} render();}
+let stats={},tickets=[],learn={},tab="overview";
+// ponytail: the inbox iframe IS the tickets tab — no legacy/inbox toggle,
+// no legacy open-ticket state. Deep links land as iframe URL params.
+let inboxNavView="all",inboxNavTicket=null;
 var bbArmed=false;
 try{bbArmed=new URLSearchParams(location.search).get("live")==="1";}catch(e){bbArmed=false;}
-var bbDryRun=!bbArmed;
+// ponytail: the tickets tab IS the inbox iframe. The bridge routes the
+// inbox's rewrite/note/send requests to the console API and always answers
+// with a bb-console-hello handshake on frame load. Draft lookup stays on
+// the dashboard DB the console already loads (ticket_id/message_id match).
 function bbFindConsoleTicket(inboxId){
-var m=/^gorgias:([1-9][0-9]*)$/.exec(String(inboxId||""));
-if(!m) return null;
-var id=m[1];
-var rows=tickets.filter(function(t){return String(t.ticket_id)===id;});
+var ids=String(inboxId||"").split(":").filter(Boolean);
+var ticketId=ids.length?ids[ids.length-1]:"";
+var rows=tickets.filter(function(t){return String(t.ticket_id)===String(ticketId);});
 var i;
 for(i=0;i<rows.length;i++){if(rows[i].draft_text) return rows[i];}
 return rows[0]||null;
@@ -408,32 +406,28 @@ function bbHashText(value){
 return crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(value||""))).then(function(bytes){return Array.from(new Uint8Array(bytes),function(x){return x.toString(16).padStart(2,"0");}).join("");},function(){throw new Error("This browser cannot hash the draft.");});
 }
 function bbNoteTicket(ticket,text){
-if(!ticket.draft_text){return Promise.reject(new Error("No current draft in this console feed - open the Legacy feed."));}
+if(!ticket.draft_text){return Promise.reject(new Error("No current draft for this ticket - refresh the console data."));}
 return bbHashText(ticket.draft_text||"").then(function(revision){
 var opId=null;
 try{opId=crypto.randomUUID();}catch(e){throw new Error("This browser cannot mint an operation id.");}
 return fetch(API+"/ticket/"+ticket.ticket_id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text,confirmed:true,operation_id:opId,source_message_id:String(ticket.message_id),draft_revision:revision,approve_learning:false})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
 });
 }
-function bbRefuseWrite(kind){
 function bbSendErrorText(code){
-if(code==="draft_changed_refresh_ticket") return "The draft changed - reopen in the Legacy feed and review it again.";
+if(code==="draft_changed_refresh_ticket") return "The draft changed - refresh the console data and review it again.";
 if(code==="recipient_unavailable") return "No recipient address on file for this ticket.";
-if(code==="previous_delivery_unresolved") return "A previous action is unresolved - check its status in the Legacy feed first.";
-if(code==="source_message_not_in_console"||code==="ticket_not_in_console") return "That ticket is no longer in this console feed.";
-if(code==="delivery_unconfirmed") return "Delivery unconfirmed - check status in the Legacy feed before sending again. No automatic resend.";
+if(code==="previous_delivery_unresolved") return "A previous action is unresolved - check its status before sending again.";
+if(code==="source_message_not_in_console"||code==="ticket_not_in_console") return "That ticket is no longer in the console data - refresh to retry.";
+if(code==="delivery_unconfirmed") return "Delivery unconfirmed - check status before sending again. No automatic resend.";
 return "";
 }
 function bbSendTicket(ticket,text,approveLearning){
-if(!ticket.draft_text){return Promise.reject(new Error("No current draft in this console feed - open the Legacy feed."));}
+if(!ticket.draft_text){return Promise.reject(new Error("No current draft for this ticket - refresh the console data."));}
 return bbHashText(ticket.draft_text||"").then(function(revision){
 var opId=null;
 try{opId=crypto.randomUUID();}catch(e){throw new Error("This browser cannot mint an operation id.");}
 return fetch(API+"/ticket/"+ticket.ticket_id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text,confirmed:true,operation_id:opId,source_message_id:String(ticket.message_id),draft_revision:revision,approve_learning:!!approveLearning})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
 });
-}
-try{console.info("[dry-run] blocked "+kind+" - phase 1 wires rewrite only.");}catch(e){}
-return Promise.resolve({ok:false,status:0,body:{error:"dry_run"}});
 }
 function bbPerformWrite(kind,ticket,instruction){
 if(kind==="rewrite") return bbRewriteTicket(ticket,instruction);
@@ -444,7 +438,7 @@ return bbSendTicket(ticket,String(p.text||""),!!p.approveLearning);
 }
 if(kind==="note"&&bbArmed) return bbNoteTicket(ticket,instruction);
 if(kind==="note"){try{console.info("[dry-run] note validated for ticket "+ticket.ticket_id+" - nothing posted.");}catch(e){}return Promise.resolve({ok:true,dryRun:true});}
-return bbRefuseWrite(kind);
+return Promise.resolve({ok:false,status:0,body:{error:"dry_run"}});
 }
 function bbReplyRewrite(frame,msgId,ok,draft,error){
 try{frame.contentWindow.postMessage({type:"bb-console-rewrite-result",id:msgId,ok:!!ok,draft:draft||"",error:error||""},location.origin);}catch(e){}
@@ -455,19 +449,30 @@ try{frame.contentWindow.postMessage({type:"bb-console-note-result",id:msgId,kind
 function bbReplySend(frame,msgId,ok,dryRun,status,error){
 try{frame.contentWindow.postMessage({type:"bb-console-send-result",id:msgId,kind:"send",ok:!!ok,dryRun:!!dryRun,deliveryStatus:status||"",error:error||""},location.origin);}catch(e){}
 }
+function bbInboxSrc(){
+var q=[];
+if(inboxNavView&&inboxNavView!=="all")q.push("view="+encodeURIComponent(inboxNavView));
+if(inboxNavTicket)q.push("ticket="+encodeURIComponent(inboxNavTicket));
+return "/inbox/"+(q.length?"?"+q.join("&"):"");
+}
+function ticketsView(){
+var modeLine=bbArmed?"LIVE - confirmed notes and sends post to Gorgias.":"Dry run on - nothing posts.";
+return '<div class="panel"><h3>Tickets</h3><div class="ph">The inbox, wired to the console. Rewrite, notes, and sends run here through the console. '+modeLine+'</div></div>'
++'<iframe id="inbox-frame" src="'+bbInboxSrc()+'" title="Tickets inbox" style="width:calc(100% - 32px);height:70vh;margin:0 16px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>'
++'<div class="hint" style="margin-left:16px;margin-right:16px">'+(bbArmed?"Notes and sends arm live with ?live=1.":"Dry run on - posting disabled.")+'</div>';
+}
 if(!window.__bbInboxBridge){
 window.__bbInboxBridge=true;
 window.addEventListener("message",function(event){
 if(!event||event.origin!==location.origin) return;
 var data=event.data||{};
 if(!data||(data.type!=="bb-inbox-rewrite"&&data.type!=="bb-inbox-note"&&data.type!=="bb-inbox-send")) return;
-var frame=document.getElementById("inbox-preview-frame");
+var frame=document.getElementById("inbox-frame");
 if(!frame||event.source!==frame.contentWindow) return;
-if(ticketFeedSource!=="inbox") return;
 if(data.kind==="note"){
 (function(){
 var ticket=bbFindConsoleTicket(data.ticketId);
-if(!ticket){bbReplyNote(frame,data.id,false,false,"","That ticket is not in this console feed.");return;}
+if(!ticket){bbReplyNote(frame,data.id,false,false,"","That ticket is not in the console data - refresh to retry.");return;}
 var text=String(data.text||"").trim();
 if(!text){bbReplyNote(frame,data.id,false,false,"","Nothing to post.");return;}
 if(text.length>50000){bbReplyNote(frame,data.id,false,false,"","Note too long.");return;}
@@ -484,7 +489,7 @@ return;
 if(data.kind==="send"){
 (function(){
 var ticket=bbFindConsoleTicket(data.ticketId);
-if(!ticket){bbReplySend(frame,data.id,false,false,"","That ticket is not in this console feed.");return;}
+if(!ticket){bbReplySend(frame,data.id,false,false,"","That ticket is not in the console data - refresh to retry.");return;}
 var text=String(data.text||"").trim();
 if(!text){bbReplySend(frame,data.id,false,false,"","Nothing to send.");return;}
 if(text.length>50000){bbReplySend(frame,data.id,false,false,"","Reply too long.");return;}
@@ -501,7 +506,7 @@ return;
 }
 if(data.kind&&data.kind!=="rewrite"){bbReplyRewrite(frame,data.id,false,"","Unknown write kind.");return;}
 var ticket=bbFindConsoleTicket(data.ticketId);
-if(!ticket){bbReplyRewrite(frame,data.id,false,"","That ticket is not in this console feed.");return;}
+if(!ticket){bbReplyRewrite(frame,data.id,false,"","That ticket is not in the console data - refresh to retry.");return;}
 var instruction=String(data.instruction||"").trim();
 if(!instruction){bbReplyRewrite(frame,data.id,false,"","Type an instruction first.");return;}
 bbPerformWrite("rewrite",ticket,instruction).then(function(res){
@@ -510,21 +515,11 @@ else{bbReplyRewrite(frame,data.id,false,"","Rewrite failed"+(res.body&&res.body.
 },function(err){bbReplyRewrite(frame,data.id,false,"",(err&&err.message)||"Rewrite failed.");});
 });
 }
- function feedToggleHtml(){
-  var leg=ticketFeedSource==='legacy'?'on':'';
-  var inb=ticketFeedSource==='inbox'?'on':'';
-  return '<div class="filters"><span>Feed: </span><button class="chip '+leg+'" data-feed="legacy">Legacy feed</button><button class="chip '+inb+'" data-feed="inbox">Inbox preview</button></div>';
- }
 let opsData=null,opsState="loading",opsPoll=null,opsBusy=false;
-function inboxPreviewHtml(){
-  var modeLine=bbArmed?"LIVE — confirmed notes and sends post to Gorgias.":"Dry run on — nothing posts.";
-  return feedToggleHtml() + '<div class="panel"><h3>Inbox preview (read-only)</h3><div class="ph">Same tickets, isolated inbox service. Rewrite, notes, and sends run here through the console. "+modeLine+"</div></div>' + '<iframe id="inbox-preview-frame" src="/inbox/" title="Inbox preview" style="width:calc(100% - 32px);height:70vh;margin:0 16px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>' + '<div class="hint" style="margin-left:16px;margin-right:16px">Preview only. "+(bbArmed?"Notes and sends arm live with ?live=1.":"Dry run on — posting disabled.")+"</div>';
- }
 let kbData=null,kbHealth=null,kbHealthError="",kbSel=null,kbBuf="",kbMsg="",kbReindexing=false,kbLoaded=false,kbLoadError="";
 let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
-let actSourceDraft="",actEditorKey=null,actGeneration=0;
-let actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false;
+
 const NOTICE_TEXT_MAX=1200;
 let noticesData=null,noticesError="",noticeText="",noticeDeadline=defaultNoticeDeadline(),noticeNoExpiry=false,noticeMsg="",noticeError="",noticeErrorField="",noticeBusy=false,noticeReview=false,noticeRemoveId=null,noticeDeletingId=null;
 let notificationData=null,notificationError="",notificationMsg="",notificationBusy=false,notificationPoll=null;
@@ -549,7 +544,7 @@ const keyOf=t=>String(t.message_id??t.ticket_id??"");
 const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.now()-new Date(d).getTime())/1000;if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";};
 const digits=v=>{const a=String(v).split("");return `<span class="t-digit-group is-animating">${a.map((ch,i)=>`<span class="t-digit"${i===a.length-2?' data-stagger="1"':(i===a.length-1?' data-stagger="2"':'')}>${esc(ch)}</span>`).join("")}</span>`;};
 const freshText=()=>lastUpdated?"Updated "+lastUpdated.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Updating…";
-const liveMessage=()=>tab==="tickets"&&actMsg?actMsg:tab==="kb"&&kbMsg?kbMsg:tab==="notices"&&(noticeError||noticeMsg)?(noticeError||noticeMsg):tab==="notif"&&(notificationMsg||waMsg)?(notificationMsg||waMsg):statusMsg;
+const liveMessage=()=>tab==="tickets"?statusMsg:tab==="kb"&&kbMsg?kbMsg:tab==="notices"&&(noticeError||noticeMsg)?(noticeError||noticeMsg):tab==="notif"&&(notificationMsg||waMsg)?(notificationMsg||waMsg):statusMsg;
 async function jget(u){try{const r=await fetch(u,{cache:"no-store"});if(r.status===401)sessionExpired=true;if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 function opsHealthSummary(data,state,now=Date.now()){
@@ -615,11 +610,34 @@ async function boot(){
  render();
 }
 
-function goTickets(nextFilter="all",ticketKey=null){filter=nextFilter;tab="tickets";if(ticketKey!=null){openTicket(ticketKey);return;}openTk=null;render();}
+// ponytail: dashboard filters predate the inbox; only known inbox views
+// ride the deep link, everything else lands on All with the ticket. The
+// iframe URL carries view+ticket so the selection survives reload.
+// escalated has no inbox partition (the escalated flag renders per-thread),
+// and failed/queue/draft/risk:* live only in the dashboard DB — All keeps
+// the ticket reachable instead of stranding it in a dead filter.
+function inboxDeepFilter(nextFilter){
+var v=String(nextFilter||"all");
+if(v==="escalated"||v.indexOf("risk:")===0||v==="failed"||v==="queue"||v==="draft") return "all";
+return v;
+}
+// ponytail: projection ids are gorgias:{ticket_id}; a bare dashboard id
+// would never match, so prefix it. Already-qualified ids pass through.
+function inboxTicketId(ticketKey){
+if(ticketKey==null) return null;
+var s=String(ticketKey);
+if(!s) return null;
+return s.indexOf(":")>=0?s:"gorgias:"+s;
+}
+function goTickets(nextFilter,ticketKey){
+inboxNavView=inboxDeepFilter(nextFilter||"all");inboxNavTicket=inboxTicketId(ticketKey);tab="tickets";render();
+var frame=document.getElementById("inbox-frame");
+if(frame){try{frame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}}
+}
 
 function render(){
- const pages={overview:"Overview",tickets:"Ticket feed",conns:"Connections",kb:"Knowledge base",notices:"Notice Board",notif:"Notifications",settings:"Settings"};
- const subs={overview:"How your AI support agent is performing",tickets:"Every ticket, its AI draft, and what needs you",conns:"Your connected tools and their health",kb:"Edit what your agent knows — policies, FAQs, intents, tickets",notices:"Temporary store facts that take effect after review without bypassing safety rules",notif:"Link WhatsApp and choose where alerts go",settings:"Configure your agent"};
+ const pages={overview:"Overview",tickets:"Tickets",conns:"Connections",kb:"Knowledge base",notices:"Notice Board",notif:"Notifications",settings:"Settings"};
+ const subs={overview:"How your AI support agent is performing",tickets:"The inbox: every ticket, its draft, and what needs you",conns:"Your connected tools and their health",kb:"Edit what your agent knows — policies, FAQs, intents, tickets",notices:"Temporary store facts that take effect after review without bypassing safety rules",notif:"Link WhatsApp and choose where alerts go",settings:"Configure your agent"};
  const unreadCount=notificationData&&Number.isInteger(notificationData.unread_count)?notificationData.unread_count:null;
  const notificationLabel=unreadCount===null?"Open notifications — live status unavailable":`Open notifications — ${unreadCount} unread`;
  document.getElementById("app").innerHTML=`
@@ -644,7 +662,7 @@ function render(){
     <div class="wrap" tabindex="0" aria-label="Dashboard content"><div class="t-panel-slide" data-open="false">${(loadFailed||sessionExpired)?errorBanner():""}${view()}</div></div>
   </div>`;
  const status=document.getElementById("app-status");if(status){status.textContent="";requestAnimationFrame(()=>{status.textContent=liveMessage();});}
- const openTab=k=>{tab=k;openTk=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
+ const openTab=k=>{tab=k;inboxNavTicket=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
  document.querySelectorAll(".nav a[data-tab]").forEach(a=>{a.onclick=()=>openTab(a.dataset.tab);a.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTab(a.dataset.tab);}};});
  const rf=document.getElementById("refresh");if(rf)rf.onclick=async()=>{rf.classList.add("refreshing");rf.disabled=true;statusMsg="Refreshing dashboard data";if(tab==="kb"){kbData=null;await loadKb();}else if(tab==="notif"){await loadNotifications();}else if(tab==="notices"){await loadNotices();}else{await boot();}};
  const hn=document.getElementById("header-notif");if(hn)hn.onclick=()=>openTab("notif");
@@ -702,150 +720,6 @@ function learnPanel(){
    <div class="lstat"><div class="v">${digits(acc==null?'—':acc+'%')}</div><div class="l">Sent unchanged</div></div>
    <div class="lstat"><div class="v">${digits(ed)}</div><div class="l">Edited before send</div></div></div>
   <div class="hint" style="margin-top:12px">A rising “sent unchanged” means the AI's drafts increasingly match how you reply. Raw lessons stay out of search with restricted file permissions; personal details are masked before nightly promotion into the indexed knowledge base.</div></div>`;
-}
-
-function legacyTicketsView(){
- if(loadErrors.includes("tickets"))return `<div class="panel" role="alert"><h3>Ticket data is unavailable</h3><div class="ph">Refresh to retry. This is not an empty queue.</div></div>`;
- const fl=[["all","All"],["draft","AI drafts"],["escalated","Escalated"],["failed","Failed"],["queue","In queue"]];
- if(filter.startsWith("risk:"))fl.push([filter,filter.slice(5).replace(/^./,c=>c.toUpperCase())+" risk"]);
- const list=tickets.filter(t=>{const js=(t.job_status||"").toLowerCase(),p=(t.priority||"normal").toLowerCase();if(filter==="all")return true;if(filter==="draft")return !isEsc(t);if(filter==="escalated")return isEsc(t);if(filter==="failed")return js==="failed";if(filter==="queue")return ["queued","pending","processing","running"].includes(js);if(filter.startsWith("risk:"))return p===filter.slice(5);return true;});
- return `<div class="filters">${fl.map(f=>`<button class="chip ${filter===f[0]?'on':''}" data-f="${f[0]}">${f[1]}</button>`).join("")}</div>
- <div class="tk">${list.length?list.map(row).join(""):'<div class="empty">No tickets here yet.</div>'}</div>`;
-}
-function ticketsView(){
- if(ticketFeedSource==='inbox' && !openTk){return inboxPreviewHtml();}
-return feedToggleHtml() + legacyTicketsView();
-}
-function cleanDraft(s){return (s||"").replace(/^\s*\[SENSITIVE[^\]]*\]\s*/i,"").trim();}
-function cleanMessage(raw){
- const full=(raw||"").replace(/\r/g,"").trim();
- const lines=full.split("\n");const keep=[];let quoted=false,cut=0;
- for(const ln of lines){
-   const s=ln.trim();
-   if(/^>+/.test(s)||/^On\b.+\bwrote:?$/.test(s)||/^-{2,}\s*original message/i.test(s)||/^_{5,}$/.test(s)||/^From:\s.+/i.test(s)&&quoted){quoted=true;}
-   if(quoted){cut++;continue;}
-   keep.push(ln);
- }
- let main=keep.join("\n");
- main=main.replace(/https?:\/\/\S*list-manage\.com\S*/gi,"[email-preferences link]");
- main=main.replace(/https?:\/\/\S{45,}/gi,m=>m.slice(0,42)+"…");
- main=main.replace(/\n{3,}/g,"\n\n").trim();
- return {main, hasMore: cut>0 || main.length < full.length};
-}
-function row(t){
- const key=keyOf(t),e=isEsc(t),open=openTk===key;
- const posted=t.note_posted?'<b>Note posted</b>':(t.job_status==='done'?'Processed':esc(t.job_status||''));
- const draft=cleanDraft(t.draft_text||"");
- let detail="";
- if(open){
-   const cm=cleanMessage(t.message_text||"");
-   const shown=actShowRaw?((t.message_text||"").trim()||"(empty)"):(cm.main||"(No new text — this looks like an automated or marketing email, nothing to reply to.)");
-   detail=`<div class="detail" tabindex="-1"><div class="dwrap">`
-    +(t.owner_alert_status==="uncertain"?`<div class="warn" role="alert">Owner alert needs review. WhatsApp did not confirm acceptance; delivery is unknown. Check WhatsApp directly.</div>`:"")
-    +`<div class="lab">Customer message</div>`
-    +`<div class="msg">${esc(shown)}</div>`
-    +(cm.hasMore?`<button class="linkbtn" id="act-raw">${actShowRaw?"Hide quoted text ▲":"Show full email & quoted text ▾"}</button>`:"");
-   if(draft){
-     detail+=`<div class="lab lab2">Reply to customer${t.priority?' <span class="pill">'+esc((t.priority||'').toUpperCase())+'</span>':''}</div>`;
-     if(e)detail+=`<div class="warn">⚠ Flagged sensitive — read carefully before sending.</div>`;
-     detail+=`<textarea class="dedit" id="act-draft" spellcheck="true">${esc(actDraft)}</textarea>`;
-     if(actEditOpen){
-       detail+=`<div class="editbox"><div class="lab">Tell the AI how to change it</div><input id="act-instr" class="numin" placeholder="e.g. make it warmer and offer to reship free" value="${esc(actInstr)}"><div class="editact"><button class="btn p" id="act-rewrite" ${actBusy?'disabled':''}>${actBusy?'Rewriting…':'Rewrite draft'}</button><button class="btn" id="act-canceledit">Cancel</button></div></div>`;
-     }
-     detail+=`<div class="actbar"><span class="toast">${esc(actMsg)}</span>`+
-       `<button class="btn ghost" id="act-edit" ${actBusy?'disabled':''}>Request edit</button>`+
-       `<button class="btn" id="act-note" ${actBusy?'disabled':''}>Draft as internal note</button>`+
-       `<button class="btn send" id="act-send" ${actBusy?'disabled':''}>Send reply →</button></div>`+
-       `<label style="display:block;margin-top:12px;font-size:12px"><input id="act-learn" type="checkbox" ${actLearn?'checked':''}> Approve this reply as a learning example after confirmed delivery</label>`+
-       `<button class="btn" id="act-status" style="margin-top:8px" ${actBusy?'disabled':''}>Check last action status</button>`+
-       `<div class="sendhint">“Send reply” emails the customer directly — you'll be asked to confirm.</div>`;
-   }else{
-     detail+=`<div class="lab lab2">Why this needs you</div><div class="draft esc">${esc(t.reason||"Escalated — handled by a human.")}</div>`;
-   }
-   detail+=`</div></div>`;
- }
- return `<div class="row ${open?'open':''}" data-tk="${esc(key)}" role="button" tabindex="0" aria-expanded="${open?'true':'false'}"><div class="who"><b>${esc(nameOf(t))}</b><small>${esc(t.customer_email||"")}</small></div>
-  <div class="subj">${esc(t.ticket_subject||"(no subject)")}</div>
-  <span class="badge ${e?'sens':'low'}">${e?'Sensitive':'AI draft'}</span>
-  <div class="st">${posted}${t.owner_alert_status==="uncertain"?'<br><b>Owner alert needs review</b>':""}<br><small>${ago(t)}</small></div></div>${detail}`;
-}
-let actLearn=false;
-function captureAct(){const l=document.getElementById("act-learn");if(l)actLearn=l.checked;const d=document.getElementById("act-draft");if(d)actDraft=d.value;const i=document.getElementById("act-instr");if(i)actInstr=i.value;}
-function openTicket(mid){const t=tickets.find(x=>keyOf(x)===String(mid));openTk=String(mid);actGeneration++;actEditorKey=t?keyOf(t):null;actSourceDraft=t?.draft_text||"";actDraft=cleanDraft(actSourceDraft);actInstr="";actEditOpen=false;actMsg="";actBusy=false;actShowRaw=false;actLearn=false;render();requestAnimationFrame(()=>{const d=document.querySelector(".detail");if(d)d.focus();});}
-function curTk(){return tickets.find(x=>keyOf(x)===openTk);}
-function actionStorageKey(t,kind){return "bb-action-v1:"+kind+":"+t.ticket_id+":"+String(t.message_id);}
-async function hashActionText(value){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("");}
-async function actionOperation(t,kind,text,approveLearning){
- const key=actionStorageKey(t,kind);
- const fingerprint=await hashActionText(JSON.stringify([text.trim(),String(t.message_id),t.draft_text||"",!!approveLearning]));
- const old=JSON.parse(localStorage.getItem(key)||"null");
- if(old&&old.fingerprint===fingerprint)return old.operation_id;
- if(old&&["unknown","pending"].includes(old.delivery_status))throw new Error("The previous action is unresolved. Check its status before sending different text.");
- const record={operation_id:crypto.randomUUID(),fingerprint,delivery_status:"unknown"};
- localStorage.setItem(key,JSON.stringify(record));
- return record.operation_id;
-}
-function rememberAction(t,kind,response){
- const key=actionStorageKey(t,kind),record=JSON.parse(localStorage.getItem(key)||"null");
- if(!record)return;
- if(response.operation_id)record.operation_id=response.operation_id;
- record.delivery_status=response.delivery_status||"unknown";
- localStorage.setItem(key,JSON.stringify(record));
-}
-function actionMessage(j){
- if(j.delivery_status==="sent")return "✅ Sent to the customer";
- if(j.delivery_status==="recorded")return "✅ Posted as an internal note in Gorgias";
- if(j.delivery_status==="not_attempted")return "No message was posted. Refresh the ticket: "+(j.error||"");
- if(j.delivery_status==="failed")return "Gorgias reports delivery failed. Inspect the message in Gorgias.";
- return j.message||("Delivery is not confirmed. Check action status before sending again."+(j.error?" ("+j.error+")":""));
-}
-async function submitAction(kind){
- if(actBusy)return;
- captureAct();const t=curTk();if(!t)return;
- if(actEditorKey!==keyOf(t)||actSourceDraft!==(t.draft_text||"")){actMsg="The source draft changed. Reopen this ticket and review the current draft before sending.";render();return;}
- if(!actDraft.trim()){actMsg="Nothing to send.";render();return;}
- const warn=isEsc(t)?"This ticket is flagged SENSITIVE.\n\n":"";
- const confirmation=kind==="send"?"Send this reply directly to "+(t.customer_email||"the customer")+"?":"Post this text as a staff-only internal note in Gorgias?";
- if(!confirm(warn+confirmation))return;
- const approvedText=actDraft,serverDraft=actSourceDraft,learningApproval=kind==="send"&&actLearn,actionTicketKey=keyOf(t),actionGeneration=actGeneration;
- let message="";
- actBusy=true;actMsg=kind==="send"?"Sending…":"Posting internal note…";render();
- try{
-  const operation_id=await actionOperation({...t,draft_text:serverDraft},kind,approvedText,learningApproval);
-  const draft_revision=await hashActionText(serverDraft);
-  const meta={text:approvedText,confirmed:true,operation_id,source_message_id:String(t.message_id),draft_revision,approve_learning:learningApproval};
-  const r=await fetch(API+"/ticket/"+t.ticket_id+"/"+kind,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(meta)});
-  const j=await r.json();rememberAction(t,kind,j);message=actionMessage(j);
- }catch(e){message=e.message||"Delivery could not be confirmed. Check action status before sending again.";}
- if(actGeneration===actionGeneration&&curTk()&&keyOf(curTk())===actionTicketKey){actMsg=message;actBusy=false;render();}
-}
-async function sendReply(){return submitAction("send");}
-async function noteReply(){return submitAction("note");}
-async function checkActionStatus(){
- if(actBusy)return;
- captureAct();const t=curTk();if(!t)return;
- const statusGeneration=actGeneration,statusTicketKey=keyOf(t);
- let statusMessage="";
- actBusy=true;actMsg="Checking recorded action status…";render();
- try{
-  const messages=[];
-  for(const kind of ["send","note"]){
-   const record=JSON.parse(localStorage.getItem(actionStorageKey(t,kind))||"null");if(!record)continue;
-   const r=await fetch(API+"/ticket/"+t.ticket_id+"/actions/"+encodeURIComponent(record.operation_id));
-   const j=await r.json();rememberAction(t,kind,j);messages.push((kind==="send"?"Reply: ":"Note: ")+actionMessage(j));
-  }
-  statusMessage=messages.join(" · ")||"No action is recorded in this browser for this customer message.";
- }catch(e){statusMessage="Status unavailable. Review the ticket in Gorgias before any further send.";}
- if(actGeneration===statusGeneration&&curTk()&&keyOf(curTk())===statusTicketKey){actMsg=statusMessage;actBusy=false;render();}
-}
-async function rewriteDraft(){
- if(actBusy)return;
- captureAct();const t=curTk();if(!t)return;
- const rewriteTicketKey=keyOf(t),rewriteGeneration=actGeneration;
- if(!actInstr.trim()){actMsg="Type an instruction first.";render();return;}
- actBusy=true;actMsg="AI is rewriting… (can take up to a minute)";render();
- try{const r=await fetch(API+"/ticket/"+t.ticket_id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({draft:actDraft,instruction:actInstr,source_message_id:String(t.message_id)})});const j=await r.json();if(actGeneration!==rewriteGeneration||!curTk()||keyOf(curTk())!==rewriteTicketKey)return;if(r.ok&&j.draft){actDraft=j.draft;actEditOpen=false;actInstr="";actMsg="✅ Rewritten — review it, then send.";}else{actMsg="Rewrite failed: "+(j.error||r.status);}}catch(e){if(actGeneration===rewriteGeneration&&curTk()&&keyOf(curTk())===rewriteTicketKey)actMsg="Rewrite failed.";}
- if(actGeneration===rewriteGeneration&&curTk()&&keyOf(curTk())===rewriteTicketKey){actBusy=false;render();}
 }
 
 function whatsappConnectionSummary(data){
@@ -1126,19 +1000,11 @@ function bind(){
  const retryNotifications=document.getElementById("retry-notifications");if(retryNotifications)retryNotifications.onclick=()=>loadNotifications();
  const markAllNotifications=document.getElementById("mark-all-notifications");if(markAllNotifications)markAllNotifications.onclick=async()=>{await markNotificationsRead([],true);render();};
  document.querySelectorAll("[data-notification-index]").forEach(button=>button.onclick=()=>openDashboardNotification(Number(button.dataset.notificationIndex)));
-document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{filter=c.dataset.f;openTk=null;render();});
-document.querySelectorAll("[data-feed]").forEach(b=>b.onclick=()=>setTicketFeedSource(b.dataset.feed));
-var previewFrame=document.getElementById("inbox-preview-frame");
-if(previewFrame&&!previewFrame.dataset.helloBound){previewFrame.dataset.helloBound="1";previewFrame.onload=function(){try{previewFrame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}};}
-document.querySelectorAll(".row[data-tk]").forEach(r=>{r.onclick=()=>{if(openTk===String(r.dataset.tk)){openTk=null;render();}else{openTicket(r.dataset.tk);}};r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();r.click();}};});
- const as=document.getElementById("act-send");if(as)as.onclick=sendReply;
- const an=document.getElementById("act-note");if(an)an.onclick=noteReply;
- const ast=document.getElementById("act-status");if(ast)ast.onclick=checkActionStatus;
- const ae=document.getElementById("act-edit");if(ae)ae.onclick=()=>{captureAct();actEditOpen=!actEditOpen;render();};
- const ar=document.getElementById("act-rewrite");if(ar)ar.onclick=rewriteDraft;
- const acx=document.getElementById("act-canceledit");if(acx)acx.onclick=()=>{captureAct();actEditOpen=false;render();};
- const arw=document.getElementById("act-raw");if(arw)arw.onclick=()=>{captureAct();actShowRaw=!actShowRaw;render();};
- document.querySelectorAll(".kbitem[data-open]").forEach(b=>b.onclick=e=>{e.stopPropagation();openKbFile(b.dataset.open);});
+// ponytail: hello handshake on every frame load — this is what arms the
+// inbox's rewrite/note/send bridge after render() swaps the iframe src.
+var inboxFrame=document.getElementById("inbox-frame");
+if(inboxFrame&&!inboxFrame.dataset.helloBound){inboxFrame.dataset.helloBound="1";inboxFrame.onload=function(){try{inboxFrame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}};}
+document.querySelectorAll(".kbitem[data-open]").forEach(b=>b.onclick=e=>{e.stopPropagation();openKbFile(b.dataset.open);});
  document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));
  const ks=document.getElementById("kb-save");if(ks)ks.onclick=saveKb;
  const kretry=document.getElementById("kb-retry-file");if(kretry)kretry.onclick=()=>openKbFile(kbSel);
