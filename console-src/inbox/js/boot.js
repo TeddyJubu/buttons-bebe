@@ -69,6 +69,96 @@ const organ = createInboxOrgan({
   },
 });
 organ.mount(root);
+let parentRewriteSource = null;
+let parentRewriteOrigin = "";
+let parentRewriteSeq = 0;
+const parentRewritePending = new Map();
+let parentNoteSeq = 0;
+const parentNotePending = new Map();
+let parentSendSeq = 0;
+const parentSendPending = new Map();
+function requestParentSend(ticketId, text, approveLearning) {
+  return new Promise(function (resolve, reject) {
+    if (!parentRewriteSource) {
+      reject(new Error("Console bridge not connected."));
+      return;
+    }
+    parentSendSeq += 1;
+    const id = "sd-" + parentSendSeq;
+    const timer = setTimeout(function () {
+      parentSendPending.delete(id);
+      reject(new Error("Send timed out."));
+    }, 90000);
+    parentSendPending.set(id, { resolve: resolve, reject: reject, timer: timer });
+    parentRewriteSource.postMessage({ type: "bb-inbox-send", kind: "send", id: id, ticketId: ticketId, text: text, approveLearning: approveLearning === true }, parentRewriteOrigin);
+  });
+}
+function requestParentNote(ticketId, text) {
+  return new Promise(function (resolve, reject) {
+    if (!parentRewriteSource) {
+      reject(new Error("Console bridge not connected."));
+      return;
+    }
+    parentNoteSeq += 1;
+    const id = "nt-" + parentNoteSeq;
+    const timer = setTimeout(function () {
+      parentNotePending.delete(id);
+      reject(new Error("Note timed out."));
+    }, 90000);
+    parentNotePending.set(id, { resolve: resolve, reject: reject, timer: timer });
+    parentRewriteSource.postMessage({ type: "bb-inbox-note", kind: "note", id: id, ticketId: ticketId, text: text }, parentRewriteOrigin);
+  });
+}
+function requestParentRewrite(ticketId, instruction) {
+  return new Promise(function (resolve, reject) {
+    if (!parentRewriteSource) {
+      reject(new Error("Console bridge not connected."));
+      return;
+    }
+    parentRewriteSeq += 1;
+    const id = "rw-" + parentRewriteSeq;
+    const timer = setTimeout(function () {
+      parentRewritePending.delete(id);
+      reject(new Error("Rewrite timed out."));
+    }, 90000);
+    parentRewritePending.set(id, { resolve: resolve, reject: reject, timer: timer });
+    parentRewriteSource.postMessage({ type: "bb-inbox-rewrite", id: id, ticketId: ticketId, instruction: instruction }, parentRewriteOrigin);
+  });
+}
+window.addEventListener("message", function (event) {
+  if (!event || event.origin !== location.origin) return;
+  const data = event.data || {};
+  if (data.type === "bb-console-hello" && window.parent !== window) {
+    parentRewriteSource = event.source;
+    parentRewriteOrigin = event.origin;
+    organ.setParentBridge({ rewrite: requestParentRewrite, note: requestParentNote, send: requestParentSend });
+    return;
+  }
+  if (data.type === "bb-console-rewrite-result" && event.source === parentRewriteSource) {
+    const pending = parentRewritePending.get(data.id);
+    if (!pending) return;
+    parentRewritePending.delete(data.id);
+    clearTimeout(pending.timer);
+    if (data.ok) pending.resolve(data.draft || "");
+    else pending.reject(new Error(data.error || "Rewrite failed."));
+  }
+  if (data.type === "bb-console-note-result" && event.source === parentRewriteSource) {
+    const pending = parentNotePending.get(data.id);
+    if (!pending) return;
+    parentNotePending.delete(data.id);
+    clearTimeout(pending.timer);
+    if (data.ok) pending.resolve({ dryRun: data.dryRun === true, deliveryStatus: data.deliveryStatus || "" });
+    else pending.reject(new Error(data.error || "Note failed."));
+  }
+  if (data.type === "bb-console-send-result" && event.source === parentRewriteSource) {
+    const pending = parentSendPending.get(data.id);
+    if (!pending) return;
+    parentSendPending.delete(data.id);
+    clearTimeout(pending.timer);
+    if (data.ok) pending.resolve({ dryRun: data.dryRun === true, deliveryStatus: data.deliveryStatus || "" });
+    else pending.reject(new Error(data.error || "Send failed."));
+  }
+});
 
 function buildUrl({ticket, view, q, f}) {
   const next = new URLSearchParams();

@@ -1346,3 +1346,13 @@ mark.ticket-hit {
 .customer-history dd { margin: 0; display: grid; gap: 4px; }
 .customer-history-count { margin: 0; font-size: 11px; color: var(--mute); }
 .customer-history-row { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.note-confirm { display: grid; gap: 8px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.note-confirm-title { font-size: 12px; font-weight: 600; }
+.note-confirm-text { font-size: 13px; line-height: 1.45; max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-confirm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.note-info { color: var(--mute); font-size: 12px; margin: 6px 0 0; }
+.send-approve { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--mute); }
+.send-approve input { margin-top: 2px; }
+.rewrite-row { display: grid; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--mute); }
+.rewrite-input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; box-sizing: border-box; }
+.rewrite-error { color: var(--red); font-size: 12px; margin: 6px 0 0; }
