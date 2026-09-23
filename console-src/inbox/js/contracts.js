@@ -219,6 +219,7 @@
  * `marketing-gate/handled` { ticketId } — first-party flag only; never Shopify
  * `bug-handled`          { ticketId } — first-party flag only; never Shopify
  * `history/peek`         { orderId }  — does not replace This order
+ * `history/refresh`      {} — re-read list, thread, rail, composer; never Send, never clears the reply
  * `tissue/error`         { tissueId, message }
  */
 
@@ -268,6 +269,7 @@ export const MAILBOX_TOPICS = Object.freeze({
   MARKETING_HANDLED: "marketing-gate/handled",
   BUG_HANDLED: "bug-handled",
   HISTORY_PEEK: "history/peek",
+  HISTORY_REFRESH: "history/refresh",
   TISSUE_ERROR: "tissue/error",
 });
 

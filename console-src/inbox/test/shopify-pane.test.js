@@ -114,13 +114,15 @@ test("the store scope is explicit in the snapshot notice", async () => {
   assert.match(railHtml, /Shopify snapshot/, "the snapshot notice renders");
 });
 
-test("a stale snapshot says so instead of silently rendering stale data", async () => {
+test("a stale snapshot keeps its timestamp instead of a third stale banner", async () => {
   const organ = createInboxOrgan({shop: observedShop([observedRowWithRail(railPayload({stale: true}))]), storage: freshStorage(), operatorEmail: OPERATOR});
   const snap = await organ.ready();
   const railHtml = snap.html.split('data-pane="rail"')[1] || "";
-  assert.match(railHtml, /Refresh delayed; details may be outdated/, "the stale copy renders");
-  // The data still renders (it is the best observation we hold) but the
-  // notice is honest about its freshness.
+  // The data still renders (it is the best observation we hold) with its
+  // timestamp; the "stale" verdict lives once in the list banner, not here.
+  assert.match(railHtml, /Shopify snapshot/, "the snapshot notice renders");
+  assert.match(railHtml, /Sept/, "the snapshot timestamp renders");
+  assert.doesNotMatch(railHtml, /Refresh delayed; details may be outdated/, "no third stale banner in the rail");
   assert.match(railHtml, /Ada Lovelace/, "the stale snapshot's data still renders");
 });
 

@@ -129,11 +129,57 @@ test('a failed thread fetch is announced instead of rendering an apparently empt
  assert.match(result.html,/role="alert">Ticket history is unavailable/);
 });
 test('stale empty projection announces delayed history without invented rows',async()=>{
- const shop=createHelpdeskShop({client:{invoke:async()=>({ok:true,tickets:[],projection:{generatedAt:'one',stale:true}})}});
- const result=await createInboxOrgan({shop}).ready();
- assert.match(result.html,/role="status">Observed history is stale/);
- assert.match(result.html,/No tickets yet/);
- assert.equal(result.selectedId,null);
+  const shop=createHelpdeskShop({client:{invoke:async()=>({ok:true,tickets:[],projection:{generatedAt:'one',stale:true}})}});
+  const result=await createInboxOrgan({shop}).ready();
+  assert.match(result.html,/role="status">Observed history is stale/);
+  assert.match(result.html,/data-history-refresh[^>]*>Refresh</,"the single banner carries a Refresh action");
+  assert.match(result.html,/No tickets yet/);
+  assert.equal(result.selectedId,null);
+});
+test('one stale banner carries the time and Refresh; thread and rail carry no stale copies', async () => {
+  const ticket = {id:'gorgias:61003', projectionSource:true, historyIncomplete:true,
+    customerName:'Ai Demo Multi', fromEmail:'ai-demo-multi@example.com', subject:'Cancel and refund order #1003',
+    snippet:'Please cancel', status:'open', updatedAt:'2026-08-23T04:48:00Z',
+    messages:[{id:'m1', fromAgent:false, name:'Ai Demo Multi', at:'2026-08-23T04:48:00Z', body:'Please cancel.'}],
+    statusEvents:[],
+    customerContext:{source:'canonical_webhook', status:'observed', conflict:false, observedAt:'2026-08-23T04:48:00Z',
+      identity:{name:'Ai Demo Multi', email:'ai-demo-multi@example.com', phone:null, id:null}}};
+  const epoch = Math.floor(Date.parse('2026-08-23T04:48:00Z')/1000);
+  const shop = createHelpdeskShop({client:{invoke:async (tool)=>{
+    if(tool==='helpdesk.capabilities') return {ok:true,source:'inbox',capabilities:{}};
+    if(tool==='helpdesk.get_ticket') return {ok:true,source:'inbox',ticket,projection:{generatedAtEpoch:epoch,stale:true}};
+    return {ok:true,source:'inbox',tickets:[ticket],projection:{generatedAtEpoch:epoch,stale:true}};
+  }}});
+  const organ = createInboxOrgan({shop, viewId:'all'});
+  const result = await organ.ready();
+  assert.equal(result.selectedId, 'gorgias:61003');
+  assert.match(result.html, /Observed history is stale\. Last updated \d{1,2} Aug/);
+  assert.match(result.html, /data-history-refresh[^>]*>Refresh</);
+  const staleHits = result.html.match(/is stale|Stale snapshot|Snapshot is stale/g) || [];
+  assert.equal(staleHits.length, 1, 'exactly one stale verdict on the page');
+  assert.match(result.html, /Partial webhook history/, 'the thread keeps its distinct incompleteness note');
+  assert.match(result.html, /This is a snapshot, not a live customer lookup/, 'the rail keeps its source line');
+});
+test('banner Refresh re-reads history without clearing the reply', async () => {
+  let lists = 0;
+  const ticket = {id:'gorgias:61003', projectionSource:true, customerName:'Ai Demo Multi',
+    fromEmail:'ai-demo-multi@example.com', subject:'Cancel?', snippet:'Please cancel', status:'open',
+    updatedAt:'2026-08-23T04:48:00Z', messages:[], statusEvents:[]};
+  const epoch = Math.floor(Date.parse('2026-08-23T04:48:00Z')/1000);
+  const shop = createHelpdeskShop({client:{invoke:async (tool)=>{
+    if(tool==='helpdesk.capabilities') return {ok:true,source:'inbox',capabilities:{}};
+    if(tool==='helpdesk.list_tickets') lists += 1;
+    if(tool==='helpdesk.get_ticket') return {ok:true,source:'inbox',ticket,projection:{generatedAtEpoch:epoch,stale:true}};
+    return {ok:true,source:'inbox',tickets:[ticket],projection:{generatedAtEpoch:epoch,stale:true}};
+  }}});
+  const organ = createInboxOrgan({shop, viewId:'all'});
+  await organ.ready();
+  organ.setBody('Typing a reply');
+  const before = lists;
+  const snap = await organ.refreshHistory();
+  assert.ok(lists > before, 'list_tickets re-ran');
+  assert.equal(snap.selectedId, 'gorgias:61003', 'the selection survives the refresh');
+  assert.match(snap.html, /Typing a reply/, 'the typed reply survives the refresh');
 });
 const channelTickets=[
  {id:'t-email',customerName:'Email Customer',subject:'Email question',snippet:'Hi',status:'unknown',updatedAt:'2026-09-14T00:00:00Z',channel:'email',messages:[],statusEvents:[],projectionSource:true},

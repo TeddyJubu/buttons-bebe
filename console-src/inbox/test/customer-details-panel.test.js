@@ -68,8 +68,10 @@ test("the observed rail renders a customer-details card with every observed fiel
   assert.deepEqual(forbiddenControlHits(snap.html), [], "no banned control language appears");
 });
 
-test("an unobserved identity field renders the explicit unknown, never blank", async () => {
+test("unobserved identity fields collapse into one explicit line, never blank", async () => {
   // The webhook carried only the address: name/phone/id were never observed.
+  // Task 3: three "Unknown" rows collapse into one named line — still
+  // explicit, never blank, never invented.
   const row = observedRow(2, {
     customerContext: {
       source: "canonical_webhook", status: "observed", conflict: false,
@@ -81,9 +83,8 @@ test("an unobserved identity field renders the explicit unknown, never blank", a
   const snap = await organ.ready();
   const card = customerCard(snap.html);
   assert.ok(card, "the card renders");
-  assert.match(card, /<dt>Name<\/dt><dd>[^<]*<span[^>]*>Unknown<\/span>/, "an unobserved name renders Unknown");
-  assert.match(card, /<dt>Phone<\/dt><dd>[^<]*<span[^>]*>Unknown<\/span>/, "an unobserved phone renders Unknown");
-  assert.match(card, /<dt>Gorgias customer ID<\/dt><dd>[^<]*<span[^>]*>Unknown<\/span>/, "an unobserved id renders Unknown");
+  assert.doesNotMatch(card, />Unknown</, "no Unknown rows in the customer card");
+  assert.match(card, /Not observed: Name, Phone, Gorgias customer ID\./, "the missing fields are named in one line");
   assert.match(card, /<dt>Email<\/dt><dd>customer2@example\.test<\/dd>/, "the observed email still renders");
 });
 
@@ -121,6 +122,13 @@ test("a crafted identity value cannot inject markup into the customer card", asy
   assert.doesNotMatch(snap.html, /<script>alert/, "the crafted name never renders as markup");
   const card = customerCard(snap.html);
   assert.match(card, /&lt;script&gt;/, "the crafted name renders escaped inside the card");
+});
+
+test("the customer card's rows share the card's side padding", async () => {
+  // Regression: the rows once sat flush on the card edge while the heading
+  // and source lines carried 12px sides.
+  const css = readFileSync(join(here, "../styles.css"), "utf8");
+  assert.match(css, /\.customer-details \.ticket-detail-fields\s*\{[^}]*padding:\s*0 12px/);
 });
 
 test("the card names when the identity was never observed at all", async () => {

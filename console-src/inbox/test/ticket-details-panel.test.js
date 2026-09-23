@@ -203,13 +203,17 @@ test("the card leads the rail in snapshot mode when a Shopify rail is attached",
   assert.match(railHtml, /gorgias:4/, "the observed ticket id renders in the rail");
 });
 
-test("a stale snapshot marks the details card stale", async () => {
+test("a stale snapshot announces once in the list banner, not inside the details card", async () => {
   const staleShop = {...observedShop([observedRow(1)]),
     projection: {generatedAt: "gen-1", stale: true}};
   const organ = createInboxOrgan({shop: staleShop, storage: freshStorage(), operatorEmail: OPERATOR});
   const snap = await organ.ready();
   const panel = snap.html.split('data-ticket-details')[1] || "";
-  assert.match(panel, /stale|Stale/, "the staleness indicator renders inside the card");
+  assert.match(panel, /gorgias:1/, "the card still renders its data");
+  assert.doesNotMatch(panel, /stale|Stale/, "no stale copy inside the card");
+  const staleHits = snap.html.match(/is stale|Stale snapshot|Snapshot is stale/g) || [];
+  assert.equal(staleHits.length, 1, "exactly one stale verdict on the page");
+  assert.match(snap.html, /data-history-refresh[^>]*>Refresh</, "the banner carries Refresh");
 });
 
 test("the ticket-details card also renders in the live fixture rail", async () => {
