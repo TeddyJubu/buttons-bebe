@@ -62,6 +62,10 @@ Each shard is one serial run. Ports must not overlap. Shard map (12 each):
 - P3: base-port 19677, out `/private/qa-p3`, ids S03-S12,E01,E02
 - P4: base-port 20077, out `/private/qa-p4`, ids E03-E14
 
+If any output path already exists, append a fresh suffix (e.g. `-v2`,
+`-20260924`) and use the suffixed paths consistently through Phase 3 —
+the harness rejects existing paths, so never reuse one.
+
 Command per shard (example P1):
 
 ```sh

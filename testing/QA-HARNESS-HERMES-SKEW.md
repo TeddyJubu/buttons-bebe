@@ -20,9 +20,10 @@ checkout run.
 
 ## Gap 1 (mechanical): Hermes split `tools.mcp_tool`
 
-New homes on the box: `discover_mcp_tools` живёт в `tools.mcp_tool_discovery`,
-`shutdown_mcp_servers` in `tools.mcp_tool_lifecycle`, `_build_utility_schemas`
-in `tools.mcp_tool_schema`. Old paths warn they were removed on 2026-09-14.
+New homes on the box: `discover_mcp_tools` moved to
+`tools.mcp_tool_discovery`, `shutdown_mcp_servers` to
+`tools.mcp_tool_lifecycle`, `_build_utility_schemas` to
+`tools.mcp_tool_schema`. Old paths warn they were removed on 2026-09-14.
 `_tool_read_only_hints` still lives in `tools.mcp_tool`.
 
 Stale spots: the `PROBE` string in `testing/qa_metadata.py` and the
@@ -71,7 +72,7 @@ allowlist. Use `COPYFILE_DISABLE=1` or `--no-xattr` when copying. Cleaned.
 
 ```sh
 mkdir -p /private/bb-qa
-tar cf - testing processor webhook/src/bb_webhook kb/policies kb/faq kb/intents \
+COPYFILE_DISABLE=1 tar cf - testing processor webhook/src/bb_webhook kb/policies kb/faq kb/intents \
   | ssh chaim "tar xf - -C /private/bb-qa"
 ssh chaim "/root/.local/bin/uv venv /tmp/buttonsbebe-qa-venv --python 3.12 && /root/.local/bin/uv pip sync --python /tmp/buttonsbebe-qa-venv/bin/python --require-hashes /private/bb-qa/testing/requirements-qa.lock"
 ssh chaim "cd /private/bb-qa && DEMO_MODE=1 /tmp/buttonsbebe-qa-venv/bin/python testing/run_live_tests.py --hermes /usr/local/lib/hermes-agent/venv/bin/hermes --hermes-python /usr/local/lib/hermes-agent/venv/bin/python --hermes-source /usr/local/lib/hermes-agent --model-config /private/operator-provided-model.json --output /private/qa-smoke --limit 1 --kb-mode policies-only"
@@ -86,41 +87,6 @@ per-tool schema diff, readonly-table dump (all kept under
 `/private/bb-qa`, `/private/qa-smoke*`, `/private/qa-debug*`, and
 `/tmp/buttonsbebe-qa-venv`. Output dirs contain a model credential copy;
 shred them after review, then rerun the gate from a clean slate.
--New homes on the box: `discover_mcp_tools` живёт в `tools.mcp_tool_discovery`,
--`shutdown_mcp_servers` in `tools.mcp_tool_lifecycle`, `_build_utility_schemas`
--in `tools.mcp_tool_schema`. Old paths warn they were removed on 2026-09-14.
--`_tool_read_only_hints` still lives in `tools.mcp_tool`.
-+New homes on the box: `discover_mcp_tools` moved to
-+`tools.mcp_tool_discovery`, `shutdown_mcp_servers` to
-+`tools.mcp_tool_lifecycle`, `_build_utility_schemas` to
-+`tools.mcp_tool_schema`. Old paths warn they were removed on 2026-09-14.
-+`_tool_read_only_hints` still lives in `tools.mcp_tool`.
-# QA harness vs production Hermes: version skew, 2026-09-24
-
-Status: smoke test (`--limit 1`) stops safely in `prove_metadata`. Nothing was
-sent, merged, or written to production. All staging lives in `/private/bb-qa`
-and `/private/qa-*` on the box (`ssh chaim`). The repo is untouched.
--Status: full 48 ON HOLD. Root cause of the blocker is an upstream Hermes
-bug (Gap 4, now pinpointed). Smoke mechanics all pass; the model answers
-but every read is refused, so any 48-run today would grade blind drafts.
-Nothing was sent, merged, or written to production. Staging was cleaned
-off the box; only `/private/operator-provided-model.json` (your key) remains.
--## Gap 3 (needs a decision): readonly-hint table no longer populated
--
--`prove_metadata` expects Hermes-internal `_tool_read_only_hints[group]` to be
--`True` for all 10 business tools. On the new brain the table is empty before
--discovery, and after discovery every business tool reads non-`True`, while
--the independent wire check in the same run proves `readOnlyHint is True`.
--
--Likely cause: the table is keyed by connection key now
--(`_resolve_server_key`, see `tools/mcp_tool_handlers.py:56`), and the new
--SDK stack parses annotations through a different path than the QA stub
--client (mcp==1.29.1), so `_annotation_read_only_hint` returns False.
--Because production runs at trust `full`, nothing enforces these hints live.
--
--Decision for the maintainer: rewire the check to the new lookup/API, or
--promote the wire-level assertion (already strict `is True`) and retire the
--legacy-table comparison. Do not just delete it; something slipped once.
 ## Gap 4 (upstream Hermes bug, 48 blocked): readonly hints always False
 
 `tools/mcp_tool_registration.py`: `_annotation_read_only_hint` reads the
@@ -157,11 +123,7 @@ Fail-safe path verified working: on invocation failure the runner falls back
 to priority high, sensitive draft, owner notify, and zero Gorgias writes.
 On success path the draft extracts cleanly (marker_count 1, no overflow).
 Human grading per TEST-PLAN still required for all 48 once unblocked.
--## Cleanup still on the box
--
--`/private/bb-qa`, `/private/qa-smoke*`, `/private/qa-debug*`, and
--`/tmp/buttonsbebe-qa-venv`. Output directories contain a model credential copy;
--shred them after review, then rerun the gate from a clean slate.
+
 ## Box state (2026-09-24, after brain fix)
 
 `/private/bb-qa` staged with private harness fixes, venv rebuilt,
