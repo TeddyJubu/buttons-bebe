@@ -233,6 +233,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
+  white-space: nowrap;
+}
+.list-tool-btn[data-create-ticket] {
+  width: auto;
+  padding: 0 8px;
 }
 .list-tool-btn:hover,
 .list-tool-btn[aria-pressed="true"],
@@ -1242,6 +1247,12 @@ mark.ticket-hit {
   margin: 0;
   padding: 10px 12px;
   font-size: 13px;
+}
+/* The shared rule above ties with .rail-snapshot .rail-toggle but sorts
+   later, so it would wipe the 28px chevron clearance — restore it here or
+   the peek ("open") renders under the ::after chevron. */
+.ticket-details .rail-toggle {
+  padding-right: 28px;
 }
 .ticket-detail-stale {
   display: block;
