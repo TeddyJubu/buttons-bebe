@@ -52,6 +52,8 @@ export function createComposerTissue({ mailbox }) {
       macros: input.macros || [],
       body: input.body || "",
       strip: input.strip ?? input.draft ?? "",
+      stripReadonly: input.stripReadonly === true,
+      stripNote: input.stripNote || "",
       query: input.query || "",
       selectedMacroId: input.selectedMacroId || "",
       searchOpen: input.searchOpen === true,
@@ -137,15 +139,27 @@ export function createComposerTissue({ mailbox }) {
           <p class="summarize-text">${esc(next.summarize)}</p>
         </div>`
       : "";
-    const strip = next.strip
-      ? `<div class="draft-strip" data-draft-strip>
+    const stripText = next.strip || "";
+    // A projection draft ([SENSITIVE…]) must never read as a calm note.
+    const sensitive = /\[SENSITIVE/i.test(stripText);
+    const kicker = sensitive
+      ? "Sensitive draft — review before sending"
+      : next.stripReadonly
+        ? "AI draft · not sent · read only"
+        : "AI draft";
+    // No live draft lane, no Regenerate: there is nothing to ask for a new
+    // draft from. Use draft still copies the shown text; Dismiss still hides it.
+    const canRegenerate = next.capabilities?.draftReply !== false;
+    const strip = stripText
+      ? `<div class="draft-strip${sensitive ? " is-sensitive" : ""}" data-draft-strip${sensitive ? ' data-sensitive="true"' : ""}>
           <div class="draft-body">
-            <p class="draft-kicker">AI draft</p>
-            <p class="draft-text">${esc(next.strip)}</p>
+            <p class="draft-kicker">${esc(kicker)}</p>
+            <p class="draft-text">${esc(stripText)}</p>
+            ${next.stripNote ? `<p class="mute draft-note">${esc(next.stripNote)}</p>` : ""}
           </div>
           <div class="draft-actions">
             <button type="button" class="btn-quiet" data-insert title="Copy the AI draft into the reply box">Use draft</button>
-            <button type="button" class="btn-quiet" data-regenerate title="Ask for a new AI draft">Regenerate</button>
+            ${canRegenerate ? `<button type="button" class="btn-quiet" data-regenerate title="Ask for a new AI draft">Regenerate</button>` : ""}
             <button type="button" class="btn-quiet btn-dismiss" data-discard title="Hide this AI draft">Dismiss</button>
           </div>
         </div>`

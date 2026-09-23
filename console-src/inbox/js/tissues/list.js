@@ -71,6 +71,7 @@ export function createListTissue({ mailbox }) {
       tickets: input.tickets || [],
       error: input.error || "",
       notice: input.notice || "",
+      noticeRefresh: input.noticeRefresh === true,
       pagination: input.pagination || null,
       selectedTicketId: input.selectedTicketId || null,
       views: input.views || [],
@@ -487,7 +488,7 @@ export function createListTissue({ mailbox }) {
       ${renderToolbar(next)}
       ${renderFilterChips(next)}
       ${bulk?.ids?.length ? renderBulkBar(bulk) : ""}
-      ${next.notice ? `<p class="history-notice" role="status">${esc(next.notice)}</p>` : ""}
+      ${next.notice ? `<p class="history-notice" role="status">${esc(next.notice)}${next.noticeRefresh ? ` <button type="button" class="btn-quiet history-refresh" data-history-refresh title="Re-read tickets, thread and details now">Refresh</button>` : ""}</p>` : ""}
       <div class="ticket-list" role="list">${rows}</div>
       ${next.pagination && tickets.length ? `<div class="list-pagination">
         <p role="status">${esc(next.pagination.error || `Showing ${next.pagination.loaded} of ${next.pagination.total} tickets`)}</p>
@@ -697,6 +698,10 @@ export function createListTissue({ mailbox }) {
       if (event.target.closest("[data-list-inbox]")) {
         ui = { ...ui, viewOpen: !ui.viewOpen, filterOpen: false };
         paint();
+        return;
+      }
+      if (event.target.closest("[data-history-refresh]")) {
+        mailbox.publish(MAILBOX_TOPICS.HISTORY_REFRESH, {});
         return;
       }
       if (event.target.closest("[data-list-sort]")) {

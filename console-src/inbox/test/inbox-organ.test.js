@@ -737,6 +737,80 @@ test("Use draft puts the draft in the textarea and does not send", async () => {
   assert.equal(snap.sent.length, 0);
 });
 
+test("readonly projection draft feeds the strip with sensitive styling, no bubble, no Regenerate", async () => {
+  const shop = createFixtureShop();
+  shop.capabilities = { draftReply: false };
+  const organ = createInboxOrgan({
+    shop,
+    viewId: "unassigned",
+    ticketId: "t-readonly",
+    tickets: [{
+      id: "t-readonly",
+      customerName: "Demo",
+      subject: "Cancel and refund order #1003",
+      snippet: "Please cancel.",
+      status: "open",
+      view: "unassigned",
+      assignee: null,
+      customerId: null,
+      orderId: null,
+      updatedAt: "2026-08-30T14:10:00Z",
+      messages: [{ id: "m1", fromAgent: false, name: "Demo", at: "2026-08-30T14:10:00Z", body: "Please cancel." }],
+      statusEvents: [],
+      readonlyDraft: "[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]\nHi Demo, cancelling #1003.",
+      draftReason: "Pre-shipment cancellation request",
+      draftSourceMessageId: "72003",
+      draftSourceMessageAt: "2026-08-22T22:48:36Z",
+    }],
+  });
+  const snap = await organ.ready();
+  assert.equal(snap.selectedId, "t-readonly");
+  // Strip, not a thread bubble.
+  assert.match(snap.html, /data-draft-strip/);
+  assert.match(snap.html, /data-sensitive="true"/);
+  assert.match(snap.html, /Sensitive draft — review before sending/);
+  assert.match(snap.html, /data-insert[^>]*>Use draft</);
+  assert.match(snap.html, /data-discard[^>]*>Dismiss</);
+  assert.doesNotMatch(snap.html, /data-regenerate/);
+  assert.match(snap.html, /Source message: 72003/);
+  assert.match(snap.html, /Source message: 72003 · \d{1,2} Aug/, "the source stamp renders as a short date");
+  assert.doesNotMatch(snap.html, /2026-08-22T22:48:36Z/, "no raw export timestamp in the UI");
+  assert.match(snap.html, /Pre-shipment cancellation request/);
+  assert.doesNotMatch(snap.html, /<article class="bubble"><strong>/);
+  // Use draft copies the text into the reply box and never sends.
+  organ.insertDraft();
+  const after = organ.snapshot();
+  assert.doesNotMatch(after.html, /data-draft-strip/);
+  assert.match(after.html, /cancelling #1003/);
+  assert.equal(after.sent.length, 0);
+});
+
+test("dismissing the readonly strip hides it until reselect", async () => {
+  const shop = createFixtureShop();
+  shop.capabilities = { draftReply: false };
+  const ticket = {
+    id: "t-readonly",
+    customerName: "Demo",
+    subject: "Cancel and refund order #1003",
+    snippet: "Please cancel.",
+    status: "open",
+    view: "unassigned",
+    assignee: null,
+    customerId: null,
+    orderId: null,
+    updatedAt: "2026-08-30T14:10:00Z",
+    messages: [{ id: "m1", fromAgent: false, name: "Demo", at: "2026-08-30T14:10:00Z", body: "Please cancel." }],
+    statusEvents: [],
+    readonlyDraft: "Hi Demo, cancelling #1003.",
+  };
+  const organ = createInboxOrgan({ shop, viewId: "unassigned", ticketId: "t-readonly", tickets: [ticket] });
+  let snap = await organ.ready();
+  assert.match(snap.html, /data-draft-strip/);
+  organ.discardStrip();
+  snap = organ.snapshot();
+  assert.doesNotMatch(snap.html, /data-draft-strip/);
+});
+
 test("regenerate draft ignores stale result after ticket switch", async () => {
   let releaseSlow;
   const slow = new Promise((resolve) => {

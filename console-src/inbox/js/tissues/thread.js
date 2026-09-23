@@ -282,9 +282,8 @@ export function createThreadTissue({ mailbox }) {
           ${detailControls(ticket, next)}
         </div>
       </header>
-      <div class="thread-scroll">${ticket.projectionSource ? `<p class="history-notice" role="status">Partial webhook history; earlier messages may be missing. ${ticket.truncated ? "History or text is truncated." : ""} ${ticket.projection?.stale ? "Snapshot is stale; refresh is delayed." : ""}</p>` : ""}${timeline(ticket)}
-      ${ticket.draftSuperseded ? `<p class="mute">An earlier draft is withheld because a newer customer message needs review.</p>` : ""}
-      ${ticket.readonlyDraft ? `<article class="bubble"><strong>AI draft · not sent · read only</strong><p>${esc(ticket.readonlyDraft)}</p><p class="mute">Source message: ${esc(ticket.draftSourceMessageId || "")} · ${esc(ticket.draftSourceMessageAt || "")}</p><p class="mute">${esc(ticket.draftReason || "")}</p></article>` : ""}</div>
+      <div class="thread-scroll">${ticket.projectionSource ? `<p class="history-notice" role="status">Partial webhook history; earlier messages may be missing. ${ticket.truncated ? "History or text is truncated." : ""}</p>` : ""}${timeline(ticket)}
+      ${ticket.draftSuperseded ? `<p class="mute">An earlier draft is withheld because a newer customer message needs review.</p>` : ""}</div>
       ${next.capabilities?.summarizeThread === false ? "" : `<div class="summarize-row">
         <button type="button" class="btn-quiet" data-summarize="${esc(ticket.id)}" title="Show a short mute summary above the reply box">${esc(summarizeLabel)}</button>
       </div>`}

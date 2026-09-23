@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createThreadTissue } from '../js/tissues/thread.js';
 
-test('observed history and readonly drafts escape customer text and label unknown status', () => {
+test('observed history escapes customer text and keeps the readonly draft out of the thread', () => {
   const tissue = createThreadTissue({mailbox:{publish(){}}});
   const html=tissue.render({capabilities:{summarizeThread:false,escalateTicket:false},ticket:{
     id:'gorgias:1',projectionSource:true,projection:{stale:true},historyIncomplete:true,truncated:true,
@@ -11,10 +11,15 @@ test('observed history and readonly drafts escape customer text and label unknow
     readonlyDraft:'<script>draft</script>'
   }});
   assert.doesNotMatch(html,/<script>|<img onerror/);
-  assert.match(html,/&lt;script&gt;draft/);
-  assert.match(html,/not sent · read only/);
+  // The readonly draft lives in the composer strip now (Task 1): the thread
+  // must not render it as a lookalike customer bubble.
+  assert.doesNotMatch(html,/&lt;script&gt;draft/);
+  assert.doesNotMatch(html,/not sent · read only/);
+  // Task 2: the thread keeps its partial-history note; the stale verdict
+  // lives once in the list banner, not here.
+  assert.match(html,/Partial webhook history/);
+  assert.doesNotMatch(html,/Snapshot is stale/);
   assert.match(html,/Status unknown/);
-  assert.match(html,/Snapshot is stale/);
   assert.doesNotMatch(html,/data-escalate=/);
 });
 

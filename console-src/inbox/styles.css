@@ -790,6 +790,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .draft-kicker { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); }
 .draft-text { font-size: 14px; line-height: 1.45; margin-top: 4px; width: 100%; }
+/* A [SENSITIVE] draft must never read as a calm note: red edge, warm wash. */
+.draft-strip.is-sensitive { border-color: var(--red); background: var(--red-s); }
+.draft-strip.is-sensitive .draft-kicker { color: var(--red); }
+.draft-note { margin-top: 6px; }
 .draft-actions {
   display: flex;
   gap: 6px;
@@ -1042,6 +1046,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 
 .history-notice { flex: 0 0 auto; padding: 10px 16px; font-size: 12px; line-height: 1.45; color: var(--mute); border-bottom: 1px solid var(--line); }
+/* The freshness banner's Refresh sits inline in 12px mute copy. */
+.history-notice .history-refresh { margin-left: 8px; padding: 2px 10px; font-size: 12px; }
 .thread-scroll > .history-notice { padding: 0 0 10px; margin-bottom: 14px; }
 .composer-to { overflow-wrap: anywhere; }
 @media (max-width: 1100px) {
@@ -1280,13 +1286,10 @@ mark.ticket-hit {
 .ticket-details .rail-toggle {
   padding-right: 28px;
 }
-.ticket-detail-stale {
-  display: block;
-  margin: 0 0 8px;
-  color: var(--warn);
-  font-size: 11px;
-  font-weight: 400;
-}
+/* The ticket-details card nests its rows in .rail-body (padded); the
+   customer-details card holds its dl directly, so it carries the same
+   12px sides here — otherwise the rows sit flush on the card edge. */
+.customer-details .ticket-detail-fields { padding: 0 12px; }
 .ticket-detail-fields {
   display: grid;
   gap: 6px;
@@ -1312,6 +1315,7 @@ mark.ticket-hit {
 /* #47: the observed-mode customer-details card — same rail-card look, with
    the conflict callout and the same-address ticket history strip. */
 .customer-details .customer-source { margin: 0; padding: 0 12px 12px; font-size: 11px; color: var(--mute); }
+.customer-details .customer-missing { margin: 0; padding: 6px 12px 12px; font-size: 11px; color: var(--mute); }
 .customer-conflict { margin: 0; padding: 8px 12px; color: var(--warn); font-size: 12px; }
 .customer-history { display: grid; gap: 2px; padding: 0 12px 12px; }
 .customer-history dt { color: var(--mute); font-size: 11px; }

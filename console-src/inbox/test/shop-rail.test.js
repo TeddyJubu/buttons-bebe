@@ -12,7 +12,11 @@ test('observed ticket renders Shopify snapshot without live provider calls', () 
   assert.match(html, /#10319148/);
   assert.match(html, /Test &lt;script&gt;/);
   assert.match(html, /Return on file/);
-  assert.match(html, /Refresh delayed/);
+  // Task 2: the rail keeps its timestamp (shop + fetchedAt) but no longer
+  // shouts a third "stale" — staleness lives in the list's single banner.
+  assert.match(html, /Shopify snapshot/);
+  assert.match(html, /Sept/, 'the snapshot timestamp renders');
+  assert.doesNotMatch(html, /Refresh delayed/);
   assert.match(html, /Open · 1 return/);
   assert.doesNotMatch(html, /Open · 1 item|No gift cards|No invoice|No warranty|No ETA/);
   assert.ok(html.indexOf('data-tissue="returns"') < html.indexOf('data-tissue="order"'));

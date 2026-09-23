@@ -1077,7 +1077,40 @@ export function createInboxOrgan(opts = {}) {
   let createError = "";
   let createDraft = {customerName: "", fromEmail: "", subject: "", channel: "email", body: ""};
   let listError = "";
-  let projectionNotice = "";
+  // Task 2: one freshness banner for the whole snapshot. Every pane renders
+  // the same snapshot, so staleness is announced once (in the list, the
+  // snapshot's home) instead of once per pane. Thread and rail keep their
+  // own distinct notes (partial history, per-card source) with timestamps
+  // but no extra "stale" copies.
+  let projectionNotice = { text: "", showRefresh: false };
+  // The projection stamps generatedAtEpoch (seconds) and generatedAt (ISO);
+  // without either, no time claim is made.
+  function projectionUpdatedAt() {
+    const meta = shop.projection || {};
+    const epoch = Number(meta.generatedAtEpoch);
+    if (Number.isFinite(epoch) && epoch > 0) {
+      try {
+        return formatWhen(new Date(epoch * 1000).toISOString());
+      } catch {
+        return "";
+      }
+    }
+    return typeof meta.generatedAt === "string" ? formatWhen(meta.generatedAt) : "";
+  }
+  function freshnessNotice(kind) {
+    const when = projectionUpdatedAt();
+    const stamp = when ? ` Last updated ${when}.` : "";
+    if (kind === "failed") {
+      return { text: `Showing previously loaded history — refresh failed.${stamp}`, showRefresh: true };
+    }
+    if ((shop.projection || {}).stale) {
+      return { text: `Observed history is stale.${stamp}`, showRefresh: true };
+    }
+    return {
+      text: `Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.${stamp}`,
+      showRefresh: true,
+    };
+  }
   let loadingMore = false;
   let moreError = "";
   let paintListOnly = null;
@@ -1241,9 +1274,7 @@ export function createInboxOrgan(opts = {}) {
           // this browser's local tickets add on top of the All total.
           counts.all = (shop.projection?.ticketCount ?? rows.length - localTickets.length)
             - flaggedInSnapshot + localTickets.length;
-          projectionNotice = shop.projection?.stale
-            ? "Observed history is stale; refresh is delayed."
-            : "Observed history · last 90 days. Status and assignment are shown when the latest observed webhook carried them; otherwise unknown.";
+          projectionNotice = freshnessNotice("ok");
           return;
         }
         const [rows, ...viewRows] = await Promise.all([
@@ -1293,7 +1324,7 @@ export function createInboxOrgan(opts = {}) {
       } catch {
         listError = "Could not load tickets. Refresh to try again.";
         if (shop.observedHistory) {
-          if (listRows.length) projectionNotice = "Showing previously loaded history. Refresh failed; these tickets may be stale. Refresh to try again.";
+          if (listRows.length) projectionNotice = freshnessNotice("failed");
           return;
         }
       }
@@ -1653,15 +1684,56 @@ export function createInboxOrgan(opts = {}) {
     });
   }
 
+  // Task 1: the projection's read-only draft is a draft too. When the live
+  // draft lane is empty (e.g. draftReply is off in this inbox) the ticket's
+  // readonlyDraft feeds the composer strip instead of sitting in the thread
+  // looking like a customer message. Dismiss still hides it until reselect
+  // (resetUiState clears `discarded`), and a superseded draft stays hidden
+  // because a newer customer message needs review first.
+  function effectiveStrip(ticket) {
+    const live = discarded ? "" : strip;
+    if (live) return { text: live, readonly: false, note: "" };
+    const fallback = !discarded && ticket?.readonlyDraft && !ticket?.draftSuperseded
+      ? String(ticket.readonlyDraft)
+      : "";
+    if (!fallback) return { text: "", readonly: false, note: "" };
+    // Task 3: the raw export stamp (microsecond ISO) stays out of the UI —
+    // the operator gets the same short date the rest of the inbox uses.
+    const at = ticket.draftSourceMessageAt ? formatWhen(ticket.draftSourceMessageAt) : "";
+    const source = ticket.draftSourceMessageId && at
+      ? `Source message: ${ticket.draftSourceMessageId} · ${at}`
+      : ticket.draftSourceMessageId
+        ? `Source message: ${ticket.draftSourceMessageId}`
+        : "";
+    const note = [source, ticket.draftReason || ""].filter(Boolean).join(" — ");
+    return { text: fallback, readonly: true, note };
+  }
+
+  // Task 2: the banner's Refresh re-reads everything without touching the
+  // operator's reply — no resetUiState, so body/strip/summarize survive.
+  async function refreshHistory() {
+    await refreshList();
+    ensureSelection();
+    syncUrl({ push: false });
+    await refreshThread();
+    await refreshRail();
+    await refreshComposer();
+    await refreshMacros(macroQuery);
+    afterUi();
+    return snapshot();
+  }
+
   function composerInput(ticket) {
     return {
       capabilities,
       ticket: withRecipient(ticket, toEmail),
-      draft: discarded ? "" : strip,
+      draft: effectiveStrip(ticket).text,
       summarize: summarizeText,
       macros,
       body,
-      strip: discarded ? "" : strip,
+      strip: effectiveStrip(ticket).text,
+      stripReadonly: effectiveStrip(ticket).readonly,
+      stripNote: effectiveStrip(ticket).note,
       query: macroQuery,
       selectedMacroId,
       searchOpen: macrosOpen,
@@ -1757,7 +1829,8 @@ export function createInboxOrgan(opts = {}) {
     return {
       tickets: sortedVisibleTickets().map((ticket) => ({...ticket, derivedTitle: derivedTitle(ticket)})),
       error: listError,
-      notice: projectionNotice,
+      notice: projectionNotice.text,
+      noticeRefresh: projectionNotice.showRefresh,
       pagination,
       selectedTicketId: selectedId,
       views: availableViews,
@@ -1858,18 +1931,14 @@ export function createInboxOrgan(opts = {}) {
     const tags = Array.isArray(ticket.tags)
       ? ticket.tags.filter((tag) => typeof tag === "string" && tag.trim()).slice(0, 12)
       : [];
-    // The stale flag rides the shop's projection for observed rows; a
-    // per-ticket snapshot may carry its own. Either observed source counts.
-    const stale = Boolean(ticket.projection?.stale || (ticket.projectionSource && shop.projection?.stale));
     // The collapsed peek names the observed status so the closed strip stays
     // useful; without one it falls back to the ticket id.
     const peek = status || known(ticket.id) || "Details";
-    return `<section class="rail-card ticket-details" data-ticket-details data-tissue="ticket-details" data-open="${open ? "true" : "false"}"${stale ? ' data-stale="true"' : ""}>
+    return `<section class="rail-card ticket-details" data-ticket-details data-tissue="ticket-details" data-open="${open ? "true" : "false"}">
       <button type="button" class="rail-toggle" data-toggle="ticket-details" aria-expanded="${open ? "true" : "false"}" title="Show or hide Ticket details">
         <h2>Ticket details</h2><span class="peek">${esc(peek)}</span>
       </button>
       <div class="rail-body"${open ? "" : " hidden"}>
-        ${stale ? '<p class="ticket-detail-stale" role="status">Stale snapshot; details may be outdated.</p>' : ""}
         <dl class="ticket-detail-fields">
           ${row("Ticket ID", known(ticket.id))}
           ${row("Channel", channel)}
@@ -2005,10 +2074,21 @@ export function createInboxOrgan(opts = {}) {
   // field, only observed identity (AGENTS.md §2(6)).
   function observedCustomerCardHtml(ticket) {
     const context = ticket?.customerContext;
-    const unknown = (label) => `<span class="ticket-detail-unknown" data-detail-unknown="${esc(label)}">Unknown</span>`;
-    const row = (label, value) => `<dt>${esc(label)}</dt><dd>${typeof value === "string" && value.trim() ? esc(value) : unknown(label)}</dd>`;
     const identity = context?.source === "canonical_webhook" && !context.conflict && context.status === "observed" ? (context.identity || {}) : {};
-    const rows = `${row("Name", identity.name)}${row("Email", identity.email)}${row("Phone", identity.phone)}${row("Gorgias customer ID", identity.id)}`;
+    // Task 3: three "Unknown" rows are noise. Observed values keep their
+    // rows; the rest collapse into one explicit line — still named, never
+    // blank, never invented (#47). A conflicted identity skips the line: the
+    // conflict copy above already explains why nothing renders as fact.
+    const fields = [["Name", identity.name], ["Email", identity.email], ["Phone", identity.phone], ["Gorgias customer ID", identity.id]];
+    const isKnown = (value) => typeof value === "string" && value.trim();
+    const rows = fields
+      .filter(([, value]) => isKnown(value))
+      .map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`)
+      .join("");
+    const missing = fields.filter(([, value]) => !isKnown(value)).map(([label]) => label);
+    const missingLine = !context?.conflict && missing.length
+      ? `<p class="customer-missing">Not observed: ${esc(missing.join(", "))}.</p>`
+      : "";
     // The same-address history strip: other observed tickets from this
     // address, read-only. The whole loaded snapshot holds them (a closed
     // ticket still counts while the operator is in Open); nothing is
@@ -2031,11 +2111,12 @@ export function createInboxOrgan(opts = {}) {
       <dl class="ticket-detail-fields">
         ${rows}
       </dl>
+      ${missingLine}
       ${context?.conflict
         ? `<p class="customer-conflict">Conflicting customer details were observed; identity needs review.</p>`
         : ""}
       <p class="customer-source">${context
-        ? `Source: observed Gorgias webhook${context.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. ${ticket.projection?.stale || shop.projection?.stale ? "Snapshot is stale." : "This is a snapshot, not a live customer lookup."}`
+        ? `Source: observed Gorgias webhook${context.observedAt ? ` · ${esc(formatWhen(context.observedAt))}` : ""}. This is a snapshot, not a live customer lookup.`
         : "Customer identity was not included in the observed history."}</p>
       ${history}
     </section>`;
@@ -2158,6 +2239,9 @@ export function createInboxOrgan(opts = {}) {
       railCollapsed = Boolean(collapsed);
       persistCollapseState("rail");
       paint();
+    });
+    mailbox.subscribe(MAILBOX_TOPICS.HISTORY_REFRESH, () => {
+      refreshHistory();
     });
     mailbox.subscribe(MAILBOX_TOPICS.VIEW_SELECTED, ({ viewId: next }) => {
       viewId = next;
@@ -2505,6 +2589,9 @@ export function createInboxOrgan(opts = {}) {
     selectStatus(next) { return pickFacetAndRefresh("status", normalizeStatus(next)); },
     selectAssignee(next) { return pickFacetAndRefresh("assignee", normalizeAssignee(next)); },
     selectTag(next) { return pickFacetAndRefresh("tag", normalizeTag(next)); },
+    // Task 2: the freshness banner's Refresh. Re-reads without clearing the
+    // operator's reply, selection, or view.
+    refreshHistory() { return refreshHistory(); },
     // #36: the builder's committed state. Rows for fields the operator
     // touched replace that field's conditions; untouched fields keep theirs.
     setFilterConditions(next, {match} = {}) {
@@ -2600,7 +2687,7 @@ export function createInboxOrgan(opts = {}) {
       return afterUi();
     },
     insertDraft() {
-      const text = discarded ? "" : strip;
+      const text = effectiveStrip(selectedTicket()).text;
       if (text) body = body ? `${body}\n\n${text}` : text;
       strip = "";
       discarded = true;
