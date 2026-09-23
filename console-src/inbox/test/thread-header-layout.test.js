@@ -25,14 +25,34 @@ if (chrome) {
   }
 }
 
-// The header's chips, selects and buttons share one 28px control height:
-// the id/status badges stretch to it, the detail selects fix to it, and the
+// The header's lines, selects and buttons share one 28px control height:
+// the id/status lines stretch to it, the detail selects fix to it, and the
 // hairline/quiet buttons drop their vertical padding so min-height rules.
 // (Runs on the stylesheet text, so it holds without a local Chrome.)
 test("thread header controls share one height", () => {
-  assert.match(css, /\.thread-head-actions > \.ticket-id-badge,\s*\.thread-head-actions > \.status-badge\s*\{[^}]*min-height:\s*28px/, "the id/status chips stretch to the shared height");
+  assert.match(css, /\.thread-head-actions > \.ticket-id-badge,\s*\.thread-head-actions > \.status-line\s*\{[^}]*min-height:\s*28px/, "the id/status lines stretch to the shared height");
   assert.match(css, /\.thread-head-actions \.detail-field select\s*\{[^}]*height:\s*28px/, "the detail selects fix to the shared height");
   assert.match(css, /\.thread-head-actions > \.btn-hairline,\s*\.thread-head-actions \.btn-quiet\s*\{[^}]*padding-bottom:\s*0/, "the header buttons drop vertical padding so min-height rules");
+});
+test("the thread pane docks with a pinned composer on narrow screens", () => {
+  // Task 6: under 780px the thread sticks to the scroll container top at
+  // full height — thread-scroll scrolls inside, composer pinned at bottom.
+  assert.match(css, /@media \(max-width: 780px\)[\s\S]*?\.pane-thread\s*\{[^}]*position:\s*sticky[^}]*height:\s*100%/);
+});
+test("thread title and selected row carry the hierarchy", () => {
+  // Task 5: 22px title over 14px body clears the 1.5x level step; the open
+  // ticket names itself in semibold on a deeper wash so unread rows don't
+  // out-shout it.
+  assert.match(css, /\.thread-head h2\s*\{[^}]*font-size:\s*22px/, "the thread title clears the level step");
+  assert.match(css, /\.ticket-row\.is-selected\s*\{[^}]*14%/, "the selected wash reads at a glance");
+  assert.match(css, /\.ticket-row\.is-selected \.ticket-name\s*\{[^}]*font-weight:\s*600/, "the open ticket names itself");
+});
+test("status readouts are dot + word, never pills", () => {
+  assert.doesNotMatch(css, /\.status-badge\s*\{/, "no pill badge class remains in the stylesheet");
+  assert.match(css, /\.status-line\s*\{[^}]*gap:\s*5px/, "the readout line carries its dot");
+  assert.match(css, /\.status-dot\.is-open\s*\{[^}]*background:\s*var\(--accent\)/, "open reads as attention");
+  assert.match(css, /\.status-dot\.is-urgent\s*\{[^}]*background:\s*var\(--red\)/, "urgent reads as red");
+  assert.doesNotMatch(css, /\.ticket-id-badge\s*\{[^}]*border:/, "the ticket id is plain text, never a pill");
 });
 // The real header's action set: id badge, copy link, status, the #61 detail
 // controls, prev/next. Rendered in a container narrower than its intrinsic
@@ -55,7 +75,7 @@ test("thread actions wrap instead of collapsing the ticket title", async (t) => 
         <div class="thread-head-actions">
           <span class="ticket-id-badge">gorgias:61003</span>
           <button class="btn-hairline">Copy link</button>
-          <span class="status-badge">Status unknown</span>
+          <span class="status-line"><span class="status-dot is-unknown" aria-hidden="true"></span>Status unknown</span>
           <div class="thread-detail-controls">
             ${["Status", "Priority", "Assignee"].map((label) => `<label class="detail-field"><span class="detail-label">${label}</span><select><option>Observed</option><option>Open</option></select></label>`).join("")}
           </div>

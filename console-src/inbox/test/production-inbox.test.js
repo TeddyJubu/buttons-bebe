@@ -438,7 +438,7 @@ test('no gorgias priority means no badge and no invented value',async()=>{
 test('thread header shows gorgias priority without touching AI priority',async()=>{
  const withGorgias=[{...tagTickets[0],gorgiasPriority:'urgent',severity:'normal',tags:[]}];
  const result=await createInboxOrgan({shop:channelShop(withGorgias)}).ready();
- assert.match(result.html,/status-badge" title="Gorgias priority">urgent<\/span>/);
+  assert.match(result.html,/status-line" title="Gorgias priority"><span class="status-dot is-urgent" aria-hidden="true"><\/span>urgent<\/span>/);
  assert.doesNotMatch(result.html,/ticket-severity/);
 });
 test('spam trashed and snoozed tickets badge but are never hidden',async()=>{
@@ -448,9 +448,9 @@ test('spam trashed and snoozed tickets badge but are never hidden',async()=>{
  assert.match(result.html,/ticket-gorgias-trashed" title="Trashed in Gorgias">Trashed<\/span>/);
  assert.match(result.html,/ticket-gorgias-snoozed" title="Snoozed in Gorgias">Snoozed<\/span>/);
  assert.match(result.html,/data-ticket="t-vip"/);
- assert.match(result.html,/status-badge" title="Marked as spam in Gorgias">Spam<\/span>/);
- assert.match(result.html,/status-badge" title="Trashed in Gorgias">Trashed<\/span>/);
- assert.match(result.html,/status-badge" title="Snoozed in Gorgias">Snoozed<\/span>/);
+  assert.match(result.html,/status-line" title="Marked as spam in Gorgias">[\s\S]*?Spam<\/span>/);
+  assert.match(result.html,/status-line" title="Trashed in Gorgias">[\s\S]*?Trashed<\/span>/);
+  assert.match(result.html,/status-line" title="Snoozed in Gorgias"><span class="status-dot is-snoozed" aria-hidden="true"><\/span>Snoozed<\/span>/);
 });
 test('flagged tickets stay visible under a matching channel filter',async()=>{
  const flagged=[{...tagTickets[0],gorgiasSpam:true,gorgiasTrashed:false,gorgiasSnoozed:true}];

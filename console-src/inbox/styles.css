@@ -420,13 +420,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   width: 3px;
   background: var(--accent);
 }
-/* Pale accent wash + narrow accent edge on the selected ticket. */
+/* Pale accent wash + narrow accent edge on the selected ticket — deep enough
+   to read at a glance next to unread-bold rows (Task 5). */
 .ticket-row.is-selected {
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   box-shadow: none;
 }
 .ticket-row.is-selected:hover {
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
 }
 .ticket-row.is-selected .ticket-bar {
   display: block;
@@ -436,8 +437,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .ticket-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px; }
 .ticket-name { font-weight: 400; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-row.is-unread:not(.is-selected) .ticket-name { font-weight: 600; }
-.ticket-row.is-selected .ticket-name,
-.ticket-row:not(.is-unread) .ticket-name { font-weight: 400; }
+/* The open ticket names itself too — unread shouts, selected answers (Task 5). */
+.ticket-row.is-selected .ticket-name { font-weight: 600; }
+.ticket-row:not(.is-unread):not(.is-selected) .ticket-name { font-weight: 400; }
 /* #34: the unread dot is the visible distinction beyond weight (Gorgias
  * parity). Absolutely positioned like .ticket-bar so it never shifts layout;
  * pushed 2px below the bar slot so both states stay legible. */
@@ -480,7 +482,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   border-bottom: 1px solid var(--line);
 }
 .thread-head > div:first-child { min-width: 0; }
-.thread-head h2 { overflow-wrap: anywhere; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
+.thread-head h2 { overflow-wrap: anywhere; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
 .thread-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; max-width: 100%; }
 .thread-subject { overflow-wrap: anywhere; color: var(--mute); font-size: 13px; margin-top: 2px; }
 /* #41: inline rename — pencil-like quiet affordance, in-place input. */
@@ -504,15 +506,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .thread-request-subtype,
 .thread-request-handled { font-size: 12px; }
-.status-badge {
+/* Task 4: status readouts are plain text with a dot, never pills — pills
+   read as buttons. The word carries the meaning; the dot is decoration
+   only (aria-hidden), so it has no contrast requirement. */
+.status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: .02em;
   color: var(--mute);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 3px 7px;
 }
+.status-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--mute);
+}
+.status-dot.is-open { background: var(--accent); }
+.status-dot.is-urgent { background: var(--red); }
+.status-dot.is-snoozed, .status-dot.is-warn { background: var(--warn); }
+.status-dot.is-unknown { background: transparent; border: 1.5px solid var(--mute); box-sizing: border-box; }
 /* #44: first-party ticket-detail controls — browser store, never Gorgias. */
 .thread-detail-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .detail-field { display: flex; align-items: center; gap: 4px; margin: 0; }
@@ -562,20 +578,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   cursor: pointer;
 }
 .detail-nav { display: flex; align-items: center; gap: 4px; }
-/* #42: the unique ticket id, always visible beside the status. */
+/* #42: the unique ticket id, always visible beside the status — plain
+   muted mono, never a pill. */
 .ticket-id-badge {
   font-size: 11px;
   font-family: var(--mono);
   color: var(--mute);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 3px 7px;
 }
-/* Thread header controls share one 28px height: the id/status chips, the
+/* Thread header controls share one 28px height: the id/status lines, the
    detail selects and the hairline/quiet buttons align instead of each sizing
    from its own font and padding. Fonts and side padding stay untouched. */
 .thread-head-actions > .ticket-id-badge,
-.thread-head-actions > .status-badge {
+.thread-head-actions > .status-line {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -1063,6 +1077,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .pane-list { height: 240px; }
   .pane-thread { min-height: 520px; }
   .pane-rail { min-height: 160px; }
+  /* Task 6: the thread pane docks at the top of the scrolling column on
+     narrow screens — the conversation scrolls inside it and the composer
+     stays pinned at its bottom, exactly like desktop. Scrolling past
+     releases the dock so the rail below stays reachable. The AI strip caps
+     instead of hogging the pane, so Send never slides below the fold. */
+  .pane-thread { position: sticky; top: 0; height: 100%; }
+  .pane-thread .draft-strip { max-height: 24dvh; overflow-y: auto; }
   .pane-list.is-collapsed, .pane-rail.is-collapsed { width: 100%; max-width: none; min-width: 0; height: 40px; min-height: 40px; flex-basis: 40px; }
   .pane-list.is-collapsed .list-expand-btn, .pane-rail.is-collapsed .rail-expand-btn { writing-mode: horizontal-tb; }
   /* The 120px vertical-strip affordance clips inside a 40px row — both

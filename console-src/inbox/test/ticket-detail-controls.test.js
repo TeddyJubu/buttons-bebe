@@ -174,9 +174,9 @@ test("the observed Gorgias status stays visible beside a local override", async 
   await organ.setTicketState("gorgias:1", {status: "closed"});
   const snap = organ.snapshot();
   // The observed badge names Gorgias, not the local pick.
-  const badge = snap.html.match(/<span class="status-badge" title="Ticket status">([^<]*)<\/span>/);
-  assert.ok(badge, "the observed status badge renders");
-  assert.equal(badge[1], "Open", "the badge shows the observed Gorgias status");
+  const badge = snap.html.match(/<span class="status-line" title="Ticket status"><span class="status-dot[^>]*><\/span>([^<]*)<\/span>/);
+  assert.ok(badge, "the observed status readout renders");
+  assert.equal(badge[1], "Open", "the readout shows the observed Gorgias status");
 });
 
 test("the priority picker starts from the observed Gorgias priority", async () => {
