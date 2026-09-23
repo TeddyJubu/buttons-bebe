@@ -156,6 +156,12 @@ export function createThreadTissue({ mailbox }) {
       items.push({ at, html: renderStatus({ at, status: ticket.status, note: "escalated" }) });
     }
     items.sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+    if (!items.length) {
+      // An empty timeline (e.g. a projection ticket whose messages never
+      // arrived) must say so — otherwise .thread-scroll collapses to the
+      // history notice and the pane reads as a sliver.
+      return `<p class="thread-empty" role="status">No messages in this snapshot yet.</p>`;
+    }
     return items.map((item) => item.html).join("");
   }
 

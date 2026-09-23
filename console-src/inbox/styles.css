@@ -1066,6 +1066,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 /* The freshness banner's Refresh sits inline in 12px mute copy. */
 .history-notice .history-refresh { margin-left: 8px; padding: 2px 10px; font-size: 12px; }
 .thread-scroll > .history-notice { padding: 0 0 10px; margin-bottom: 14px; }
+.thread-empty { color: var(--mute); font-size: 13px; padding: 24px 20px; text-align: center; }
 .composer-to { overflow-wrap: anywhere; }
 @media (max-width: 1100px) {
   .pane-list { flex-basis: 220px; width: 220px; min-width: 0; }

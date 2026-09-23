@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import test from "node:test";
+import { createThreadTissue } from "../js/tissues/thread.js";
+import { createMailbox } from "../js/mailbox.js";
 
 const browsers = [
   process.env.INBOX_TEST_BROWSER,
@@ -109,4 +111,37 @@ test("thread actions wrap instead of collapsing the ticket title", async (t) => 
   assert.ok(layout.actionsTop >= layout.titleBottom, "actions did not wrap below the title");
   assert.ok(layout.actionsRight <= layout.headerWidth + 1, "actions overflowed the thread header");
   assert.equal(layout.headerScrollWidth, layout.headerWidth, "header overflowed horizontally");
+});
+
+// The thread tissue renders inside [data-slot="thread"], which the shell
+// grows with flex:1; .thread-inner fills it via height:100% and
+// .thread-scroll takes the leftover. A production ticket whose messages
+// never arrived therefore shows the notice plus the empty state in a
+// full-height region, never a sliver.
+test("the thread slot child fills the pane so an empty timeline never collapses", () => {
+  assert.match(css, /\.pane-thread > \[data-slot="thread"\][\s\S]*?\{[^}]*flex:\s*1/, "the slot grows into the freed pane space");
+  assert.match(css, /\.thread-empty\s*\{[^}]*text-align:\s*center/, "the empty timeline reads as an intentional state");
+});
+test("an empty timeline says so instead of rendering a sliver", () => {
+  const tissue = createThreadTissue({ mailbox: createMailbox() });
+  const html = tissue.render({
+    ticket: {
+      id: "gorgias:281635661",
+      subject: "Re: Dress size 4",
+      customerName: "Avigail Zagelbaum",
+      status: "open",
+      messages: [],
+      statusEvents: [],
+      projectionSource: true,
+      updatedAt: "2026-09-15T10:24:15Z",
+    },
+    capabilities: {},
+    title: "Re: Dress size 4",
+    nav: { position: 0, total: 1, hasPrev: false, hasNext: false },
+    operatorEmail: "",
+    ticketState: null,
+  });
+  assert.match(html, /Partial webhook history/, "the incompleteness note stays");
+  assert.match(html, /<p class="thread-empty" role="status">No messages in this snapshot yet\.<\/p>/, "the empty timeline names itself");
+  assert.doesNotMatch(html, /<article class="bubble/, "no message bubbles are invented");
 });
