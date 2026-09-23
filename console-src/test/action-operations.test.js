@@ -51,6 +51,11 @@ test('overview and notification deep links route into the embedded inbox',()=>{
  assert.equal(context.tab,'tickets');
  context.goTickets('all','gorgias:42');
  assert.equal(context.inboxNavTicket,'gorgias:42');
+ // ponytail: regression for the message-id/value mix-up — keyOf must hand
+ // goTickets the Gorgias ticket_id, never the message_id.
+ const keyOf=vm.runInContext('const keyOf=t=>String(t.ticket_id??t.message_id??"");keyOf;',vm.createContext({}));
+ assert.equal(keyOf({ticket_id:7,message_id:'customer-message-9'}),'7');
+ assert.equal(keyOf({message_id:'customer-message-9'}),'customer-message-9');
  context.goTickets('failed',null);
  assert.equal(context.inboxNavView,'all');
  context.goTickets('escalated',null);

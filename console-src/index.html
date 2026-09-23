@@ -540,7 +540,9 @@ const IC={
 const esc=s=>(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nameOf=t=>{const e=t.customer_email||"";return e?e.split("@")[0].replace(/[._]/g," ").replace(/\b\w/g,c=>c.toUpperCase()):"Customer";};
 const isEsc=t=>{const a=(t.action||"").toLowerCase(),p=(t.priority||"").toUpperCase();return a.includes("escal")||p==="IMMEDIATE"||p==="CRITICAL"||p==="HIGH";};
-const keyOf=t=>String(t.message_id??t.ticket_id??"");
+// ponytail: the inbox keys rows gorgias:{ticket_id}; message ids differ
+// (UNIQUE(ticket_id, message_id)), so deep links use the ticket id.
+const keyOf=t=>String(t.ticket_id??t.message_id??"");
 const ago=t=>{const d=t.processed_at||t.created_at;if(!d)return"";const s=(Date.now()-new Date(d).getTime())/1000;if(s<60)return"just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return Math.floor(s/86400)+"d ago";};
 const digits=v=>{const a=String(v).split("");return `<span class="t-digit-group is-animating">${a.map((ch,i)=>`<span class="t-digit"${i===a.length-2?' data-stagger="1"':(i===a.length-1?' data-stagger="2"':'')}>${esc(ch)}</span>`).join("")}</span>`;};
 const freshText=()=>lastUpdated?"Updated "+lastUpdated.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Updating…";
@@ -904,7 +906,7 @@ async function openDashboardNotification(index){
  if(!notification.read)await markNotificationsRead([notification.id]);
  const freshTickets=await jget(API+"/tickets?limit=100");
  if(Array.isArray(freshTickets))tickets=freshTickets;
- goTickets(notification.filter||"all",notification.message_id);
+ goTickets(notification.filter||"all",notification.ticket_id??notification.message_id);
 }
 async function saveWa(){
  captureWaForm();waMsg="Saving…";render();

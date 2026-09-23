@@ -22,7 +22,7 @@
 
 ## D. Ticket-feature parity: legacy console features that must survive in embedded inbox
 Audit each legacy feature -> inbox equivalent or port:
-- [x] D1. Filters: all/draft/escalated/failed/queue + risk:* -> inbox views/facets/builder (map each; failed+queue have NO inbox equivalent — decide: job_status only exists in dashboard DB. Port as?? or drop with justification)
+- [x] D1. Filters: dashboard-only filters (failed/queue/draft/escalated/risk:*) fall back to All with the selected ticket preserved (inboxDeepFilter); job_status stays dashboard-only by design.
 - [x] D2. Quoted-history strip + Show full email toggle (cleanMessage/actShowRaw) — inbox thread: check strip behavior
 - [x] D3. Sensitive banner + [SENSITIVE] marker handling (cleanDraft/isEsc warn) — inbox composer is-sensitive kicker exists; verify escalate path
 - [x] D4. Owner-alert uncertain banner — inbox: MISSING? verify
