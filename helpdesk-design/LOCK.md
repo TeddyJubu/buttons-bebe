@@ -8,6 +8,8 @@ Selected list row is a **narrow accent edge** (`3–4px` `#B5471D`) plus a
 wash. No ink-only bar. IBM Plex.
 List row time is relative (`2h`, `Yesterday`). Absolute stays in the
 thread message header and the list tooltip.
+Ticket details starts toggled off (collapsed, peeking the observed status);
+the operator opens it per ticket and a context switch collapses it again.
 Unread is session-local (no Shopify field): unread names bold; selecting
 a ticket marks it read. Omit repeating **Open** in open queues; keep
 Closed / Snoozed. Privacy / Unsubscribe / Bug / severity are small mute

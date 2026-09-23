@@ -1039,6 +1039,10 @@ export function createInboxOrgan(opts = {}) {
   const collapseSeed = loadCollapseState();
   let listCollapsed = collapseSeed.list;
   let railCollapsed = collapseSeed.rail;
+  // The rail's Ticket details card starts toggled off — the vague unknowns
+  // stay one click away instead of leading the rail. Session-local like the
+  // other rail toggles; reset on context switch in resetUiState.
+  let ticketDetailsOpen = false;
   // #34: first-seen ids start unread unless the persisted read store already
   // marks them read. Fixtures seed unread exactly like before; the observed
   // path learns ids from the snapshot itself.
@@ -1192,6 +1196,8 @@ export function createInboxOrgan(opts = {}) {
     discarded = false;
     selectedMacroId = "";
     macrosOpen = false;
+    // A new context reverts to the default: ticket details toggled off.
+    ticketDetailsOpen = false;
     // #39: view/filter changes clear the multi-select — ids may no longer be
     // visible, so a stale selection would act on hidden rows.
     clearBulk();
@@ -1816,8 +1822,13 @@ export function createInboxOrgan(opts = {}) {
   // observed snapshot or first-party values render; anything the snapshot does
   // not carry is an explicit unknown, never invented (AGENTS.md §2). Tags are
   // read-only chips — the tag write question is the ticket-controls issue's.
+  // The card starts toggled off (ticketDetailsOpen): the header peeks the
+  // observed status and the vague rows stay one click away. The toggle is
+  // organ-owned — the rail tissue only injects this HTML, so the rail's own
+  // data-toggle handler must let ticket-details clicks bubble to the organ.
   function ticketDetailsHtml(ticket) {
     if (!ticket) return "";
+    const open = ticketDetailsOpen;
     const known = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
     const unknown = (label) => `<span class="ticket-detail-unknown" data-detail-unknown="${esc(label)}">Unknown</span>`;
     // cubic P1: escape at this boundary — observed statuses/priorities are
@@ -1850,23 +1861,31 @@ export function createInboxOrgan(opts = {}) {
     // The stale flag rides the shop's projection for observed rows; a
     // per-ticket snapshot may carry its own. Either observed source counts.
     const stale = Boolean(ticket.projection?.stale || (ticket.projectionSource && shop.projection?.stale));
-    return `<section class="rail-card ticket-details" data-ticket-details${stale ? ' data-stale="true"' : ""}>
-      <h2>Ticket details${stale ? ' <span class="ticket-detail-stale" role="status">Stale snapshot; details may be outdated.</span>' : ""}</h2>
-      <dl class="ticket-detail-fields">
-        ${row("Ticket ID", known(ticket.id))}
-        ${row("Channel", channel)}
-        ${row("Status", known(status))}
-        ${row("Priority", known(priority))}
-        ${row("Assignee", assignee)}
-        ${row("Contact reason", reason)}
-        ${row("Product", product)}
-        ${row("Resolution", resolution)}
-        ${row("Created", known(formatWhen(ticket.createdAt)))}
-        ${row("Updated", known(formatWhen(ticket.updatedAt)))}
-      </dl>
-      <div class="ticket-detail-tags">
-        <dt>Tags</dt>
-        <dd>${tags.length ? tags.map((tag) => `<span class="ticket-detail-tag">${esc(tag)}</span>`).join("") : unknown("Tags")}</dd>
+    // The collapsed peek names the observed status so the closed strip stays
+    // useful; without one it falls back to the ticket id.
+    const peek = status || known(ticket.id) || "Details";
+    return `<section class="rail-card ticket-details" data-ticket-details data-tissue="ticket-details" data-open="${open ? "true" : "false"}"${stale ? ' data-stale="true"' : ""}>
+      <button type="button" class="rail-toggle" data-toggle="ticket-details" aria-expanded="${open ? "true" : "false"}" title="Show or hide Ticket details">
+        <h2>Ticket details</h2><span class="peek">${esc(peek)}</span>
+      </button>
+      <div class="rail-body"${open ? "" : " hidden"}>
+        ${stale ? '<p class="ticket-detail-stale" role="status">Stale snapshot; details may be outdated.</p>' : ""}
+        <dl class="ticket-detail-fields">
+          ${row("Ticket ID", known(ticket.id))}
+          ${row("Channel", channel)}
+          ${row("Status", known(status))}
+          ${row("Priority", known(priority))}
+          ${row("Assignee", assignee)}
+          ${row("Contact reason", reason)}
+          ${row("Product", product)}
+          ${row("Resolution", resolution)}
+          ${row("Created", known(formatWhen(ticket.createdAt)))}
+          ${row("Updated", known(formatWhen(ticket.updatedAt)))}
+        </dl>
+        <div class="ticket-detail-tags">
+          <dt>Tags</dt>
+          <dd>${tags.length ? tags.map((tag) => `<span class="ticket-detail-tag">${esc(tag)}</span>`).join("") : unknown("Tags")}</dd>
+        </div>
       </div>
     </section>`;
   }
@@ -1914,6 +1933,7 @@ export function createInboxOrgan(opts = {}) {
       panes: { views: false, list: true, thread: true, rail: true },
       listCollapsed,
       railCollapsed,
+      ticketDetailsOpen,
       viewId,
       channelId: channelId(),
       statusId: statusId(),
@@ -2365,6 +2385,14 @@ export function createInboxOrgan(opts = {}) {
         paint();
         return;
       }
+      // The ticket-details toggle is organ-owned: the rail tissue only
+      // injects the card's HTML (and skips the key in its own handler), so
+      // this click flips the organ flag and repaints every rail path.
+      if (event.target.closest('[data-toggle="ticket-details"]')) {
+        ticketDetailsOpen = !ticketDetailsOpen;
+        paint();
+        return;
+      }
       if (event.target.closest("[data-privacy-handled]")) {
         const ticket = selectedTicket();
         mailbox.publish(MAILBOX_TOPICS.PRIVACY_HANDLED, { ticketId: ticket?.id });
@@ -2548,6 +2576,12 @@ export function createInboxOrgan(opts = {}) {
     },
     toggleRail(key) {
       return rail.toggle(key);
+    },
+    // The ticket-details card starts toggled off; the operator opens it per
+    // ticket. Session-local, reset on context switch — never persisted.
+    toggleTicketDetails(open = null) {
+      ticketDetailsOpen = open == null ? !ticketDetailsOpen : Boolean(open);
+      return afterUi();
     },
     setBody(text) {
       body = text;

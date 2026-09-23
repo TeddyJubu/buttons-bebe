@@ -1221,9 +1221,12 @@ mark.ticket-hit {
 .list-filter-wrap .list-filter-menu { left: 0; right: auto; max-width: 100vw; }
 
 /* #45: the rail's ticket-details card — read-only observed fields, explicit
-   unknowns, tag chips without a write control. #47: the customer-details
-   card's heading shares this rule so both rail cards read identically. */
-.ticket-details h2,
+   unknowns, tag chips without a write control. The header is a rail-toggle
+   (the card starts collapsed); the body rides the shared .rail-body padding,
+   so the field/tag blocks below carry no side padding of their own. #47: the
+   customer-details card's heading shares the header rule so both rail cards
+   read identically. */
+.ticket-details .rail-toggle,
 .customer-details h2 {
   margin: 0;
   padding: 10px 12px;
@@ -1231,7 +1234,7 @@ mark.ticket-hit {
 }
 .ticket-detail-stale {
   display: block;
-  margin-top: 4px;
+  margin: 0 0 8px;
   color: var(--warn);
   font-size: 11px;
   font-weight: 400;
@@ -1239,15 +1242,14 @@ mark.ticket-hit {
 .ticket-detail-fields {
   display: grid;
   gap: 6px;
-  margin: 0;
-  padding: 0 12px 12px;
+  margin: 0 0 8px;
+  padding: 0;
   font-size: 12px;
 }
-.ticket-detail-tags { display: grid; gap: 2px; }
+.ticket-detail-tags { display: grid; gap: 2px; margin: 0; padding: 0; }
 .ticket-detail-fields dt { color: var(--mute); font-size: 11px; }
 .ticket-detail-fields dd { margin: 0; overflow-wrap: anywhere; }
 .ticket-detail-unknown { color: var(--mute); font-style: italic; }
-.ticket-detail-tags { padding: 0 12px 12px; }
 .ticket-detail-tags dt { color: var(--mute); font-size: 11px; }
 .ticket-detail-tags dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .ticket-detail-tag {

@@ -217,11 +217,12 @@ test("the history strip is a description list", async () => {
 });
 
 test("the customer card heading styles identically to the ticket-details card", async () => {
-  // cubic: .ticket-details h2 was the only rail-card heading rule; the new
-  // card's h2 fell back to the browser default. Both selectors must share
-  // one rule so the two cards read identically.
+  // cubic: the ticket-details header was the only rail-card heading rule; the
+  // new card's h2 fell back to the browser default. The ticket-details
+  // rail-toggle and the customer h2 must share one rule so the two cards
+  // read identically.
   const css = readFileSync(join(here, "../styles.css"), "utf8");
-  assert.match(css, /\.ticket-details h2,\s*\.customer-details h2\s*\{/, "both rail-card headings share one rule");
+  assert.match(css, /\.ticket-details \.rail-toggle,\s*\.customer-details h2\s*\{/, "both rail-card headings share one rule");
 });
 
 test("no notes or customer-type control renders — they stay out of scope", async () => {

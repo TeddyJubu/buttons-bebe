@@ -269,6 +269,10 @@ export function createRailOrgan({ shop, mailbox }) {
       const toggle = event.target.closest("[data-toggle]");
       if (!toggle) return;
       const key = toggle.dataset.toggle;
+      // ticket-details is organ-owned HTML (inbox.js holds its open state so
+      // every rail path renders it); let the click bubble to the organ's
+      // root handler instead of flipping rail-local state here.
+      if (key === "ticket-details") return;
       const scrollTop = el.querySelector?.(".rail-inner")?.scrollTop || 0;
       open[key] = !open[key];
       el.innerHTML = render();

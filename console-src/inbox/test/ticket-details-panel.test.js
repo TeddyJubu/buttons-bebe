@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createInboxOrgan } from "../js/inbox.js";
+import { tissueOpen, toggleExpanded } from "../js/review-blocks.js";
 import { forbiddenControlHits } from "../js/util.js";
 
 // Issue #45: the ticket-details panel. Gorgias's right-hand rail leads with
 // a "Ticket details" card; ours must show only what the observed snapshot or
 // a first-party record carries (AGENTS.md §2). Values we do not observe
-// render as an explicit unknown — never invented.
+// render as an explicit unknown — never invented. The card starts toggled
+// off and peeks the observed status; the toggle is organ-owned session state.
 const OPERATOR = "operator@example.test";
 
 function observedShop(rows) {
@@ -56,6 +58,40 @@ test("the rail leads with a Ticket details card for an observed ticket", async (
   assert.match(card, /<span class="ticket-detail-tag">vip<\/span>/, "an observed tag chip renders");
   assert.match(card, /Updated/, "the updated row renders");
   assert.deepEqual(forbiddenControlHits(snap.html), [], "no banned control language appears");
+});
+
+test("the ticket-details card starts toggled off and opens on toggle", async () => {
+  // The vague unknowns stay one click away instead of leading the rail: the
+  // card renders closed by default and the strip peeks the observed status.
+  const row = observedRow(1, {channel: "email", draftAction: "refund/request"});
+  const organ = createInboxOrgan({shop: observedShop([row]), storage: freshStorage(), operatorEmail: OPERATOR});
+  let snap = await organ.ready();
+  assert.equal(snap.ticketDetailsOpen, false, "the card starts toggled off");
+  assert.equal(tissueOpen(snap.html, "ticket-details"), false, "data-open is false");
+  assert.equal(toggleExpanded(snap.html, "ticket-details"), false, "aria-expanded is false");
+  const card = snap.html.split('data-ticket-details')[1]?.split("</section>")[0] || "";
+  assert.match(card, /<div class="rail-body" hidden>/, "the vague rows stay hidden until opened");
+  assert.match(card, /<span class="peek">open<\/span>/, "the closed strip peeks the observed status");
+  snap = await organ.toggleTicketDetails();
+  assert.equal(snap.ticketDetailsOpen, true, "the toggle opens the card");
+  assert.equal(tissueOpen(snap.html, "ticket-details"), true, "data-open is true");
+  assert.equal(toggleExpanded(snap.html, "ticket-details"), true, "aria-expanded is true");
+  const opened = snap.html.split('data-ticket-details')[1]?.split("</section>")[0] || "";
+  assert.doesNotMatch(opened, /<div class="rail-body" hidden>/, "the rows render once opened");
+  assert.match(opened, /Contact reason/, "the rows are intact once opened");
+  assert.deepEqual(forbiddenControlHits(snap.html), [], "no banned control language appears");
+});
+
+test("switching tickets resets the card to toggled off", async () => {
+  const rows = [observedRow(1, {channel: "email"}), observedRow(2, {channel: "chat"})];
+  const organ = createInboxOrgan({shop: observedShop(rows), storage: freshStorage(), operatorEmail: OPERATOR});
+  await organ.ready();
+  await organ.toggleTicketDetails();
+  assert.equal(organ.snapshot().ticketDetailsOpen, true, "the card opens");
+  await organ.selectTicket("gorgias:2");
+  const snap = organ.snapshot();
+  assert.equal(snap.ticketDetailsOpen, false, "a new selection reverts to toggled off");
+  assert.equal(tissueOpen(snap.html, "ticket-details"), false, "the new card renders closed");
 });
 
 test("unobserved detail fields render as an explicit unknown, never invented", async () => {
