@@ -330,7 +330,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .rail-toolbar {
   display: flex;
   justify-content: flex-end;
-  padding: 8px 10px 0;
+  padding: 8px 24px 0;
 }
 .rail-empty-next {
   display: flex;
@@ -578,6 +578,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   cursor: pointer;
 }
 .detail-nav { display: flex; align-items: center; gap: 4px; }
+/* Task 7: a disabled Previous/Next stays readable — greyed but legible,
+   never a .42 ghost. The title already names why it is unavailable. */
+.detail-nav .btn-quiet:disabled { opacity: .65; }
 /* #42: the unique ticket id, always visible beside the status — plain
    muted mono, never a pill. */
 .ticket-id-badge {
@@ -915,12 +918,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 }
 .create-sheet .create-field textarea { min-height: 72px; resize: vertical; }
 
-.rail-inner { overflow: auto; padding: 10px; }
+.rail-inner { overflow: auto; padding: 20px 24px; }
 .rail-card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   overflow: hidden;
 }
 .rail-toggle, .rail-sub-toggle, .rail-static {
