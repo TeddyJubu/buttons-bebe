@@ -571,6 +571,32 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   border-radius: var(--radius-sm);
   padding: 3px 7px;
 }
+/* Thread header controls share one 28px height: the id/status chips, the
+   detail selects and the hairline/quiet buttons align instead of each sizing
+   from its own font and padding. Fonts and side padding stay untouched. */
+.thread-head-actions > .ticket-id-badge,
+.thread-head-actions > .status-badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 28px;
+}
+.thread-head-actions > .btn-hairline,
+.thread-head-actions .btn-quiet,
+.thread-head-actions .detail-field select {
+  box-sizing: border-box;
+  min-height: 28px;
+}
+.thread-head-actions > .btn-hairline,
+.thread-head-actions .btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.thread-head-actions .detail-field select {
+  height: 28px;
+}
 .thread-scroll { flex: 1; overflow: auto; padding: 18px 20px 8px; }
 .bubble { max-width: 38rem; margin: 0 0 14px; }
 .bubble-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--mute); font-size: 11px; flex-wrap: wrap; }

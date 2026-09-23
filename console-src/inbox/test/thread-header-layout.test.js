@@ -25,6 +25,15 @@ if (chrome) {
   }
 }
 
+// The header's chips, selects and buttons share one 28px control height:
+// the id/status badges stretch to it, the detail selects fix to it, and the
+// hairline/quiet buttons drop their vertical padding so min-height rules.
+// (Runs on the stylesheet text, so it holds without a local Chrome.)
+test("thread header controls share one height", () => {
+  assert.match(css, /\.thread-head-actions > \.ticket-id-badge,\s*\.thread-head-actions > \.status-badge\s*\{[^}]*min-height:\s*28px/, "the id/status chips stretch to the shared height");
+  assert.match(css, /\.thread-head-actions \.detail-field select\s*\{[^}]*height:\s*28px/, "the detail selects fix to the shared height");
+  assert.match(css, /\.thread-head-actions > \.btn-hairline,\s*\.thread-head-actions \.btn-quiet\s*\{[^}]*padding-bottom:\s*0/, "the header buttons drop vertical padding so min-height rules");
+});
 // The real header's action set: id badge, copy link, status, the #61 detail
 // controls, prev/next. Rendered in a container narrower than its intrinsic
 // width, as the three-pane shell always is — the case that collapsed the
