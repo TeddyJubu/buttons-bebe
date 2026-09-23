@@ -169,6 +169,20 @@ export function createThreadTissue({ mailbox }) {
   const stateOptionLabel = (value) => String(value).charAt(0).toUpperCase() + String(value).slice(1);
   function detailControls(ticket, next) {
     const nav = next.nav || {hasPrev: false, hasNext: false, position: -1, total: 0};
+    // Task 7: a disabled Previous/Next names why — position included — so it
+    // never reads as a mystery greyed button. (Disabled buttons take no
+    // hover, so the reason lives in the title up front.)
+    const navCount = Number.isInteger(nav.total) && nav.total > 0 ? nav.total : 0;
+    const prevTitle = nav.hasPrev
+      ? "Go to the previous ticket in this view"
+      : navCount
+        ? `First of ${navCount} tickets — no previous ticket.`
+        : "No previous ticket.";
+    const nextTitle = nav.hasNext
+      ? "Go to the next ticket in this view"
+      : navCount
+        ? `Last of ${navCount} tickets — no next ticket.`
+        : "No next ticket.";
     const overridden = ticket.localOverrides || {};
     const stamp = (field) => overridden[field]
       ? ` title="Console-only override set by ${esc(next.operatorEmail || "the operator")}. The observed value never changes."`
@@ -233,8 +247,8 @@ export function createThreadTissue({ mailbox }) {
             </span>
           </span>
           <span class="detail-nav">
-            <button type="button" class="btn-quiet" data-ticket-prev ${nav.hasPrev ? "" : "disabled"} title="Go to the previous ticket in this view">Previous</button>
-            <button type="button" class="btn-quiet" data-ticket-next ${nav.hasNext ? "" : "disabled"} title="Go to the next ticket in this view">Next</button>
+            <button type="button" class="btn-quiet" data-ticket-prev ${nav.hasPrev ? "" : "disabled"} title="${esc(prevTitle)}">Previous</button>
+            <button type="button" class="btn-quiet" data-ticket-next ${nav.hasNext ? "" : "disabled"} title="${esc(nextTitle)}">Next</button>
           </span>
         </div>`;
   }

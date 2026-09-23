@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createInboxOrgan } from "../js/inbox.js";
 import { forbiddenControlHits } from "../js/util.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 // Issue #44: ticket-detail controls. The thread header gains first-party
 // controls — status, priority, assignee (browser-store state only, never a
@@ -73,11 +78,19 @@ test("the nav buttons render disabled at the list boundaries", async () => {
   await organ.ready();
   let html = organ.snapshot().html;
   assert.match(html, /data-ticket-prev[^>]*disabled/, "previous is disabled on the first ticket");
+  assert.match(html, /title="First of 3 tickets — no previous ticket\."/, "previous names why it is disabled");
   assert.doesNotMatch(html, /data-ticket-next[^>]*disabled/, "next is enabled on the first ticket");
   await organ.selectTicket("gorgias:3");
   html = organ.snapshot().html;
   assert.doesNotMatch(html, /data-ticket-prev[^>]*disabled/, "previous is enabled on the last ticket");
   assert.match(html, /data-ticket-next[^>]*disabled/, "next is disabled on the last ticket");
+  assert.match(html, /title="Last of 3 tickets — no next ticket\."/, "next names why it is disabled");
+});
+
+test("a disabled nav button stays readable", async () => {
+  // Task 7: greyed but legible — the global .42 ghost does not apply here.
+  const css = readFileSync(join(here, "../styles.css"), "utf8");
+  assert.match(css, /\.detail-nav \.btn-quiet:disabled\s*\{[^}]*opacity:\s*\.65/, "nav disabled opacity stays legible");
 });
 
 test("a single-ticket list disables both nav buttons", async () => {
