@@ -8,6 +8,9 @@ const root = document.getElementById("inbox-root");
 const client = createHelpdeskClient();
 const shop = createHelpdeskShop({ client });
 const params = new URLSearchParams(location.search);
+// ponytail: ?embedded=1 is a display flag only — the console owns the nav
+// when the inbox fills the Tickets tab, so the brand bar hides itself.
+if (params.get("embedded") === "1") document.body.dataset.embedded = "1";
 // Unknown ?view= values fall back to the whole observed snapshot; a plain /inbox/
 // landing also defaults to All so every observed row is reachable.
 const requestedView = params.get("view");
@@ -162,6 +165,9 @@ window.addEventListener("message", function (event) {
 
 function buildUrl({ticket, view, q, f}) {
   const next = new URLSearchParams();
+  // ponytail: embedded=1 survives navigation — without it a ticket click
+  // would rewrite the frame URL and un-hide the duplicate brand bar.
+  if (params.get("embedded") === "1") next.set("embedded", "1");
   if (view && view !== "all") next.set("view", view);
   if (ticket) next.set("ticket", ticket);
   if (q) next.set("q", q);
