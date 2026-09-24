@@ -24,6 +24,10 @@ const ICON_SORT = `<svg class="list-tool-icon" width="16" height="16" viewBox="0
   <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M5.25 3.25v9.5M5.25 3.25 3.5 5M5.25 3.25 7 5M10.75 12.75v-9.5M10.75 12.75 9 11M10.75 12.75 12.5 11"/>
 </svg>`;
 
+const ICON_PLUS = `<svg class="list-tool-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M8 3v10M3 8h10"/>
+</svg>`;
+
 const ICON_CLOSE = `<svg class="list-tool-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
   <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M4.25 4.25l7.5 7.5M11.75 4.25l-7.5 7.5"/>
 </svg>`;
@@ -338,7 +342,7 @@ export function createListTissue({ mailbox }) {
           ${renderViewMenu(next)}
         </div>
         <div class="list-tools" role="group" aria-label="List tools">
-          ${next.canCreateTicket !== false ? `<button type="button" class="list-tool-btn" data-create-ticket title="New ticket" aria-label="Create a new ticket in this browser only">New ticket</button>` : ""}
+          ${next.canCreateTicket !== false ? `<button type="button" class="list-tool-btn" data-create-ticket title="New ticket" aria-label="Create a new ticket in this browser only">${ICON_PLUS}</button>` : ""}
           ${facets ? `<div class="list-filter-wrap">
             <button type="button" class="list-tool-btn${filterActive(next) ? " is-active" : ""}" data-list-filter title="Filter" aria-label="Filter" aria-haspopup="listbox" aria-expanded="${ui.filterOpen ? "true" : "false"}" aria-pressed="${ui.filterOpen || filterActive(next) ? "true" : "false"}">${ICON_FILTER}</button>
             ${renderFilterMenu(next)}

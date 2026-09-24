@@ -42,6 +42,8 @@ export function createThreadTissue({ mailbox }) {
   let model = { ticket: null };
   let lightbox = null;
   let renaming = null;
+  // Keep ticket details tucked away until the operator asks for them.
+  let expandedTicketId = null;
   // #44: the three-dot overflow menu's open state. Like the rename editor,
   // a mid-edit repaint keeps it open.
   let menuOpen = false;
@@ -302,23 +304,43 @@ export function createThreadTissue({ mailbox }) {
       : `<p class="thread-subject" data-ticket-title="${esc(next.title)}">${esc(next.title)}
           <button type="button" class="title-edit" data-rename-open data-ticket-id="${esc(ticket.id)}" data-ticket-title="${esc(next.title)}" title="Rename this ticket in your browser only. The Gorgias subject never changes." aria-label="Rename ticket">Rename</button>
         </p>`;
+    const detailsExpanded = expandedTicketId === ticket.id;
+    const detailsId = `thread-details-${String(ticket.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    const summaryStatus = observedTicketStatus(ticket);
+    const summaryPriority = typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim()
+      ? screenStatus(ticket.gorgiasPriority.trim())
+      : "";
+    const summaryFlags = [
+      ticket.gorgiasSpam ? "Spam" : "",
+      ticket.gorgiasTrashed ? "Trashed" : "",
+      ticket.gorgiasSnoozed ? "Snoozed" : "",
+    ].filter(Boolean);
+    const summaryLabel = [summaryStatus, summaryPriority, ...summaryFlags].filter(Boolean).join(" · ");
     return `<div class="pane-inner thread-inner">
       <header class="thread-head">
-        <div>
+        <div class="thread-head-copy">
           <h2>${esc(listCustomerName(ticket))}</h2>
           ${titleLine}
           ${typeLine}
         </div>
-        <div class="thread-head-actions">
-          <span class="ticket-id-badge" data-ticket-id-badge="${esc(ticket.id)}" title="Unique ticket id">${esc(ticket.id)}</span>
-          <button type="button" class="btn-hairline" data-copy-link data-ticket-id="${esc(ticket.id)}" title="Copy a link to this ticket. The link opens this inbox with this ticket selected.">Copy link</button>
-          <span class="status-line" title="Ticket status">${statusDot("status", observedTicketStatus(ticket))}${esc(observedTicketStatus(ticket))}</span>
-          ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-line" title="Gorgias priority">${statusDot("priority", ticket.gorgiasPriority)}${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
-          ${ticket.gorgiasSpam ? `<span class="status-line" title="Marked as spam in Gorgias">${statusDot()}Spam</span>` : ""}
-          ${ticket.gorgiasTrashed ? `<span class="status-line" title="Trashed in Gorgias">${statusDot()}Trashed</span>` : ""}
-          ${ticket.gorgiasSnoozed ? `<span class="status-line" title="Snoozed in Gorgias">${statusDot("status", "snoozed")}Snoozed</span>` : ""}
-          ${escalateControl}
-          ${detailControls(ticket, next)}
+        <button type="button" class="thread-summary-capsule" data-thread-details-toggle data-summary="${esc(summaryLabel)}" aria-expanded="${detailsExpanded ? "true" : "false"}" aria-controls="${detailsId}" aria-label="${detailsExpanded ? "Hide" : "Show"} ticket details: ${esc(summaryLabel)}" title="${detailsExpanded ? "Hide" : "Show"} ticket details">
+          <span class="thread-summary-value">${statusDot("status", summaryStatus)}${esc(summaryStatus)}</span>
+          ${summaryPriority ? `<span class="thread-summary-divider" aria-hidden="true">·</span><span class="thread-summary-value">${statusDot("priority", summaryPriority)}${esc(summaryPriority)}</span>` : ""}
+          ${summaryFlags.map((flag) => `<span class="thread-summary-value">${statusDot(flag === "Snoozed" ? "status" : "", flag === "Snoozed" ? "snoozed" : "")}${esc(flag)}</span>`).join("")}
+          <svg class="thread-summary-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.75 4.5 6 7.75 9.25 4.5"/></svg>
+        </button>
+        <div class="thread-head-details" id="${detailsId}" data-thread-head-details role="group" aria-label="Ticket details"${detailsExpanded ? "" : " hidden"}>
+          <div class="thread-head-actions">
+            <span class="ticket-id-badge" data-ticket-id-badge="${esc(ticket.id)}" title="Unique ticket id">${esc(ticket.id)}</span>
+            <button type="button" class="btn-hairline" data-copy-link data-ticket-id="${esc(ticket.id)}" title="Copy a link to this ticket. The link opens this inbox with this ticket selected.">Copy link</button>
+            <span class="status-line" title="Ticket status">${statusDot("status", observedTicketStatus(ticket))}${esc(observedTicketStatus(ticket))}</span>
+            ${typeof ticket.gorgiasPriority === "string" && ticket.gorgiasPriority.trim() ? `<span class="status-line" title="Gorgias priority">${statusDot("priority", ticket.gorgiasPriority)}${esc(ticket.gorgiasPriority.trim().slice(0, 20))}</span>` : ""}
+            ${ticket.gorgiasSpam ? `<span class="status-line" title="Marked as spam in Gorgias">${statusDot()}Spam</span>` : ""}
+            ${ticket.gorgiasTrashed ? `<span class="status-line" title="Trashed in Gorgias">${statusDot()}Trashed</span>` : ""}
+            ${ticket.gorgiasSnoozed ? `<span class="status-line" title="Snoozed in Gorgias">${statusDot("status", "snoozed")}Snoozed</span>` : ""}
+            ${escalateControl}
+            ${detailControls(ticket, next)}
+          </div>
         </div>
       </header>
       <div class="thread-scroll">${ticket.projectionSource ? `<p class="history-notice" role="status">Partial webhook history; earlier messages may be missing. ${ticket.truncated ? "History or text is truncated." : ""}</p>` : ""}${timeline(ticket)}
@@ -357,6 +379,17 @@ export function createThreadTissue({ mailbox }) {
     host = el;
     paint();
     el.onclick = (event) => {
+      const detailsToggle = event.target.closest?.("[data-thread-details-toggle]");
+      if (detailsToggle) {
+        const expanded = detailsToggle.getAttribute("aria-expanded") !== "true";
+        expandedTicketId = expanded ? model.ticket?.id || null : null;
+        const details = host.querySelector("[data-thread-head-details]");
+        if (details) details.hidden = !expanded;
+        detailsToggle.setAttribute("aria-expanded", String(expanded));
+        detailsToggle.setAttribute("aria-label", `${expanded ? "Hide" : "Show"} ticket details: ${detailsToggle.dataset.summary || ""}`);
+        detailsToggle.title = `${expanded ? "Hide" : "Show"} ticket details`;
+        return;
+      }
       const renameOpen = event.target.closest("[data-rename-open]");
       if (renameOpen) {
         // #41: swap the title line for an inline input. Save on Enter or
