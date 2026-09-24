@@ -5,20 +5,54 @@ PROBE = '''
 import sys,json
 sys.path.insert(0,sys.argv[1])
 from model_tools import get_tool_definitions
-from tools.mcp_tool import discover_mcp_tools,shutdown_mcp_servers,_tool_read_only_hints,_build_utility_schemas
+try:
+ from tools.mcp_tool_discovery import discover_mcp_tools
+ from tools.mcp_tool_lifecycle import shutdown_mcp_servers
+ from tools.mcp_tool_schema import _build_utility_schemas
+ from tools.mcp_tool_scope import _server_key
+ from tools.mcp_tool import _tool_read_only_hints
+except ImportError:
+ from tools.mcp_tool import discover_mcp_tools,shutdown_mcp_servers,_tool_read_only_hints,_build_utility_schemas
+ try:
+  from tools.mcp_tool import _server_key
+ except ImportError:
+  def _server_key(name,scope=None,current=True):
+   return name
+try:
+ from tools.mcp_tool_common import _core
+ _scope=_core._mcp_registry_scope()
+except Exception:
+ _scope=None
+def _norm(value):
+ if isinstance(value,list):
+  return [_norm(item) for item in value]
+ if not isinstance(value,dict):
+  return value
+ out={key:_norm(item) for key,item in value.items() if not (key=='required' and item==[])}
+ if 'properties' in out and isinstance(out['properties'],dict):
+  out['properties']={name:_norm(item) for name,item in out['properties'].items()}
+ if 'parameters' in out:
+  out['parameters']=_norm(out['parameters'])
+ return out
 try:
  groups=json.loads(sys.argv[2])
  discover_mcp_tools()
  raw=get_tool_definitions(enabled_toolsets=groups,quiet_mode=True,skip_tool_search_assembly=True)
- utilities={item['schema']['name']:item['schema'] for group in groups for item in _build_utility_schemas(group)}
+ utilities={item['schema']['name']:_norm(item['schema']) for group in groups for item in _build_utility_schemas(group)}
  names=[item['function']['name'] for item in raw]
  expected_utilities={'mcp__'+group+'__'+name for group in groups for name in ('list_resources','read_resource','list_prompts','get_prompt')}
  if set(utilities)!=expected_utilities or len(names)!=len(set(names)):
   raise ValueError('Unexpected or duplicate utility definitions')
- selected={item['function']['name']:item['function'] for item in raw if item['function']['name'] in utilities}
+ selected={item['function']['name']:_norm(item['function']) for item in raw if item['function']['name'] in utilities}
  if selected!=utilities: raise ValueError('Missing or modified metadata utility')
  schemas={item['function']['name']:item['function']['parameters'] for item in raw if item['function']['name'] not in utilities}
- hints={'mcp__'+group+'__'+name:value is True for group in groups for name,value in _tool_read_only_hints.get(group,{}).items()}
+ hints={}
+ for group in groups:
+  table=_tool_read_only_hints.get(_server_key(group,scope=_scope,current=False),{})
+  if not table:
+   table=_tool_read_only_hints.get(group,{})
+  for name,value in table.items():
+   hints['mcp__'+group+'__'+name]=value is True
  print('QA_METADATA='+json.dumps({'schemas':schemas,'readonly':hints,'metadata_utilities_verified':True},sort_keys=True))
 finally:
  shutdown_mcp_servers()
@@ -39,12 +73,17 @@ def canonical_nullable_schema(node):
     if not isinstance(node, dict):
         return node
     out = dict(node)
-    # Recurse only through schema-valued keywords. Defaults, enum/const values
-    # and extension metadata are instance data, even when they resemble schemas.
-    for key in ('properties', 'patternProperties', '$defs', 'definitions'):
+    if out.get('required') == []:
+        del out['required']
+    # Recurse through schema-valued keywords plus whole-value parameters blocks.
+    # Defaults, enum/const values and extension metadata are instance data,
+    # even when they resemble schemas.
+    if isinstance(out.get('properties'), dict):
+        out['properties'] = {name: canonical_nullable_schema(value) for name, value in out['properties'].items()}
+    for key in ('patternProperties', '$defs', 'definitions'):
         if isinstance(out.get(key), dict):
             out[key] = {name: canonical_nullable_schema(value) for name, value in out[key].items()}
-    for key in ('items', 'additionalProperties', 'anyOf', 'oneOf', 'allOf', 'not'):
+    for key in ('items', 'additionalProperties', 'anyOf', 'oneOf', 'allOf', 'not', 'parameters'):
         if key in out:
             out[key] = canonical_nullable_schema(out[key])
     union = out.get('anyOf')

@@ -82,3 +82,9 @@ output/
 # Generated project explainers
 /PROJECT-EXPLAINER.html
 /PROJECT-EXPLAINER.pdf
+.atlas/
+
+# Local-only Claude tooling (absolute paths, scheduler state)
+.claude/launch.json
+.claude/scheduled_tasks.lock
+console-src/inbox/.claude/

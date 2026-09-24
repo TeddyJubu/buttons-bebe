@@ -20,17 +20,14 @@ const line = f => {
 const fn = f => slice(f, "\n}\n").split("\n}\n")[0] + "\n}\n";
 // ponytail: slices render fns out of index.html like ops-health.test.js; no DOM needed.
 const escSrc = line("const esc=");
-const helpers = ["const nameOf=", "const isEsc=", "const keyOf=", "const ago="].map(line).join("")
-  + [fn("function cleanDraft("), fn("function cleanMessage(")].join("\n");
-const rowSrc = slice("function row(t){", "\nlet actLearn=");
+// ponytail: the legacy ticket row is gone — the tickets tab is an inbox
+// iframe, so XSS pinning moves to the bridge reply text (error strings are
+// the only console-controlled content reaching the iframe).
+const bridgeSrc = slice("function bbSendErrorText(code){", "\nfunction bbSendTicket(");
+const bridgeCtx = {};
+vm.runInNewContext(`${bridgeSrc}\nthis.err=bbSendErrorText;`, bridgeCtx);
 const notifSrc = slice("function waNum(jid){", "\nasync function loadNotifications");
 const cardSrc = slice("function fmtWhen(iso){", "\nfunction noticesView(){");
-
-const rowCtx = {};
-vm.runInNewContext(
-  `${escSrc}\n${helpers}\nlet openTk=null,actDraft="",actInstr="",actEditOpen=false,actMsg="",actBusy=false,actShowRaw=false,actLearn=false;\n${rowSrc}\nthis.row=row;this.setOpen=k=>{openTk=k;};this.setDraft=d=>{actDraft=d;};`,
-  rowCtx,
-);
 const notifCtx = { IC: { check: "✓" }, Date };
 vm.runInNewContext(
   `${escSrc}\n${line("const ago=")}\nlet notificationData=null,notificationError="",notificationMsg="",notificationBusy=false,waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;\n${notifSrc}\nthis.view=notificationsView;this.set=d=>{notificationData=d;};`,
@@ -43,6 +40,8 @@ vm.runInNewContext(
 );
 
 const hostile = '<img src=x onerror=alert(1)>';
+// ponytail: legacy row() is gone with the feed; keep the hostile fixture for
+// the notification/notice tests below, and pin the bridge error strings.
 const ticket = {
   message_id: '1" onmouseover="alert(1)',
   customer_email: `${hostile}@example.com`,
@@ -58,17 +57,12 @@ const ticket = {
 // ponytail: escaped text still contains "onerror=" literally (harmless); only a RAW "<tag"
 // breakout matters. `&lt;img` contains "<img", so use a lookbehind for the "&lt;" prefix.
 const RAW = /(?<!&lt;)<(img|script)|" onmouseover="/;
-test("ticket row escapes hostile fields closed and open", () => {
-  const closed = rowCtx.row(ticket);
-  // Open-row detail renders the *edited* draft into a textarea, not the
-  // ticket's raw draft — stage the hostile text there before rendering.
-  rowCtx.setOpen("1\" onmouseover=\"alert(1)");
-  rowCtx.setDraft(`<script>alert(1)</script> and ${hostile}`);
-  const open = rowCtx.row(ticket);
-  assert.match(closed, /&lt;img/);
-  assert.match(open, /&lt;img/);
-  assert.doesNotMatch(closed, RAW);
-  assert.doesNotMatch(open, RAW);
+test("bridge error strings carry no markup", () => {
+  for (const code of ["draft_changed_refresh_ticket", "recipient_unavailable", "previous_delivery_unresolved", "source_message_not_in_console", "delivery_unconfirmed", "no_such_code"]) {
+    const s = bridgeCtx.err(code);
+    assert.equal(typeof s, "string");
+    assert.doesNotMatch(s, RAW);
+  }
 });
 
 test("notification rows escape hostile title/customer/subject/detail", () => {

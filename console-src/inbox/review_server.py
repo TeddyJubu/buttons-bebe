@@ -126,7 +126,10 @@ async def headers(request, call_next):
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    # ponytail: the console embeds /inbox/ as a same-origin iframe (Tickets
+    # tab), so frame-ancestors allows self instead of none. Cross-origin
+    # framing stays refused; only the console on the same origin can embed.
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
     return response
 
 
