@@ -94,7 +94,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   display: flex;
   overflow-y: auto;
 }
-.pane-thread .thread-head { flex-shrink: 1; min-height: 0; overflow-y: auto; }
+.pane-thread .thread-head { flex: 0 1 auto; min-height: 0; overflow: hidden; }
 .pane-thread .thread-scroll { min-height: 120px; }
 .pane-thread .composer { width: 100%; min-height: 0; display: flex; flex-direction: column; }
 .composer > * { flex-shrink: 0; }
@@ -482,17 +482,56 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   text-overflow: ellipsis;
 }
 
-.thread-inner { min-height: 0; }
+.thread-inner { flex: 1 1 0; min-height: 0; height: auto; }
+.thread-head,
+.thread-scroll {
+  /* Separate scroll regions share a layer; neither paints over the other. */
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
 .thread-head {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+}
+.thread-details-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 10px 20px;
+  border: 0;
+  background: var(--surface);
+  color: var(--mute);
+  font-size: 12px;
+  text-align: left;
+}
+.thread-details-toggle:hover { background: var(--ground); color: var(--ink); }
+.thread-details-toggle:focus-visible { outline-offset: -3px; }
+.thread-details-chevron {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.thread-details-toggle[aria-expanded="true"] .thread-details-chevron { transform: rotate(225deg); }
+.thread-details {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+  min-height: 0;
+  overflow: auto;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--line);
 }
-.thread-head > div:first-child { min-width: 0; }
+.thread-details[hidden] { display: none; }
+.thread-details > div:first-child { min-width: 0; }
 .thread-head h2 { overflow-wrap: anywhere; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
 .thread-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; max-width: 100%; }
 .thread-subject { overflow-wrap: anywhere; color: var(--mute); font-size: 13px; margin-top: 2px; }
@@ -930,6 +969,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .create-sheet .create-field textarea { min-height: 72px; resize: vertical; }
 
 .rail-inner { overflow: auto; padding: 20px 24px; }
+.rail-snapshot > .rail-inner { padding: 12px; }
 .rail-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1082,7 +1122,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 @media (max-width: 1100px) {
   .pane-list { flex-basis: 220px; width: 220px; min-width: 0; }
   .pane-rail { flex-basis: 200px; width: 200px; min-width: 0; }
-  .thread-head { flex-wrap: wrap; padding: 12px 14px; }
+  .thread-details-toggle { padding-inline: 14px; }
+  .thread-details { padding: 12px 14px; }
   .thread-scroll { padding: 14px; }
 }
 @media (max-width: 780px) {
