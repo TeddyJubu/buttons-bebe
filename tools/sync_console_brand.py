@@ -6,7 +6,8 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "console-src/brand"
-TARGETS = ("console-src/index.html", "console-src/login.html", "whatsapp-connect/server.js")
+INBOX = "console-src/inbox/index.html"
+TARGETS = ("console-src/index.html", "console-src/login.html", "whatsapp-connect/server.js", INBOX)
 PATTERN = re.compile(r'<style id="buttonsbebe-brand">.*?</style>', re.DOTALL)
 
 
@@ -34,9 +35,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    block = render()
+    shared_block = render()
     stale = []
     for filename in TARGETS:
+        block = shared_block
+        if filename == INBOX:
+            block = block.replace('</style>', (BRAND / 'inbox.css').read_text() + '</style>')
         path = ROOT / filename
         source = path.read_text()
         if len(PATTERN.findall(source)) > 1:

@@ -554,6 +554,44 @@ async def finish_owner_alert(job_id: int, accepted: bool, db_path: Path | None =
     )
 
 
+async def get_owner_alerts(
+    limit: int = 50,
+    offset: int = 0,
+    db_path: Path | None = None,
+) -> dict:
+    """Inspect all-time nonaccepted attempts, not distinct tickets; never retry.
+
+    Start from the ledger so missing queue/message/result context cannot hide
+    an attempt. Full-identity joins use the context tables' unique keys, giving
+    at most one context row per attempt even if a result reuses a job_id.
+    """
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    db = Database(db_path)
+    totals = await db.fetch(
+        "SELECT COUNT(*) AS total FROM owner_alert_attempts WHERE status != 'accepted'",
+        operation="owner_alert_inspection_count",
+    )
+    rows = await db.fetch(
+        """SELECT oa.job_id, j.ticket_id, j.message_id, oa.status,
+                  oa.attempted_at, oa.finished_at, pm.ticket_subject, tr.reason
+           FROM owner_alert_attempts oa
+           LEFT JOIN job_queue j ON j.id = oa.job_id
+           LEFT JOIN parsed_messages pm
+             ON pm.message_id = j.message_id AND pm.ticket_id = j.ticket_id
+           LEFT JOIN ticket_results tr
+             ON tr.job_id = j.id AND tr.ticket_id = j.ticket_id
+                AND tr.message_id = j.message_id
+           WHERE oa.status != 'accepted'
+           ORDER BY oa.attempted_at DESC, oa.job_id DESC
+           LIMIT ? OFFSET ?""",
+        (limit, offset),
+        operation="get_owner_alerts",
+    )
+    return {"total": totals[0]["total"], "limit": limit, "offset": offset,
+            "attempts": [dict(row) for row in rows]}
+
+
 async def get_dashboard_tickets(
     limit: int = 50,
     offset: int = 0,

@@ -44,6 +44,14 @@ async def dashboard_tickets_api(limit: int = 100, offset: int = 0) -> JSONRespon
     return JSONResponse(content=tickets)
 
 
+@router.get("/owner-alerts")
+async def dashboard_owner_alerts(limit: int = 50, offset: int = 0) -> JSONResponse:
+    """Read-only inspection of owner-alert attempts needing attention."""
+    return JSONResponse(content=await deps.database_function("get_owner_alerts")(
+        limit=limit, offset=offset,
+    ))
+
+
 class ResultPayload(BaseModel):
     """Declarative contract for the processor result seam (3.6).
 
