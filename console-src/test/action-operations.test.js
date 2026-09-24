@@ -43,8 +43,8 @@ test('hello handshake is bound to the inbox frame on load',()=>{
 });
 test('uncertain owner alerts remain visible without a retry control',()=>{
  const start=html.indexOf('function ownerAlertWarning('),end=html.indexOf('function overview(){',start);
- const context=vm.createContext({});vm.runInContext(html.slice(start,end),context);
- assert.match(context.ownerAlertWarning(2),/2 owner alerts need review/);
+ const context=vm.createContext({ownerAlertOpen:false});vm.runInContext(html.slice(start,end),context);
+ assert.match(context.ownerAlertWarning(2),/2 owner-alert attempts with unconfirmed delivery/);
  assert.equal(context.ownerAlertWarning(0),'');
  assert.match(html,/ownerAlertWarning\(stats.owner_alerts_need_attention\)/);
 });
@@ -62,10 +62,13 @@ test('overview and notification deep links route into the embedded inbox',()=>{
  const keyOf=vm.runInContext('const keyOf=t=>String(t.ticket_id??t.message_id??"");keyOf;',vm.createContext({}));
  assert.equal(keyOf({ticket_id:7,message_id:'customer-message-9'}),'7');
  assert.equal(keyOf({message_id:'customer-message-9'}),'customer-message-9');
+ context.tab='overview';
  context.goTickets('failed',null);
+ assert.equal(context.tab,'overview','unsupported filter-only navigation stays put');
+ context.goTickets('escalated',42);
+ assert.equal(context.tab,'tickets','ticket-specific notifications still open the inbox');
  assert.equal(context.inboxNavView,'all');
- context.goTickets('escalated',null);
- assert.equal(context.inboxNavView,'all');
+ assert.equal(context.inboxNavTicket,'gorgias:42');
  context.goTickets('open',null);
  assert.equal(context.inboxNavView,'open');
 });

@@ -10,8 +10,12 @@ Buttons Bebe branding, inspected 2026-09-07 at https://buttonsbebe.com/.
   accessible status colors are console adaptations.
 
 Edit brand.css, then run `python3 tools/sync_console_brand.py`.
-The generator embeds the fonts, logo, and CSS in the console, login, and
+The generator embeds the fonts, logo, and CSS in the console, login, inbox, and
 WhatsApp pairing page. The KB editor and Notice Board are part of the console.
+The inbox also appends inbox.css, a small brand adapter for workbench controls
+and standalone navigation. Edit that adapter for inbox-only brand treatments;
+keep pane sizing and density in `console-src/inbox/styles.css`. Both embedded
+and standalone inbox modes use the same generated brand layer.
 These small, self-contained pages keep working with the current login route
 and deployment/rollback scripts, with no third-party font requests or new
 public routes. The offline release gate checks generated copies for drift.

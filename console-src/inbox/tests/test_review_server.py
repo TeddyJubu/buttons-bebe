@@ -50,6 +50,17 @@ class ServerTests(unittest.TestCase):
         for name in ("review_server.py", "static-manifest.json", "requirements.txt", "js/fixtures/demo-inbox.js", "data/intake_tickets.json", "js/shop/fixture-shop.js", "js/../review_server.py"):
             self.assertEqual(self.client.get("/" + name).status_code, 404, name)
 
+    def test_brand_fonts_are_allowed_without_relaxing_script_policy(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        policy = dict(directive.strip().split(" ", 1) for directive in
+                      response.headers["Content-Security-Policy"].split(";"))
+        self.assertIn("data:", policy["font-src"].split())
+        self.assertEqual(policy["script-src"], "'self'")
+        self.assertEqual(policy["default-src"], "'self'")
+        self.assertEqual(policy["frame-ancestors"], "'self'")
+        self.assertIn('data:font/ttf;base64,', response.text)
+
     def test_capabilities_are_closed_and_backend_enforces_them(self):
         caps = self.post({"tool": "helpdesk.capabilities"}).json()["capabilities"]
         self.assertTrue(caps["listTickets"])

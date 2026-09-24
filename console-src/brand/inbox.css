@@ -1,0 +1,24 @@
+/* Inbox adapter for the shared console brand. Keep workbench sizing in inbox/styles.css. */
+:root {
+  --radius-sm:8px;--radius-lg:var(--radius);
+  --ok:var(--green);--warn:var(--amber);--danger:var(--red);
+}
+body[data-support-page=inbox] :is(.btn-ink,.btn-quiet,.btn-hairline) {
+  border-radius:var(--radius-sm);font-weight:600;
+}
+body[data-support-page=inbox] .btn-ink:not(:disabled):not(.is-disabled) {
+  background:var(--acc);border-color:var(--acc);color:var(--surface);
+}
+body[data-support-page=inbox] .btn-ink:hover:not(:disabled):not(.is-disabled) {
+  background:#602638;border-color:#602638;
+}
+body[data-support-page=inbox] :is(.btn-quiet,.btn-hairline):hover:not(:disabled):not(.is-disabled) {
+  background:var(--acc-soft);
+}
+body[data-support-page=inbox] :is(.view-item.is-selected,.list-menu-item.is-selected,.history-row.is-peeked) {
+  box-shadow:inset 4px 0 0 var(--acc);
+}
+body[data-support-page=inbox] .composer-box:focus-within { border-color:var(--acc); }
+body[data-support-page=inbox] .support-nav { background:var(--brand-sand); }
+body[data-support-page=inbox] .support-nav :is(a,.lock-label) { color:var(--ink); }
+body[data-support-page=inbox] .support-nav a[aria-current=page] { color:var(--brand-forest); }

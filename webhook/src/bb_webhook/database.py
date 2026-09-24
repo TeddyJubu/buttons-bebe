@@ -554,6 +554,55 @@ async def finish_owner_alert(job_id: int, accepted: bool, db_path: Path | None =
     )
 
 
+async def get_owner_alerts(
+    limit: int = 50,
+    offset: int = 0,
+    db_path: Path | None = None,
+) -> dict:
+    """Inspect all-time nonaccepted attempts, not distinct tickets; never retry.
+
+    Start from the ledger so missing queue/message/result context cannot hide
+    an attempt. Full-identity joins use the context tables' unique keys, giving
+    at most one context row per attempt even if a result reuses a job_id.
+    """
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    db = Database(db_path)
+    # One statement keeps the count and page in the same read snapshot. The
+    # aggregate's LEFT JOIN also preserves the total for an empty page.
+    rows = await db.fetch(
+        """WITH page AS (
+               SELECT job_id, status, attempted_at, finished_at
+               FROM owner_alert_attempts WHERE status != 'accepted'
+               ORDER BY attempted_at DESC, job_id DESC
+               LIMIT ? OFFSET ?
+           ), totals AS (
+               SELECT COUNT(*) AS total FROM owner_alert_attempts WHERE status != 'accepted'
+           )
+           SELECT totals.total, oa.job_id, j.ticket_id, j.message_id, oa.status,
+                  oa.attempted_at, oa.finished_at, pm.ticket_subject, tr.reason
+           FROM totals
+           LEFT JOIN page oa ON 1 = 1
+           LEFT JOIN job_queue j ON j.id = oa.job_id
+           LEFT JOIN parsed_messages pm
+             ON pm.message_id = j.message_id AND pm.ticket_id = j.ticket_id
+           LEFT JOIN ticket_results tr
+             ON tr.job_id = j.id AND tr.ticket_id = j.ticket_id
+                AND tr.message_id = j.message_id
+           ORDER BY oa.attempted_at DESC, oa.job_id DESC""",
+        (limit, offset),
+        operation="get_owner_alerts",
+    )
+    attempts = []
+    for row in rows:
+        if row["job_id"] is not None:
+            attempt = dict(row)
+            del attempt["total"]
+            attempts.append(attempt)
+    return {"total": rows[0]["total"], "limit": limit, "offset": offset,
+            "attempts": attempts}
+
+
 async def get_dashboard_tickets(
     limit: int = 50,
     offset: int = 0,
