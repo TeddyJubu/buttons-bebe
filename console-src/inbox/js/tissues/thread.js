@@ -46,6 +46,7 @@ export function createThreadTissue({ mailbox }) {
   // a mid-edit repaint keeps it open.
   let menuOpen = false;
   let menuTicketId = null;
+  let detailsOpen = false;
   // #43: message ids whose Show-original disclosure is open. The details
   // element's open state is native DOM a repaint would otherwise discard.
   const openOriginals = new Set();
@@ -304,6 +305,11 @@ export function createThreadTissue({ mailbox }) {
         </p>`;
     return `<div class="pane-inner thread-inner">
       <header class="thread-head">
+        <button type="button" class="thread-details-toggle" data-thread-details-toggle aria-expanded="${detailsOpen}" aria-controls="thread-details">
+          <span data-thread-details-label>${detailsOpen ? "Hide" : "Show"} ticket details</span>
+          <span class="thread-details-chevron" aria-hidden="true"></span>
+        </button>
+        <div class="thread-details" id="thread-details" data-thread-details ${detailsOpen ? "" : "hidden"}>
         <div>
           <h2>${esc(listCustomerName(ticket))}</h2>
           ${titleLine}
@@ -319,6 +325,7 @@ export function createThreadTissue({ mailbox }) {
           ${ticket.gorgiasSnoozed ? `<span class="status-line" title="Snoozed in Gorgias">${statusDot("status", "snoozed")}Snoozed</span>` : ""}
           ${escalateControl}
           ${detailControls(ticket, next)}
+        </div>
         </div>
       </header>
       <div class="thread-scroll">${ticket.projectionSource ? `<p class="history-notice" role="status">Partial webhook history; earlier messages may be missing. ${ticket.truncated ? "History or text is truncated." : ""}</p>` : ""}${timeline(ticket)}
@@ -357,6 +364,15 @@ export function createThreadTissue({ mailbox }) {
     host = el;
     paint();
     el.onclick = (event) => {
+      const detailsToggle = event.target.closest("[data-thread-details-toggle]");
+      if (detailsToggle) {
+        detailsOpen = !detailsOpen;
+        // Keep keyboard focus and the conversation's scroll position intact.
+        detailsToggle.setAttribute("aria-expanded", String(detailsOpen));
+        detailsToggle.querySelector("[data-thread-details-label]").textContent = `${detailsOpen ? "Hide" : "Show"} ticket details`;
+        el.querySelector("[data-thread-details]").hidden = !detailsOpen;
+        return;
+      }
       const renameOpen = event.target.closest("[data-rename-open]");
       if (renameOpen) {
         // #41: swap the title line for an inline input. Save on Enter or
@@ -532,6 +548,7 @@ export function createThreadTissue({ mailbox }) {
     render,
     update(input) {
       const next = project(input);
+      if (next.ticket?.id !== model.ticket?.id) detailsOpen = false;
       // #44: the overflow menu is per-ticket; navigating away closes it.
       if (menuOpen && menuTicketId && next.ticket?.id !== menuTicketId) menuOpen = false;
       model = next;
