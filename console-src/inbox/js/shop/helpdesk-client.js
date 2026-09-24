@@ -1,9 +1,8 @@
 import { TOOL_NAMES } from "./helpdesk-tools.js";
 
-// ponytail: this module lives at js/shop/ (two deep), not js/ — ../../ from
-// here escapes to /inbox/console/api/helpdesk. The API lives at the origin
-// root, so resolve from the origin instead of the module path.
-export const HELPDESK_HTTP_PATH = import.meta.url.startsWith("http") ? new URL("/console/api/helpdesk", import.meta.url).pathname : "/console/api/helpdesk";
+// Keep the inbox mount: Caddy strips /inbox before proxying to the inbox API.
+// Origin-root /console/api belongs to the separate dashboard service.
+export const HELPDESK_HTTP_PATH = import.meta.url.startsWith("http") ? new URL("../../console/api/helpdesk", import.meta.url).pathname : "/console/api/helpdesk";
 
 /**
  * Browser/Node client for the live helpdesk.* tools.
