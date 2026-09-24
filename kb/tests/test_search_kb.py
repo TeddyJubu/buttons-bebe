@@ -238,15 +238,20 @@ class MissingIndexSelfHealTests(unittest.TestCase):
                 self.assertEqual(search_kb.search("shipping"), [])
 
     def test_missing_index_restores_newest_backup(self) -> None:
+        import os
         import tempfile
 
         tmp = Path(tempfile.mkdtemp(prefix="bb-heal-"))
         self.addCleanup(__import__("shutil").rmtree, tmp, True)
-        (tmp / ".lancedb-backup-older").mkdir()
-        (tmp / ".lancedb-backup-older" / "origin.txt").write_text("older")
+        older = tmp / ".lancedb-backup-older"
+        older.mkdir()
+        (older / "origin.txt").write_text("older")
         newest = tmp / ".lancedb-backup-newest"
         newest.mkdir()
         (newest / "origin.txt").write_text("newest")
+        # Same-second mkdir can share mtime; pin age so "newest" wins by mtime.
+        two_hours = 2 * 60 * 60
+        os.utime(older, (two_hours, two_hours))
         table = FakeTable([hit("shipping", "policies/shipping.md")], [])
         connected_paths: list[str] = []
         # Prove the restored directory is what LanceDB opens — the marker file
