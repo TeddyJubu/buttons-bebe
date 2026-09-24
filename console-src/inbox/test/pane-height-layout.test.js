@@ -8,9 +8,11 @@ const chrome = [process.env.INBOX_TEST_BROWSER,
   '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
 ].filter(Boolean).find(existsSync);
 let chromium;
-try { ({ chromium } = await import('playwright')); } catch {}
+try { ({ chromium } = await import('playwright')); } catch (error) {
+  if (error.code !== 'ERR_MODULE_NOT_FOUND' || !error.message.startsWith("Cannot find package 'playwright' imported from ")) throw error;
+}
 
-async function openFixture(t, width, height) {
+async function openFixture(t, width, height, { legacyViewport = false } = {}) {
   if (!chrome || !chromium) {
     t.skip('local Chrome and playwright required for layout checks');
     return null;
@@ -19,7 +21,9 @@ async function openFixture(t, width, height) {
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height } });
   await page.route('**/*', route => route.abort());
-  await page.setContent(await layoutFixture());
+  const html = await layoutFixture();
+  // Older engines discard unsupported declarations, not the preceding vh fallback.
+  await page.setContent(legacyViewport ? html.replace(/max-height:\s*35dvh;/g, '') : html);
   return page;
 }
 
@@ -56,6 +60,17 @@ for (const [width, height] of [[1092, 643], [1192, 887], [374, 696]]) {
     }), 'send control must remain reachable without dismissing the draft');
   });
 }
+
+test('mobile ticket list retains a scroll budget when dvh is unsupported', async t => {
+  const page = await openFixture(t, 374, 696, { legacyViewport: true });
+  if (!page) return;
+  const layout = await page.locator('.ticket-list').evaluate(list => ({
+    height: list.clientHeight, scrollHeight: list.scrollHeight,
+  }));
+  assert.ok(layout.height >= 160, `ticket rows have only ${layout.height}px`);
+  assert.ok(layout.height <= Math.ceil(696 * 0.35), `ticket list lost its viewport budget: ${layout.height}px`);
+  assert.ok(layout.scrollHeight > layout.height, 'tickets must scroll inside the bounded list');
+});
 
 for (const width of [374, 359]) {
   test(`mobile history notice and pagination do not consume ticket rows at ${width}px`, async t => {

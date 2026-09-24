@@ -3,11 +3,21 @@ import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { layoutFixture } from './layout-fixture.js';
 
 const inbox = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const consolePage = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
 const brandBlock = html => html.match(/<style id="buttonsbebe-brand">([\s\S]*?)<\/style>/)?.[1];
+
+function contrastRatio(foreground, background) {
+  const luminance = rgb => rgb.match(/[\d.]+/g).slice(0, 3).map(Number)
+    .map(value => value / 255)
+    .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+  const first = luminance(foreground), second = luminance(background);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
 
 test('inbox embeds the console brand after the legacy theme, with offline Jost fonts', () => {
   const brand = brandBlock(inbox);
@@ -18,12 +28,46 @@ test('inbox embeds the console brand after the legacy theme, with offline Jost f
   assert.doesNotMatch(inbox, /<link[^>]+fonts\.(?:googleapis|gstatic)\.com/);
 });
 
+test('optional Playwright imports skip only a genuinely absent top-level package', async () => {
+  for (const filename of ['brand-theme.test.js', 'pane-height-layout.test.js']) {
+    const source = readFileSync(new URL(filename, import.meta.url), 'utf8');
+    const loader = source.match(/^let chromium;[\s\S]*?(?=\n\n)/m)[0];
+    const attempt = importError => runInNewContext(`(async () => {
+      ${loader.replace("import('playwright')", 'loadPlaywright()')}
+      return chromium;
+    })()`, { loadPlaywright: async () => { throw importError; } });
+    const absent = Object.assign(new Error("Cannot find package 'playwright' imported from test.js"), { code: 'ERR_MODULE_NOT_FOUND' });
+    assert.equal(await attempt(absent), undefined, `${filename}: absent package may skip`);
+    for (const error of [
+      new Error('Playwright initialization failed'),
+      Object.assign(new Error("Cannot find package 'playwright-core' imported from playwright/index.mjs"), { code: 'ERR_MODULE_NOT_FOUND' }),
+      Object.assign(new Error("Cannot find module '/node_modules/playwright/missing.js' imported from playwright/index.mjs"), { code: 'ERR_MODULE_NOT_FOUND' }),
+    ]) {
+      await assert.rejects(() => attempt(error), caught => caught === error, `${filename}: broken installed package must fail`);
+    }
+  }
+});
+
 const chrome = [process.env.INBOX_TEST_BROWSER,
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
 ].filter(Boolean).find(existsSync);
 let chromium;
-try { ({ chromium } = await import('playwright')); } catch {}
+try { ({ chromium } = await import('playwright')); } catch (error) {
+  if (error.code !== 'ERR_MODULE_NOT_FOUND' || !error.message.startsWith("Cannot find package 'playwright' imported from ")) throw error;
+}
+
+test('CSP subprocess selects the gate Python without assuming a local venv', () => {
+  const source = readFileSync(new URL('brand-theme.test.js', import.meta.url), 'utf8');
+  const declaration = source.match(/^  const python = [^;]+;/m)[0];
+  for (const [env, expected] of [
+    [{ INBOX_PYTHON: '/runtime/inbox-python', PYTHON: '/runtime/python' }, '/runtime/inbox-python'],
+    [{ PYTHON: '/runtime/python' }, '/runtime/python'],
+    [{}, 'python3'],
+  ]) {
+    assert.equal(runInNewContext(`${declaration} python;`, { process: { env }, root: '/checkout/' }), expected);
+  }
+});
 
 test('Jost loads under the real inbox response CSP without allowing inline scripts', async t => {
   if (!chrome || !chromium) {
@@ -31,7 +75,7 @@ test('Jost loads under the real inbox response CSP without allowing inline scrip
     return;
   }
   const root = fileURLToPath(new URL('../../../', import.meta.url));
-  const python = process.env.INBOX_PYTHON || `${root}.inbox-venv/bin/python3`;
+  const python = process.env.INBOX_PYTHON || process.env.PYTHON || 'python3';
   // Exercise the ASGI response without starting a server or loading real data.
   const result = spawnSync(python, ['-c', `
 import json, os, sys, tempfile
@@ -61,6 +105,30 @@ with tempfile.TemporaryDirectory() as temp:
   });
   assert.ok(fonts.includes('loaded'), `Jost did not load under response CSP: ${fonts}`);
   assert.match(response.headers['content-security-policy'], /(?:^|; )script-src 'self';/);
+});
+
+test('standalone sand navigation keeps every label at AA text contrast', async t => {
+  if (!chrome || !chromium) {
+    t.skip('local Chrome and playwright required for computed brand checks');
+    return;
+  }
+  const browser = await chromium.launch({ executablePath: chrome, headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1192, height: 887 } });
+  await page.route('**/*', route => route.abort());
+  const nav = inbox.match(/<nav class="support-nav"[\s\S]*?<\/nav>/)[0];
+  await page.setContent((await layoutFixture()).replace(' data-embedded="1"', '')
+    .replace('<div id="inbox-root">', `${nav}<div id="inbox-root">`));
+  const labels = await page.evaluate(() => {
+    const background = getComputedStyle(document.querySelector('.support-nav')).backgroundColor;
+    return [...document.querySelectorAll('.support-nav a,.support-nav .lock-label')].map(element => ({
+      label: element.textContent, color: getComputedStyle(element).color, background,
+    }));
+  });
+  assert.equal(labels.length, 4, 'covers brand, Console, active Inbox, and Send-access label');
+  const failures = labels.map(label => ({ ...label, ratio: contrastRatio(label.color, label.background) }))
+    .filter(label => label.ratio < 4.5);
+  assert.deepEqual(failures, [], 'all navigation text must contrast at least 4.5:1 with sand');
 });
 
 for (const embedded of [true, false]) {

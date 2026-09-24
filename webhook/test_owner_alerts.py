@@ -122,6 +122,55 @@ class OwnerAlertDatabaseTests(OwnerAlertFixture, unittest.IsolatedAsyncioTestCas
         self.assertEqual(result["attempts"][0]["reason"], "Synthetic escalation reason")
         self.assertIsNone(result["attempts"][0]["ticket_subject"])
 
+    async def test_count_and_page_share_snapshot_when_an_attempt_is_accepted(self):
+        job = await self.seed_attempt("being-accepted", status="attempting")
+        original_fetch = Database.fetch
+        accepted = False
+
+        async def fetch_then_accept(db, *args, **kwargs):
+            nonlocal accepted
+            rows = await original_fetch(db, *args, **kwargs)
+            if not accepted:
+                # Commit a real writer between reads, not a mocked query result.
+                accepted = True
+                await database.finish_owner_alert(job, True, self.path)
+            return rows
+
+        with patch.object(Database, "fetch", new=fetch_then_accept):
+            result = await database.get_owner_alerts(db_path=self.path)
+
+        self.assertTrue(accepted)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual([row["job_id"] for row in result["attempts"]], [job])
+        self.assertEqual(result["attempts"][0]["status"], "attempting")
+        current = await Database(self.path).fetch(
+            "SELECT status FROM owner_alert_attempts WHERE job_id = ?", (job,))
+        self.assertEqual(current[0]["status"], "accepted")
+
+    async def test_out_of_range_page_keeps_snapshot_total_during_new_attempt(self):
+        await self.seed_attempt("existing")
+        original_fetch = Database.fetch
+        inserted = False
+
+        async def fetch_then_insert(db, *args, **kwargs):
+            nonlocal inserted
+            rows = await original_fetch(db, *args, **kwargs)
+            if not inserted:
+                inserted = True
+                await Database(self.path).execute(
+                    "INSERT INTO owner_alert_attempts VALUES (?, 'attempting', ?, NULL)",
+                    (999, "2026-09-24T00:00:00+00:00"),
+                )
+            return rows
+
+        with patch.object(Database, "fetch", new=fetch_then_insert):
+            result = await database.get_owner_alerts(limit=1, offset=1, db_path=self.path)
+
+        self.assertTrue(inserted)
+        self.assertEqual(result, {"total": 1, "limit": 1, "offset": 1, "attempts": []})
+        current = await Database(self.path).fetch("SELECT COUNT(*) AS total FROM owner_alert_attempts")
+        self.assertEqual(current[0]["total"], 2)
+
     async def test_empty_ledger_returns_empty_envelope(self):
         self.assertEqual(await database.get_owner_alerts(db_path=self.path),
                          {"total": 0, "limit": 50, "offset": 0, "attempts": []})

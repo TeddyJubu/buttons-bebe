@@ -11,7 +11,9 @@ const title = 'Intent 1 — First-time customer asks for help choosing between t
 
 async function openConsole(t, width = 1340) {
   let chromium;
-  try { ({ chromium } = require('playwright')); } catch {}
+  try { ({ chromium } = require('playwright')); } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND' || !error.message.startsWith("Cannot find module 'playwright'")) throw error;
+  }
   if (!chrome || !chromium) { t.skip('local Chrome and playwright required'); return; }
   const browser = await chromium.launch({ executablePath: chrome, headless: true });
   t.after(() => browser.close());
@@ -76,6 +78,26 @@ test('UI-08: owner-attempt inspection paginates and opens tickets without acknow
   await page.getByRole('button', { name: 'Previous attempts', exact: true }).click();
   await page.locator('[data-owner-attempt] [data-go-ticket]').first().click();
   assert.match(await page.locator('#inbox-frame').getAttribute('src'), /ticket=gorgias%3A42/);
+  assert.deepEqual(writes, []);
+});
+
+test('UI-08: ticket-feed failure leaves owner-alert inspection available', async t => {
+  const fixture = await openConsole(t); if (!fixture) return;
+  const { page, writes } = fixture;
+  await page.route('**/console/api/tickets?*', route => route.fulfill({ status: 503, json: { error: 'unavailable' } }));
+  await page.getByRole('button', { name: 'Refresh dashboard data', exact: true }).click();
+  await page.getByRole('heading', { name: 'Overview metrics are unavailable', exact: true }).waitFor();
+  assert.match(await page.locator('.owner-alert-warning').innerText({ timeout: 3000 }), /51 owner-alert attempts/);
+  await page.getByRole('button', { name: 'Inspect owner-alert attempts', exact: true }).click();
+  await page.locator('[data-owner-attempt]').first().waitFor();
+  assert.equal(await page.locator('[data-owner-attempt]').count(), 50);
+
+  // An open independent inspector remains available even if the next stats read fails.
+  await page.route('**/console/api/stats', route => route.fulfill({ status: 503, json: { error: 'unavailable' } }));
+  await page.getByRole('button', { name: 'Refresh dashboard data', exact: true }).click();
+  await page.getByText('Could not load stats, tickets data.', { exact: true }).waitFor();
+  assert.equal(await page.locator('.owner-alert-warning').count(), 0, 'do not present a stale count as current');
+  assert.equal(await page.locator('[data-owner-attempt]').count(), 50);
   assert.deepEqual(writes, []);
 });
 
