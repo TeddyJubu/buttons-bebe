@@ -238,8 +238,8 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. **Stale layout:** root `README.md`
-(describes the retired `gorgias-webhook/` + `teddy/` design).
+`archive/INCONSISTENCIES.md`, `archive/DEV-ISSUES.md`. Retired pre-rebuild
+trees and misleading docs live under `archive/` (see `archive/README.md`).
 
 ## 11. Knowledge base & learning loop (deep details)
 

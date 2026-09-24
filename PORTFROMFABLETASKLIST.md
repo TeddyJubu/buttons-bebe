@@ -55,7 +55,7 @@ listed in the "Do not bring over" section at the bottom — please don't skip it
 | F2 | **Heartbeat / dead-man's switch** | A tiny script + timer that pings you on WhatsApp if the ticket processor dies or goes silent for 10 minutes | ❌ Nothing. If the processor dies, nobody finds out until tickets pile up |
 | F3 | **48-scenario test harness** | 48 realistic customer messages + an A–E scoring rubric + a saved baseline of results, so you can prove a change didn't make the AI worse | ❌ Nothing. Main's only testing is human-graded live runs |
 | F4 | **Extra risk-classifier rules** | ~80 additional trigger phrases main's classifier misses, plus a whole "customer is demanding a manager" category, plus structural anger detection (ALL CAPS, `!!!`) | ⚠️ Partial. Main has a real classifier, but with narrower coverage |
-| F5 | **Hermes tool lockdown** | Written instructions for replacing the blanket `--yolo` flag with an explicit list of the 3 tools Hermes is allowed to call | ❌ Not done. `--yolo` is still live and flagged in `DEV-ISSUES.md` #8 |
+| F5 | **Hermes tool lockdown** | Written instructions for replacing the blanket `--yolo` flag with an explicit list of the 3 tools Hermes is allowed to call | ❌ Not done. `--yolo` is still live and flagged in `archive/DEV-ISSUES.md` #8 |
 | F6 | **One `.env` instead of two** | Written instructions for consolidating credentials into a single file, deleting dead variables, and rotating leaked secrets | ❌ Not done. Still listed under "Known limitations" in `CLAUDE.md` |
 | F7 | **Planning + analysis docs** | `IMPROVEMENT-PLAN.md`, `DESIGN-CRITIQUE.md`, `SPRINT-2-PLAN.md`, `TESTING-READINESS.md`, `Buttons-Bebe-Competitive-Brief.html` | ❌ Not on main |
 
@@ -208,10 +208,10 @@ Every task follows the same shape: **What · Why · Files · Risk · Test · Don
   it an explicit `-t` list naming only the three read-only MCP tools it's allowed to use.
 - **Why:** `--yolo` is safe *today* only because all three registered tools happen to be
   read-only. It is one future tool away from a real problem. Flagged in three places already:
-  `DEV-ISSUES.md` #8, `CLAUDE.md` "Known limitations", `HANDOVER/01-executive-summary.md`.
+  `archive/DEV-ISSUES.md` #8, `CLAUDE.md` "Known limitations", `HANDOVER/01-executive-summary.md`.
 - **Files:** `processor/hermes_runner.py` (the `hermes --yolo -z "..."` invocation); guidance in
   `deploy/vps-patches/README.md`. Update the `--yolo` references in `CLAUDE.md`, `AGENTS.md`,
-  `DEV-ISSUES.md` and `HANDOVER/02-live-architecture.md` in the same commit so the docs stay true.
+  `archive/DEV-ISSUES.md` and `HANDOVER/02-live-architecture.md` in the same commit so the docs stay true.
 - **Risk:** **medium-high in one specific way** — if the allow-list is wrong or a tool name is
   misspelled, Hermes silently loses a tool and drafts get worse without any error. Verify with
   `hermes mcp list` first and copy the names exactly.

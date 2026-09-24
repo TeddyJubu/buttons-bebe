@@ -165,7 +165,7 @@ remaining reference, not just the obvious ones:
   paragraph elsewhere in the file that still describes the two-file split.
 - Note the same in `HANDOVER/02-live-architecture.md` §271 (historical doc —
   annotate, don't rewrite).
-- Note the rotation date in `DEV-ISSUES.md` #9 and mark it resolved.
+- Note the rotation date in `archive/DEV-ISSUES.md` #9 and mark it resolved.
 - Update the deploy-file entry that still records the legacy split (this
   runbook's own §"What people say" row and snapshot/rollback blocks above are
   procedure, not status — leave those; they describe the transition).

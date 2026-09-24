@@ -1,9 +1,10 @@
 # Production operator runbook
 
-This is the live operator procedure. The dated [readiness report](PRODUCTION-READINESS-2026-09-07.md)
-and the [CD unblock record](CD-UNBLOCK-2026-09-15.md) are archived incident
-records; their pending fields are not evidence that anything is installed or
-enabled. Related keeper runbooks:
+This is the live operator procedure. The dated
+[readiness report](../archive/deploy/PRODUCTION-READINESS-2026-09-07.md)
+and the [CD unblock record](../archive/deploy/CD-UNBLOCK-2026-09-15.md) are
+archived incident records; their pending fields are not evidence that anything
+is installed or enabled. Related keeper runbooks:
 
 - [Recovery pack](RECOVERY-PACK.md) — explicit encrypted recovery, beyond the scheduled backup
 - [WhatsApp dependency switch](WHATSAPP-DEPENDENCY-SWITCH.md) — manual scoped node_modules replacement

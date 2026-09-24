@@ -36,7 +36,7 @@ stories. That's normal mid-transition, but every week it stays that way costs do
 
 ## 2. Track A — the live system: what to fix (ranked)
 
-These come from `DEV-ISSUES.md`, `INCONSISTENCIES.md`, and the QA runs. Ranked by
+These come from `archive/DEV-ISSUES.md`, `archive/INCONSISTENCIES.md`, and the QA runs. Ranked by
 risk-to-customers first, annoyance second.
 
 ### Safety (do first)

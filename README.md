@@ -1,21 +1,26 @@
-# Buttons Bebe / Hermes
+# Buttons Bebe — AI support agent
 
-Monorepo for the Buttons Bebe customer-support automation stack.
+Hermes drafts customer-support replies for the Buttons Bebe Shopify store;
+humans review and send from the console. Hermes never sends and never writes
+to Gorgias.
 
-## Components
+## Start here
 
-| Directory | Purpose |
-|-----------|---------|
-| `gorgias-webhook/` | Webhook receiver, draft engine, KB pipeline, classifier |
-| `teddy/` | Teddy AI support agent |
-| `shopify/` | Shared Shopify Admin API module |
-| `kb-editor/` | Local KB markdown editor |
-| `qa_v3/` | QA fixtures and comparison harness |
+| Doc | What |
+|---|---|
+| **[AGENTS.md](AGENTS.md)** | Sole root source of truth — architecture, safety model, services, verify gate |
+| [RETIRED.md](RETIRED.md) | Paths that must stay dead (plus archive pointers) |
+| [archive/](archive/) | Pre-rebuild / superseded trees and docs kept for archaeology only |
 
-## Secrets
+## Live packages (short)
 
-Never commit `config.json`, `.env`, databases, exports, or ticket data. See each subproject's `.gitignore`.
+`webhook/` · `processor/` · `kb/` · `tools/` · `kb-admin/` · `whatsapp-connect/` · `console-src/` · `testing/` · `deploy/`
 
-## Layout note
+## Verify before merging to `main`
 
-On the production VPS these directories live as siblings under `/root/`. After cloning, either keep the same layout or update path references in `gorgias-webhook/shopify_lookup.py`, `product_lookup.py`, and `teddy/agent.py`.
+```bash
+bash tools/verify_release.sh
+```
+
+A push to `main` that passes CI **auto-deploys to production**. Never commit
+`.env*` or anything from `_VPS-FULL-BACKUP-*/`.

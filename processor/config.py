@@ -79,7 +79,7 @@ class ProcessorSettings(BaseSettings):
     # Escape hatch. --yolo skips Hermes' approval prompts; with the toolset
     # locked down there is nothing dangerous left to approve, so it is off.
     # Turn it on ONLY as a temporary unblock if a run starts hanging on an
-    # approval prompt, and open an issue - see DEV-ISSUES.md #8.
+    # approval prompt, and open an issue - see archive/DEV-ISSUES.md #8.
     hermes_skip_approval: bool = Field(default=False, alias="HERMES_SKIP_APPROVAL")
     hermes_profile: str = Field(default="", alias="HERMES_PROFILE")
     hermes_ignore_rules: bool = Field(default=False, alias="HERMES_IGNORE_RULES")
