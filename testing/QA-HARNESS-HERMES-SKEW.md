@@ -1,13 +1,15 @@
 # QA harness vs production Hermes: version skew, 2026-09-24
 
-Status: BRAIN FIXED 2026-09-24, smoke grounded. The one-line fix is live in
+Status: FIXED IN REPO 2026-09-24, 48/48 graded. The one-line brain fix is live in
 `/usr/local/lib/hermes-agent/tools/mcp_tool_registration.py`, backup at
-`/root/mcp_tool_registration.py.bak-20260924`. Function proof 10/10.
-Live smoke (R01): returncode 0, verdict True, full read workflow, correct
-draft. Box restaged at `/private/bb-qa` with venv; the 48 run via
-`testing/RUN-48-SUBAGENT-PROMPT.md`. Nothing sent, merged, or written to
-production. The repo still needs the same harness updates for a clean
-checkout run.
+`/root/mcp_tool_registration.py.bak-20260924`. The repo harness now imports
+from the split Hermes homes first with old-path fallback (`qa_metadata.py`
+PROBE + `qa_harness.py` bindings), drops `required == []` during
+canonicalization, reads hint tables via `_server_key`, and exports
+`OLLAMA_API_KEY` into the isolated env. Full 48/48 with reviewed product
+manifest (5,935 files, sha `499a2e78…`); grade 47 PASS + R18 NEEDS_WORK,
+fixed by a prompt rule against implied future outcomes. Nothing sent,
+merged, or written to production.
 
 ## Box facts (verified, secret-free)
 

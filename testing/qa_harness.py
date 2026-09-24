@@ -117,7 +117,14 @@ def prove_hermes_bindings(hermes_python, hermes_source, env, home, timeout):
 import sys,json
 sys.path.insert(0,sys.argv[1])
 from model_tools import get_tool_definitions
-from tools.mcp_tool import discover_mcp_tools, shutdown_mcp_servers
+try:
+ from tools.mcp_tool_discovery import discover_mcp_tools
+except ImportError:
+ from tools.mcp_tool import discover_mcp_tools
+try:
+ from tools.mcp_tool_lifecycle import shutdown_mcp_servers
+except ImportError:
+ from tools.mcp_tool import shutdown_mcp_servers
 try:
  discover_mcp_tools()
  groups=json.loads(sys.argv[2])
@@ -182,6 +189,15 @@ class Harness:
                 raise ValueError("Access-token input requires the Codex provider")
             atomic_json(self.home/".hermes"/"auth.json", {"credential_pool":{"openai-codex":[{"id":"qa-access-only","label":"QA access only","source":"manual:qa","auth_type":"oauth","priority":0,"access_token":model["access_token"]}]}})
         self.env=minimal_environment(self.home)
+        # Env-key providers (e.g. ollama-cloud) read credentials from the
+        # environment, not the model block; export the provider key into the
+        # isolated env so stub reads are authorized. Existing secret redaction
+        # covers outputs; nothing else inherits this env.
+        provider_key = model["model"].get("api_key")
+        if isinstance(provider_key, str) and provider_key:
+            provider = model["model"].get("provider")
+            if provider == "ollama-cloud":
+                self.env["OLLAMA_API_KEY"] = provider_key
         self.hermes=hermes.resolve();self.hermes_python=hermes_python.absolute();self.hermes_source=hermes_source.resolve()
         if not self.hermes.is_file() or not self.hermes_python.is_file() or not (self.hermes_source/"model_tools.py").is_file():
             raise ValueError("Explicit Hermes executable/interpreter/source paths are required")
