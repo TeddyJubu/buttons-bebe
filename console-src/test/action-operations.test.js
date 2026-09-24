@@ -9,8 +9,14 @@ const slice=(from,to)=>{const s=html.indexOf(from),e=html.indexOf(to,s);assert.o
 // These tests pin the iframe, the bridge payloads, and dry-run behavior.
 test('tickets tab renders the embedded inbox iframe, not the legacy feed',()=>{
  assert.match(html,/id="inbox-frame"/);
+ assert.match(html,/class="tickets-frame"/);
  assert.match(html,/function ticketsView\(\)/);
  assert.match(html,/function bbInboxSrc\(\)/);
+ // ponytail: the Tickets tab IS the inbox — no wrapper panel, no second
+ // inbox nav entry. The frame fills the tab via .tickets-frame CSS.
+ assert.match(html,/\.tickets-frame/);
+ assert.doesNotMatch(html,/wired to the console/);
+ assert.doesNotMatch(html,/<a href="\/inbox\/">/);
  assert.doesNotMatch(html,/function legacyTicketsView/);
  assert.doesNotMatch(html,/function row\(t\)/);
  assert.doesNotMatch(html,/Legacy feed/);
