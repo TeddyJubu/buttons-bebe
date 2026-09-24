@@ -269,7 +269,7 @@ export function createThreadTissue({ mailbox }) {
     if (!ticket) {
       return `<div class="pane-inner"><p class="empty-pane">Select a ticket.</p></div>${renderLightbox()}`;
     }
-    if (ticket.historyUnavailable) return `<div class="pane-inner"><p role="alert">Ticket history is unavailable. Refresh to retry. Existing customer records have not been reset.</p><a href="/console/">Open support console</a></div>`;
+    if (ticket.historyUnavailable) return `<div class="pane-inner"><p role="alert">Ticket history is unavailable. Refresh to retry. Existing customer records have not been reset.</p><a href="/console/" target="_top">Open support console</a></div>`;
     const count = talkMessages(ticket).length;
     const summarizeLabel = count === 1 ? "Summarize 1 message" : `Summarize ${count} messages`;
     const escalateControl = ticket.escalated || next.capabilities?.escalateTicket === false

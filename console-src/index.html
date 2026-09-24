@@ -200,7 +200,7 @@ button:disabled { cursor:default; }
 body[data-support-page=inbox] #inbox-root { height:calc(100dvh - 52px); }
 /* ponytail: embedded in the console Tickets tab the console owns the nav —
    the inbox's own brand bar would be a second nav inside the frame. */
-body[data-support-page=inbox][data-embedded="1"] .support-nav { display:none; }
+body[data-support-page=inbox][data-embedded="1"] :is(.support-nav,.console-link) { display:none; }
 body[data-support-page=inbox][data-embedded="1"] #inbox-root { height:100dvh; }
 .empty-pane { padding:28px 20px; color:var(--mute); font-size:13px; line-height:1.6; }
 .empty-pane strong { display:block; color:var(--ink); font-weight:500; margin-bottom:6px; }

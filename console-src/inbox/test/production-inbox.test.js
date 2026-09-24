@@ -16,6 +16,9 @@ test('HTTP failures show unavailable state without fixture fallback', async () =
  assert.equal(result.selectedId,null);
  assert.match(result.html,/Tickets unavailable/);
  assert.doesNotMatch(result.html,/Ada Demo|Casey Sandbox/);
+ const consoleLinks = result.html.match(/<a\b[^>]*href="\/console\/"[^>]*>/g) || [];
+ assert.equal(consoleLinks.length, 2, 'toolbar and error recovery links are present');
+ for (const link of consoleLinks) assert.match(link, /target="_top"/, 'console navigation must leave an embedded inbox');
 });
 test('production client rejects a stale fixture response', async () => {
  const shop=createHelpdeskShop({client:{invoke:async () => ({ok:true,source:'sample',tickets:[{id:'t-ada-track'}]})}});
@@ -127,6 +130,9 @@ test('a failed thread fetch is announced instead of rendering an apparently empt
  }}});
  const result=await createInboxOrgan({shop,viewId:'all'}).ready();
  assert.match(result.html,/role="alert">Ticket history is unavailable/);
+ const recovery = result.html.match(/<a\b[^>]*>Open support console<\/a>/);
+ assert.ok(recovery, 'thread failure offers console recovery');
+ assert.match(recovery[0], /target="_top"/, 'thread recovery must leave an embedded inbox');
 });
 test('stale empty projection announces delayed history without invented rows',async()=>{
   const shop=createHelpdeskShop({client:{invoke:async()=>({ok:true,tickets:[],projection:{generatedAt:'one',stale:true}})}});

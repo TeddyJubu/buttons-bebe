@@ -322,7 +322,7 @@ export function createListTissue({ mailbox }) {
     // with no facet rows must still offer the seven-field builder.
     const facets = hasFacetFilters(next) || (next.filterFields || []).length > 0;
     return `<header class="pane-head list-toolbar">
-      <a class="console-link" href="/console/">Console</a>
+      <a class="console-link" href="/console/" target="_top">Console</a>
       <div class="list-toolbar-row list-toolbar-row--search">
         <div class="list-search">
           <input type="search" class="list-search-input" data-search-input placeholder="Search tickets" aria-label="Search tickets" value="${esc(next.searchQuery)}" autocomplete="off">
@@ -483,7 +483,7 @@ export function createListTissue({ mailbox }) {
         ? `<div class="empty-pane" role="status"><strong>No tickets match</strong><p>${next.searchBounded
           ? "Queries are limited to 200 characters — this one is longer, so it matches nothing. Try fewer words."
           : `Nothing in the loaded history matches “${esc(next.searchQuery)}”. ${next.searchAllViews ? "Try fewer words." : "Try fewer words, or search every view."}`}</p></div>`
-        : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/">Open support console</a></div>`;
+        : `<div class="empty-pane" role="status"><strong>${next.error ? "Tickets unavailable" : "No tickets yet"}</strong><p>${esc(next.error || "This inbox has no conversations in this view. Customer support continues in the support console.")}</p><a href="/console/" target="_top">Open support console</a></div>`;
     return `<div class="pane-inner">
       ${renderToolbar(next)}
       ${renderFilterChips(next)}
