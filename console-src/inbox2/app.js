@@ -167,7 +167,7 @@ function renderTicket() {
   for(const detail of document.querySelectorAll('.quoted-email'))if(expandedQuotes.has(detail.dataset.messageId))detail.open=true;
   updateTicketNavigation();
   syncRailAccessibility();
-  const editor=$('#reply');if(editor)editor.value=objectStore(keys.drafts)[t.id]?.body || '';
+  const editor=$('#reply');if(editor){editor.value=objectStore(keys.drafts)[t.id]?.body || '';sizeReplyEditor(editor);if(editor.value)$('#saved-note').textContent='Saved in this browser';}
 }
 // Presentation only: original Gorgias bodies are never changed.
 function decodeMessageEntities(value) {
@@ -289,7 +289,7 @@ function detailsHtml(t) {
 function replyHtml(t) {
   const sensitive=t.draftAction==='sensitive_draft'||/^\[SENSITIVE/i.test(t.readonlyDraft||'');
   const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft">${icon('check')} Use draft</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
-  return `<section class="reply-area">${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<span>Reply</span><span class="recipient">to ${esc(t.fromEmail||'No email observed')}</span></div><textarea id="reply" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy</button><button class="button" data-action="send-gate" aria-disabled="true">${icon('send')} Send</button><button class="button" data-action="send-gate" aria-disabled="true">${icon('down')} Send &amp; close</button></div></div><p class="composer-note">${icon('lock')} Read-only Gorgias access. Replies stay in this browser; use Gorgias to send.</p></section>`;
+  return `<section class="reply-area">${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button></div></div><p class="composer-note">${icon('lock')} Copy your reply, then send it in Gorgias.</p></section>`;
 }
 function renderRail() {
   const t=state.ticket;if(!t)return;
@@ -330,6 +330,7 @@ function orderHtml(o) {
 }
 function addressHtml(title,a) {return `<div class="address-block"><h4>${esc(title)}</h4>${a?['name','address1','address2','city','province','zip','country'].map(k=>a[k]?`${esc(a[k])}<br>`:'').join(''):'Address not available'}</div>`;}
 function saveReply(value) {if(!state.ticket)return;const drafts=objectStore(keys.drafts);drafts[state.id]={body:value,at:Date.now()};persist(keys.drafts,drafts);}
+function sizeReplyEditor(editor) {editor.style.height='auto';editor.style.height=`${editor.scrollHeight}px`;}
 async function copyText(value,message) {try {await navigator.clipboard.writeText(value);toast(message);}catch {toast('Copy is unavailable in this browser. Select the text and copy it manually.');}}
 function setField(field,value) {if(!state.ticket)return;const records=objectStore(keys.state);records[state.id]={...(records[state.id]||{}),[field]:value?{value,by:state.operator||'operator',at:Date.now()}:null};persist(keys.state,records);renderTicket();listRender();toast('Saved in this browser. Observed Gorgias values are unchanged.');}
 // Refresh only the context rail while a background lookup runs; never touch the editor.
@@ -396,7 +397,8 @@ new MutationObserver(syncRailAccessibility).observe($('#workspace'), {attributes
 new ResizeObserver(([entry]) => document.documentElement.style.setProperty('--header-height', `${entry.target.getBoundingClientRect().height}px`)).observe($('.app-header'));
 let searchTimer;
 $('#search').addEventListener('input',event=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.query=event.target.value;state.page=0;syncUrl();loadList();},250);});
-document.addEventListener('input',event=>{if(event.target.id==='reply'){saveReply(event.target.value);$('#saved-note').textContent='Saved in this browser';}});
+document.addEventListener('input',event=>{if(event.target.id==='reply'){sizeReplyEditor(event.target);saveReply(event.target.value);$('#saved-note').textContent='Saved in this browser';}});
+window.addEventListener('resize',()=>{const editor=$('#reply');if(editor)sizeReplyEditor(editor);});
 document.addEventListener('change',event=>{if(event.target.dataset.field)setField(event.target.dataset.field,event.target.value);});
 document.addEventListener('click',async event=>{
   const ticketButton=event.target.closest('[data-ticket]');if(ticketButton){await selectTicket(ticketButton.dataset.ticket,true,true);return;}
@@ -421,7 +423,7 @@ document.addEventListener('click',async event=>{
   if(action==='copy'){copyText(new URL('/inbox/?ticket='+encodeURIComponent(state.id),location.origin).href,'Ticket link copied.');return;}
   if(action==='send-gate'){toast('Gorgias is connected read-only. You can prepare and copy replies here; send them from Gorgias.');return;}
   if(action==='copy-reply'){const value=$('#reply')?.value;if(value)copyText(value,'Reply copied.');else toast('Write a reply or use the suggested draft first.');return;}
-  if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
+  if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
   if(action==='new'){toast('This inbox reads Gorgias tickets. Create new tickets in Gorgias.');return;}
     if(action==='sign-out'){try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}
