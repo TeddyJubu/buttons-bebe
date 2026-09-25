@@ -11,12 +11,13 @@
 
 ## Inbox retirement — 25 September 2026
 
-Inbox 2 (`/inbox2/`) is the sole ticket destination. Inbox 1's interface, server,
-launcher and service definition are deleted; the old unit is masked on the VPS.
-Legacy inbox page links redirect with their query string; retired API/assets
-return 410. Do not restore the embedded inbox or its message bridge. Shared
-projection/Shopify Python modules and dependency locks in `console-src/inbox/`
-remain required by Inbox 2. Use `helpdesk-inbox2` (:8767) and
+Inbox (`/inbox/`) is the sole ticket destination. The previous Inbox 1 interface,
+server, launcher and service definition are deleted; the old unit is masked on
+the VPS. `/inbox2/` bookmarks redirect to `/inbox/`, preserving ticket and view
+parameters; retired API/assets return 410. Do not restore the embedded inbox or
+its message bridge. Shared projection/Shopify Python modules and dependency
+locks in `console-src/inbox/` remain required by Inbox. The backend retains its
+internal `inbox2` service and data paths: use `helpdesk-inbox2` (:8767) and
 `buttonsbebe-inbox2-shop`; the existing projection timer remains active. Earlier
 Inbox 1 browser-control, preview and WebMCP notes below are historical.
 
@@ -306,7 +307,7 @@ as current work.
 - Prefers AI drafts that answer the ticket’s actual ask or request type; mismatched draft content undermines trust.
 - Wants the detachable Gorgias bridge left off until credentials are added and they explicitly activate it.
 - When contributing to the original/upstream repo, omit credentials and demo data; keep Shopify read-only; keep Send disconnected so a click shows “Activate the send access.”
-- Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox2/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
+- Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
 
 ## Learned Workspace Facts
 

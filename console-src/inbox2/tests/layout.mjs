@@ -13,7 +13,7 @@ const errors=[]; page.on('pageerror',error=>errors.push(error.message));
 const now=new Date().toISOString();
 const t={id:'gorgias:fixture',subject:'A long ticket subject about an order and return',customerName:'Example customer',fromEmail:'customer@example.com',status:'open',gorgiasPriority:'high',assigneeEmail:'support@example.com',channel:'email',updatedAt:now,syncedAt:now,readonlyDraft:'Hello,\n\nThank you for getting in touch. We will review your request.',draftAction:'sensitive_draft',draftReason:'Review the request before sending a response.',draftSourceMessageId:'fixture-message',draftProcessedAt:now,messages:[{id:'message',fromName:'Example customer',fromEmail:'customer@example.com',body:'Please review my order.\n\nhttps://example.com/order\n\nOn Monday someone wrote:\n> Earlier email history.',at:now}],shopifyRail:{status:'observed',customer:{displayName:'Example customer',numberOfOrders:12,amountSpent:{amount:'1240',currencyCode:'USD'}},order:{id:'order',name:'#12345',displayFinancialStatus:'PAID',displayFulfillmentStatus:'UNFULFILLED',currentTotalPriceSet:{shopMoney:{amount:100,currencyCode:'USD'}},fulfillments:[{displayStatus:'IN_PROGRESS',trackingInfo:[]}],lineItems:{nodes:[]}},returns:{returns:{nodes:[]}},history:[]}};
 const calls=[];let mode='ok';
-await page.route('**/inbox2/api/helpdesk',async route=>{
+await page.route('**/inbox/api/helpdesk',async route=>{
   const data=route.request().postDataJSON();calls.push(data);
   const name=data.tool.replace('helpdesk.','');
   assert(['capabilities','list_tickets','get_ticket','get_messages'].includes(name));
@@ -21,7 +21,7 @@ await page.route('**/inbox2/api/helpdesk',async route=>{
   if(mode==='auth'&&name==='get_ticket')return route.fulfill({status:401,json:{}});
   await route.fulfill({json:{ok:true,source:'gorgias_api',...(name==='get_ticket'?{ticket:t}:name==='list_tickets'?{tickets:mode==='empty'?[]:[t],total:mode==='empty'?0:1,nextOffset:null,projection:{complete:true,generatedAt:now}}:{operatorEmail:'support@example.com'})}});
 });
-await page.goto('http://127.0.0.1:8878/inbox2/?ticket=gorgias%3Afixture');
+await page.goto('http://127.0.0.1:8878/inbox/?ticket=gorgias%3Afixture');
 await page.locator('.ticket-title').waitFor();
 assert.equal(await page.locator('.status-control').evaluate(el=>getComputedStyle(el).color),'rgb(134, 80, 15)');
 assert.equal(await page.locator('.order-statuses .badge').first().evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(231, 242, 233)');
@@ -75,7 +75,7 @@ assert(await page.locator('#conversation').evaluate(el=>el.scrollHeight>el.clien
 mode='error';await page.reload();await page.locator('.is-error').waitFor();
 assert(await page.locator('[data-action="retry-ticket"]').isVisible());
 mode='auth';await page.reload();await page.getByRole('heading',{name:'Sign in to continue'}).waitFor();
-mode='empty';await page.goto('http://127.0.0.1:8878/inbox2/');await page.getByText('No tickets match this view.').waitFor();
+mode='empty';await page.goto('http://127.0.0.1:8878/inbox/');await page.getByText('No tickets match this view.').waitFor();
 assert.equal(errors.length,0,errors.join('\n'));
 console.log('Passed: 11 viewport widths, independent scrolling, state colors, filters/search, local draft persistence, tabs/keyboard, rail collapse/drawer/focus, reduced motion, zoom layout, empty/error/auth states; zero browser errors.');
 await browser.close();

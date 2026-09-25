@@ -66,7 +66,7 @@ test("UI-03: every supported inbox view retains its exact navigation", () => {
     const context = harness();
     context.goTickets(view);
     const destination = new URL(context.location.destination, "https://support.example.com");
-    assert.equal(destination.pathname, "/inbox2/");
+    assert.equal(destination.pathname, "/inbox/");
     assert.equal(destination.searchParams.get("view") || "all", view);
     assert.equal(context.inboxNavView, view);
     assert.equal(context.inboxNavTicket, null);
@@ -78,7 +78,7 @@ test("UI-03: per-ticket notifications remain reachable despite legacy dashboard 
     const context = harness();
     context.goTickets(filter, 42);
     const destination = new URL(context.location.destination, "https://support.example.com");
-    assert.equal(destination.pathname, "/inbox2/");
+    assert.equal(destination.pathname, "/inbox/");
     assert.equal(destination.searchParams.get("ticket"), "gorgias:42");
     assert.equal(context.inboxNavView, "all");
     assert.equal(context.inboxNavTicket, "gorgias:42");

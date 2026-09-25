@@ -1,6 +1,6 @@
 """Fetch opened-ticket Shopify details using the existing fixed read-only queries.
 
-Runs outside the credential-free Inbox 2 service. Reads its bounded request queue
+Runs outside the credential-free inbox service. Reads its bounded request queue
 and atomically publishes an independent snapshot; the legacy exporter cannot erase it.
 """
 from contextlib import closing

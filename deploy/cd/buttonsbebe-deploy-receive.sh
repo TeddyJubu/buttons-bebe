@@ -161,7 +161,7 @@ readiness_ok() (
         curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8767/health |
           python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("readOnly") is True' || return 1
         curl --fail --silent --show-error --max-time 10 -X POST \
-          http://127.0.0.1:8767/inbox2/api/helpdesk -H 'content-type: application/json' \
+          http://127.0.0.1:8767/inbox/api/helpdesk -H 'content-type: application/json' \
           -d '{"tool":"helpdesk.capabilities","arguments":{}}' |
           python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("readOnly") is True and x.get("capabilities",{}).get("sendReply") is False' || return 1 ;;
       buttonsbebe-whatsapp-connect)

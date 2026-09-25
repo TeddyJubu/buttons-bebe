@@ -1,4 +1,4 @@
-"""Inbox 2: credential-free Gorgias reads through the local GET-only MCP.
+"""Inbox: credential-free Gorgias reads through the local GET-only MCP.
 
 The public API is authenticated by Caddy. Only three named read operations are
 accepted. The process has loopback-only network access and read-only source
@@ -75,7 +75,7 @@ class MCP:
         self.sequence = 0
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         try:
-            self.rpc('initialize', {'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'inbox2-readonly','version':'1'}})
+            self.rpc('initialize', {'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'inbox-readonly','version':'1'}})
             self.rpc('notifications/initialized', {}, notification=True)
             return self
         except Exception:
@@ -200,7 +200,7 @@ def sync_loop():
     while not STOP.is_set():
         try: sync_once();delay=30
         except Exception:
-            logging.getLogger('inbox2').warning('Gorgias read sync unavailable; retaining last successful data')
+            logging.getLogger('inbox').warning('Gorgias read sync unavailable; retaining last successful data')
             with closing(database()) as db, db:
                 meta=get_meta(db);meta.update(error=True,syncing=False);set_meta(db,meta)
             delay=min(delay*2,300)
@@ -328,7 +328,7 @@ async def headers(request,call_next):
 @app.get('/health')
 def health(): return {'ok':True,'readOnly':True}
 
-@app.post('/inbox2/api/helpdesk')
+@app.post('/inbox/api/helpdesk')
 async def invoke(request:Request):
     if request.headers.get('content-type','').split(';')[0].strip()!='application/json':
         return JSONResponse({'ok':False,'message':'Use application/json.'},status_code=415)

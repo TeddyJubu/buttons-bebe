@@ -170,7 +170,7 @@ import json,os,pathlib,sys
 root=pathlib.Path(os.environ['HARNESS_ROOT'])
 url=next(arg for arg in sys.argv if arg.startswith('http://'))
 with (root/'calls').open('a') as out:out.write('probe '+url+'\\n')
-if url.endswith('/inbox2/api/helpdesk'):
+if url.endswith('/inbox/api/helpdesk'):
  print(json.dumps({'ok':True,'readOnly':True,'capabilities':{'sendReply':False}}))
 elif url.endswith(':8767/health'):
  if FAIL_READY and (root/'live/webhook/app.py').read_text()=='new code':sys.exit(22)

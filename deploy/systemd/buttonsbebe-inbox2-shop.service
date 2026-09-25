@@ -1,5 +1,5 @@
 [Unit]
-Description=Read-only Shopify details for opened Inbox 2 tickets
+Description=Read-only Shopify details for opened support tickets
 After=network-online.target helpdesk-inbox2.service
 Wants=network-online.target helpdesk-inbox2.service
 

@@ -32,13 +32,13 @@ test('uncertain owner alerts remain visible without a retry control',()=>{
  assert.equal(context.ownerAlertWarning(0),'');
  assert.match(html,/ownerAlertWarning\(stats.owner_alerts_need_attention\)/);
 });
-test('overview and notification deep links route into standalone Inbox 2',()=>{
+test('overview and notification deep links route into standalone Inbox',()=>{
  const source=slice('function bbStandaloneInboxSrc(','function ticketsView(){')+html.slice(html.indexOf('function inboxDeepFilter('),html.indexOf('\nfunction render(){'));
  const context=vm.createContext({tab:'overview',inboxNavView:'all',inboxNavTicket:null,URLSearchParams,location:{assign(url){this.destination=url;}},render(){},document:{getElementById:()=>null}});
  vm.runInContext(source,context);
  context.goTickets('all',42);
  assert.equal(context.inboxNavTicket,'gorgias:42');
- assert.equal(context.location.destination,'/inbox2/?ticket=gorgias%3A42');
+ assert.equal(context.location.destination,'/inbox/?ticket=gorgias%3A42');
  context.goTickets('all','gorgias:42');
  assert.equal(context.inboxNavTicket,'gorgias:42');
  // ponytail: regression for the message-id/value mix-up — keyOf must hand
@@ -50,7 +50,7 @@ test('overview and notification deep links route into standalone Inbox 2',()=>{
  context.goTickets('failed',null);
  assert.equal(context.tab,'overview','unsupported filter-only navigation stays put');
  context.goTickets('escalated',42);
- assert.equal(context.location.destination,'/inbox2/?ticket=gorgias%3A42','ticket-specific notifications still open the inbox');
+ assert.equal(context.location.destination,'/inbox/?ticket=gorgias%3A42','ticket-specific notifications still open the inbox');
  assert.equal(context.inboxNavView,'all');
  assert.equal(context.inboxNavTicket,'gorgias:42');
  context.goTickets('open',null);

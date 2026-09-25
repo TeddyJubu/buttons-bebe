@@ -405,7 +405,7 @@ body.bb-console .attention-btn:not(button){grid-template-columns:auto minmax(0,1
 const API="/console/api", KBAPI="/console/kbapi";
 let stats={},tickets=[],learn={},tab="overview";
 // ponytail: the inbox iframe IS the tickets tab — no legacy/inbox toggle,
-// Ticket navigation uses the standalone Inbox 2 URL.
+// Ticket navigation uses the standalone Inbox URL.
 let inboxNavView="all",inboxNavTicket=null;
 var bbArmed=false;
 try{bbArmed=new URLSearchParams(location.search).get("live")==="1";}catch(e){bbArmed=false;}
@@ -465,7 +465,7 @@ const view=viewOverride===undefined?inboxNavView:viewOverride;
 const ticket=ticketOverride===undefined?inboxNavTicket:ticketOverride;
 if(view&&view!=="all")q.set("view",view);
 if(ticket)q.set("ticket",ticket);
-return "/inbox2/"+(q.size?"?"+q.toString():"");
+return "/inbox/"+(q.size?"?"+q.toString():"");
 }
 function ticketsView(){
 return '<a class="btn p" href="'+bbStandaloneInboxSrc()+'">Open tickets</a>';

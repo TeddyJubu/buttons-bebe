@@ -1,4 +1,4 @@
-"""Credential-free request queue and snapshot reader for opened Inbox 2 tickets."""
+"""Credential-free request queue and snapshot reader for opened inbox tickets."""
 from contextlib import closing
 import hashlib
 import json

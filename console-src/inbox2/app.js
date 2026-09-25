@@ -45,7 +45,7 @@ let params = new URLSearchParams(location.search);
 const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['all','open','closed'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',operator:'',ticketRequest:0,listRequest:0};
 $('#search').value=state.query;
 async function api(tool, args={}) {
-  const response = await fetch('/inbox2/api/helpdesk',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:`helpdesk.${tool}`,arguments:args}),signal:AbortSignal.timeout(65000)});
+  const response = await fetch('/inbox/api/helpdesk',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:`helpdesk.${tool}`,arguments:args}),signal:AbortSignal.timeout(65000)});
   if (response.status===401 || response.redirected) {const error=new Error('Your session has expired. Sign in to continue.');error.auth=true;throw error;}
   if (!response.ok) {const body=await response.json().catch(()=>({}));const error=new Error(body.message||'Ticket data could not be loaded. Please try again.');error.gone=response.status===404;throw error;}
   const result=await response.json();
@@ -65,7 +65,7 @@ function allRows() {return [...localRows(),...state.rows];}
 function filtered() {return state.rows;}
 function syncUrl(push=false) {
   const p=new URLSearchParams();if(state.id)p.set('ticket',state.id);if(state.view!=='all')p.set('view',state.view);if(state.query)p.set('q',state.query);
-  const url='/inbox2/'+(p.size?'?'+p.toString():'');
+  const url='/inbox/'+(p.size?'?'+p.toString():'');
   if(location.pathname+location.search!==url) history[push?'pushState':'replaceState']({},'',url);
 }
 function rowTitle(t) {return t.subject || 'No subject';}
@@ -418,13 +418,13 @@ document.addEventListener('click',async event=>{
   if(action==='back'){$('#workspace').classList.remove('ticket-open','rail-open');$('#search').focus();return;}
   if(action==='rail'){railTrigger=event.target.closest('[data-action]');$('#workspace').classList.remove('rail-collapsed');$('#workspace').classList.add('rail-open');syncRailAccessibility();$('#customer-rail button')?.focus();return;}
   if(action==='rail-close'){closeRail();return;}
-  if(action==='copy'){copyText(new URL('/inbox2/?ticket='+encodeURIComponent(state.id),location.origin).href,'Ticket link copied.');return;}
+  if(action==='copy'){copyText(new URL('/inbox/?ticket='+encodeURIComponent(state.id),location.origin).href,'Ticket link copied.');return;}
   if(action==='send-gate'){toast('Gorgias is connected read-only. You can prepare and copy replies here; send them from Gorgias.');return;}
   if(action==='copy-reply'){const value=$('#reply')?.value;if(value)copyText(value,'Reply copied.');else toast('Write a reply or use the suggested draft first.');return;}
   if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
   if(action==='new'){toast('This inbox reads Gorgias tickets. Create new tickets in Gorgias.');return;}
-    if(action==='sign-out'){try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox2%2F');}catch {toast('Sign out failed. Please try again.');}}
+    if(action==='sign-out'){try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}
 });
 document.addEventListener('keydown', event => {
   const drawerOpen = drawerQuery.matches && $('#workspace').classList.contains('rail-open');

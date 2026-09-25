@@ -1,6 +1,6 @@
-# Inbox 2
+# Inbox
 
-A read-only support workspace at `/inbox2/`, styled with the tokens and component
+A read-only support workspace at `/inbox/`, styled with the tokens and component
 rules in `DESIGN.md`. The browser reads tickets through an authenticated local API.
 Reply text stays in the browser; this implementation does not send replies.
 
@@ -28,11 +28,12 @@ outside this source tree.
 
 The checked-in systemd units live in `deploy/systemd/` and the authenticated routes
 are in `deploy/caddy/sites/support.caddy`. The release inventory deploys the
-Inbox 2 Python service and its allowlisted web assets to their separate roots.
-Inbox 1 is retired: its interface and server are deleted, its service is masked,
-and old page URLs redirect to `/inbox2/` while preserving the query string. Old
-Inbox 1 API and asset URLs return HTTP 410. The shared modules in `../inbox/`
-remain in use for draft projection and Shopify context.
+Inbox Python service and its allowlisted web assets to their separate roots.
+The previous interface and service were retired. This Inbox now uses `/inbox/`
+as its canonical route. Bookmarks for `/inbox2/` redirect to
+`/inbox/` with query parameters preserved; its old API and asset URLs return
+HTTP 410. The shared modules in `../inbox/` remain in use for draft projection
+and Shopify context.
 
 The deployed layout uses:
 
@@ -56,7 +57,7 @@ backups outside the repository.
 ## Verification
 
 Run `bash tools/verify_release.sh` from the repository root with the required Python
-environments available. It includes the Inbox 2 backend tests and JS syntax checks.
+environments available. It includes the Inbox backend tests and JS syntax checks.
 For focused checks:
 
 ```sh

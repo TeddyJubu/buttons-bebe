@@ -268,7 +268,7 @@ def main() -> None:
     back = sub.add_parser('rollback'); back.add_argument('--backup', type=Path, required=True)
     args = parser.parse_args()
     if args.command != "rollback":
-        raise SystemExit("Inbox 1 is retired; use the Inbox 2 release inventory.")
+        raise SystemExit("Inbox 1 is retired; use the Inbox release inventory.")
     if os.geteuid() != 0:
         raise SystemExit('Run only on the reviewed Linux VPS as root')
     os.umask(0o077)

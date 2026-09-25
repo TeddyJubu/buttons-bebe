@@ -13,14 +13,14 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 let mode='loading',reads=0;
 const base={id:'gorgias:123',subject:'Order 10312345',customerName:'Example Customer',fromEmail:'person@example.com',status:'open',messages:[{id:'m',body:'Please check my order.',at:new Date().toISOString()}]};
 const found={status:'found',customer:{displayName:'Example Customer',numberOfOrders:'4',amountSpent:{amount:'100.00',currencyCode:'USD'}},order:{id:'o',name:'#10312345',lineItems:{nodes:[]},shippingAddress:{address1:'Example address'}},history:[],returns:{returns:{nodes:[]}},fetchedAt:new Date().toISOString()};
-await page.route('**/inbox2/api/helpdesk',async route=>{
+await page.route('**/inbox/api/helpdesk',async route=>{
  const {tool}=route.request().postDataJSON();
  assert(['helpdesk.get_ticket','helpdesk.list_tickets','helpdesk.capabilities'].includes(tool));
  if(tool==='helpdesk.get_ticket')reads++;
  const rail=mode==='loading'?{status:'loading'}:mode==='found'?found:mode==='error'?{status:'error',refreshError:true}:mode==='missing'?{status:'missing'}:{status:'unavailable'};
  await route.fulfill({json:{ok:true,source:'gorgias_api',...(tool==='helpdesk.get_ticket'?{ticket:{...base,shopifyRail:rail}}:tool==='helpdesk.list_tickets'?{tickets:[base],total:1,nextOffset:null,projection:{complete:true}}:{})}});
 });
-await page.goto('http://127.0.0.1:8878/inbox2/?ticket=gorgias%3A123');
+await page.goto('http://127.0.0.1:8878/inbox/?ticket=gorgias%3A123');
 await page.getByText('Loading Shopify customer details…').waitFor();
 await page.locator('#reply').fill('Do not replace my reply');
 mode='found';

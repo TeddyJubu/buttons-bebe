@@ -1,5 +1,5 @@
 [Unit]
-Description=Buttons Bebe Inbox 2 read-only Gorgias sync
+Description=Buttons Bebe Inbox read-only Gorgias sync
 After=network.target buttonsbebe-gorgias-mcp.service
 Wants=buttonsbebe-gorgias-mcp.service
 

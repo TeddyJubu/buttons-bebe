@@ -51,8 +51,8 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 		respond "Not found" 404
 	}
 
-	# Inbox 2 live read-only API: authenticate before forwarding to the local service.
-	handle /inbox2/api/* {
+	# Inbox read-only API: require a console session before forwarding.
+	handle /inbox/api/* {
 		route {
 			forward_auth 127.0.0.1:8000 {
 				uri /auth/page-check
@@ -64,14 +64,14 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 		}
 	}
 
-	# Primary standalone live inbox.
-	redir /inbox2 /inbox2/ 308
-	handle /inbox2/* {
+	# Canonical standalone inbox.
+	redir /inbox /inbox/ 308
+	handle /inbox/* {
 		route {
 			forward_auth 127.0.0.1:8000 {
 				uri /auth/page-check
 			}
-			uri strip_prefix /inbox2
+			uri strip_prefix /inbox
 			root * /var/www/inbox2
 			header {
 				Cache-Control "no-store"
@@ -82,17 +82,14 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 		}
 	}
 
-	# Inbox 1 is retired. Preserve saved ticket links; old APIs/assets are gone.
-	@legacyinbox path /inbox /inbox/*
-	handle @legacyinbox {
-		route {
-			@legacyinboxpage {
-				method GET HEAD
-				path /inbox /inbox/ /inbox/index.html
-			}
-			redir @legacyinboxpage /inbox2/?{query} 308
-			respond "Inbox 1 has been retired." 410
-		}
+# Keep old Inbox 2 bookmarks working while retiring its former API/assets.
+	@legacyinbox2page {
+		method GET HEAD
+		path /inbox2 /inbox2/ /inbox2/index.html
+	}
+	redir @legacyinbox2page /inbox/?{query} 308
+	handle /inbox2/* {
+		respond "Inbox has moved." 410
 	}
 
 	@consoleauth path /console/api/auth/*

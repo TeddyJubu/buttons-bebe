@@ -3,7 +3,7 @@
 **Status:** Visual reference for the current production console
 **Reference:** [Support console](https://support.buttonsbebe.com/console/)
 **Captured:** 25 September 2026
-**Scope:** The console at `/console/`, its sign-in page, and the separately rendered Inbox 2 at `/inbox2/` where noted.
+**Scope:** The console at `/console/`, its sign-in page, and the standalone Inbox at `/inbox/` where noted.
 
 **Production version checked:** 25 September 2026; deployment manifest `6a7d1df18960bba67a0ed032534e71f1431ed8c3` (generation 221). Current console and sign-in files match their manifest checksums (`e9ee15c1c9d0` and `c31f8bd4c40f`). The public console route redirects unauthenticated requests to sign-in, whose served HTML was also checked.
 
@@ -11,7 +11,7 @@ The console page requires a signed-in session. This reference records the deploy
 
 ## Design direction
 
-The console combines an earthy, sand-colored workspace with white operational cards, near-black text, burgundy brand details, and restrained green, amber, and red statuses. It balances dashboard density with clear section headings and familiar rounded cards. Inbox 2 carries the same palette into a quieter, compact reading layout.
+The console combines an earthy, sand-colored workspace with white operational cards, near-black text, burgundy brand details, and restrained green, amber, and red statuses. It balances dashboard density with clear section headings and familiar rounded cards. Inbox carries the same palette into a quieter, compact reading layout.
 
 Keep the brand wordmark distinct from the working text. Use burgundy for page headings, selected navigation, and primary actions; use sand for navigation and green or amber for explicitly labeled states. Surfaces and separators should do most of the structural work. Use shadow sparingly for sign-in and temporary overlays.
 
@@ -50,7 +50,7 @@ Status is carried by readable labels and backgrounds, with icons or dots where u
 - **Interface and headings:** Jost, bundled locally in the console for weights 400, 500, and 600. The final brand layer applies Jost across the console, including inherited control text.
 - **Brand wordmark:** Jost, using the separately bundled Buttons Bebe wordmark SVG in the console. The logo artwork itself uses forest green.
 - **Code and technical text:** system monospace stack (for example, `ui-monospace`, Menlo, and SFMono-Regular); used for document identifiers and some editor content.
-- **Inbox 2:** uses Inter for the interface and Jost for its wordmark. Its page loads Inter weights 400–700 and selected intermediate weights from Google Fonts.
+- **Inbox:** uses Inter for the interface and Jost for its wordmark. Its page loads Inter weights 400–700 and selected intermediate weights from Google Fonts.
 
 Useful sizes found in the console: section navigation 13–14px; common supporting copy 12–14px; dashboard card headings 15–16px; page title 19px in the standard header and up to 26px in the compact or mobile header; KPI values 24–28px. The separate sign-in page uses a 28px Jost heading, 14px labels, and 16px introductory and input text. Use sentence case for interface labels.
 
@@ -68,9 +68,9 @@ The sign-in page’s earlier base rule names Inter, but its final bundled brand 
 - At widths of 600px and below, dashboard content and attention panels stack, section navigation remains reachable in the drawer, and the header actions wrap.
 - The page title and section descriptions remain visible as the header compacts on scroll.
 
-### Inbox 2
+### Inbox
 
-Inbox 2 uses a full-height, three-column browse/work/context layout. At wide sizes, the ticket list is around 312–330px, the reading pane grows with a 380–440px minimum, and the customer-detail rail is about 344–365px. Between 651 and 1040px the detail rail opens as a drawer; at 650px and below the list, ticket, and details appear one main view at a time. The collapsed context rail preserves a clear way to reopen customer details.
+Inbox uses a full-height, three-column browse/work/context layout. At wide sizes, the ticket list is around 312–330px, the reading pane grows with a 380–440px minimum, and the customer-detail rail is about 344–365px. Between 651 and 1040px the detail rail opens as a drawer; at 650px and below the list, ticket, and details appear one main view at a time. The collapsed context rail preserves a clear way to reopen customer details.
 
 ### Sign-in
 
@@ -89,7 +89,7 @@ The sign-in card has an approximately 440px maximum width, a white surface, a sa
 
 ## Icons and interaction
 
-The console uses bundled inline SVG icons. The dashboard’s icon set uses filled Material-style SVG paths, while Inbox 2 uses bundled Lucide SVGs on a 24px grid with a 2px stroke. Within each page, keep the icon family consistent. Decorative icons are hidden from assistive technology; give icon-only controls an accessible name.
+The console uses bundled inline SVG icons. The dashboard’s icon set uses filled Material-style SVG paths, while Inbox uses bundled Lucide SVGs on a 24px grid with a 2px stroke. Within each page, keep the icon family consistent. Decorative icons are hidden from assistive technology; give icon-only controls an accessible name.
 
 Keyboard focus is a visible burgundy outline. Selected navigation exposes its current-page state, and the mobile navigation restores focus when it closes. Respect keyboard operation, readable labels, reduced motion, text enlargement, and wrapping at narrow widths. Links in message content should remain visible and descriptive.
 
