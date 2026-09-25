@@ -21,8 +21,9 @@ COMPONENTS = {
     'kb': ('KB', ['buttonsbebe-kb-mcp', 'buttonsbebe-processor']),
     'kb-admin': ('kb-admin', ['buttonsbebe-kb-admin']),
     'whatsapp-connect': ('whatsapp-connect', ['buttonsbebe-whatsapp-connect']),
-    'console-src/inbox': ('console-src/inbox', ['helpdesk-inbox']),
-    'console-src/helpdesk-agent': ('console-src/helpdesk-agent', ['helpdesk-inbox']),
+    'console-src/inbox': ('console-src/inbox', ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop']),
+    'console-src/inbox2': ('', ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop']),
+    'console-src/helpdesk-agent': ('console-src/helpdesk-agent', []),
 }
 REQUIRED_FILES = {
     'webhook': ('src/bb_webhook/app.py', 'pyproject.toml', 'uv.lock'),
@@ -32,9 +33,12 @@ REQUIRED_FILES = {
     'kb': ('scripts/index_kb.py', 'sync-products.sh', 'requirements.txt', 'requirements.lock', 'runtime-constraints.txt'),
     'kb-admin': ('server.js',),  # Node builtins only; no package manifest exists.
     'whatsapp-connect': ('server.js', 'package.json', 'package-lock.json'),
-    'console-src/inbox': ('run-review.sh', 'index.html', 'requirements.txt', 'requirements.lock', 'projection.py', 'export_projection.py', 'shop_rail.py', 'export_shop_rail.py'),
+    'console-src/inbox': ('requirements.txt', 'requirements.lock', 'projection.py', 'export_projection.py', 'shop_rail.py', 'export_shop_rail.py'),
+    'console-src/inbox2': ('live_api.py', 'customer_details.py', 'shop_worker.py', 'index.html', 'app.js', 'styles.css', 'icons.js', 'lucide-LICENSE.txt'),
     'console-src/helpdesk-agent': ('helpdesk/dispatch.py', 'helpdesk/send_access.py'),
 }
+
+INBOX2_ASSETS = {'index.html', 'app.js', 'styles.css', 'icons.js', 'lucide-LICENSE.txt'}
 
 EXCLUDED = {'.venv', 'venv', 'node_modules', '__pycache__', 'data', 'logs', 'auth',
             '.wwebjs_auth', '.wwebjs_cache', '.git', '.pytest_cache', 'lancedb',
@@ -120,6 +124,8 @@ def inventory(release):
                 raise ValueError('symlink in release')
             if path.is_file():
                 key = ('inbox/' if component.startswith('console-src/') else 'app/') + str(Path(target) / relative)
+                if component == 'console-src/inbox2':
+                    key = ('inbox2web/' if str(relative) in INBOX2_ASSETS else 'inbox2/') + str(relative)
                 result[key] = {'source': str(path.relative_to(release)), 'sha256': digest(path),
                                'component': component, 'services': services,
                                'mode': 0o755 if path.suffix == '.sh' else 0o644}
@@ -134,9 +140,11 @@ def inventory(release):
 
 def target_path(key, live, web, inbox=None):
     prefix, relative = key.split('/', 1)
-    if prefix not in {'app', 'web', 'inbox'}:
+    if prefix not in {'app', 'web', 'inbox', 'inbox2', 'inbox2web'}:
         raise ValueError('unknown deployment root')
-    return safe_path({'app': live, 'web': web, 'inbox': inbox or live}[prefix], relative)
+    return safe_path({'app': live, 'web': web, 'inbox': inbox or live,
+                      'inbox2': (inbox or live).parent / 'inbox2',
+                      'inbox2web': web.parent / 'inbox2'}[prefix], relative)
 
 
 def prepare(release, live, web, journal_dir, state, inbox=None):

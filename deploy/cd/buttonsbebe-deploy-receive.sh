@@ -131,7 +131,7 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
         if actual != expected:
             raise SystemExit('Applied configuration drift: ' + path)
         entries.append(path)
-required = {'/etc/caddy/sites/support.caddy', '/etc/systemd/system/helpdesk-inbox.service',
+required = {'/etc/caddy/sites/support.caddy', '/etc/systemd/system/helpdesk-inbox2.service',
             '/etc/systemd/system/buttonsbebe-inbox-projection.service',
             '/etc/systemd/system/buttonsbebe-inbox-projection.timer'}
 if not required.issubset(entries):
@@ -157,14 +157,13 @@ readiness_ok() (
     case "$service" in
       buttonsbebe-webhook)
         curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/ready >/dev/null || return 1 ;;
-      helpdesk-inbox)
-        curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8766/ready |
-          python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("sendAccessEnabled") is False' || return 1
-        curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8766/ >/dev/null || return 1
+      helpdesk-inbox2)
+        curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8767/health |
+          python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("readOnly") is True' || return 1
         curl --fail --silent --show-error --max-time 10 -X POST \
-          http://127.0.0.1:8766/console/api/helpdesk -H 'content-type: application/json' \
-          -d '{"tool":"helpdesk.send_reply","arguments":{"ticketId":"deployment-lock-probe","text":"Hi","confirmed":true}}' |
-          python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is False and x.get("error")=="send_access_inactive" and x.get("message")=="Activate the send access."' || return 1 ;;
+          http://127.0.0.1:8767/inbox2/api/helpdesk -H 'content-type: application/json' \
+          -d '{"tool":"helpdesk.capabilities","arguments":{}}' |
+          python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("readOnly") is True and x.get("capabilities",{}).get("sendReply") is False' || return 1 ;;
       buttonsbebe-whatsapp-connect)
         # Connected vs QR/disconnected is business health, not code liveness.
         curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8085/wa/status >/dev/null || return 1 ;;
@@ -264,7 +263,7 @@ fi
 # The projection exporter reads the same /opt Python tree as the inbox. Pause
 # its scheduler before swapping files; never interrupt an in-flight snapshot.
 # Also cover webhook-only changes because exporter reads its canonical schema.
-if [[ " ${services[*]} " == *" helpdesk-inbox "* || " ${services[*]} " == *" buttonsbebe-webhook "* ]]; then
+if [[ " ${services[*]} " == *" helpdesk-inbox2 "* || " ${services[*]} " == *" buttonsbebe-webhook "* ]]; then
   if systemctl is-active --quiet buttonsbebe-inbox-projection.timer; then
     active_timers+=("buttonsbebe-inbox-projection.timer")
     systemctl stop buttonsbebe-inbox-projection.timer

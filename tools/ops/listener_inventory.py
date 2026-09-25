@@ -6,9 +6,9 @@ from pathlib import Path
 import re
 import subprocess
 
-APP_PORTS = {8000, 8077, 8078, 8079, 8085, 8087, 8766, 9119, 8099, 4100, 3210}
+APP_PORTS = {8000, 8077, 8078, 8079, 8085, 8087, 8767, 9119, 8099, 4100, 3210}
 KNOWN_UNITS = {'buttonsbebe-hermes-dashboard.service', 'exchange-proxy.service',
-               'helpdesk-inbox.service', 'buttonsbebe-webhook.service',
+               'helpdesk-inbox2.service', 'buttonsbebe-webhook.service',
                'buttonsbebe-kb-mcp.service', 'buttonsbebe-redo-mcp.service',
                'buttonsbebe-gorgias-mcp.service', 'buttonsbebe-whatsapp-connect.service',
                'buttonsbebe-kb-admin.service'}

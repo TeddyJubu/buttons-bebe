@@ -52,7 +52,7 @@ test("UI-03: historical KPI and risk totals stay separate from recent-ticket cou
 });
 
 test("UI-03: unsupported filter-only calls never silently navigate to All", () => {
-  for (const filter of ["draft", "escalated", "failed", "queue", "risk:critical", "unknown"]) {
+  for (const filter of ["draft", "escalated", "failed", "queue", "risk:critical", "unknown", "mine", "unassigned", "snoozed", "trash", "spam"]) {
     const context = harness();
     context.goTickets(filter);
     assert.equal(context.tab, "overview", `${filter} is not an inbox view`);
@@ -60,8 +60,8 @@ test("UI-03: unsupported filter-only calls never silently navigate to All", () =
   }
 });
 
-test("UI-03: every supported inbox view retains its exact navigation", async () => {
-  const { VIEW_IDS } = await import("../inbox/js/view-model.js");
+test("UI-03: every supported inbox view retains its exact navigation", () => {
+  const VIEW_IDS = ["all", "open", "closed"];
   for (const view of VIEW_IDS) {
     const context = harness();
     context.goTickets(view);

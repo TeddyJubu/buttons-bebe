@@ -13,10 +13,19 @@ feedback, tools, KB code, KB admin, WhatsApp, inbox and helpdesk-agent. It also
 ships both console HTML assets. A successful inventory is persisted under
 `/var/lib/buttonsbebe-deploy/source-manifest.json`.
 
-Inbox source is explicitly deployed under `/opt/buttonsbebe/inbox/console-src/`.
-Its venv is `/opt/buttonsbebe/inbox/venv`; its database lives outside the code
-root under `/var/lib/buttonsbebe-inbox/`. The historical `/root/Buttonsbebe Agent/
-console-src/` copies are not deleted or used by this manifest.
+Inbox 2 is the only ticket interface. Its Python source deploys to
+`/opt/buttonsbebe/inbox2/`; its five public assets deploy to `/var/www/inbox2/`.
+These are distinct inventory roots (`inbox2/` and `inbox2web/`), and backend source
+is never placed in the public root. The shared projection/Shopify modules remain
+under `/opt/buttonsbebe/inbox/console-src/inbox/`, with the existing venv at
+`/opt/buttonsbebe/inbox/venv`. API and worker state stay in their separate
+`/var/lib/buttonsbebe-inbox2*` directories. The legacy UI/server are removed and
+`helpdesk-inbox.service` is masked. Its saved page links redirect to Inbox 2.
+
+Install the updated receiver and source helper together during this cutover.
+Update applied Caddy and Inbox 2 unit fingerprints and the approved config tree
+hashes after validation; preserve the original config and removed code in a
+private deployment backup. The projection timer continues supplying draft context.
 
 Credentials, virtual environments, node_modules, databases, logs, WhatsApp
 session state, KB index and **all KB corpora** (including editor-managed policies,

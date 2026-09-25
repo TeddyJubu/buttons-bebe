@@ -155,3 +155,13 @@ for (const width of [1340, 390]) {
     assert.deepEqual(writes, [], 'opening a document must not save or re-index it');
   });
 }
+
+test('Tickets navigation opens standalone Inbox 2 without an embedded legacy page', async t => {
+  const fixture = await openConsole(t); if (!fixture) return;
+  const { page, writes } = fixture;
+  await selectTab(page, 'tickets');
+  await page.waitForURL('**/inbox2/');
+  assert.equal(new URL(page.url()).pathname, '/inbox2/');
+  assert.equal(await page.locator('iframe').count(), 0);
+  assert.deepEqual(writes, []);
+});

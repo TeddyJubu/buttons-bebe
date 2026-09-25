@@ -64,6 +64,18 @@ class MonitorTests(unittest.TestCase):
             response.read.return_value=json.dumps(payload).encode()
             self.assertEqual(target.readiness(8000),'attention')
 
+    def test_inbox_monitor_checks_the_active_readonly_service(self):
+        response=MagicMock();response.__enter__.return_value=response
+        with patch.object(target.urllib.request,'urlopen',return_value=response) as request:
+            response.read.return_value=b'{"ok":true,"readOnly":true}'
+            self.assertEqual(target.readiness(8767),'ok')
+            self.assertEqual(request.call_args.args[0], 'http://127.0.0.1:8767/health')
+            response.read.return_value=b'{"ok":true,"readOnly":false}'
+            self.assertEqual(target.readiness(8767),'unavailable')
+        self.assertIn('helpdesk-inbox2',target.SERVICES)
+        self.assertIn('buttonsbebe-inbox2-shop',target.SERVICES)
+        self.assertNotIn('helpdesk-inbox',target.SERVICES)
+
     def test_component_failure_cannot_be_hidden_by_other_healthy_services(self):
         with patch.object(target,'active',return_value='ok'),patch.object(target,'last_result',return_value='ok'),patch.object(target,'tcp',return_value='ok'),patch.object(target,'readiness',return_value='ok'),patch.object(target,'backup',return_value='ok'),patch.object(target,'disk',return_value='ok'),patch.object(target,'progress',return_value='stale'):
             result=target.collect(self.now)

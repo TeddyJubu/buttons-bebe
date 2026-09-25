@@ -267,6 +267,8 @@ def main() -> None:
     app = sub.add_parser('apply'); app.add_argument('--stage', type=Path, required=True); app.add_argument('--unit', type=Path, required=True); app.add_argument('--expected-unit-sha256', required=True); app.add_argument('--state-verified', action='store_true')
     back = sub.add_parser('rollback'); back.add_argument('--backup', type=Path, required=True)
     args = parser.parse_args()
+    if args.command != "rollback":
+        raise SystemExit("Inbox 1 is retired; use the Inbox 2 release inventory.")
     if os.geteuid() != 0:
         raise SystemExit('Run only on the reviewed Linux VPS as root')
     os.umask(0o077)

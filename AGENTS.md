@@ -1,6 +1,6 @@
 # AGENTS.md — Buttons Bebe AI Support Agent
 
-> Reflects the live system as of **2026-09-17**. This file is the sole root
+> Reflects the live system as of **2026-09-25**. This file is the sole root
 > source of truth (`CLAUDE.md` was merged into it and removed on 2026-09-16 —
 > its KB/locks, learning-loop, and Fable-port background sections now live in
 > §11–§12 below). Any doc describing `/root/gorgias-webhook`, "shadow mode",
@@ -8,6 +8,17 @@
 > describes a **retired** system (box wiped & rebuilt 2026-07-06).
 > `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
 > commit or restore from it.
+
+## Inbox retirement — 25 September 2026
+
+Inbox 2 (`/inbox2/`) is the sole ticket destination. Inbox 1's interface, server,
+launcher and service definition are deleted; the old unit is masked on the VPS.
+Legacy inbox page links redirect with their query string; retired API/assets
+return 410. Do not restore the embedded inbox or its message bridge. Shared
+projection/Shopify Python modules and dependency locks in `console-src/inbox/`
+remain required by Inbox 2. Use `helpdesk-inbox2` (:8767) and
+`buttonsbebe-inbox2-shop`; the existing projection timer remains active. Earlier
+Inbox 1 browser-control, preview and WebMCP notes below are historical.
 
 ## 1. What & why
 
@@ -295,7 +306,7 @@ as current work.
 - Prefers AI drafts that answer the ticket’s actual ask or request type; mismatched draft content undermines trust.
 - Wants the detachable Gorgias bridge left off until credentials are added and they explicitly activate it.
 - When contributing to the original/upstream repo, omit credentials and demo data; keep Shopify read-only; keep Send disconnected so a click shows “Activate the send access.”
-- Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
+- Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox2/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
 
 ## Learned Workspace Facts
 

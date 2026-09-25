@@ -27,9 +27,12 @@ outside this source tree.
 ## Installation layout
 
 The checked-in systemd units live in `deploy/systemd/` and the authenticated routes
-are in `deploy/caddy/sites/support.caddy`. This standalone Inbox 2 installation is
-not yet included in the legacy automated release inventory. Operators must preserve
-it when updating the existing inbox installation.
+are in `deploy/caddy/sites/support.caddy`. The release inventory deploys the
+Inbox 2 Python service and its allowlisted web assets to their separate roots.
+Inbox 1 is retired: its interface and server are deleted, its service is masked,
+and old page URLs redirect to `/inbox2/` while preserving the query string. Old
+Inbox 1 API and asset URLs return HTTP 410. The shared modules in `../inbox/`
+remain in use for draft projection and Shopify context.
 
 The deployed layout uses:
 

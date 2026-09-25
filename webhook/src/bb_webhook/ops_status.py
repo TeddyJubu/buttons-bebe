@@ -6,7 +6,7 @@ from pathlib import Path
 STATUS=Path('/var/lib/buttonsbebe/ops-status.json')
 CHECKS={'buttonsbebe-webhook','buttonsbebe-processor','buttonsbebe-kb-mcp',
         'buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect',
-        'buttonsbebe-kb-admin','helpdesk-inbox','buttonsbebe-backup_timer',
+        'buttonsbebe-kb-admin','helpdesk-inbox2','buttonsbebe-inbox2-shop','buttonsbebe-backup_timer',
         'buttonsbebe-inbox-projection_timer','buttonsbebe-heartbeat_timer',
         'buttonsbebe-backup_result','buttonsbebe-inbox-projection_result',
         'buttonsbebe-heartbeat_result','kb_socket','redo_socket','gorgias_socket',

@@ -1,6 +1,0 @@
-{
-  "name": "demo-inbox-organ",
-  "private": true,
-  "type": "module",
-  "description": "Module 9 four-pane inbox organ. Rail is a helpdesk.* client; fixtures are the fallback. No live Shopify writes."
-}

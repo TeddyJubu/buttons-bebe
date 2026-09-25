@@ -1,4 +1,4 @@
-"""Exercise the actual Caddy auth-before-prefix-strip contract on loopback."""
+"""Exercise the actual Caddy Inbox 2 authentication and Inbox 1 retirement contract on loopback."""
 from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -18,7 +18,7 @@ SOURCE = Path(__file__).resolve().parents[1] / 'caddy/sites/support.caddy'
 
 
 def inbox_block(source):
-    start = source.index('\thandle /inbox/* {')
+    start = source.index('\thandle /inbox2/api/* {')
     depth = 0
     for index in range(start, len(source)):
         if source[index] == '{': depth += 1
@@ -40,7 +40,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 @unittest.skipUnless(shutil.which('caddy'), 'Caddy binary required; run this suite on Linux staging')
 class InboxCaddyContractTests(unittest.TestCase):
-    def test_auth_sees_original_uri_method_and_origin_before_strip(self):
+    def test_auth_sees_original_uri_method_and_origin_before_proxy(self):
         auth_requests = []
         class Auth(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -65,7 +65,7 @@ class InboxCaddyContractTests(unittest.TestCase):
         for server in (auth, upstream):
             threading.Thread(target=server.serve_forever, daemon=True).start()
             self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
-        block = inbox_block(SOURCE.read_text()).replace('127.0.0.1:8000', f'127.0.0.1:{auth.server_port}').replace('127.0.0.1:8766', f'127.0.0.1:{upstream.server_port}')
+        block = inbox_block(SOURCE.read_text()).replace('127.0.0.1:8000', f'127.0.0.1:{auth.server_port}').replace('127.0.0.1:8767', f'127.0.0.1:{upstream.server_port}')
         listen = port()
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / 'Caddyfile'
@@ -83,29 +83,63 @@ class InboxCaddyContractTests(unittest.TestCase):
                 elif isinstance(node, list):
                     for value in node: visit(value)
             visit(parsed)
-            self.assertLess(events.index('auth'), events.index('strip'))
-            self.assertLess(events.index('strip'), events.index('proxy'))
+            self.assertLess(events.index('auth'), events.index('proxy'))
             process = subprocess.Popen(['caddy', 'run', '--config', str(config), '--adapter', 'caddyfile'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 opener = urllib.request.build_opener(NoRedirect())
                 url = f'http://127.0.0.1:{listen}'
                 for attempt in range(60):
-                    try: opener.open(url + '/inbox/', timeout=1)
+                    try: opener.open(url + '/inbox2/api/helpdesk', timeout=1)
                     except urllib.error.HTTPError as error:
                         self.assertEqual(error.code, 302)
-                        self.assertEqual(error.headers['Location'], '/console/login?next=%2Finbox%2F')
+                        self.assertEqual(error.headers['Location'], '/console/login?next=%2Finbox2%2Fapi%2Fhelpdesk')
                         break
                     except urllib.error.URLError:
                         if attempt == 59: raise
                         time.sleep(0.05)
-                request = urllib.request.Request(url + '/inbox/console/api/helpdesk', data=b'{}', headers={
+                request = urllib.request.Request(url + '/inbox2/api/helpdesk', data=b'{}', headers={
                     'Cookie': 'session=synthetic', 'Authorization': 'Bearer synthetic', 'Origin': 'https://support.buttonsbebe.com', 'Content-Type': 'application/json'})
                 with opener.open(request, timeout=3) as response:
-                    self.assertEqual(json.load(response), {'path': '/console/api/helpdesk', 'method': 'POST', 'cookie': None, 'authorization': None})
-                self.assertEqual(auth_requests[-1], {'X-Forwarded-Uri': '/inbox/console/api/helpdesk',
+                    self.assertEqual(json.load(response), {'path': '/inbox2/api/helpdesk', 'method': 'POST', 'cookie': None, 'authorization': None})
+                self.assertEqual(auth_requests[-1], {'X-Forwarded-Uri': '/inbox2/api/helpdesk',
                     'X-Forwarded-Method': 'POST', 'Origin': 'https://support.buttonsbebe.com', 'Cookie': 'session=synthetic', 'Authorization': 'Bearer synthetic'})
                 with self.assertRaises(urllib.error.HTTPError) as caught: opener.open(url + '/console/api/helpdesk', timeout=3)
                 self.assertEqual(caught.exception.code, 418)
+            finally:
+                process.terminate()
+                try: process.wait(timeout=5)
+                except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
+
+    def test_retired_inbox_redirects_pages_but_never_forwards_old_api_or_assets(self):
+        source = SOURCE.read_text()
+        block = source[source.index('\t# Inbox 1 is retired.'):source.index('\t@consoleauth')]
+        listen = port()
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / 'Caddyfile'
+            config.write_text('{\n admin off\n auto_https off\n}\nhttp://127.0.0.1:' + str(listen) + ' {\n' + block + '\n}\n')
+            process = subprocess.Popen(['caddy', 'run', '--config', str(config)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                opener = urllib.request.build_opener(NoRedirect())
+                base = f'http://127.0.0.1:{listen}'
+                for attempt in range(60):
+                    try: opener.open(base + '/inbox/', timeout=1)
+                    except urllib.error.HTTPError: break
+                    except urllib.error.URLError:
+                        if attempt == 59: raise
+                        time.sleep(.05)
+                query = '?ticket=gorgias%3A123&view=open&q=two%20words'
+                for path in ('/inbox', '/inbox/', '/inbox/index.html'):
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        opener.open(base + path + query, timeout=3)
+                    self.assertEqual(caught.exception.code, 308)
+                    self.assertEqual(caught.exception.headers['Location'], '/inbox2/' + query)
+                for path in ('/inbox/js/inbox.js', '/inbox/styles.css', '/inbox/console/api/helpdesk'):
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        opener.open(base + path, timeout=3)
+                    self.assertEqual(caught.exception.code, 410)
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    opener.open(urllib.request.Request(base + '/inbox/', data=b'{}'), timeout=3)
+                self.assertEqual(caught.exception.code, 410)
             finally:
                 process.terminate()
                 try: process.wait(timeout=5)

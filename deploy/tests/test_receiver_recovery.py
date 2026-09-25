@@ -59,7 +59,7 @@ class ReceiverRecoveryTests(unittest.TestCase):
             '/var/lib/buttonsbebe-deploy/source-manifest.json': str(self.root / 'manifest.json'),
             '/etc/buttonsbebe-deploy-approved-config.sha256': str(self.root / 'approved'),
             '/etc/caddy/sites/support.caddy': str(self.root / 'applied-config'),
-            '/etc/systemd/system/helpdesk-inbox.service': str(self.root / 'applied-config'),
+            '/etc/systemd/system/helpdesk-inbox2.service': str(self.root / 'applied-config'),
             '/etc/systemd/system/buttonsbebe-inbox-projection.service': str(self.root / 'applied-config'),
             '/etc/systemd/system/buttonsbebe-inbox-projection.timer': str(self.root / 'applied-config'),
             '/usr/local/lib/buttonsbebe-deploy/source_release.py': str(self.root / 'helper.py'),
@@ -143,7 +143,7 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
         self.assertEqual(manifest['commit'], self.sha)
         for key, entry in manifest['files'].items():
             prefix, relative = key.split('/', 1)
-            target = {'app': self.live, 'web': self.web, 'inbox': self.root / 'inbox'}[prefix] / relative
+            target = {'app': self.live, 'web': self.web, 'inbox': self.root / 'inbox', 'inbox2': self.root / 'inbox2', 'inbox2web': self.web.parent / 'inbox2'}[prefix] / relative
             self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), entry['sha256'])
             self.assertTrue(target.resolve().is_relative_to(self.root.resolve()))
         self.assertNotIn('app/webhook/data/webhook.db', manifest['files'])
@@ -164,17 +164,17 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
 
     def projection_fixture(self, fail_export=False, fail_ready=False):
         self.write(self.root / 'active.json', json.dumps([
-            'buttonsbebe-webhook','helpdesk-inbox','buttonsbebe-inbox-projection.timer']))
+            'buttonsbebe-webhook','helpdesk-inbox2','buttonsbebe-inbox-projection.timer']))
         self.write(self.bin / 'curl', """#!/usr/bin/env python3
 import json,os,pathlib,sys
 root=pathlib.Path(os.environ['HARNESS_ROOT'])
 url=next(arg for arg in sys.argv if arg.startswith('http://'))
 with (root/'calls').open('a') as out:out.write('probe '+url+'\\n')
-if url.endswith('/console/api/helpdesk'):
- print(json.dumps({'ok':False,'error':'send_access_inactive','message':'Activate the send access.'}))
-elif url.endswith(':8766/ready'):
+if url.endswith('/inbox2/api/helpdesk'):
+ print(json.dumps({'ok':True,'readOnly':True,'capabilities':{'sendReply':False}}))
+elif url.endswith(':8767/health'):
  if FAIL_READY and (root/'live/webhook/app.py').read_text()=='new code':sys.exit(22)
- print(json.dumps({'ok':True,'sendAccessEnabled':False}))
+ print(json.dumps({'ok':True,'readOnly':True}))
 """.replace('FAIL_READY',repr(fail_ready)))
         script=(self.bin/'systemctl').read_text()
         script=script.replace("if verb=='start':", """if verb=='start' and name=='buttonsbebe-inbox-projection.service':
@@ -191,8 +191,8 @@ if verb=='start':""".replace('FAIL_EXPORT',repr(fail_export)))
         calls=(self.root/'calls').read_text()
         self.assertLess(calls.index('start buttonsbebe-webhook'),calls.index('start buttonsbebe-inbox-projection.service'))
         self.assertLess(calls.index('probe http://127.0.0.1:8000/ready'),calls.index('start buttonsbebe-inbox-projection.service'))
-        self.assertLess(calls.index('start buttonsbebe-inbox-projection.service'),calls.index('probe http://127.0.0.1:8766/ready'))
-        self.assertLess(calls.index('probe http://127.0.0.1:8766/ready'),calls.index('start buttonsbebe-inbox-projection.timer'))
+        self.assertLess(calls.index('start buttonsbebe-inbox-projection.service'),calls.index('probe http://127.0.0.1:8767/health'))
+        self.assertLess(calls.index('probe http://127.0.0.1:8767/health'),calls.index('start buttonsbebe-inbox-projection.timer'))
 
     def test_failed_projection_export_rolls_back_source_without_rewinding_data(self):
         self.projection_fixture(fail_export=True)

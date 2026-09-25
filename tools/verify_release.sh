@@ -192,7 +192,6 @@ node --check console-src/inbox2/app.js
 node --check console-src/inbox2/icons.js
 "$PYTHON" tools/build_support_theme.py --check
 "$PYTHON" tools/check_inbox_locks.py
-node --test console-src/inbox/test/*.test.js
 # Every processor/test_*.py runs, discovered rather than listed, so a new test
 # file cannot be added without CI picking it up - and so each task in the Fable
 # port does not have to edit this same line (which conflicts on merge).

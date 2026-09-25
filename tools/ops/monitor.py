@@ -15,7 +15,7 @@ STATUS=Path('/var/lib/buttonsbebe/ops-status.json')
 BACKUP=Path('/var/lib/buttonsbebe/backup-status.json')
 SERVICES=('buttonsbebe-webhook','buttonsbebe-processor','buttonsbebe-kb-mcp',
           'buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect',
-          'buttonsbebe-kb-admin','helpdesk-inbox')
+          'buttonsbebe-kb-admin','helpdesk-inbox2','buttonsbebe-inbox2-shop')
 TIMERS=('buttonsbebe-backup','buttonsbebe-inbox-projection','buttonsbebe-heartbeat')
 PORTS={'kb_socket':8077,'redo_socket':8078,'gorgias_socket':8079,'whatsapp_socket':8085,'kb_admin_socket':8087}
 
@@ -57,10 +57,10 @@ def tcp(port):
 
 
 def readiness(port):
-    with urllib.request.urlopen(f'http://127.0.0.1:{port}/ready',timeout=3) as response:
+    with urllib.request.urlopen(f'http://127.0.0.1:{port}/' + ('health' if port==8767 else 'ready'),timeout=3) as response:
         data=json.loads(response.read(65537))
-    if port==8766:
-        return 'ok' if data.get('ok') is True and data.get('sendAccessEnabled') is False else 'unavailable'
+    if port==8767:
+        return 'ok' if data.get('ok') is True and data.get('readOnly') is True else 'unavailable'
     if data.get('status')!='ready':return 'unavailable'
     diagnostics=data.get('diagnostics',{})
     for count,age in (('pending_jobs','oldest_pending_seconds'),('processing_jobs','oldest_processing_seconds')):
@@ -103,7 +103,7 @@ def collect(now=None):
     checks.update({name+'_result':lambda name=name:last_result(name) for name in TIMERS})
     checks.update({name:lambda port=port:tcp(port) for name,port in PORTS.items()})
     checks.update(processor_progress=progress,webhook_readiness=lambda:readiness(8000),
-                  inbox_readiness=lambda:readiness(8766),backup_freshness=lambda:backup(now),disk_space=disk)
+                  inbox_readiness=lambda:readiness(8767),backup_freshness=lambda:backup(now),disk_space=disk)
     with ThreadPoolExecutor(max_workers=8) as pool:
         values=dict(zip(checks,pool.map(safe,checks.values())))
     return {'checked_at':now.isoformat(),'status':'ok' if all(value=='ok' for value in values.values()) else 'attention',

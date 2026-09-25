@@ -57,7 +57,10 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 			forward_auth 127.0.0.1:8000 {
 				uri /auth/page-check
 			}
-			reverse_proxy 127.0.0.1:8767
+			reverse_proxy 127.0.0.1:8767 {
+				header_up -Cookie
+				header_up -Authorization
+			}
 		}
 	}
 
@@ -79,21 +82,16 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 		}
 	}
 
-	# Dedicated inbox prefix; strip it only inside this handler. Its own
-	# /console/api/helpdesk must never hit the live dashboard's /console/api.
-	redir /inbox /inbox/ 308
-	handle /inbox/* {
-		# Keep the original prefix for auth's API/page and return-path checks.
-		# Explicit route ordering prevents Caddy sorting strip_prefix first.
+	# Inbox 1 is retired. Preserve saved ticket links; old APIs/assets are gone.
+	@legacyinbox path /inbox /inbox/*
+	handle @legacyinbox {
 		route {
-			forward_auth 127.0.0.1:8000 {
-				uri /auth/page-check
+			@legacyinboxpage {
+				method GET HEAD
+				path /inbox /inbox/ /inbox/index.html
 			}
-			uri strip_prefix /inbox
-			reverse_proxy 127.0.0.1:8766 {
-				header_up -Cookie
-				header_up -Authorization
-			}
+			redir @legacyinboxpage /inbox2/?{query} 308
+			respond "Inbox 1 has been retired." 410
 		}
 	}
 
