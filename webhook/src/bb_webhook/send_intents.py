@@ -73,6 +73,12 @@ def _checked_context(source, *, draft_revision: str | None = None,
     return draft, revision, recipient
 
 
+def _context_id(ticket_id, source_message_id, source, revision, recipient):
+    identity = [ticket_id, source_message_id, _hash(source['message_text'] or ''),
+                revision, recipient, source['channel'] or '']
+    return _hash(json.dumps(identity, separators=(',', ':')))
+
+
 class IntentStore:
     def __init__(self, path: Path | str):
         self.db = Database(path)
@@ -113,19 +119,19 @@ class IntentStore:
                            'draftRevision': row['draft_hash']} if row['actor_id'] == actor_id else {})} for row in pending]
         source_text = source["message_text"] or ""
         source_revision = _hash(source_text)
-        identity = [ticket_id, source_message_id, source_revision, revision, recipient, channel]
         return {'inboxTicketId': f'gorgias:{ticket_id}', 'ticketId': str(ticket_id), 'sourceMessageId': source_message_id,
                 'sourceMessageAt': source['created_at'] or source['received_at'], 'sourceRevision': source_revision,
                 'sourceMessageText': source_text[:20000], 'sourceMessageTruncated': len(source_text) > 20000, 'draftRevision': revision,
                 'recipient': recipient, 'channel': channel, 'draftText': draft,
-                'contextId': _hash(json.dumps(identity, separators=(',', ':'))), 'unresolvedActions': unresolved,
+                'contextId': _context_id(ticket_id, source_message_id, source, revision, recipient), 'unresolvedActions': unresolved,
                 'reviewable': bool(draft and recipient and channel and not unresolved and len(source_text) <= 20000),
                 'providerIdentityVerified': False, 'sendEnabled': False, 'sendAndCloseEnabled': False,
                 'message': 'Activate the send access.'}
 
     async def reserve(self, *, operation_id: str, actor_id: str, kind: str,
                       ticket_id: int, source_message_id: str, text: str, draft_revision: str,
-                      approve_learning: bool = False) -> tuple[dict, bool]:
+                      approve_learning: bool = False, expected_recipient: str | None = None,
+                      expected_context_id: str | None = None) -> tuple[dict, bool]:
         if not valid_operation(operation_id):
             raise ActionConflict('valid_operation_id_required', 400)
         if not source_message_id or len(source_message_id) > 200:
@@ -155,7 +161,9 @@ class IntentStore:
             await cursor.close()
             if not context:
                 raise ActionConflict('source_message_not_in_console', 404)
-            ai_draft, _revision, recipient = _checked_context(context, draft_revision=draft_revision)
+            ai_draft, _revision, recipient = _checked_context(context, draft_revision=draft_revision, expected_recipient=expected_recipient)
+            if expected_context_id is not None and expected_context_id != _context_id(ticket_id, source_message_id, context, _revision, recipient):
+                raise ActionConflict('review_changed_refresh_ticket')
             if kind == 'send' and not recipient:
                 raise ActionConflict('recipient_unavailable', 409)
             semantic = _hash(json.dumps([kind, ticket_id, source_message_id, recipient,

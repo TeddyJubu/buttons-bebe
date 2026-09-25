@@ -91,7 +91,7 @@ test('KB keeps unsaved edits through preview, filtering, background render, file
   await page.getByRole('alert').filter({hasText:'Could not save'}).waitFor();
   assert.equal(await page.locator('#kb-text').inputValue(),draft);
   state.failSave=false;await page.locator('#kb-save').click();
-  await page.getByRole('status').filter({hasText:'Article saved'}).waitFor();
+  await page.locator('.kb-feedback[role=status]').filter({hasText:'Article saved'}).waitFor();
   assert.equal(files['policies/shipping.md'],draft);
   assert.equal(await page.locator('#kb-save').isDisabled(),true);
   assert.equal(await page.evaluate(()=>kbDrafts.size),0);

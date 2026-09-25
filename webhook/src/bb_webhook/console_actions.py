@@ -64,13 +64,17 @@ async def execute_action(kind, ticket_id, request, body, text, client_factory, r
         return await preflight_refusal(400,'source_message_id_required',body)
     if 'approve_learning' in body and type(body['approve_learning']) is not bool:
         return await preflight_refusal(400,'invalid_learning_approval',body)
+    for field in ('expected_recipient', 'context_id'):
+        if field in body and not isinstance(body[field], str):
+            return await preflight_refusal(400, 'invalid_review_context', body)
     store = IntentStore(deps.get_db())
     try:
         row, fresh = await store.reserve(operation_id=body.get('operation_id'), actor_id=actor_id,
                                          kind=kind, ticket_id=ticket_id, source_message_id=str(source_id),
-                                         text=text, draft_revision=body.get('draft_revision'), approve_learning=kind == 'send' and body.get('approve_learning') is True)
+                                         text=text, draft_revision=body.get('draft_revision'), approve_learning=kind == 'send' and body.get('approve_learning') is True,
+                                         expected_recipient=body.get('expected_recipient'), expected_context_id=body.get('context_id'))
     except ActionConflict as exc:
-        if exc.error in {'valid_operation_id_required','source_message_id_required','draft_revision_required','source_message_not_in_console','recipient_unavailable','draft_changed_refresh_ticket'}:
+        if exc.error in {'valid_operation_id_required','source_message_id_required','draft_revision_required','source_message_not_in_console','recipient_unavailable','draft_changed_refresh_ticket','recipient_changed_refresh_ticket','review_changed_refresh_ticket'}:
             return await preflight_refusal(exc.status,exc.error,body)
         return JSONResponse(status_code=exc.status, content={'error': exc.error,
             'message': {'previous_delivery_unresolved': 'An earlier action is unresolved. Check its status before sending again.',

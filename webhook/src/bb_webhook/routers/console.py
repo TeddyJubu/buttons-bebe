@@ -45,7 +45,7 @@ async def inbox_review_context(inbox_ticket_id: str, request: Request,
                                source_message_id: str = Query(min_length=1,max_length=200),
                                draft_revision: str | None = Query(default=None,pattern="^[0-9a-f]{64}$"),
                                expected_recipient: str | None = Query(default=None,max_length=320)) -> JSONResponse:
-    """Dormant inbox preparation only. This route cannot authorize delivery."""
+    """Read-only Inbox preparation. This route alone cannot authorize delivery."""
     import re
     from ..send_intents import IntentStore, ActionConflict
     reviewer=actor(request)
@@ -62,6 +62,70 @@ async def inbox_review_context(inbox_ticket_id: str, request: Request,
     except Exception as exc:
         log_event(logger,"ERROR","Inbox review context unavailable",error_type=type(exc).__name__)
         return JSONResponse(status_code=503,content={"ok":False,"error":"review_context_unavailable"})
+
+
+@router.post("/inbox/send-access")
+async def inbox_send_access(request: Request) -> JSONResponse:
+    """Toggle only this page's manual-send grant; never contact Gorgias."""
+    from ..inbox_send_access import InboxSendAccess
+    reviewer = actor(request)
+    session_id = getattr(request.state, 'session_id', None)
+    if not reviewer or not session_id:
+        return JSONResponse(status_code=401, content={"error": "not_authenticated"})
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+    if not isinstance(body, dict) or type(body.get('enabled')) is not bool:
+        return JSONResponse(status_code=400, content={"error": "enabled_boolean_required"})
+    try:
+        grants = InboxSendAccess(deps.get_db())
+        if body['enabled']:
+            result = await grants.enable(reviewer, session_id)
+        else:
+            await grants.disable(request.headers.get('X-Inbox-Send-Access'), reviewer, session_id)
+            result = {}
+        log_event(logger, "INFO", "Inbox manual send access changed", actor_id=reviewer, enabled=body['enabled'])
+        return JSONResponse(content={"ok": True, "enabled": body['enabled'], **result})
+    except Exception as exc:
+        log_event(logger, "ERROR", "Inbox send access unavailable", error_type=type(exc).__name__)
+        return JSONResponse(status_code=503, content={"error": "send_access_unavailable"})
+
+
+@router.post("/inbox/ticket/{ticket_id}/send")
+async def inbox_send(ticket_id: int, request: Request) -> JSONResponse:
+    """Human-confirmed Inbox reply through the existing durable console sender."""
+    from ..inbox_send_access import InboxSendAccess
+    from ..send_intents import IntentStore, ActionConflict
+    body = None
+    try:
+        body = await request.json()
+    except Exception:
+        return await preflight_refusal(400, "invalid_json", body)
+    if not isinstance(body, dict):
+        return await preflight_refusal(400, "invalid_json_object", body)
+    try:
+        allowed = await InboxSendAccess(deps.get_db()).allowed(
+            request.headers.get('X-Inbox-Send-Access'), actor(request), getattr(request.state, 'session_id', None))
+        if not allowed:
+            return await preflight_refusal(403, "inbox_read_only", body)
+        if body.get('confirmed') is not True:
+            return await preflight_refusal(409, "confirmation_required", body)
+        if not isinstance(body.get('source_message_id'), str) or not isinstance(body.get('expected_recipient'), str):
+            return await preflight_refusal(400, "review_context_required", body)
+        context = await IntentStore(deps.get_db()).review_context(
+            ticket_id=ticket_id, source_message_id=body['source_message_id'], actor_id=actor(request),
+            expected_revision=body.get('draft_revision'), expected_recipient=body['expected_recipient'])
+        if not context['recipient'] or not context['channel'] or context['sourceMessageTruncated']:
+            return await preflight_refusal(409, "reply_context_unavailable", body)
+        if body.get('context_id') != context['contextId']:
+            return await preflight_refusal(409, "review_changed_refresh_ticket", body)
+    except ActionConflict as exc:
+        return await preflight_refusal(exc.status, exc.error, body)
+    except Exception as exc:
+        log_event(logger, "ERROR", "Inbox send preflight unavailable", error_type=type(exc).__name__)
+        return await preflight_refusal(503, "review_context_unavailable", body)
+    return await action_send(ticket_id, request)
 
 
 @router.post("/ticket/{ticket_id}/send")

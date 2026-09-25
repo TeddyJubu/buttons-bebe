@@ -1,8 +1,7 @@
 # Console authentication boundary
 
 The configured owner account and password verifier are unchanged. There is no
-new customer login, invented staff account, send enablement, or new Gorgias
-route. This change makes owner sessions revocable and enforces console access
+new customer login or invented staff account. This change makes owner sessions revocable and enforces console access
 inside FastAPI as well as at Caddy.
 
 ## Route inventory
@@ -11,6 +10,8 @@ inside FastAPI as well as at Caddy.
 | --- | --- |
 | `GET /dashboard/api/messages`, `/stats`, `/tickets`, `/notifications`, `/learning` | Signed and registered owner session |
 | `POST /dashboard/api/notifications/read` | Owner session and trusted Origin |
+| `POST /dashboard/api/inbox/send-access` | Owner session and trusted Origin; explicit boolean creates/revokes a page-scoped grant; no provider call |
+| `POST /dashboard/api/inbox/ticket/{ticket_id}/send` | Owner session, trusted Origin and valid grant for this session; exact review and confirmation before the existing durable console sender |
 | `POST /dashboard/api/ticket/{ticket_id}/send`, `/note`, `/rewrite` | Owner session and trusted Origin; action handler still owns confirmation, idempotency, ticket and content validation |
 | `POST /dashboard/api/results` | Processor only: direct loopback, no Origin or Forwarded/X-Forwarded headers; never exposed as a browser action |
 | `POST /auth/login`, `/auth/logout` | Trusted Origin; login verifies existing owner credentials, logout durably revokes the presented session |
@@ -86,8 +87,10 @@ themselves certify end-to-end draft quality or operator notification delivery.
 Same-origin inbox/console browser authority remains a limitation. Server-side
 sessions, Origin checks, the inbox capability allowlist and CSP reduce risk;
 they do not make two paths into separate origins or eliminate same-origin XSS.
-Do not claim the inbox is authorized to send because it can read an owner
-session or because its service invokes tools with a generic human actor.
+The owner-authorized Inbox reply flow additionally requires an explicit switch,
+a short-lived session-bound grant, and per-reply confirmation. The Inbox service
+and its tool invocations have no send authority. The same-origin limitation still
+applies: the switch is an additional human-action gate, not an XSS sandbox.
 
 Password verification runs in two dedicated spawned process workers. A global
 nonblocking capacity guard refuses additional work with 429 instead of queuing
