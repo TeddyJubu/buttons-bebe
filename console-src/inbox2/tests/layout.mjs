@@ -23,6 +23,8 @@ await page.route('**/inbox/api/helpdesk',async route=>{
 });
 await page.goto('http://127.0.0.1:8878/inbox/?ticket=gorgias%3Afixture');
 await page.locator('.ticket-title').waitFor();
+assert.equal(await page.locator('.brand').getAttribute('aria-label'),'Buttons Bebe support console');
+assert(await page.locator('.brand-logo').evaluate(el=>el.getBBox().width>0));
 assert.equal(await page.locator('.status-control').evaluate(el=>getComputedStyle(el).color),'rgb(134, 80, 15)');
 assert.equal(await page.locator('.order-statuses .badge').first().evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(231, 242, 233)');
 assert.equal(await page.locator('.order-statuses .badge').last().evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(255, 241, 219)');
@@ -60,6 +62,8 @@ for(const width of [1920,1440,1230,1100,1041,1040,768,651,650,390,320]) {
   const size=await page.evaluate(()=>({width:document.body.scrollWidth,height:document.body.scrollHeight,innerWidth,innerHeight}));
   assert(size.width<=size.innerWidth,`page overflow at ${width}: ${JSON.stringify(size)}`);
   assert(size.height<=size.innerHeight,`page scroll at ${width}: ${JSON.stringify(size)}`);
+  assert(await page.locator('.brand-logo').isVisible(),`logo hidden at ${width}`);
+  if(width<=650)assert((await page.locator('.app-header').boundingBox()).height<=60,`header wraps at ${width}`);
   if(width<=1040){
     await page.locator('.show-customer').click();
     assert.equal(await page.locator('#customer-rail').getAttribute('aria-modal'),'true');
