@@ -44,6 +44,113 @@ function toast(message) {$('#toast').textContent=message;$('#toast').hidden=fals
 let params = new URLSearchParams(location.search);
 const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['all','open','closed'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',operator:'',ticketRequest:0,listRequest:0};
 $('#search').value=state.query;
+// Manual send authority lives only in this page's memory. Never persist a grant.
+const sendAccess={token:'',expiresAt:0,busy:false,timer:null};
+const sendState={review:null,busy:false,preparing:false,sequence:0};
+const actionKey='bb-inbox-send-actions-v1';
+function canSend(){return Boolean(sendAccess.token&&Date.now()<sendAccess.expiresAt*1000);}
+function sendAction(id=state.id){return objectStore(actionKey)[id];}
+function rememberAction(id,action){const actions=objectStore(actionKey);actions[id]=action;persist(actionKey,actions);}
+function unresolved(action){return action&&['pending','unknown'].includes(action.status);}
+function sendError(code){return ({inbox_read_only:'Read only. Switch on Gorgias replies to continue.',new_customer_message_refresh_ticket:'A newer customer message arrived. Refresh the ticket and review your reply again.',draft_changed_refresh_ticket:'The suggested draft changed. Refresh the ticket and review again.',recipient_changed_refresh_ticket:'The recipient changed. Refresh the ticket and review again.',review_changed_refresh_ticket:'The conversation changed. Refresh the ticket and review again.',source_message_not_in_console:'This message is still syncing. Refresh the ticket and try again shortly.',previous_delivery_unresolved:'An earlier reply has an uncertain delivery status. Check its status before sending again.',review_context_unavailable:'Reply details are temporarily unavailable. Please try again.',remote_delivery_failed:'Gorgias reports delivery failed. Inspect the message in Gorgias.',reply_context_unavailable:'Reply routing is unavailable for this message.',confirmation_required:'Review your reply before confirming the send.'})[code]||'The reply could not be sent. Refresh the ticket and review again.';}
+async function consoleRequest(path,options={}){
+  const response=await fetch('/console/api'+path,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(65000),...options,headers:{'Content-Type':'application/json',...options.headers}});
+  const body=await response.json().catch(()=>({}));
+  if(response.status===401||response.redirected){resetSendAccess();const error=new Error('Your session has expired. Sign in again to continue.');error.auth=true;throw error;}
+  if(!response.ok){const error=new Error(sendError(body.error));error.body=body;error.status=response.status;throw error;}
+  return body;
+}
+function cancelSendReview(){sendState.sequence++;sendState.preparing=false;sendState.review=null;$('#send-review').close();}
+function resetSendAccess(){clearTimeout(sendAccess.timer);sendAccess.token='';sendAccess.expiresAt=0;if(!sendState.busy)cancelSendReview();renderSendAccess();}
+function renderSendAccess(){
+  const enabled=canSend(),toggle=$('[data-action="toggle-send-access"]');
+  toggle.setAttribute('aria-checked',String(enabled));toggle.disabled=sendAccess.busy||sendState.busy;
+  toggle.setAttribute('aria-label',`Gorgias read and write access${enabled?' enabled':' disabled'}`);
+  toggle.title=enabled?'Replies enabled for this page. Switch off to return to read only.':'Read only. Switch on to send replies from this page.';
+  toggle.innerHTML=`<span class="access-label">Gorgias · ${enabled?'Read & write':'Read only'}</span><span class="access-switch" aria-hidden="true"><span></span></span>`;
+  $('#window-label').textContent=`Gorgias · ${enabled?'Read & write':'Read only'}`;
+  const send=$('[data-action="review-send"]'),copy=$('[data-action="copy-reply"]'),note=$('#send-mode-note'),status=$('#reply-delivery');
+  if(send){send.hidden=!enabled;send.disabled=sendState.busy||sendState.preparing||unresolved(sendAction());send.textContent=sendState.busy?'Sending…':sendState.preparing?'Preparing…':'Send reply';}
+  if(copy)copy.classList.toggle('primary',!enabled);
+  if(note)note.textContent=enabled?'Replies enabled for this page · Review and confirm each send.':'Read only · Switch on Gorgias replies above to send from here.';
+  if(status){const action=sendAction();status.innerHTML=action?`${esc(action.status==='sent'?'Reply sent via Gorgias.':action.status==='not_attempted'?'Reply not sent. Your draft is saved.':action.status==='failed'?'Gorgias reports delivery failed. Inspect it in Gorgias.':action.status==='pending'?'Gorgias accepted the reply; delivery is pending.':'Delivery is unconfirmed. Check status before sending again.')} ${unresolved(action)?'<button class="button" data-action="check-send-status">Check status</button>':''}`:'';status.hidden=!action;}
+  const editor=$('#reply');if(editor)editor.disabled=sendState.busy;
+}
+async function toggleSendAccess(){
+  if(sendAccess.busy||sendState.busy)return;
+  const enabled=!canSend(),token=sendAccess.token;
+  if(!enabled)resetSendAccess();
+  sendAccess.busy=true;renderSendAccess();
+  try{
+    const result=await consoleRequest('/inbox/send-access',{method:'POST',headers:token?{'X-Inbox-Send-Access':token}:{},body:JSON.stringify({enabled})});
+    if(enabled){
+      if(!result.enabled||!result.token||!(result.expiresAt*1000>Date.now()))throw new Error('Send access could not be enabled. Please try again.');
+      sendAccess.token=result.token;sendAccess.expiresAt=result.expiresAt;
+      sendAccess.timer=setTimeout(()=>{resetSendAccess();toast('Gorgias has returned to read only. Switch on again when you need to reply.');},Math.max(0,result.expiresAt*1000-Date.now()));
+    }
+    toast(enabled?'Read & write enabled for this page. Each reply requires confirmation.':'Gorgias is read only.');
+  }catch(error){resetSendAccess();toast(enabled?error.message:'This page is read only. Server revocation could not be confirmed; the previous access expires automatically.');}
+  finally{sendAccess.busy=false;renderSendAccess();}
+}
+async function reviewSend(){
+  if(!canSend()||sendState.busy||sendState.preparing||unresolved(sendAction()))return;
+  const ticket=state.ticket,text=$('#reply')?.value.trim();
+  if(!text){toast('Write a reply or use the suggested draft first.');return;}
+  const source=[...(ticket?.messages||[])].reverse().find(m=>m.fromAgent===false);
+  if(!/^gorgias:[1-9][0-9]{0,17}$/.test(ticket?.id||'')||!source?.id||ticket.syncStale){toast('Refresh this ticket to load the latest customer message before sending.');return;}
+  const id=ticket.id,sequence=++sendState.sequence,token=sendAccess.token;
+  sendState.preparing=true;renderSendAccess();
+  try{
+    const query=new URLSearchParams({source_message_id:String(source.id),expected_recipient:ticket.fromEmail||''});
+    const {context}=await consoleRequest(`/inbox/review-context/${encodeURIComponent(id)}?${query}`);
+    if(sequence!==sendState.sequence||id!==state.id||token!==sendAccess.token||!canSend())return;
+    if(!context||context.inboxTicketId!==id||context.sourceMessageId!==String(source.id)||!context.recipient||!context.channel||context.sourceMessageTruncated)throw new Error('Reply details are not available for this message. Refresh the ticket and try again.');
+    const pending=context.unresolvedActions?.find(x=>x.kind==='send');
+    if(pending){if(pending.operationId)rememberAction(id,{operationId:pending.operationId,status:'unknown'});throw new Error('An earlier reply is unresolved. Check its status before sending again.');}
+    sendState.review={id,text,context,token};
+    $('#send-review-recipient').textContent=`To ${context.recipient} · ${label(context.channel)} · Ticket #${context.ticketId}`;
+    $('#send-review-source').textContent=context.sourceMessageText;
+    $('#send-review-text').textContent=text;
+    $('#send-review').showModal();$('#cancel-send').focus();
+  }catch(error){toast(error.message);}
+  finally{if(sequence===sendState.sequence){sendState.preparing=false;renderSendAccess();}}
+}
+function applyDelivery(id,review,result){
+  const status=result.delivery_status||'unknown';
+  rememberAction(id,{operationId:result.operation_id||sendAction(id)?.operationId,status});
+  if(status==='sent'){
+    const drafts=objectStore(keys.drafts);
+    // Preserve any newer draft, including edits made from a second page.
+    if(review&&drafts[id]?.body?.trim()===review.text){delete drafts[id];persist(keys.drafts,drafts);if(state.id===id&&$('#reply')){$('#reply').value='';sizeReplyEditor($('#reply'));}}
+    toast('Reply sent via Gorgias.');if(state.id===id)refreshTicket();
+  }
+  renderSendAccess();
+}
+async function confirmSend(){
+  const review=sendState.review;
+  if(!review||sendState.busy||!canSend()||review.token!==sendAccess.token||state.id!==review.id)return;
+  sendState.busy=true;sendState.review=null;$('#send-review').close();
+  const operation=crypto.randomUUID(),context=review.context;
+  rememberAction(review.id,{operationId:operation,status:'unknown'});renderSendAccess();
+  try{
+    const result=await consoleRequest(`/inbox/ticket/${context.ticketId}/send`,{method:'POST',headers:{'X-Inbox-Send-Access':review.token},body:JSON.stringify({text:review.text,confirmed:true,operation_id:operation,source_message_id:context.sourceMessageId,draft_revision:context.draftRevision,expected_recipient:context.recipient,context_id:context.contextId,approve_learning:false})});
+    applyDelivery(review.id,review,result);
+  }catch(error){
+    if(error.body?.delivery_status)applyDelivery(review.id,review,{...error.body,operation_id:error.body.operation_id||operation});
+    if(error.body?.error==='inbox_read_only')resetSendAccess();
+    toast(error.body?.delivery_status==='not_attempted'?error.message:'Delivery is unconfirmed. Check status before sending again.');
+  }finally{sendState.busy=false;renderSendAccess();}
+}
+async function checkSendStatus(){
+  const id=state.id,action=sendAction(id);if(!action?.operationId||!/^gorgias:[1-9][0-9]{0,17}$/.test(id))return;
+  const button=$('[data-action="check-send-status"]');if(button)button.disabled=true;
+  try{const result=await consoleRequest(`/ticket/${id.slice(8)}/actions/${encodeURIComponent(action.operationId)}`);applyDelivery(id,null,result);}
+  catch(error){if(error.body?.delivery_status)applyDelivery(id,null,error.body);else toast('Delivery status is unavailable. Keep this draft and check Gorgias before trying another send.');}
+  finally{if(button)button.disabled=false;}
+}
+$('#send-review').addEventListener('cancel',()=>{sendState.review=null;});
+window.addEventListener('pagehide',()=>resetSendAccess());
+
 async function api(tool, args={}) {
   const response = await fetch('/inbox/api/helpdesk',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:`helpdesk.${tool}`,arguments:args}),signal:AbortSignal.timeout(65000)});
   if (response.status===401 || response.redirected) {const error=new Error('Your session has expired. Sign in to continue.');error.auth=true;throw error;}
@@ -80,7 +187,7 @@ function listRender() {
   $('[data-action="page-next"]').disabled=!state.hasNext;
   for(const button of document.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===state.view));
   $('#sort-button').innerHTML=`${state.oldest?'Oldest':'Newest'} first ${icon('sort')}`;
-  $('#window-label').textContent='Gorgias · Read only';
+  $('#window-label').textContent=`Gorgias · ${canSend()?'Read & write':'Read only'}`;
   $('#refresh span').textContent=state.error||state.projection?.stale?'Sync delayed · Retry':state.projection&&!state.projection.complete?'Syncing ticket history…':state.projection?.generatedAt?`Synced ${date(state.projection.generatedAt)}`:'Connecting to Gorgias…';
   $('#sync-status').classList.toggle('sync-delayed', Boolean(state.error || state.projection?.stale));
   $('#sync-status').textContent=state.projection?.stale?'Gorgias refresh is delayed. Showing the last successful sync.':state.projection&&!state.projection.complete?'Importing ticket history. Search and counts will expand as tickets arrive.':'Refreshes automatically every 30 seconds.';
@@ -129,12 +236,13 @@ async function loadOlder(){
     renderTicket();
   }catch(error){toast(error.message);if(button)button.disabled=false;}
 }
-function showAuth() {const href='/console/login?next='+encodeURIComponent(location.pathname+location.search);$('#conversation').innerHTML=`<div class="empty-state"><h2>Sign in to continue</h2><p>Your support session has expired.</p><a class="button primary" href="${esc(href)}">Sign in</a></div>`;}
+function showAuth() {resetSendAccess();const href='/console/login?next='+encodeURIComponent(location.pathname+location.search);$('#conversation').innerHTML=`<div class="empty-state"><h2>Sign in to continue</h2><p>Your support session has expired.</p><a class="button primary" href="${esc(href)}">Sign in</a></div>`;}
 function currentDraft(t) {const body=plain(t.readonlyDraft).replace(/^\[SENSITIVE\s*[—–-]\s*REVIEW CAREFULLY BEFORE SENDING\]\s*/i,'').trim();return body.includes('\n')?body:body.replace(/([.!?])\s+(?=(?:Because|Since|However|Please note)\b)/g,'$1\n\n');}
 function draftId(t) {return `${t.draftSourceMessageId||''}:${t.draftProcessedAt||''}:${t.readonlyDraft||''}`;}
 function draftAvailable(t) {return Boolean(t.readonlyDraft&&!t.draftSuperseded&&objectStore(keys.dismiss)[t.id]!==draftId(t));}
 async function selectTicket(id,push=true,focus=false) {
   if(!id)return;
+  if(!sendState.busy)cancelSendReview();
   const request=++state.ticketRequest;state.id=id;state.ticket=null;state.olderLoaded=false;state.tab='conversation';syncUrl(push);listRender();
   $('#workspace').classList.add('ticket-open');$('#workspace').classList.remove('rail-open');
   $('#conversation').innerHTML='<div class="empty-state">Loading conversation…</div>';
@@ -168,6 +276,7 @@ function renderTicket() {
   updateTicketNavigation();
   syncRailAccessibility();
   const editor=$('#reply');if(editor){editor.value=objectStore(keys.drafts)[t.id]?.body || '';sizeReplyEditor(editor);if(editor.value)$('#saved-note').textContent='Saved in this browser';}
+  renderSendAccess();
 }
 // Presentation only: original Gorgias bodies are never changed.
 function decodeMessageEntities(value) {
@@ -289,7 +398,7 @@ function detailsHtml(t) {
 function replyHtml(t) {
   const sensitive=t.draftAction==='sensitive_draft'||/^\[SENSITIVE/i.test(t.readonlyDraft||'');
   const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft">${icon('check')} Use draft</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
-  return `<section class="reply-area">${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button></div></div><p class="composer-note">${icon('lock')} Copy your reply, then send it in Gorgias.</p></section>`;
+  return `<section class="reply-area">${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
 }
 function renderRail() {
   const t=state.ticket;if(!t)return;
@@ -421,12 +530,16 @@ document.addEventListener('click',async event=>{
   if(action==='rail'){railTrigger=event.target.closest('[data-action]');$('#workspace').classList.remove('rail-collapsed');$('#workspace').classList.add('rail-open');syncRailAccessibility();$('#customer-rail button')?.focus();return;}
   if(action==='rail-close'){closeRail();return;}
   if(action==='copy'){copyText(new URL('/inbox/?ticket='+encodeURIComponent(state.id),location.origin).href,'Ticket link copied.');return;}
-  if(action==='send-gate'){toast('Gorgias is connected read-only. You can prepare and copy replies here; send them from Gorgias.');return;}
+  if(action==='toggle-send-access'){await toggleSendAccess();return;}
+  if(action==='review-send'){await reviewSend();return;}
+  if(action==='confirm-send'){await confirmSend();return;}
+  if(action==='cancel-send'){cancelSendReview();return;}
+  if(action==='check-send-status'){await checkSendStatus();return;}
   if(action==='copy-reply'){const value=$('#reply')?.value;if(value)copyText(value,'Reply copied.');else toast('Write a reply or use the suggested draft first.');return;}
   if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
   if(action==='new'){toast('This inbox reads Gorgias tickets. Create new tickets in Gorgias.');return;}
-    if(action==='sign-out'){try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}
+    if(action==='sign-out'){resetSendAccess();try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}
 });
 document.addEventListener('keydown', event => {
   const drawerOpen = drawerQuery.matches && $('#workspace').classList.contains('rail-open');
@@ -447,6 +560,7 @@ document.addEventListener('keydown', event => {
 });
 window.addEventListener('popstate',()=>{params=new URLSearchParams(location.search);state.query=params.get('q')||'';state.view=['all','open','closed'].includes(params.get('view'))?params.get('view'):'all';$('#search').value=state.query;const id=params.get('ticket');if(id)selectTicket(id,false);else{state.id='';state.ticket=null;$('#workspace').classList.remove('ticket-open');const first=filtered()[0];if(first)selectTicket(first.id,false);}state.page=0;loadList();});
 
+renderSendAccess();
 api('capabilities').then(result=>{state.operator=result.operatorEmail||'';}).catch(()=>{});
 if(state.id)selectTicket(state.id,false);
 loadList();

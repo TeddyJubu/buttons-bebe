@@ -1,8 +1,30 @@
 # Inbox
 
-A read-only support workspace at `/inbox/`, styled with the tokens and component
-rules in `DESIGN.md`. The browser reads tickets through an authenticated local API.
-Reply text stays in the browser; this implementation does not send replies.
+A support workspace at `/inbox/`, styled with the tokens and component rules in
+`DESIGN.md`. It starts read-only on every page load. Reply drafts stay in the
+browser. The owner can switch Gorgias to Read & write and review/confirm a
+customer reply directly from the Inbox through the authenticated console sender.
+
+## Manual replies
+
+The header switch calls `/console/api/inbox/send-access` to obtain a 30-minute,
+session-bound grant held only in page memory. SQLite stores only its hash;
+switching off revokes it. Neither toggling nor preparing a reply calls Gorgias.
+Reloading, signing out, or expiry returns the page to read-only.
+
+Send reply opens a review with the recipient, customer message and exact reply.
+Confirm & send calls `/console/api/inbox/ticket/{id}/send`, which checks the grant,
+review identity and confirmation before using the console's durable sender.
+The latest customer message must already be synced to the console database;
+an AI draft is optional. The provider rechecks recipient and source message
+before posting on the customer's existing channel. Status/assignment, ticket
+creation and Shopify remain read-only. No background process acquires send access.
+
+Pending or uncertain delivery keeps the draft and blocks a new reply. Check status
+uses the existing read-only action-status route and never resends. Confirmed
+success alone clears the matching submitted draft; newer edits are preserved.
+The additive `inbox_send_grants` table is created on first enable. Expired grants
+are cleaned up on subsequent enable; grants and action records are runtime data.
 
 ## Data flow
 
@@ -78,7 +100,10 @@ supply a synthetic read-only API:
     python3 skills/buttonsbebe-support-webapp/scripts/serve_inbox_preview.py --port 8878
 
 Then run node console-src/inbox2/tests/layout.mjs and
-node console-src/inbox2/tests/customer-loading.mjs. Install Playwright and its
+node console-src/inbox2/tests/customer-loading.mjs. Run
+node console-src/inbox2/tests/send-access.mjs for the mocked manual-send flow and
+`PYTHONPATH=webhook/src python -m unittest webhook.test_inbox_send_access` for
+server authorization. These tests do not send real customer messages. Install Playwright and its
 Chromium browser first, or set PLAYWRIGHT_MODULE to an existing Playwright
 module. Screenshots are saved to temporary directories, never the repository.
 The plain console-src static-server command no longer works for /inbox/ because

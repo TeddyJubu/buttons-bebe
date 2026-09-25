@@ -47,7 +47,15 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    an HttpOnly signed session cookie; Caddy `forward_auth` gates `/console/api/*`
    and the console's WhatsApp/KB-admin routes. Direct public `/dashboard*`
    access is denied. Send requires a confirm click; rewrite returns text to the
-   console and never sends it.
+   console and never sends it. Inbox replies use the same human action service via
+   `POST /dashboard/api/inbox/ticket/{id}/send`, explicitly authorized by the
+   owner on 2026-09-25. The Inbox starts read-only; its Read & write switch
+   obtains a page-memory-only, session-bound grant from
+   `POST /dashboard/api/inbox/send-access`. Grants expire after 30 minutes;
+   switching off revokes the grant, and reload starts read-only. Every reply
+   requires review and a final confirm click, current recipient/source checks,
+   a durable operation ID, and an audit record. This grants no writes to Hermes,
+   the Inbox read API, MCP tools, or Shopify. No automatic send or resend.
 4. Every ticket gets a draft. Sensitive tickets (refunds, chargebacks,
    disputes, damaged/wrong/missing items, cancellations, angry customers) get
    a clearly prefixed sensitive draft, HIGH/CRITICAL priority, and an owner
@@ -311,7 +319,7 @@ as current work.
 - Prefers the conversation pane to keep the reply box visible: bottom-anchored composer, compact expandable attachment thumbs, and a full-width AI draft strip with Use draft / Regenerate / Dismiss under the text.
 - Prefers AI drafts that answer the ticket’s actual ask or request type; mismatched draft content undermines trust.
 - Wants the detachable Gorgias bridge left off until credentials are added and they explicitly activate it.
-- When contributing to the original/upstream repo, omit credentials and demo data; keep Shopify read-only; keep Send disconnected so a click shows “Activate the send access.”
+- Omit credentials and demo data; keep Shopify read-only. Inbox defaults to read-only; the owner explicitly authorized a page-scoped Read & write toggle and individually confirmed Gorgias customer replies on 2026-09-25.
 - Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
 
 ## Learned Workspace Facts

@@ -30,7 +30,7 @@ deploy/caddy/sites/support.caddy is the route source. deploy/systemd/helpdesk-in
       -> authenticated /inbox/api/helpdesk
       -> console-src/inbox2/app.js
 
-The API allows helpdesk.capabilities, helpdesk.list_tickets, helpdesk.get_ticket, and helpdesk.get_messages. It selects only list_inbox_tickets, get_ticket, and get_ticket_messages MCP tools. The browser needs no provider credentials. Ticket summaries are synchronized locally; opened tickets can fetch current detail. The UI composer and draft dismissal are browser-local. app.js currently renders status, priority, and assignee as observed read-only values.
+The API allows helpdesk.capabilities, helpdesk.list_tickets, helpdesk.get_ticket, and helpdesk.get_messages. It selects only list_inbox_tickets, get_ticket, and get_ticket_messages MCP tools. The browser needs no provider credentials. Ticket summaries are synchronized locally; opened tickets can fetch current detail. The composer and draft dismissal are browser-local. The owner can explicitly enable manual replies for one page and confirm each reply through the separate authenticated console sender; the Inbox service stays read-only. app.js currently renders status, priority, and assignee as observed read-only values.
 
 Customer context crosses a separate trust boundary: customer_details.py queues a bounded lookup derived from the opened ticket; shop_worker.py uses fixed queries in console-src/inbox/export_shop_rail.py, reads protected Shopify configuration, and atomically publishes read-only snapshots under /var/lib/buttonsbebe-inbox2-shop/. The bb-inbox API reads those snapshots; it does not possess Shopify credentials.
 
