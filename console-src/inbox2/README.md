@@ -9,6 +9,11 @@ Reply text stays in the browser; this implementation does not send replies.
 - `live_api.py` synchronizes Gorgias ticket summaries and retrieves opened tickets
   through the local, read-only Gorgias MCP. Provider credentials are not available
   to this process. Existing inbox projection helpers supply draft context.
+- Gorgias webhooks remain the primary Hermes trigger. The processor also scans
+  recently updated open tickets through the same read-only MCP and queues the
+  latest unanswered public customer message if webhook intake missed it. This
+  bounded, idempotent recovery keeps suggestions available during a webhook
+  delivery outage; it never sends a customer reply.
 - `customer_details.py` records bounded requests for the customer context of
   opened tickets. It uses a separate SQLite database with DELETE journaling so
   the worker can read it through a read-only mount without creating WAL sidecars.
@@ -66,9 +71,15 @@ node --check console-src/inbox2/app.js
 node --check console-src/inbox2/icons.js
 ```
 
-Browser tests use synthetic customers and intercept API calls. Start a static
-server with `python3 -m http.server 8878 --bind 127.0.0.1 --directory console-src`,
-then run `node console-src/inbox2/tests/layout.mjs` and
-`node console-src/inbox2/tests/customer-loading.mjs`. Install Playwright and its
-Chromium browser first, or set `PLAYWRIGHT_MODULE` to an existing Playwright module.
-Screenshots are saved to temporary directories, never the repository.
+Browser tests use synthetic customers and intercept API calls. Start the
+project skill's local preview helper to route /inbox/ to the active assets and
+supply a synthetic read-only API:
+
+    python3 skills/buttonsbebe-support-webapp/scripts/serve_inbox_preview.py --port 8878
+
+Then run node console-src/inbox2/tests/layout.mjs and
+node console-src/inbox2/tests/customer-loading.mjs. Install Playwright and its
+Chromium browser first, or set PLAYWRIGHT_MODULE to an existing Playwright
+module. Screenshots are saved to temporary directories, never the repository.
+The plain console-src static-server command no longer works for /inbox/ because
+the retired console-src/inbox/index.html was removed.

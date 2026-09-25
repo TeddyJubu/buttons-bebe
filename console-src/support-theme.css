@@ -82,6 +82,7 @@ body[data-support-page=console] .head-icon,body[data-support-page=console] .head
 body[data-support-page=console] .head-icon svg { width:17px; height:17px; }
 body[data-support-page=console] .freshness { font-size:11px; color:var(--mute); }
 body[data-support-page=console] .error-banner { border-radius:8px; }
+body[data-support-page=console] .learning-panel { margin-top:16px; }
 @media(max-width:900px) {
  body[data-support-page=console] .menu-btn { display:grid; }
  body[data-support-page=console] .nav-scrim.open { display:block; }

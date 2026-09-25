@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
 import json
 import logging
+import re
 from pathlib import Path
 import sqlite3
 import sys
@@ -206,13 +207,32 @@ def sync_loop():
             delay=min(delay*2,300)
         STOP.wait(delay)
 
+def display_content(m):
+    text=m.get('preferred_content') or ''
+    if m.get('preferred_content_field')!='stripped_text' or not text:return text
+    lines=text.replace('\r\n','\n').replace('\r','\n').split('\n')
+    result=[];previous=''
+    for line in lines:
+        source_line=previous.rstrip()
+        continuation=line.lstrip()
+        soft_wrap=(result and 60<=len(source_line)<=90 and continuation
+                   and continuation[0].islower() and source_line[-1] not in '.!?;:'
+                   and not line.startswith((' ','\t'))
+                   and not re.search(r'(?:https?://|www\.)\S+$',source_line))
+        if soft_wrap:result[-1]=result[-1].rstrip()+' '+continuation
+        else:result.append(line)
+        previous=line
+    text='\n'.join(result)
+    text=re.sub(r'[ \t]{2,}',' ',text)
+    return re.sub(r'[ \t]+(?=[.,!?;:])','',text)
+
 def message(m):
     sender=m.get('sender') or {}
     if not isinstance(sender,dict): sender={}
     return {'id':str(m.get('id') or ''),'fromAgent':bool(m.get('from_agent')),
             'from':'agent' if m.get('from_agent') else 'customer',
             'fromName':sender.get('name') or '', 'fromEmail':sender.get('email') or '',
-            'body':m.get('preferred_content') or '', 'at':m.get('created_datetime'),
+            'body':display_content(m), 'at':m.get('created_datetime'),
             'internal':m.get('channel')=='internal-note' or m.get('public') is False,
             'contentUnavailable':bool(m.get('content_unavailable'))}
 

@@ -112,7 +112,7 @@ class InboxCaddyContractTests(unittest.TestCase):
 
     def test_retired_inbox_redirects_pages_but_never_forwards_old_api_or_assets(self):
         source = SOURCE.read_text()
-        block = source[source.index('\t# Keep old Inbox 2 bookmarks'):source.index('\t@consoleauth')]
+        block = source[source.index('# Keep old Inbox 2 bookmarks'):source.index('\t@consoleauth')]
         listen = port()
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / 'Caddyfile'

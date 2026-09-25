@@ -8,7 +8,7 @@ test('tickets use the standalone inbox with no legacy frame or message bridge',(
  assert.doesNotMatch(html, /<iframe|bbInboxSrc|__bbInboxBridge|bb-console-hello/);
  assert.match(html, /function bbStandaloneInboxSrc/);
  assert.match(html, /location.assign\(bbStandaloneInboxSrc/);
- assert.doesNotMatch(html, /["']\/inbox\//);
+ assert.match(html, /return "\/inbox\/"\+/);
 });
 test('bridge routes rewrite/note/send to the console API with operation payloads',()=>{
  for(const fn of ['function bbFindConsoleTicket(','function bbRewriteTicket(','function bbNoteTicket(','function bbSendTicket(','function bbPerformWrite('])assert.ok(html.includes(fn),`missing ${fn}`);
