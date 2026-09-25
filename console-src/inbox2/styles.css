@@ -811,7 +811,7 @@ summary::-webkit-details-marker {
 .reply-area {
   border-top: 1px solid var(--line);
   background: var(--bg);
-  padding: 22px 28px 24px;
+  padding: 18px 28px 20px;
 }
 
 .draft-card {
@@ -929,18 +929,31 @@ summary::-webkit-details-marker {
 }
 
 .composer-heading {
-  padding: 13px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   font-size: 11px;
-  color: var(--acc);
+  color: var(--ink2);
   background: var(--surface);
 }
 
+.composer-heading svg {
+  width: 14px;
+  height: 14px;
+  color: var(--acc);
+  flex-shrink: 0;
+}
+
+.composer-heading strong {
+  color: var(--acc);
+  font-size: 12px;
+}
+
 .composer-heading .recipient {
-  color: var(--muted);
+  color: var(--ink3);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -948,13 +961,14 @@ summary::-webkit-details-marker {
 
 .composer textarea {
   display: block;
-  resize: vertical;
+  resize: none;
   border: 0;
   outline: 0;
   width: 100%;
-  height: 94px;
-  min-height: 88px;
-  padding: 15px 16px;
+  height: auto;
+  min-height: 82px;
+  max-height: min(280px, 36vh);
+  padding: 12px 16px;
   font-size: 13px;
   line-height: 1.7;
   background: var(--surface);
@@ -971,37 +985,30 @@ summary::-webkit-details-marker {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px 9px;
-  color: var(--muted);
+  padding: 3px 12px 12px;
+  color: var(--ink3);
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: space-between;
 }
 
 .composer-toolbar .saved-note {
-  font-size: 11px;
-  margin-right: auto;
-  line-height: 1.5;
-  flex: 1 1 100%;
+  font-size: 10px;
+  line-height: 1.4;
+  flex: 1 1 140px;
 }
 
 .composer-toolbar .button {
-  background: var(--bg);
-  border-color: transparent;
   white-space: nowrap;
-}
-
-.composer-toolbar [aria-disabled=true] {
-  cursor: not-allowed;
-  color: var(--muted);
+  flex-shrink: 0;
 }
 
 .composer-note {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 17px 0 0;
+  margin: 10px 0 0;
   font-size: 11px;
-  color: var(--amber);
+  color: var(--ink3);
   line-height: 1.6;
 }
 
