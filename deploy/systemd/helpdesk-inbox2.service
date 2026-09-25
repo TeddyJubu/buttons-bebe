@@ -1,0 +1,40 @@
+[Unit]
+Description=Buttons Bebe Inbox 2 read-only Gorgias sync
+After=network.target buttonsbebe-gorgias-mcp.service
+Wants=buttonsbebe-gorgias-mcp.service
+
+[Service]
+Type=simple
+User=bb-inbox
+Group=bb-inbox
+WorkingDirectory=/opt/buttonsbebe/inbox2
+ExecStart=/opt/buttonsbebe/inbox/venv/bin/python /opt/buttonsbebe/inbox2/live_api.py
+StateDirectory=buttonsbebe-inbox2
+StateDirectoryMode=0700
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONNOUSERSITE=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryHigh=256M
+MemoryMax=512M
+TasksMax=64
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

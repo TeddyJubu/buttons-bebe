@@ -107,11 +107,12 @@ class ToolContractTests(unittest.TestCase):
                     scope[tool](bad)
         get.assert_not_called()
 
-    def test_gorgias_source_matches_installed_five_tool_contract(self) -> None:
+    def test_gorgias_source_matches_installed_six_tool_contract(self) -> None:
         self.assertEqual(
             mcp_tools(TOOLS_DIR / "gorgias_mcp.py"),
             {
                 "list_recent_tickets",
+                "list_inbox_tickets",
                 "get_ticket",
                 "get_ticket_messages",
                 "get_customer",
@@ -181,8 +182,10 @@ class DemoReleaseGateTests(unittest.TestCase):
             env.pop("DEMO_MODE", None)
             if demo_mode is not None:
                 env["DEMO_MODE"] = demo_mode
-            env["PYTHON"] = str(fake_python)
-            env["PROCESSOR_PYTHON"] = str(fake_python)
+            # Every interpreter is exported by the outer gate. Keep this shell
+            # contract test isolated from its caller's real environments.
+            for name in ("PYTHON", "PROCESSOR_PYTHON", "WEBHOOK_PYTHON", "INBOX_PYTHON", "QA_PYTHON", "HERMES_VERIFY_PYTHON"):
+                env[name] = str(fake_python)
             env["PATH"] = f"{temp}:{env['PATH']}"
             result = subprocess.run(
                 ["bash", str(self.VERIFY_RELEASE)],

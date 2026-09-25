@@ -35,6 +35,17 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
             return {"count":1,"tickets":[value["ticket"]],"qa_fixture":True}
 
         @server.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
+        def list_inbox_tickets(limit: StrictInt = 100, cursor: str | None = None) -> dict:
+            value = state("list_inbox_tickets")
+            if not 1 <= limit < 2**63:
+                raise ValueError("QA requires positive bounded limits")
+            if cursor is not None:
+                if not cursor or len(cursor) > 2048:
+                    raise ValueError("Invalid bounded QA cursor")
+                return unknown()  # Fixtures contain exactly one page.
+            return {"data": [value["ticket"]], "meta": {"next_cursor": None}, "qa_fixture": True}
+
+        @server.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
         def get_ticket(ticket_id: StrictInt) -> dict:
             value = state("get_ticket")
             return value["ticket"] if ticket_id == value["ticket"]["id"] else unknown()

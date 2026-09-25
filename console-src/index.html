@@ -484,6 +484,16 @@ if(inboxNavView&&inboxNavView!=="all")q.push("view="+encodeURIComponent(inboxNav
 if(inboxNavTicket)q.push("ticket="+encodeURIComponent(inboxNavTicket));
 return "/inbox/"+(q.length?"?"+q.join("&"):"");
 }
+function bbStandaloneInboxSrc(viewOverride,ticketOverride,preserveFrame){
+var q=new URLSearchParams(),frame=preserveFrame?document.getElementById("inbox-frame"):null;
+if(frame){try{var current=new URL(frame.contentWindow.location.href,location.href);if(current.origin===location.origin){["view","ticket","q","f","gate"].forEach(function(key){var value=current.searchParams.get(key);if(value)q.set(key,value);});}}catch(e){}}
+var view=viewOverride===undefined?inboxNavView:viewOverride;
+var ticket=ticketOverride===undefined?inboxNavTicket:ticketOverride;
+if(viewOverride!==undefined||!q.has("view")){if(view&&view!=="all")q.set("view",view);else q.delete("view");}
+if(ticketOverride!==undefined||!q.has("ticket")){if(ticket)q.set("ticket",ticket);else q.delete("ticket");}
+var query=q.toString();
+return "/inbox2/"+(query?"?"+query:"");
+}
 function ticketsView(){
 // ponytail: the Tickets tab IS the inbox — no wrapper panel, no duplicate
 // nav. The send-access state lives in the inbox's own header already.
@@ -657,9 +667,8 @@ return s.indexOf(":")>=0?s:"gorgias:"+s;
 function goTickets(nextFilter,ticketKey){
 const nextView=inboxDeepFilter(nextFilter),nextTicket=inboxTicketId(ticketKey);
 if(!nextView&&!nextTicket)return;
-inboxNavView=nextView||"all";inboxNavTicket=nextTicket;tab="tickets";render();
-var frame=document.getElementById("inbox-frame");
-if(frame){try{frame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}}
+inboxNavView=nextView||"all";inboxNavTicket=nextTicket;
+location.assign(bbStandaloneInboxSrc(inboxNavView,inboxNavTicket,false));
 }
 
 function render(){
@@ -689,7 +698,7 @@ function render(){
     <div class="wrap" tabindex="0" aria-label="Dashboard content"><div class="t-panel-slide" data-open="false">${(loadFailed||sessionExpired)?errorBanner():""}${view()}</div></div>
   </div>`;
  const status=document.getElementById("app-status");if(status){status.textContent="";requestAnimationFrame(()=>{status.textContent=liveMessage();});}
- const openTab=k=>{tab=k;inboxNavTicket=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
+ const openTab=k=>{if(k==="tickets"){location.assign(bbStandaloneInboxSrc(undefined,undefined,true));return;}tab=k;inboxNavTicket=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
  document.querySelectorAll(".nav a[data-tab]").forEach(a=>{a.onclick=()=>openTab(a.dataset.tab);a.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTab(a.dataset.tab);}};});
  const rf=document.getElementById("refresh");if(rf)rf.onclick=async()=>{rf.classList.add("refreshing");rf.disabled=true;statusMsg="Refreshing dashboard data";if(tab==="kb"){kbData=null;await loadKb();}else if(tab==="notif"){await loadNotifications();}else if(tab==="notices"){await loadNotices();}else{await boot();}};
  const hn=document.getElementById("header-notif");if(hn)hn.onclick=()=>openTab("notif");

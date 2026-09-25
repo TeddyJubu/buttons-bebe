@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import types
 import unittest
@@ -247,6 +248,9 @@ class MissingIndexSelfHealTests(unittest.TestCase):
         newest = tmp / ".lancedb-backup-newest"
         newest.mkdir()
         (newest / "origin.txt").write_text("newest")
+        # Creation can share one filesystem timestamp tick; make recency explicit.
+        os.utime(tmp / ".lancedb-backup-older", (1000, 1000))
+        os.utime(newest, (2000, 2000))
         table = FakeTable([hit("shipping", "policies/shipping.md")], [])
         connected_paths: list[str] = []
         # Prove the restored directory is what LanceDB opens — the marker file

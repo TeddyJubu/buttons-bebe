@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="color-scheme" content="light">
+  <title>Inbox · Buttons Bebe Support</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&family=Jost:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/inbox2/styles.css">
+  <script type="module" src="/inbox2/app.js"></script>
+</head>
+<body>
+  <a href="#conversation" class="skip-link">Skip to conversation</a>
+  <header class="app-header">
+    <a href="/console/" class="brand" aria-label="Buttons Bebe support console">buttons bebe</a>
+    <span class="brand-label">Support</span>
+    <nav aria-label="Support navigation"><a href="/console/">Console</a><a href="/inbox2/" aria-current="page">Inbox</a></nav>
+    <div class="header-actions"><button class="access-pill" data-action="send-gate" aria-label="Gorgias · Read only"><span data-icon="lock"></span><span>Gorgias · Read only</span></button><details class="profile-menu"><summary aria-label="Account menu"><span data-icon="user"></span></summary><div class="menu"><a href="/console/">Support console</a><button data-action="sign-out">Sign out</button></div></details></div>
+  </header>
+  <div class="workspace" id="workspace">
+    <aside class="ticket-sidebar" aria-label="Tickets">
+      <div class="list-heading"><h1>Inbox</h1></div>
+      <div class="search-wrap"><span data-icon="search"></span><input id="search" type="search" maxlength="200" placeholder="Search tickets…" aria-label="Search tickets"></div>
+      <div class="filter-tabs" role="group" aria-label="Ticket status"><button data-view="all" aria-pressed="true">All tickets</button><button data-view="open" aria-pressed="false">Open</button><button data-view="closed" aria-pressed="false">Closed</button></div>
+      <div class="list-meta"><span id="window-label">Last 90 days</span><button data-action="sort" id="sort-button">Newest first <span data-icon="sort"></span></button></div>
+      <div class="ticket-list" id="ticket-list" aria-label="Ticket list"><div class="empty-state">Loading tickets…</div></div>
+      <footer class="list-footer"><div><span id="count" aria-live="polite">Loading history…</span><div class="pagination"><button class="icon-button" data-action="page-prev" aria-label="Previous ticket page" disabled><span data-icon="left"></span></button><button class="icon-button" data-action="page-next" aria-label="Next ticket page" disabled><span data-icon="right"></span></button></div></div><button id="refresh" data-action="refresh"><span data-icon="refresh"></span><span>Refresh tickets</span></button><p class="sync-status" id="sync-status" role="status">Connecting to Gorgias…</p></footer>
+    </aside>
+    <main class="conversation" id="conversation" tabindex="-1" aria-label="Conversation"><div class="empty-state">Loading conversation…</div></main>
+    <button class="rail-backdrop" data-action="rail-close" tabindex="-1" aria-label="Close customer details"></button>
+    <aside class="customer-rail" id="customer-rail" aria-label="Customer details"><div class="rail-heading">Customer details</div><div class="empty-state">Select a ticket to see customer details.</div></aside>
+    <aside class="rail-reopen" aria-label="Collapsed customer details">
+      <button type="button" class="icon-button" data-action="rail" aria-label="Open customer details" title="Open customer details" aria-controls="customer-rail" aria-expanded="false"><span data-icon="panelOpen"></span></button>
+      <button type="button" class="rail-reopen-label" data-action="rail" aria-controls="customer-rail" aria-expanded="false" title="Open customer details">Customer details</button>
+    </aside>
+  </div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+
+</body>
+</html>

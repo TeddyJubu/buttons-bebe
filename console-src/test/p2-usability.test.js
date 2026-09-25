@@ -37,7 +37,7 @@ async function openConsole(t, width = 1340) {
         { job_id: 1, ticket_id: null, message_id: null, status: 'attempting', attempted_at: '2026-09-23T10:00:00Z', finished_at: null, ticket_subject: null, reason: null },
       ] : Array.from({ length: 50 }, (_, i) => ({ job_id: 51 - i, ticket_id: 42, message_id: 420 + i, status: 'uncertain', attempted_at: '2026-09-24T10:00:00Z', finished_at: null, ticket_subject: '<img src=x onerror=alert(1)>', reason: 'Synthetic alert context' })) } });
     }
-    if (path === '/inbox/') return route.fulfill({ contentType: 'text/html', body: '<p>Synthetic inbox</p>' });
+    if (path === '/inbox2/') return route.fulfill({ contentType: 'text/html', body: '<p>Synthetic inbox</p>' });
     if (path === '/console/') return route.fulfill({ contentType: 'text/html', body: source });
     if (Object.hasOwn(data, path)) return route.fulfill({ json: data[path] });
     return route.abort();
@@ -77,7 +77,8 @@ test('UI-08: owner-attempt inspection paginates and opens tickets without acknow
   assert.equal(await page.locator('[data-owner-attempt] [data-go-ticket]').count(), 0);
   await page.getByRole('button', { name: 'Previous attempts', exact: true }).click();
   await page.locator('[data-owner-attempt] [data-go-ticket]').first().click();
-  assert.match(await page.locator('#inbox-frame').getAttribute('src'), /ticket=gorgias%3A42/);
+  await page.waitForURL('**/inbox2/**');
+  assert.equal(new URL(page.url()).searchParams.get('ticket'), 'gorgias:42');
   assert.deepEqual(writes, []);
 });
 

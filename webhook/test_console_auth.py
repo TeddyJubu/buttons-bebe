@@ -72,6 +72,8 @@ class ConsoleSessionTests(unittest.TestCase):
 class SafeNextPathTests(unittest.TestCase):
     def test_only_internal_console_paths_are_allowed(self) -> None:
         self.assertEqual(safe_next_path("/console/"), "/console/")
+        self.assertEqual(safe_next_path("/inbox2/?ticket=gorgias%3A123"), "/inbox2/?ticket=gorgias:123")
+        self.assertEqual(safe_next_path("/inbox2.evil"), "/console/")
         self.assertEqual(safe_next_path("/console/api/tickets"), "/console/api/tickets")
         self.assertEqual(safe_next_path("https://evil.example/"), "/console/")
         self.assertEqual(safe_next_path("//evil.example/"), "/console/")

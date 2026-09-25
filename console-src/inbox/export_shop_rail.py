@@ -137,7 +137,6 @@ query InboxOrderByName($query: String!) {
       fulfillments { displayStatus estimatedDeliveryAt trackingInfo { number url company } fulfillmentLineItems(first: 50) { nodes { quantity lineItem { title } } } }
       returns(first: 5) { nodes { id name status createdAt totalQuantity
         returnLineItems(first: 25) { nodes { __typename id quantity returnReasonDefinition { name } returnReasonNote
-          withCodeDiscountedTotalPriceSet { shopMoney { amount currencyCode } }
           ... on ReturnLineItem { fulfillmentLineItem { lineItem { title } } } } }
         exchangeLineItems(first: 5) { nodes { id } } } }
       customer { id defaultEmailAddress { emailAddress } }

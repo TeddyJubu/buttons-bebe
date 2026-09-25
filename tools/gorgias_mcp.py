@@ -111,5 +111,27 @@ def search_customer(email: str) -> dict:
     return _get("/customers", {"email": email})
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True))
+def list_inbox_tickets(limit: StrictInt = 100, cursor: str | None = None) -> dict:
+    """Read a page of tickets by last update, including trash for local reconciliation.
+
+    Only GET /tickets is used. Follow next_cursor; no provider writes.
+    """
+    _positive_int(limit, "limit")
+    params = {"limit": min(limit, 100), "order_by": "updated_datetime:desc", "trashed": "true"}
+    if cursor is not None:
+        if not isinstance(cursor, str) or not cursor or len(cursor) > 2048:
+            raise ValueError("Invalid ticket cursor")
+        params["cursor"] = cursor
+    result = _get("/tickets", params)
+    if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+        return {"error": "Gorgias ticket list unavailable"}
+    fields = ("id", "subject", "status", "priority", "channel", "customer", "assignee_user",
+              "assignee_team", "created_datetime", "updated_datetime", "last_message_datetime",
+              "last_received_message_datetime", "excerpt", "tags", "spam", "trashed_datetime")
+    return {"data": [{key: ticket.get(key) for key in fields} for ticket in result["data"]],
+            "meta": {"next_cursor": (result.get("meta") or {}).get("next_cursor")}}
+
+
 if __name__ == "__main__":
     mcp.run(transport=TRANSPORT)

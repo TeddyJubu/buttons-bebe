@@ -82,7 +82,7 @@ from pathlib import Path
 import ast
 import json
 
-roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("console-src/inbox"), Path("console-src/helpdesk-agent"), Path("shopify")]
+roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("console-src/inbox"), Path("console-src/inbox2"), Path("console-src/helpdesk-agent"), Path("shopify")]
 
 # Installed dependencies are not ours to syntax-check, and checking them made
 # the gate's verdict depend on which interpreter happened to run it: a local
@@ -187,6 +187,9 @@ done
 PYTHONPATH="$ROOT_DIR/console-src/helpdesk-agent${PYTHONPATH:+:$PYTHONPATH}" \
   "$INBOX_PYTHON" -m unittest discover -s console-src/helpdesk-agent/tests -v
 "$INBOX_PYTHON" -m unittest discover -s console-src/inbox/tests -p 'test_*.py' -v
+"$INBOX_PYTHON" -m unittest discover -s console-src/inbox2/tests -p 'test_*.py' -v
+node --check console-src/inbox2/app.js
+node --check console-src/inbox2/icons.js
 "$PYTHON" tools/build_support_theme.py --check
 "$PYTHON" tools/check_inbox_locks.py
 node --test console-src/inbox/test/*.test.js
