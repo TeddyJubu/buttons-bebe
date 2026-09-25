@@ -54,13 +54,6 @@ body[data-support-page=console] .top { padding:20px 24px; min-height:86px; backg
 body[data-support-page=console] .top h1 { font-size:26px; line-height:1.25; font-weight:500; letter-spacing:-.025em; }
 body[data-support-page=console] .top .sub { font-size:13px; color:var(--mute); margin-top:5px; }
 body[data-support-page=console] .wrap { padding:24px; overflow:auto; }
-/* ponytail: the Tickets tab IS the inbox — the frame fills the tab, no wrapper panel.
-   The frame sits inside .t-panel-slide (render() wraps every view), so the
-   :has() match must be descendant, and both .wrap and the slide become a
-   flex column — flex on the frame alone does nothing inside a block parent. */
-body[data-support-page=console] .wrap:has(#inbox-frame){padding:0;overflow:hidden;display:flex;flex-direction:column;}
-body[data-support-page=console] .wrap:has(#inbox-frame) .t-panel-slide{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;}
-body[data-support-page=console] #inbox-frame.tickets-frame{flex:1 1 auto;width:100%;min-height:0;border:0;display:block;background:var(--surface);}
 body[data-support-page=console] .logo { margin-bottom:24px; }
 body[data-support-page=console] .logo .tag { background:transparent; color:var(--mute); }
 body[data-support-page=console] .nav a { border-radius:6px; font-size:13px; min-height:38px; text-decoration:none; }
@@ -105,6 +98,7 @@ body[data-support-page=console] .head-icon,body[data-support-page=console] .head
 body[data-support-page=console] .head-icon svg { width:17px; height:17px; }
 body[data-support-page=console] .freshness { font-size:11px; color:var(--mute); }
 body[data-support-page=console] .error-banner { border-radius:8px; }
+body[data-support-page=console] .learning-panel { margin-top:16px; }
 @media(max-width:900px) {
  body[data-support-page=console] .menu-btn { display:grid; }
  body[data-support-page=console] .nav-scrim.open { display:block; }
@@ -246,7 +240,7 @@ body.bb-connect img{max-width:100%;height:auto;aspect-ratio:1}
 </main>
 <script>
 const form=document.getElementById("login-form"),user=document.getElementById("username"),pass=document.getElementById("password"),submit=document.getElementById("submit"),error=document.getElementById("error");
-const nextPath=()=>{const value=new URLSearchParams(location.search).get("next")||"/console/";try{const decoded=decodeURIComponent(value);const url=new URL(decoded,location.origin);if(/[\\\x00-\x1f\x7f%]/.test(decoded)||url.origin!==location.origin||decoded.startsWith("//"))return "/console/";return (url.pathname==="/console"||url.pathname.startsWith("/console/")||url.pathname==="/inbox"||url.pathname.startsWith("/inbox/"))?url.pathname+url.search+url.hash:"/console/";}catch{return "/console/";}};
+const nextPath=()=>{const value=new URLSearchParams(location.search).get("next")||"/console/";try{const decoded=decodeURIComponent(value);const url=new URL(decoded,location.origin);if(/[\\\x00-\x1f\x7f%]/.test(decoded)||url.origin!==location.origin||decoded.startsWith("//"))return "/console/";return (url.pathname==="/console"||url.pathname.startsWith("/console/")||url.pathname==="/inbox"||url.pathname.startsWith("/inbox/")||url.pathname==="/inbox2"||url.pathname.startsWith("/inbox2/"))?url.pathname+url.search+url.hash:"/console/";}catch{return "/console/";}};
 const showError=(message)=>{error.textContent=message;};
 fetch("/console/api/auth/session",{credentials:"same-origin",cache:"no-store"}).then(response=>{if(response.ok)location.replace(nextPath());}).catch(()=>{});
 form.addEventListener("submit",async(event)=>{event.preventDefault();showError("");submit.disabled=true;submit.textContent="Signing in…";try{const response=await fetch("/console/api/auth/login",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({username:user.value,password:pass.value,next:nextPath()})});let body={};try{body=await response.json();}catch(_){}if(!response.ok){showError(response.status===429?"Too many attempts. Please wait a minute and try again.":response.status===503?"Sign-in is temporarily unavailable. Please contact the owner.":"The username or password is not correct.");submit.disabled=false;submit.textContent="Sign in";pass.select();return;}location.replace(body.redirect||"/console/");}catch(_){showError("Could not reach the sign-in service. Please try again.");submit.disabled=false;submit.textContent="Sign in";}});

@@ -38,13 +38,6 @@ body[data-support-page=console] .top { padding:20px 24px; min-height:86px; backg
 body[data-support-page=console] .top h1 { font-size:26px; line-height:1.25; font-weight:500; letter-spacing:-.025em; }
 body[data-support-page=console] .top .sub { font-size:13px; color:var(--mute); margin-top:5px; }
 body[data-support-page=console] .wrap { padding:24px; overflow:auto; }
-/* ponytail: the Tickets tab IS the inbox — the frame fills the tab, no wrapper panel.
-   The frame sits inside .t-panel-slide (render() wraps every view), so the
-   :has() match must be descendant, and both .wrap and the slide become a
-   flex column — flex on the frame alone does nothing inside a block parent. */
-body[data-support-page=console] .wrap:has(#inbox-frame){padding:0;overflow:hidden;display:flex;flex-direction:column;}
-body[data-support-page=console] .wrap:has(#inbox-frame) .t-panel-slide{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;}
-body[data-support-page=console] #inbox-frame.tickets-frame{flex:1 1 auto;width:100%;min-height:0;border:0;display:block;background:var(--surface);}
 body[data-support-page=console] .logo { margin-bottom:24px; }
 body[data-support-page=console] .logo .tag { background:transparent; color:var(--mute); }
 body[data-support-page=console] .nav a { border-radius:6px; font-size:13px; min-height:38px; text-decoration:none; }
@@ -89,6 +82,7 @@ body[data-support-page=console] .head-icon,body[data-support-page=console] .head
 body[data-support-page=console] .head-icon svg { width:17px; height:17px; }
 body[data-support-page=console] .freshness { font-size:11px; color:var(--mute); }
 body[data-support-page=console] .error-banner { border-radius:8px; }
+body[data-support-page=console] .learning-panel { margin-top:16px; }
 @media(max-width:900px) {
  body[data-support-page=console] .menu-btn { display:grid; }
  body[data-support-page=console] .nav-scrim.open { display:block; }

@@ -19,9 +19,11 @@ function harness() {
     keyOf: ticket => ticket.ticket_id, nameOf: () => "Example customer", ago: () => "recently",
     IC: { check: "CHECK" }, inboxNavView: "closed", inboxNavTicket: null, tab: "overview",
     document: { getElementById: () => null }, render: () => {},
+    URLSearchParams, location: { assign(url) { this.destination = url; } },
   };
   vm.createContext(context);
-  vm.runInContext(slice("function inboxDeepFilter(", "\nfunction render(){") +
+  vm.runInContext(slice("function bbStandaloneInboxSrc(", "function ticketsView(){") +
+    slice("function inboxDeepFilter(", "\nfunction render(){") +
     slice("function overview(){", "\nfunction learnPanel(){"), context);
   return context;
 }
@@ -50,7 +52,7 @@ test("UI-03: historical KPI and risk totals stay separate from recent-ticket cou
 });
 
 test("UI-03: unsupported filter-only calls never silently navigate to All", () => {
-  for (const filter of ["draft", "escalated", "failed", "queue", "risk:critical", "unknown"]) {
+  for (const filter of ["draft", "escalated", "failed", "queue", "risk:critical", "unknown", "mine", "unassigned", "snoozed", "trash", "spam"]) {
     const context = harness();
     context.goTickets(filter);
     assert.equal(context.tab, "overview", `${filter} is not an inbox view`);
@@ -58,12 +60,14 @@ test("UI-03: unsupported filter-only calls never silently navigate to All", () =
   }
 });
 
-test("UI-03: every supported inbox view retains its exact navigation", async () => {
-  const { VIEW_IDS } = await import("../inbox/js/view-model.js");
+test("UI-03: every supported inbox view retains its exact navigation", () => {
+  const VIEW_IDS = ["all", "open", "closed"];
   for (const view of VIEW_IDS) {
     const context = harness();
     context.goTickets(view);
-    assert.equal(context.tab, "tickets");
+    const destination = new URL(context.location.destination, "https://support.example.com");
+    assert.equal(destination.pathname, "/inbox/");
+    assert.equal(destination.searchParams.get("view") || "all", view);
     assert.equal(context.inboxNavView, view);
     assert.equal(context.inboxNavTicket, null);
   }
@@ -73,7 +77,9 @@ test("UI-03: per-ticket notifications remain reachable despite legacy dashboard 
   for (const filter of ["all", "escalated", "failed", "risk:high"]) {
     const context = harness();
     context.goTickets(filter, 42);
-    assert.equal(context.tab, "tickets");
+    const destination = new URL(context.location.destination, "https://support.example.com");
+    assert.equal(destination.pathname, "/inbox/");
+    assert.equal(destination.searchParams.get("ticket"), "gorgias:42");
     assert.equal(context.inboxNavView, "all");
     assert.equal(context.inboxNavTicket, "gorgias:42");
   }

@@ -51,22 +51,45 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 		respond "Not found" 404
 	}
 
-	# Dedicated inbox prefix; strip it only inside this handler. Its own
-	# /console/api/helpdesk must never hit the live dashboard's /console/api.
+	# Inbox read-only API: require a console session before forwarding.
+	handle /inbox/api/* {
+		route {
+			forward_auth 127.0.0.1:8000 {
+				uri /auth/page-check
+			}
+			reverse_proxy 127.0.0.1:8767 {
+				header_up -Cookie
+				header_up -Authorization
+			}
+		}
+	}
+
+	# Canonical standalone inbox.
 	redir /inbox /inbox/ 308
 	handle /inbox/* {
-		# Keep the original prefix for auth's API/page and return-path checks.
-		# Explicit route ordering prevents Caddy sorting strip_prefix first.
 		route {
 			forward_auth 127.0.0.1:8000 {
 				uri /auth/page-check
 			}
 			uri strip_prefix /inbox
-			reverse_proxy 127.0.0.1:8766 {
-				header_up -Cookie
-				header_up -Authorization
+			root * /var/www/inbox2
+			header {
+				Cache-Control "no-store"
+				X-Robots-Tag "noindex, nofollow"
+				Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 			}
+			file_server
 		}
+	}
+
+# Keep old Inbox 2 bookmarks working while retiring its former API/assets.
+	@legacyinbox2page {
+		method GET HEAD
+		path /inbox2 /inbox2/ /inbox2/index.html
+	}
+	redir @legacyinbox2page /inbox/?{query} 308
+	handle /inbox2/* {
+		respond "Inbox has moved." 410
 	}
 
 	@consoleauth path /console/api/auth/*

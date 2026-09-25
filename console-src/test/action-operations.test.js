@@ -4,22 +4,11 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const slice=(from,to)=>{const s=html.indexOf(from),e=html.indexOf(to,s);assert.ok(s>0&&e>s,`stable boundary: ${from} -> ${to}`);return html.slice(s,e);};
-// ponytail: the tickets tab is an embedded inbox iframe; the console keeps
-// the write path (bridge fns + bbPerformWrite) and the hello handshake.
-// These tests pin the iframe, the bridge payloads, and dry-run behavior.
-test('tickets tab renders the embedded inbox iframe, not the legacy feed',()=>{
- assert.match(html,/id="inbox-frame"/);
- assert.match(html,/class="tickets-frame"/);
- assert.match(html,/function ticketsView\(\)/);
- assert.match(html,/function bbInboxSrc\(\)/);
- // ponytail: the Tickets tab IS the inbox — no wrapper panel, no second
- // inbox nav entry. The frame fills the tab via .tickets-frame CSS.
- assert.match(html,/\.tickets-frame/);
- assert.doesNotMatch(html,/wired to the console/);
- assert.doesNotMatch(html,/<a href="\/inbox\/">/);
- assert.doesNotMatch(html,/function legacyTicketsView/);
- assert.doesNotMatch(html,/function row\(t\)/);
- assert.doesNotMatch(html,/Legacy feed/);
+test('tickets use the standalone inbox with no legacy frame or message bridge',()=>{
+ assert.doesNotMatch(html, /<iframe|bbInboxSrc|__bbInboxBridge|bb-console-hello/);
+ assert.match(html, /function bbStandaloneInboxSrc/);
+ assert.match(html, /location.assign\(bbStandaloneInboxSrc/);
+ assert.match(html, /return "\/inbox\/"\+/);
 });
 test('bridge routes rewrite/note/send to the console API with operation payloads',()=>{
  for(const fn of ['function bbFindConsoleTicket(','function bbRewriteTicket(','function bbNoteTicket(','function bbSendTicket(','function bbPerformWrite('])assert.ok(html.includes(fn),`missing ${fn}`);
@@ -28,18 +17,13 @@ test('bridge routes rewrite/note/send to the console API with operation payloads
  assert.match(html,/draft_revision:revision/);
 });
 test('dry-run stays default: unarmed note/send validate without posting',()=>{
- const src='var bbArmed=false;'+slice('function bbPerformWrite(','function bbReplyRewrite(');
+ const src='var bbArmed=false;'+slice('function bbPerformWrite(','function bbStandaloneInboxSrc(');
  const context=vm.createContext({console:{info(){}},crypto:{},fetch(){throw new Error('must not fetch in dry-run');}});
  vm.runInContext(src+';this.perform=bbPerformWrite;',context);
  return Promise.all([
   context.perform('note',{ticket_id:1},'x').then(r=>assert.equal(r.dryRun,true)),
   context.perform('send',{ticket_id:1},{text:'x'}).then(r=>assert.equal(r.dryRun,true)),
  ]);
-});
-test('hello handshake is bound to the inbox frame on load',()=>{
- assert.match(html,/bb-console-hello/);
- assert.match(html,/inbox-frame/);
- assert.match(html,/helloBound/);
 });
 test('uncertain owner alerts remain visible without a retry control',()=>{
  const start=html.indexOf('function ownerAlertWarning('),end=html.indexOf('function overview(){',start);
@@ -48,13 +32,13 @@ test('uncertain owner alerts remain visible without a retry control',()=>{
  assert.equal(context.ownerAlertWarning(0),'');
  assert.match(html,/ownerAlertWarning\(stats.owner_alerts_need_attention\)/);
 });
-test('overview and notification deep links route into the embedded inbox',()=>{
- const source=html.slice(html.indexOf('function inboxDeepFilter('),html.indexOf('\nfunction render(){'));
- const context=vm.createContext({tab:'overview',inboxNavView:'all',inboxNavTicket:null,render(){},document:{getElementById:()=>null}});
+test('overview and notification deep links route into standalone Inbox',()=>{
+ const source=slice('function bbStandaloneInboxSrc(','function ticketsView(){')+html.slice(html.indexOf('function inboxDeepFilter('),html.indexOf('\nfunction render(){'));
+ const context=vm.createContext({tab:'overview',inboxNavView:'all',inboxNavTicket:null,URLSearchParams,location:{assign(url){this.destination=url;}},render(){},document:{getElementById:()=>null}});
  vm.runInContext(source,context);
  context.goTickets('all',42);
  assert.equal(context.inboxNavTicket,'gorgias:42');
- assert.equal(context.tab,'tickets');
+ assert.equal(context.location.destination,'/inbox/?ticket=gorgias%3A42');
  context.goTickets('all','gorgias:42');
  assert.equal(context.inboxNavTicket,'gorgias:42');
  // ponytail: regression for the message-id/value mix-up — keyOf must hand
@@ -66,7 +50,7 @@ test('overview and notification deep links route into the embedded inbox',()=>{
  context.goTickets('failed',null);
  assert.equal(context.tab,'overview','unsupported filter-only navigation stays put');
  context.goTickets('escalated',42);
- assert.equal(context.tab,'tickets','ticket-specific notifications still open the inbox');
+ assert.equal(context.location.destination,'/inbox/?ticket=gorgias%3A42','ticket-specific notifications still open the inbox');
  assert.equal(context.inboxNavView,'all');
  assert.equal(context.inboxNavTicket,'gorgias:42');
  context.goTickets('open',null);

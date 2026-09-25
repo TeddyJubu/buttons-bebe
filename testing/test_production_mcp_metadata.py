@@ -40,7 +40,7 @@ def schema_contract(schema):
 
 
 class ProductionDiscoveryTests(unittest.TestCase):
-    def test_all_ten_production_tools_are_readonly_and_qa_input_schemas_match(self):
+    def test_all_production_tools_are_readonly_and_qa_input_schemas_match(self):
         modules={'buttonsbebe_kb':'kb/scripts/kb_mcp_server.py',
                  'buttonsbebe_redo':'tools/redo_mcp.py','buttonsbebe_gorgias':'tools/gorgias_mcp.py'}
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,3 +71,7 @@ class ProductionDiscoveryTests(unittest.TestCase):
                          {'ticket_id':value['ticket']['id'],'limit':0},
                          {'ticket_id':True}):
                 with self.assertRaises(Exception):asyncio.run(server.call_tool('get_ticket_messages',args))
+            result=asyncio.run(server.call_tool('list_inbox_tickets',{'cursor':'unknown'}))
+            self.assertIn('qa_fixture_not_found',str(result))
+            for args in ({'cursor':'x'*2049}, {'cursor':''}, {'limit':0}, {'limit':True}):
+                with self.assertRaises(Exception):asyncio.run(server.call_tool('list_inbox_tickets',args))

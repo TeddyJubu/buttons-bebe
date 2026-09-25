@@ -1,6 +1,6 @@
 # AGENTS.md — Buttons Bebe AI Support Agent
 
-> Reflects the live system as of **2026-09-17**. This file is the sole root
+> Reflects the live system as of **2026-09-25**. This file is the sole root
 > source of truth (`CLAUDE.md` was merged into it and removed on 2026-09-16 —
 > its KB/locks, learning-loop, and Fable-port background sections now live in
 > §11–§12 below). Any doc describing `/root/gorgias-webhook`, "shadow mode",
@@ -8,6 +8,23 @@
 > describes a **retired** system (box wiped & rebuilt 2026-07-06).
 > `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
 > commit or restore from it.
+
+For support webapp run/edit tasks, use the project skill at
+skills/buttonsbebe-support-webapp/SKILL.md for the current file map and
+synthetic local preview. This AGENTS.md remains authoritative for safety and
+operations.
+
+## Inbox retirement — 25 September 2026
+
+Inbox (`/inbox/`) is the sole ticket destination. The previous Inbox 1 interface,
+server, launcher and service definition are deleted; the old unit is masked on
+the VPS. `/inbox2/` bookmarks redirect to `/inbox/`, preserving ticket and view
+parameters; retired API/assets return 410. Do not restore the embedded inbox or
+its message bridge. Shared projection/Shopify Python modules and dependency
+locks in `console-src/inbox/` remain required by Inbox. The backend retains its
+internal `inbox2` service and data paths: use `helpdesk-inbox2` (:8767) and
+`buttonsbebe-inbox2-shop`; the existing projection timer remains active. Earlier
+Inbox 1 browser-control, preview and WebMCP notes below are historical.
 
 ## 1. What & why
 
@@ -299,7 +316,7 @@ as current work.
 
 ## Learned Workspace Facts
 
-- Inbox preview: local `console-src/inbox/run-review.sh` → `http://127.0.0.1:8766/` (`INBOX_PORT`). Production public face is `https://support.buttonsbebe.com/` (`/inbox/`, `/console/` on the same Hostinger box as `srv1766050.hstgr.cloud`).
+- Inbox preview: run the synthetic, loopback-only helper in skills/buttonsbebe-support-webapp/scripts/serve_inbox_preview.py and open http://127.0.0.1:8878/inbox/. Production is https://support.buttonsbebe.com/inbox/.
 - Final client host is a Hostinger VPS; treat cutover as fresh install + DNS/proxy + webhook URL change, not a lift-and-shift of this box.
 - `helpdesk.pull_mailbox` needs Python package `agentmail` plus `AGENTMAIL_API_KEY`; if the package is missing it can fall back to fixtures and never ingest live mail.
 - Live tickets use the real intake From display name as `customerName` (e.g. the human’s Gmail), not the Ada/Sam scenario labels.

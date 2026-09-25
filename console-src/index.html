@@ -218,13 +218,6 @@ body[data-support-page=console] .top { padding:20px 24px; min-height:86px; backg
 body[data-support-page=console] .top h1 { font-size:26px; line-height:1.25; font-weight:500; letter-spacing:-.025em; }
 body[data-support-page=console] .top .sub { font-size:13px; color:var(--mute); margin-top:5px; }
 body[data-support-page=console] .wrap { padding:24px; overflow:auto; }
-/* ponytail: the Tickets tab IS the inbox — the frame fills the tab, no wrapper panel.
-   The frame sits inside .t-panel-slide (render() wraps every view), so the
-   :has() match must be descendant, and both .wrap and the slide become a
-   flex column — flex on the frame alone does nothing inside a block parent. */
-body[data-support-page=console] .wrap:has(#inbox-frame){padding:0;overflow:hidden;display:flex;flex-direction:column;}
-body[data-support-page=console] .wrap:has(#inbox-frame) .t-panel-slide{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;}
-body[data-support-page=console] #inbox-frame.tickets-frame{flex:1 1 auto;width:100%;min-height:0;border:0;display:block;background:var(--surface);}
 body[data-support-page=console] .logo { margin-bottom:24px; }
 body[data-support-page=console] .logo .tag { background:transparent; color:var(--mute); }
 body[data-support-page=console] .nav a { border-radius:6px; font-size:13px; min-height:38px; text-decoration:none; }
@@ -269,6 +262,7 @@ body[data-support-page=console] .head-icon,body[data-support-page=console] .head
 body[data-support-page=console] .head-icon svg { width:17px; height:17px; }
 body[data-support-page=console] .freshness { font-size:11px; color:var(--mute); }
 body[data-support-page=console] .error-banner { border-radius:8px; }
+body[data-support-page=console] .learning-panel { margin-top:16px; }
 @media(max-width:900px) {
  body[data-support-page=console] .menu-btn { display:grid; }
  body[data-support-page=console] .nav-scrim.open { display:block; }
@@ -412,14 +406,11 @@ body.bb-console .attention-btn:not(button){grid-template-columns:auto minmax(0,1
 const API="/console/api", KBAPI="/console/kbapi";
 let stats={},tickets=[],learn={},tab="overview";
 // ponytail: the inbox iframe IS the tickets tab — no legacy/inbox toggle,
-// no legacy open-ticket state. Deep links land as iframe URL params.
+// Ticket navigation uses the standalone Inbox URL.
 let inboxNavView="all",inboxNavTicket=null;
 var bbArmed=false;
 try{bbArmed=new URLSearchParams(location.search).get("live")==="1";}catch(e){bbArmed=false;}
-// ponytail: the tickets tab IS the inbox iframe. The bridge routes the
-// inbox's rewrite/note/send requests to the console API and always answers
-// with a bb-console-hello handshake on frame load. Draft lookup stays on
-// the dashboard DB the console already loads (ticket_id/message_id match).
+// Console action helpers use the dashboard ticket records.
 function bbFindConsoleTicket(inboxId){
 var ids=String(inboxId||"").split(":").filter(Boolean);
 var ticketId=ids.length?ids[ids.length-1]:"";
@@ -469,79 +460,16 @@ if(kind==="note"&&bbArmed) return bbNoteTicket(ticket,instruction);
 if(kind==="note"){try{console.info("[dry-run] note validated for ticket "+ticket.ticket_id+" - nothing posted.");}catch(e){}return Promise.resolve({ok:true,dryRun:true});}
 return Promise.resolve({ok:false,status:0,body:{error:"dry_run"}});
 }
-function bbReplyRewrite(frame,msgId,ok,draft,error){
-try{frame.contentWindow.postMessage({type:"bb-console-rewrite-result",id:msgId,ok:!!ok,draft:draft||"",error:error||""},location.origin);}catch(e){}
-}
-function bbReplyNote(frame,msgId,ok,dryRun,status,error){
-try{frame.contentWindow.postMessage({type:"bb-console-note-result",id:msgId,kind:"note",ok:!!ok,dryRun:!!dryRun,deliveryStatus:status||"",error:error||""},location.origin);}catch(e){}
-}
-function bbReplySend(frame,msgId,ok,dryRun,status,error){
-try{frame.contentWindow.postMessage({type:"bb-console-send-result",id:msgId,kind:"send",ok:!!ok,dryRun:!!dryRun,deliveryStatus:status||"",error:error||""},location.origin);}catch(e){}
-}
-function bbInboxSrc(){
-var q=["embedded=1"];
-if(inboxNavView&&inboxNavView!=="all")q.push("view="+encodeURIComponent(inboxNavView));
-if(inboxNavTicket)q.push("ticket="+encodeURIComponent(inboxNavTicket));
-return "/inbox/"+(q.length?"?"+q.join("&"):"");
+function bbStandaloneInboxSrc(viewOverride,ticketOverride){
+const q=new URLSearchParams();
+const view=viewOverride===undefined?inboxNavView:viewOverride;
+const ticket=ticketOverride===undefined?inboxNavTicket:ticketOverride;
+if(view&&view!=="all")q.set("view",view);
+if(ticket)q.set("ticket",ticket);
+return "/inbox/"+(q.size?"?"+q.toString():"");
 }
 function ticketsView(){
-// ponytail: the Tickets tab IS the inbox — no wrapper panel, no duplicate
-// nav. The send-access state lives in the inbox's own header already.
-return '<iframe id="inbox-frame" class="tickets-frame" src="'+bbInboxSrc()+'" title="Tickets inbox"></iframe>';
-}
-if(!window.__bbInboxBridge){
-window.__bbInboxBridge=true;
-window.addEventListener("message",function(event){
-if(!event||event.origin!==location.origin) return;
-var data=event.data||{};
-if(!data||(data.type!=="bb-inbox-rewrite"&&data.type!=="bb-inbox-note"&&data.type!=="bb-inbox-send")) return;
-var frame=document.getElementById("inbox-frame");
-if(!frame||event.source!==frame.contentWindow) return;
-if(data.kind==="note"){
-(function(){
-var ticket=bbFindConsoleTicket(data.ticketId);
-if(!ticket){bbReplyNote(frame,data.id,false,false,"","That ticket is not in the console data - refresh to retry.");return;}
-var text=String(data.text||"").trim();
-if(!text){bbReplyNote(frame,data.id,false,false,"","Nothing to post.");return;}
-if(text.length>50000){bbReplyNote(frame,data.id,false,false,"","Note too long.");return;}
-bbPerformWrite("note",ticket,text).then(function(res){
-if(res.dryRun){bbReplyNote(frame,data.id,true,true,"","");return;}
-var ok=res.ok&&res.body&&!!res.body.ok;
-var status=res.body&&res.body.delivery_status||"";
-var err=res.body&&(res.body.error||res.body.message)||"";
-bbReplyNote(frame,data.id,ok,false,status,ok?"":("Note failed"+(err?": "+err:" ("+res.status+")")));
-},function(err){bbReplyNote(frame,data.id,false,false,"",(err&&err.message)||"Note failed.");});
-})();
-return;
-}
-if(data.kind==="send"){
-(function(){
-var ticket=bbFindConsoleTicket(data.ticketId);
-if(!ticket){bbReplySend(frame,data.id,false,false,"","That ticket is not in the console data - refresh to retry.");return;}
-var text=String(data.text||"").trim();
-if(!text){bbReplySend(frame,data.id,false,false,"","Nothing to send.");return;}
-if(text.length>50000){bbReplySend(frame,data.id,false,false,"","Reply too long.");return;}
-bbPerformWrite("send",ticket,{text:text,approveLearning:!!data.approveLearning}).then(function(res){
-if(res.dryRun){bbReplySend(frame,data.id,true,true,"","");return;}
-var body=res.body||{};
-var ok=res.ok&&body.ok===true&&body.delivery_status==="sent";
-var status=body.delivery_status||"";
-var err=body.message||bbSendErrorText(body.error||"");
-bbReplySend(frame,data.id,ok,false,status,ok?"":(err||("Send failed ("+res.status+")")));
-},function(err){bbReplySend(frame,data.id,false,false,"",(err&&err.message)||"Send failed.");});
-})();
-return;
-}
-if(data.kind&&data.kind!=="rewrite"){bbReplyRewrite(frame,data.id,false,"","Unknown write kind.");return;}
-var ticket=bbFindConsoleTicket(data.ticketId);
-if(!ticket){bbReplyRewrite(frame,data.id,false,"","That ticket is not in the console data - refresh to retry.");return;}
-var instruction=String(data.instruction||"").trim();
-if(!instruction){bbReplyRewrite(frame,data.id,false,"","Type an instruction first.");return;}
-bbPerformWrite("rewrite",ticket,instruction).then(function(res){
-if(res.ok&&res.body&&res.body.draft){bbReplyRewrite(frame,data.id,true,res.body.draft,"");}
-else{bbReplyRewrite(frame,data.id,false,"","Rewrite failed"+(res.body&&res.body.error?": "+res.body.error:" ("+res.status+")"));}
-},function(err){bbReplyRewrite(frame,data.id,false,"",(err&&err.message)||"Rewrite failed.");});
-});
+return '<a class="btn p" href="'+bbStandaloneInboxSrc()+'">Open tickets</a>';
 }
 let opsData=null,opsState="loading",opsPoll=null,opsBusy=false;
 let kbData=null,kbHealth=null,kbHealthError="",kbSel=null,kbBuf="",kbMsg="",kbReindexing=false,kbLoaded=false,kbLoadError="";
@@ -587,7 +515,7 @@ function opsHealthSummary(data,state,now=Date.now()){
  const checks=data.checks&&typeof data.checks==="object"&&!Array.isArray(data.checks)?data.checks:{};
  const groups=[
   ["Ticket processing",["buttonsbebe-webhook","buttonsbebe-processor","processor_progress","webhook_readiness","buttonsbebe-heartbeat_timer","buttonsbebe-heartbeat_result"]],
-  ["Inbox history",["helpdesk-inbox","buttonsbebe-inbox-projection_timer","buttonsbebe-inbox-projection_result","inbox_readiness"]],
+  ["Inbox history",["helpdesk-inbox2","buttonsbebe-inbox2-shop","buttonsbebe-inbox-projection_timer","buttonsbebe-inbox-projection_result","inbox_readiness"]],
   ["Backup checks",["buttonsbebe-backup_timer","buttonsbebe-backup_result","backup_freshness"]],
   ["Support connections",["buttonsbebe-kb-mcp","buttonsbebe-redo-mcp","buttonsbebe-gorgias-mcp","buttonsbebe-whatsapp-connect","buttonsbebe-kb-admin","kb_socket","redo_socket","gorgias_socket","whatsapp_socket","kb_admin_socket"]],
   ["Server storage",["disk_space"]]
@@ -644,7 +572,7 @@ async function boot(){
 // navigate without a ticket; legacy notification links still open their ticket.
 function inboxDeepFilter(nextFilter){
 var v=String(nextFilter||"all");
-return ["all","open","mine","unassigned","snoozed","closed","trash","spam"].includes(v)?v:null;
+return ["all","open","closed"].includes(v)?v:null;
 }
 // ponytail: projection ids are gorgias:{ticket_id}; a bare dashboard id
 // would never match, so prefix it. Already-qualified ids pass through.
@@ -657,9 +585,8 @@ return s.indexOf(":")>=0?s:"gorgias:"+s;
 function goTickets(nextFilter,ticketKey){
 const nextView=inboxDeepFilter(nextFilter),nextTicket=inboxTicketId(ticketKey);
 if(!nextView&&!nextTicket)return;
-inboxNavView=nextView||"all";inboxNavTicket=nextTicket;tab="tickets";render();
-var frame=document.getElementById("inbox-frame");
-if(frame){try{frame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}}
+inboxNavView=nextView||"all";inboxNavTicket=nextTicket;
+location.assign(bbStandaloneInboxSrc(inboxNavView,inboxNavTicket));
 }
 
 function render(){
@@ -689,7 +616,7 @@ function render(){
     <div class="wrap" tabindex="0" aria-label="Dashboard content"><div class="t-panel-slide" data-open="false">${(loadFailed||sessionExpired)?errorBanner():""}${view()}</div></div>
   </div>`;
  const status=document.getElementById("app-status");if(status){status.textContent="";requestAnimationFrame(()=>{status.textContent=liveMessage();});}
- const openTab=k=>{tab=k;inboxNavTicket=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
+ const openTab=k=>{if(k==="tickets"){location.assign(bbStandaloneInboxSrc());return;}tab=k;inboxNavTicket=null;focusHeadingAfterRender=true;if(tab==="kb"&&!kbData){loadKb();}else if(tab==="notif"||tab==="conns"){render();loadNotifications();}else if(tab==="notices"){loadNotices();}else{render();}};
  document.querySelectorAll(".nav a[data-tab]").forEach(a=>{a.onclick=()=>openTab(a.dataset.tab);a.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openTab(a.dataset.tab);}};});
  const rf=document.getElementById("refresh");if(rf)rf.onclick=async()=>{rf.classList.add("refreshing");rf.disabled=true;statusMsg="Refreshing dashboard data";if(tab==="kb"){kbData=null;await loadKb();}else if(tab==="notif"){await loadNotifications();}else if(tab==="notices"){await loadNotices();}else{await boot();}};
  const hn=document.getElementById("header-notif");if(hn)hn.onclick=()=>openTab("notif");
@@ -1052,10 +979,6 @@ function bind(){
  const retryNotifications=document.getElementById("retry-notifications");if(retryNotifications)retryNotifications.onclick=()=>loadNotifications();
  const markAllNotifications=document.getElementById("mark-all-notifications");if(markAllNotifications)markAllNotifications.onclick=async()=>{await markNotificationsRead([],true);render();};
  document.querySelectorAll("[data-notification-index]").forEach(button=>button.onclick=()=>openDashboardNotification(Number(button.dataset.notificationIndex)));
-// ponytail: hello handshake on every frame load — this is what arms the
-// inbox's rewrite/note/send bridge after render() swaps the iframe src.
-var inboxFrame=document.getElementById("inbox-frame");
-if(inboxFrame&&!inboxFrame.dataset.helloBound){inboxFrame.dataset.helloBound="1";inboxFrame.onload=function(){try{inboxFrame.contentWindow.postMessage({type:"bb-console-hello",v:1},location.origin);}catch(e){}};}
 document.querySelectorAll(".kbitem[data-open]").forEach(b=>b.onclick=e=>{e.stopPropagation();openKbFile(b.dataset.open);});
  document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));
  const ks=document.getElementById("kb-save");if(ks)ks.onclick=saveKb;

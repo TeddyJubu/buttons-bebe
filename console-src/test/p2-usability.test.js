@@ -77,7 +77,8 @@ test('UI-08: owner-attempt inspection paginates and opens tickets without acknow
   assert.equal(await page.locator('[data-owner-attempt] [data-go-ticket]').count(), 0);
   await page.getByRole('button', { name: 'Previous attempts', exact: true }).click();
   await page.locator('[data-owner-attempt] [data-go-ticket]').first().click();
-  assert.match(await page.locator('#inbox-frame').getAttribute('src'), /ticket=gorgias%3A42/);
+  await page.waitForURL('**/inbox/**');
+  assert.equal(new URL(page.url()).searchParams.get('ticket'), 'gorgias:42');
   assert.deepEqual(writes, []);
 });
 
@@ -154,3 +155,13 @@ for (const width of [1340, 390]) {
     assert.deepEqual(writes, [], 'opening a document must not save or re-index it');
   });
 }
+
+test('Tickets navigation opens standalone Inbox without an embedded legacy page', async t => {
+  const fixture = await openConsole(t); if (!fixture) return;
+  const { page, writes } = fixture;
+  await selectTab(page, 'tickets');
+  await page.waitForURL('**/inbox/');
+  assert.equal(new URL(page.url()).pathname, '/inbox/');
+  assert.equal(await page.locator('iframe').count(), 0);
+  assert.deepEqual(writes, []);
+});

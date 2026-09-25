@@ -102,6 +102,15 @@ CREATE INDEX IF NOT EXISTS idx_parsed_customer ON parsed_messages(is_customer_me
 CREATE INDEX IF NOT EXISTS idx_results_ticket ON ticket_results(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_results_message ON ticket_results(message_id);
 
+-- Last Gorgias ticket version inspected by the read-only draft reconciler.
+-- A newer ticket update is checked again; this does not replace webhook intake.
+CREATE TABLE IF NOT EXISTS gorgias_reconcile_seen (
+    ticket_id   INTEGER PRIMARY KEY,
+    updated_at  TEXT NOT NULL,
+    checked_at  TEXT NOT NULL,
+    outcome     TEXT NOT NULL
+);
+
 -- One durable owner-alert attempt per processing job. A claimed attempt with
 -- no recorded success is uncertain and must never be automatically resent.
 CREATE TABLE IF NOT EXISTS owner_alert_attempts (

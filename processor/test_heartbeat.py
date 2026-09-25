@@ -207,6 +207,8 @@ class HeartbeatTestCase(unittest.TestCase):
     def test_an_unwritable_state_file_does_not_cause_repeat_alerts(self):
         """mkdir -p on an existing directory returns 0 even on a read-only
         filesystem, so probing mkdir let a full disk alert every 5 minutes."""
+        if os.geteuid() == 0:
+            self.skipTest("root can write through directory mode bits")
         readonly = self.tmp / "readonly"
         readonly.mkdir()
         target = readonly / "buttonsbebe-heartbeat.state"

@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 css=(ROOT/'console-src/support-theme.css').read_text()
 block='<style id="support-theme">\n'+css+'</style>'
 font='<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">'
-for path in ['console-src/index.html','console-src/login.html','console-src/inbox/index.html']:
+for path in ['console-src/index.html','console-src/login.html']:
  p=ROOT/path; s=p.read_text()
  s=re.sub(r'<style id="support-theme">.*?</style>\n?', '', s, flags=re.S)
  # Branded pages embed their own Jost fonts and must keep the brand layer last.

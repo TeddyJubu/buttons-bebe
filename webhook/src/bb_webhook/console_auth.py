@@ -162,7 +162,7 @@ def safe_next_path(value: str | None) -> str:
         return "/console/"
     if parsed.scheme or parsed.netloc or any(part in (".", "..") for part in parsed.path.split("/")):
         return "/console/"
-    if parsed.path not in ("/console", "/inbox") and not parsed.path.startswith(("/console/", "/inbox/")):
+    if parsed.path not in ("/console", "/inbox", "/inbox2") and not parsed.path.startswith(("/console/", "/inbox/", "/inbox2/")):
         return "/console/"
     # Encoded path separators and double encoding can be interpreted differently
     # by a browser/proxy. Return only the decoded, unambiguous relative URL.

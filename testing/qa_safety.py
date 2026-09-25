@@ -9,7 +9,7 @@ GROUPS = ("buttonsbebe_kb", "buttonsbebe_redo", "buttonsbebe_gorgias")
 TOOLS = {
     "buttonsbebe_kb": {"search_kb"},
     "buttonsbebe_redo": {"list_recent_returns", "get_returns_for_order", "get_return", "get_order"},
-    "buttonsbebe_gorgias": {"list_recent_tickets", "get_ticket", "get_ticket_messages", "get_customer", "search_customer"},
+    "buttonsbebe_gorgias": {"list_recent_tickets", "list_inbox_tickets", "get_ticket", "get_ticket_messages", "get_customer", "search_customer"},
 }
 UTILITY_NAMES = {"list_resources", "read_resource", "list_prompts", "get_prompt"}
 ALLOWED_CATEGORIES = {"policies", "faq", "intents", "products"}

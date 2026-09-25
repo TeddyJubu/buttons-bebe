@@ -41,7 +41,7 @@ def allowed(path, kind):
     if kind != 'symlink' and any(path == root or path.startswith(root+'/') for root in TREES): return True
     # Caddy imports must be listed individually; no shared-site directory crawl.
     if kind in {'file','symlink'} and path.startswith('/etc/caddy/'): return True
-    unit = r'/etc/systemd/system/(?:buttonsbebe-[A-Za-z0-9_-]+|helpdesk-inbox|hermes(?:-[A-Za-z0-9_-]+)?)(?:\.(?:service|timer))'
+    unit = r'/etc/systemd/system/(?:buttonsbebe-[A-Za-z0-9_-]+|helpdesk-inbox2|hermes(?:-[A-Za-z0-9_-]+)?)(?:\.(?:service|timer))'
     if kind == 'file' and re.fullmatch(unit, path): return True
     if kind == 'file' and re.fullmatch(unit+r'\.d/[A-Za-z0-9_.-]+\.conf', path): return True
     return False

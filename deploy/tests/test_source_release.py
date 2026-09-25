@@ -58,6 +58,18 @@ class SourceRecoveryTests(unittest.TestCase):
         self.assertEqual((self.live / 'webhook/app.py').read_text(), 'old code')
         self.assertFalse((self.live / 'console-src/inbox/app.py').exists())
 
+    def test_inbox2_web_assets_and_backend_have_separate_roots(self):
+        manifest = release.inventory(self.staged)
+        for name in release.INBOX2_ASSETS:
+            key = 'inbox2web/' + name
+            self.assertIn(key, manifest)
+            self.assertEqual(release.target_path(key, self.live, self.web, self.root/'runtime'), self.web.parent/'inbox2'/name)
+        for name in ('live_api.py', 'customer_details.py', 'shop_worker.py'):
+            self.assertIn('inbox2/' + name, manifest)
+            self.assertNotIn('inbox2web/' + name, manifest)
+        self.assertFalse(any('helpdesk-inbox' in item['services'] for item in manifest.values()))
+        self.assertEqual(manifest['inbox/console-src/inbox/projection.py']['services'], ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop'])
+
     def test_missing_runtime_hashlock_fails_before_source_mutation(self):
         for component in ('tools', 'kb'):
             path = self.staged / component / 'requirements.lock'

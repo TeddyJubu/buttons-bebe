@@ -486,6 +486,15 @@ async def run_processor() -> int:
     stats = await get_job_stats(settings.db_path_absolute)
     log_event(logger, "INFO", "Queue stats at startup", **stats)
 
+    # Gorgias webhooks remain the primary intake. This independent read-only
+    # sweep recovers customer messages when the provider stops delivering them.
+    # Demo mode must never inspect the production Gorgias MCP endpoint.
+    tenant = getattr(settings, "gorgias_subdomain", None)
+    reconcile_task = None
+    if tenant and not getattr(settings, "demo_mode", False):
+        from gorgias_reconcile import reconcile_loop
+        reconcile_task = asyncio.create_task(reconcile_loop(settings.db_path_absolute, tenant))
+
     # 5. Main loop
     consecutive_errors = 0
     max_consecutive_errors = 10
@@ -561,6 +570,12 @@ async def run_processor() -> int:
             await asyncio.sleep(backoff)
 
     # 6. Cleanup
+    if reconcile_task is not None:
+        reconcile_task.cancel()
+        try:
+            await reconcile_task
+        except asyncio.CancelledError:
+            pass
     log_event(logger, "INFO", "Job processor shutting down")
     _release_lock()
     return 0
