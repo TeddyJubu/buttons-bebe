@@ -103,22 +103,84 @@ body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 .sec-title{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);font-weight:600;margin:26px 0 12px}
 .hint{font-size:12px;color:var(--ink3)}
 .empty{padding:26px;color:var(--ink3);font-size:14px;text-align:center}
-.rixbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-.kbwrap{display:grid;grid-template-columns:250px 1fr;gap:16px}
-@media(max-width:820px){.kbwrap{grid-template-columns:1fr}}
-.kblist{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:8px;max-height:72vh;overflow:auto}
-.kbgroup{margin-bottom:4px}
-.kbgroup .gh{font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--ink3);font-weight:600;padding:9px 8px 4px;display:flex;justify-content:space-between;align-items:center}
-.kbgroup .gh button{font-size:11px;color:var(--acc);background:none;border:none;cursor:pointer;font-weight:600;padding:0}
-.kbitem{display:block;width:100%;text-align:left;padding:7px 9px;border-radius:7px;font-size:13px;color:var(--ink2);cursor:pointer;border:none;background:none;white-space:normal;overflow-wrap:anywhere}
-.kbitem small{display:block;margin-top:3px;font-size:11px;color:var(--ink3);font-weight:400}
-.kbed{min-width:0}.kbed .eh{flex-wrap:wrap}.kbed .eh label{min-width:0;overflow-wrap:anywhere}
-.kbitem:hover{background:#f4f5f9}.kbitem.on{background:var(--acc-soft);color:var(--acc);font-weight:500}
-.kbed{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;display:flex;flex-direction:column;min-height:60vh}
-.kbed .eh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-.kbed .eh b{font-size:13px;color:var(--ink2);font-family:ui-monospace,Menlo,monospace}
-.kbed .ef{display:flex;align-items:center;gap:12px}
-.kbed textarea{width:100%;flex:1;min-height:50vh;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55;border:1px solid var(--line);border-radius:9px;padding:12px;color:var(--ink);resize:vertical;background:#fcfcfe}
+/* Knowledge library: browsing, reading and editing share one workspace. */
+.kb-workspace{display:flex;flex-direction:column;gap:18px}
+.kb-workspace button:disabled{opacity:.5;cursor:default}
+.kb-toolbar{display:flex;justify-content:space-between;gap:20px;align-items:center}
+.kb-toolbar h2{font-size:20px;line-height:1.3;font-weight:500;letter-spacing:-.02em}
+.kb-toolbar p{font-size:13px;color:var(--ink2);margin-top:4px}
+.kb-actions{display:flex;gap:8px;flex-wrap:wrap}
+.kb-workspace .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 14px}
+.kb-workspace svg{width:18px;height:18px;flex-shrink:0}
+.kb-categories{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:16px}
+.kb-category{display:flex;align-items:center;gap:9px;padding:8px 13px;background:transparent;color:var(--ink2);border:1px solid transparent;border-radius:8px;font-size:13px;cursor:pointer}
+.kb-category span{font-size:11px;min-width:20px;padding:1px 5px;text-align:center;border-radius:4px;background:var(--card)}
+.kb-category:hover{background:var(--card)}
+.kb-category[aria-pressed=true]{background:var(--card);border-color:var(--line);color:var(--acc);font-weight:600}
+.kb-category[aria-pressed=true] span{background:var(--acc-soft)}
+.kb-layout{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:20px;align-items:start}
+.kb-library{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kb-search-wrap{padding:16px 14px 12px}
+.kb-search{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:8px;padding:0 11px;color:var(--ink3);background:var(--bg)}
+.kb-search:focus-within{outline:2px solid var(--acc);outline-offset:2px}
+.kb-search input{width:100%;min-width:0;border:0;outline:0!important;background:none;padding:11px 0;font-size:14px;color:var(--ink)}
+.kb-list-label{display:flex;justify-content:space-between;gap:8px;padding:0 16px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink3)}
+.kb-files{padding:0 8px 8px;max-height:calc(100dvh - 370px);min-height:170px;overflow:auto;scrollbar-width:thin}
+.kbitem{display:flex;align-items:flex-start;gap:10px;width:100%;border:1px solid transparent;border-radius:8px;padding:14px 12px;margin:2px 0;background:transparent;color:var(--ink2);text-align:left;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
+.kbitem>svg{margin-top:3px;color:var(--ink3);width:17px;height:17px}
+.kbitem-copy{min-width:0;flex:1}
+.kbitem-title{display:block;font-size:14px;font-weight:500;line-height:1.45;color:var(--ink)}
+.kbitem small{display:block;font-size:11px;line-height:1.5;margin-top:4px;color:var(--ink3);overflow-wrap:anywhere}
+.kbitem:hover{background:var(--bg)}
+.kbitem.on{background:var(--acc-soft);border-color:#e3cdd3}
+.kbitem.on .kbitem-title,.kbitem.on>svg{color:var(--acc)}
+.kb-draft-dot{width:6px;height:6px;background:var(--amber);border-radius:50%;margin:8px 0 0 4px;flex-shrink:0}
+.kb-library-note{display:flex;gap:8px;padding:13px 16px;border-top:1px solid var(--line);font-size:12px;line-height:1.5;color:var(--ink3);background:var(--bg)}
+.kb-article{min-width:0;min-height:560px;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kb-article-head{padding:26px 30px 20px;border-bottom:1px solid var(--line)}
+.kb-breadcrumb{display:flex;align-items:center;gap:8px;color:var(--ink3);font-size:12px;margin-bottom:14px}
+.kb-breadcrumb svg{width:15px;height:15px}
+.kb-article-head h2{font-size:28px;line-height:1.25;letter-spacing:-.025em;font-weight:500;overflow-wrap:anywhere;color:var(--brand-forest)}
+.kb-article-head h2:focus{outline:none}
+.kb-path{font-size:12px;color:var(--ink3);margin-top:9px;overflow-wrap:anywhere}
+.kb-editor-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 30px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.kb-modes{display:flex;gap:3px;padding:3px;background:var(--bg);border-radius:7px}
+.kb-modes button{border:0;background:transparent;color:var(--ink2);padding:6px 12px;border-radius:5px;font-size:12px;cursor:pointer}
+.kb-modes button[aria-pressed=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px #22222212;font-weight:600}
+.kb-save-state{font-size:12px;color:var(--ink3)}
+.kb-save-state.dirty{color:var(--amber)}
+.kb-document{padding:28px 30px 36px;min-height:340px;font-size:15px;line-height:1.8;overflow-wrap:anywhere;color:var(--ink2)}
+.kb-document h2,.kb-document h3,.kb-document h4{color:var(--ink);font-weight:500;line-height:1.4;margin:24px 0 10px}
+.kb-document h2{font-size:23px}.kb-document h3{font-size:19px}.kb-document h4{font-size:16px}
+.kb-document>:first-child{margin-top:0}
+.kb-document p,.kb-document ul,.kb-document ol,.kb-document blockquote{margin:0 0 16px}
+.kb-document ul,.kb-document ol{padding-left:23px}
+.kb-document li{padding-left:3px;margin:4px 0}
+.kb-document strong{font-weight:600;color:var(--ink)}
+.kb-document blockquote{border-left:3px solid var(--brand-sand);background:var(--bg);padding:10px 15px}
+.kb-document code{font-family:var(--mono);font-size:12px;background:var(--bg);padding:2px 4px;border-radius:3px}
+.kb-document pre{white-space:pre-wrap;background:var(--bg);padding:14px;border-radius:6px;margin-bottom:16px}
+.kb-document hr{border:0;border-top:1px solid var(--line);margin:24px 0}
+.kb-table-wrap{max-width:100%;overflow:auto;margin:16px 0}.kb-document table{border-collapse:collapse;width:100%;font-size:13px}.kb-document th,.kb-document td{padding:9px 12px;border:1px solid var(--line);text-align:left}.kb-document th{background:var(--bg);font-weight:500}
+.kb-edit{padding:20px 24px}.kb-edit label{display:block;font-size:12px;color:var(--ink2);margin-bottom:9px}
+.kb-edit textarea{display:block;width:100%;min-height:370px;padding:16px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--card);font:13px/1.8 var(--mono);color:var(--ink);tab-size:2}
+.kb-article-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 30px;border-top:1px solid var(--line);font-size:12px;line-height:1.5;color:var(--ink3);background:#fdfbf8}
+.kb-article-foot span:last-child{white-space:nowrap}
+.kb-state{padding:48px 28px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;color:var(--ink2);font-size:14px;line-height:1.6}
+.kb-state>svg{width:34px;height:34px;color:var(--brand-rose)}
+.kb-state h3{font-size:19px;font-weight:500;color:var(--ink)}
+.kb-state p{max-width:340px}
+.kb-feedback{display:flex;align-items:center;gap:12px;justify-content:space-between;background:var(--acc-soft);border:1px solid #e3cdd3;border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.5;color:var(--acc)}
+.kb-feedback.error{background:var(--red-s);color:var(--red);border-color:#e8b9be}
+.kb-feedback .btn{flex-shrink:0}
+.kb-new-form{padding:26px 30px;display:flex;flex-direction:column;gap:20px}
+.kb-new-form label{display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--ink2)}
+.kb-new-form label[for=kb-new-category]{margin-bottom:7px}
+.kb-new-form input,.kb-new-form select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:10px 12px;font-size:15px;color:var(--ink)}
+.kb-new-form .kb-actions{justify-content:flex-end}
+@media(min-width:901px){.kb-library{position:sticky;top:0}}
+@media(max-width:1100px){.kb-layout{grid-template-columns:minmax(240px,280px) minmax(0,1fr);gap:14px}.kb-article-head,.kb-document{padding:22px}.kb-editor-toolbar,.kb-article-foot{padding:12px 22px}}
+@media(max-width:760px){.kb-toolbar{align-items:flex-start;flex-direction:column;gap:14px}.kb-layout{grid-template-columns:1fr}.kb-files{max-height:250px;min-height:80px}.kb-categories{gap:3px;padding-bottom:12px}.kb-category{padding:7px 9px;font-size:12px;gap:6px}.kb-library-note{display:none}.kb-article{min-height:360px}.kb-article-head h2{font-size:25px}.kb-article-head,.kb-document,.kb-new-form{padding:22px 18px}.kb-editor-toolbar,.kb-article-foot{padding:12px 18px}.kb-edit{padding:18px}.kb-article-foot{flex-wrap:wrap}.kb-feedback{align-items:flex-start;flex-direction:column}.kb-document{min-height:200px}}
 .toast{font-size:12.5px;color:#0a7a48}
 .ph2{color:var(--ink3);font-size:14px;padding:34px;text-align:center}
 .dot.off{background:var(--amber)}
@@ -473,6 +535,10 @@ return '<a class="btn p" href="'+bbStandaloneInboxSrc()+'">Open tickets</a>';
 }
 let opsData=null,opsState="loading",opsPoll=null,opsBusy=false;
 let kbData=null,kbHealth=null,kbHealthError="",kbSel=null,kbBuf="",kbMsg="",kbReindexing=false,kbLoaded=false,kbLoadError="";
+let kbQuery="",kbCategory="all",kbMode="preview",kbOriginal="",kbSaving=false,kbListError="",kbRequest=0,kbIndexTimer=null,kbNeedsIndex=false,kbIndexVersion=0,kbIndexError=false;
+let kbCreating=false,kbNewTitle="",kbNewCategory="policies",kbNewError="",kbCreatingBusy=false;
+const kbDrafts=new Map();
+const KB_CATEGORIES={policies:{label:"Policies",detail:"Store rules and guidance"},faq:{label:"FAQs",detail:"Answers to common questions"},intents:{label:"Intents",detail:"How to handle each request"},tickets:{label:"Ticket examples",detail:"Examples from past support"}};
 let waData=null,waMsg="",waMode=null,waNumber=null,waPoll=null;
 const WAAPI="/console/waapi";
 
@@ -590,8 +656,10 @@ location.assign(bbStandaloneInboxSrc(inboxNavView,inboxNavTicket));
 }
 
 function render(){
+ const kbActive=tab==="kb"&&document.activeElement&&document.activeElement.id==="kb-text"?{start:document.activeElement.selectionStart,end:document.activeElement.selectionEnd,scroll:document.activeElement.scrollTop}:null;
+ const kbListScroll=document.getElementById("kb-files")?.scrollTop||0;
  const pages={overview:"Overview",tickets:"Tickets",conns:"Connections",kb:"Knowledge base",notices:"Notice Board",notif:"Notifications",settings:"Settings"};
- const subs={overview:"How your AI support agent is performing",tickets:"The inbox: every ticket, its draft, and what needs you",conns:"Your connected tools and their health",kb:"Edit what your agent knows — policies, FAQs, intents, tickets",notices:"Temporary store facts that take effect after review without bypassing safety rules",notif:"Link WhatsApp and choose where alerts go",settings:"Configure your agent"};
+ const subs={overview:"How your AI support agent is performing",tickets:"The inbox: every ticket, its draft, and what needs you",conns:"Your connected tools and their health",kb:"The shared playbook behind every thoughtful reply",notices:"Temporary store facts that take effect after review without bypassing safety rules",notif:"Link WhatsApp and choose where alerts go",settings:"Configure your agent"};
  const unreadCount=notificationData&&Number.isInteger(notificationData.unread_count)?notificationData.unread_count:null;
  const notificationLabel=unreadCount===null?"Open notifications — live status unavailable":`Open notifications — ${unreadCount} unread`;
  document.getElementById("app").innerHTML=`
@@ -627,6 +695,7 @@ function render(){
  if(mb)mb.onclick=()=>setMenu(!side.classList.contains("open"));if(scrim)scrim.onclick=()=>setMenu(false);
  document.onkeydown=e=>{if(e.key==="Escape"&&side&&side.classList.contains("open"))setMenu(false);};
  bind();
+ if(tab==="kb"){const list=document.getElementById("kb-files");if(list)list.scrollTop=kbListScroll;const editor=document.getElementById("kb-text");if(kbActive&&editor){editor.focus({preventScroll:true});editor.setSelectionRange(kbActive.start,kbActive.end);editor.scrollTop=kbActive.scroll;}}
  bindCompactHeader();
  const panel=document.querySelector(".t-panel-slide");if(panel)requestAnimationFrame(()=>panel.dataset.open="true");
  if(focusHeadingAfterRender){focusHeadingAfterRender=false;requestAnimationFrame(()=>{const h=document.querySelector(".top h1");if(h)h.focus();});}
@@ -720,18 +789,68 @@ function conns(){
  <div class="panel"><div class="act"><div class="r"><div class="ic ${healthy?'g':'a'}" aria-hidden="true">${healthy?IC.check:'!'}</div><div>${esc(healthTitle)}<br><small style="color:var(--ink3)">${esc(healthDetail)}</small></div><div class="tm">file check</div></div></div></div>`;
 }
 
+function kbIcon(name){
+ const paths={search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',file:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',plus:'<path d="M12 5v14M5 12h14"/>',book:'<path d="M12 5c-3-2-7-2-10-1v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Zm0 0v15"/>',arrow:'<path d="m9 5 7 7-7 7"/>',refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/>'};
+ return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.file}</svg>`;
+}
+function kbFiles(){return (kbData?.folders||[]).flatMap(g=>(g.files||[]).map(f=>({...f,folder:g.folder})));}
+function kbTitle(f){return (f?.title||f?.path?.split("/").pop()||"Untitled article").replace(/^['"]|['"]$/g,"");}
+function kbDirty(){return kbLoaded&&kbBuf!==kbOriginal;}
+function kbTrackDraft(){if(!kbSel||!kbLoaded)return;if(kbDirty())kbDrafts.set(kbSel,kbBuf);else kbDrafts.delete(kbSel);}
+function kbInline(text){
+ // Escape source text before adding a small, safe set of formatting elements.
+ return String(text).split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^\s)]+\))/g).map(part=>{
+  if(part.startsWith('`')&&part.endsWith('`'))return '<code>'+esc(part.slice(1,-1))+'</code>';
+  if(part.startsWith('**')&&part.endsWith('**'))return '<strong>'+esc(part.slice(2,-2))+'</strong>';
+  const link=part.match(/^\[([^\]]+)\]\(([^\s)]+)\)$/);
+  if(link&&/^(https?:\/\/|mailto:)/i.test(link[2]))return `<a href="${esc(link[2])}" target="_blank" rel="noopener noreferrer">${esc(link[1])}</a>`;
+  return esc(part);
+ }).join("");
+}
+function kbPreview(content){
+ const body=String(content).replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/,"").trim();
+ if(!body)return '<div class="kb-state"><h3>This article is ready for a first draft</h3><p>Choose Edit to add the guidance your agent should use.</p></div>';
+ const lines=body.split(/\r?\n/),out=[];let paragraph=[],list="",code=null;
+ const flush=()=>{if(paragraph.length){out.push('<p>'+paragraph.join('<br>')+'</p>');paragraph=[];}if(list){out.push('</'+list+'>');list="";}};
+ for(let i=0;i<lines.length;i++){
+  const line=lines[i];
+  if(/^```/.test(line)){flush();if(code===null)code=[];else{out.push('<pre><code>'+esc(code.join('\n'))+'</code></pre>');code=null;}continue;}
+  if(code!==null){code.push(line);continue;}
+  if(!line.trim()){flush();continue;}
+  if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3,}/.test(lines[i+1])){
+   flush();const cells=row=>row.trim().replace(/^\||\|$/g,'').split('|').map(c=>kbInline(c.trim()));
+   out.push('<div class="kb-table-wrap"><table><thead><tr>'+cells(line).map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>');i++;
+   while(i+1<lines.length&&lines[i+1].includes('|'))out.push('<tr>'+cells(lines[++i]).map(c=>'<td>'+c+'</td>').join('')+'</tr>');
+   out.push('</tbody></table></div>');continue;
+  }
+  const heading=line.match(/^(#{1,6})\s+(.+)$/),item=line.match(/^\s*(?:([-*+])|\d+[.)])\s+(.+)$/);
+  if(heading){flush();const level=Math.min(heading[1].length+1,4);out.push(`<h${level}>${kbInline(heading[2])}</h${level}>`);}
+  else if(item){const type=item[1]?'ul':'ol';if(list!==type){flush();out.push('<'+type+'>');list=type;}out.push('<li>'+kbInline(item[2])+'</li>');}
+  else if(/^>\s?/.test(line)){flush();out.push('<blockquote>'+kbInline(line.replace(/^>\s?/,''))+'</blockquote>');}
+  else if(/^[-*_]{3,}\s*$/.test(line)){flush();out.push('<hr>');}
+  else{if(list)flush();paragraph.push(kbInline(line));}
+ }
+ flush();if(code!==null)out.push('<pre><code>'+esc(code.join('\n'))+'</code></pre>');return out.join('');
+}
+function kbListView(){
+ const query=kbQuery.trim().toLowerCase();
+ const files=kbFiles().filter(f=>(kbCategory==='all'||f.folder===kbCategory)&&(!query||(kbTitle(f)+' '+f.path).toLowerCase().includes(query)));
+ return `<div class="kb-list-label"><span>${kbCategory==='all'?'All articles':esc(KB_CATEGORIES[kbCategory]?.label||kbCategory)}</span><span role="status">${files.length} article${files.length===1?'':'s'}</span></div><div class="kb-files" id="kb-files">${files.map(f=>`<button class="kbitem ${kbSel===f.path&&!kbCreating?'on':''}" data-open="${esc(f.path)}" aria-current="${kbSel===f.path&&!kbCreating?'true':'false'}" ${kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('file')}<span class="kbitem-copy"><span class="kbitem-title">${esc(kbTitle(f))}</span><small>${esc(f.path)}</small></span>${kbDrafts.has(f.path)?'<span class="kb-draft-dot" role="img" aria-label="Unsaved changes"></span>':''}</button>`).join('')||`<div class="kb-state"><h3>${query?'No matching articles':'No articles yet'}</h3><p>${query?'Try another title or file name.':'Add an article to start this collection.'}</p>${query?'<button class="btn" id="kb-clear-search">Clear search</button>':''}</div>`}</div>`;
+}
+function kbArticle(){
+ if(kbCreating)return `<section class="kb-article" aria-labelledby="kb-article-title"><div class="kb-article-head"><div class="kb-breadcrumb">${kbIcon('plus')} Add to your playbook</div><h2 id="kb-article-title">New article</h2><p class="kb-path">Give your guidance a clear title and a home.</p></div><form class="kb-new-form" id="kb-new-form"><label for="kb-new-title">Article title<input id="kb-new-title" maxlength="120" required value="${esc(kbNewTitle)}" placeholder="e.g. Caring for knitwear" ${kbCreatingBusy?'disabled':''}></label><div><label for="kb-new-category">Collection</label><select id="kb-new-category" ${kbCreatingBusy?'disabled':''}>${Object.entries(KB_CATEGORIES).map(([key,c])=>`<option value="${key}" ${kbNewCategory===key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><p class="hint">Create the article, add your guidance, then save and re-index to make it searchable by the agent.</p>${kbNewError?`<p class="kb-feedback error" role="alert">${esc(kbNewError)}</p>`:''}<div class="kb-actions"><button class="btn" id="kb-new-cancel" type="button" ${kbCreatingBusy?'disabled':''}>Cancel</button><button class="btn p" type="submit" ${kbCreatingBusy?'disabled':''}>${kbCreatingBusy?'Creating…':'Create article'}</button></div></form></section>`;
+ if(!kbSel)return `<section class="kb-article"><div class="kb-state">${kbIcon('book')}<h3>Your support playbook</h3><p>Select an article to read the guidance behind your agent’s replies, or add something new.</p><button class="btn" data-kb-new>${kbIcon('plus')} New article</button></div></section>`;
+ const file=kbFiles().find(f=>f.path===kbSel),category=KB_CATEGORIES[kbSel.split('/')[0]],words=kbBuf.trim()?kbBuf.trim().split(/\s+/).length:0;
+ const head=`<div class="kb-article-head"><div class="kb-breadcrumb">${kbIcon('book')} ${esc(category?.label||'Articles')} ${kbIcon('arrow')} Article</div><h2 id="kb-article-title" tabindex="-1">${esc(kbTitle(file||{path:kbSel}))}</h2><p class="kb-path">${esc(kbSel)}</p></div>`;
+ if(kbLoadError)return `<section class="kb-article">${head}<div class="kb-state" role="alert"><h3>Could not load this article</h3><p>${esc(kbLoadError)} Nothing was changed, and saving is disabled.</p><button class="btn" id="kb-retry-file">Retry</button></div></section>`;
+ if(!kbLoaded)return `<section class="kb-article" aria-busy="true">${head}<div class="kb-state" role="status">Loading article…</div></section>`;
+ return `<section class="kb-article" aria-labelledby="kb-article-title">${head}<div class="kb-editor-toolbar"><div class="kb-modes" role="group" aria-label="Article view"><button data-kb-mode="preview" aria-pressed="${kbMode==='preview'}">Preview</button><button data-kb-mode="edit" aria-pressed="${kbMode==='edit'}">Edit</button></div><div class="kb-actions"><span class="kb-save-state ${kbDirty()?'dirty':''}" id="kb-save-state">${kbDirty()?'Unsaved changes':'Saved article'}</span>${kbMode==='edit'?`<button class="btn p" id="kb-save" ${!kbDirty()||kbSaving?'disabled':''}>${kbSaving?'Saving…':'Save changes'}</button>`:''}</div></div>${kbMode==='edit'?`<div class="kb-edit"><label for="kb-text">Document: ${esc(kbSel)} · Markdown</label><textarea id="kb-text" spellcheck="false" ${kbSaving?'readonly':''}>${esc(kbBuf)}</textarea></div>`:`<article class="kb-document">${kbPreview(kbBuf)}</article>`}<div class="kb-article-foot"><span>${kbMode==='edit'?'Save your edits, then re-index to update the agent’s search.':kbDirty()?'Previewing your unsaved changes.':'This guidance helps your agent prepare replies.'}</span><span id="kb-word-count">${words.toLocaleString()} words</span></div></section>`;
+}
 function kbView(){
- if(!kbData)return '<div class="ph2">Loading knowledge base…</div>';
- const left=(kbData.folders||[]).map(g=>`<div class="kbgroup"><div class="gh"><span>${esc(g.folder)}</span><button data-new="${esc(g.folder)}">+ new</button></div>${(g.files||[]).map(f=>`<button class="kbitem ${kbSel===f.path?'on':''}" data-open="${esc(f.path)}" title="${esc(f.title)} — ${esc(f.path)}"><span>${esc(f.title)}</span><small>${esc(f.path)}</small></button>`).join("")||'<div style="padding:6px 9px;color:var(--ink3);font-size:12px">empty</div>'}</div>`).join("");
- const right=kbSel&&kbLoadError
-  ?`<div class="kbed" role="alert"><div class="eh"><b>${esc(kbSel)}</b></div><div class="error-banner"><div><strong>Could not load this file.</strong><span>${esc(kbLoadError)} Nothing was changed, and saving is disabled.</span></div><button class="btn" id="kb-retry-file">Retry</button></div></div>`
-  :kbSel&&!kbLoaded
-  ?`<div class="kbed"><div class="eh"><b>${esc(kbSel)}</b></div><div class="ph2">Loading file…</div></div>`
-  :kbSel
-  ?`<div class="kbed"><div class="eh"><label for="kb-text">Document: <b>${esc(kbSel)}</b></label><div class="ef"><span class="toast">${esc(kbMsg)}</span><button class="btn p" id="kb-save">Save</button></div></div><textarea id="kb-text" spellcheck="false">${esc(kbBuf)}</textarea><div class="hint" style="margin-top:8px">Saved to the file instantly. Click <b>Re-index</b> (top right) to apply your edits to the agent's search.</div></div>`
-  :`<div class="kbed"><div class="ph2">Pick a policy, FAQ, intent, or ticket on the left to edit — or use <b>+ new</b> to add one.</div></div>`;
- return `<div class="rixbar"><div class="hint">This is what your agent knows. Edits here change how it answers.</div><button class="btn" id="kb-reindex" ${kbReindexing?'disabled':''}>${kbReindexing?'Re-indexing…':'Re-index to apply'}</button></div>
- <div class="kbwrap"><div class="kblist">${left}</div>${right}</div>`;
+ if(kbListError)return `<section class="kb-article"><div class="kb-state" role="alert">${kbIcon('book')}<h3>Knowledge base unavailable</h3><p>${esc(kbListError)}</p><button class="btn" id="kb-retry-list">Try again</button></div></section>`;
+ if(!kbData)return '<div class="kb-state" role="status">Loading your knowledge base…</div>';
+ const files=kbFiles();
+ return `<div class="kb-workspace"><div class="kb-toolbar"><div><h2>A home for your support knowledge</h2><p>${files.length.toLocaleString()} articles across ${kbData.folders.length} collections. Find, refine, and keep your guidance up to date.</p></div><div class="kb-actions"><button class="btn" id="kb-reindex" ${kbReindexing||kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('refresh')}${kbReindexing?'Re-indexing…':'Re-index to apply'}</button><button class="btn p" data-kb-new ${kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('plus')} New article</button></div></div>${kbMsg||kbNeedsIndex?`<div class="kb-feedback ${kbIndexError?'error':''}" role="${kbIndexError?'alert':'status'}"><span>${esc(kbMsg||(kbNeedsIndex?'Saved changes are waiting. Re-index to update the agent’s search.':''))}</span></div>`:''}<div class="kb-categories" role="group" aria-label="Filter by collection"><button class="kb-category" data-kb-category="all" aria-pressed="${kbCategory==='all'}">All articles <span>${files.length}</span></button>${Object.entries(KB_CATEGORIES).map(([key,c])=>`<button class="kb-category" data-kb-category="${key}" aria-pressed="${kbCategory===key}">${esc(c.label)} <span>${files.filter(f=>f.folder===key).length}</span></button>`).join('')}</div><div class="kb-layout"><aside class="kb-library" aria-label="Article library"><div class="kb-search-wrap"><label class="kb-search" for="kb-search">${kbIcon('search')}<input id="kb-search" type="search" aria-label="Search article titles and file names" placeholder="Search articles…" value="${esc(kbQuery)}" autocomplete="off"></label></div><div id="kb-list-results">${kbListView()}</div><div class="kb-library-note">${kbIcon('book')}<span>Clear, specific guidance makes better answers.</span></div></aside>${kbArticle()}</div></div>`;
 }
 
 function settingsView(){
@@ -745,44 +864,97 @@ function settingsView(){
 }
 
 async function loadKb(){
- kbData=await jget(KBAPI+"/list")||{folders:[]};
- if(kbData.reindex&&kbData.reindex.running){kbReindexing=true;pollReindex();}
+ kbListError="";
+ const data=await jget(KBAPI+"/list");
+ if(!data||!Array.isArray(data.folders)){kbListError="We couldn’t load your articles. Try again to reconnect.";render();return;}
+ kbData=data;
+ if(kbData.reindex?.running){kbReindexing=true;pollReindex();}
  render();
 }
 async function openKbFile(p){
+ if(kbSaving||kbCreatingBusy)return;
  if(typeof p!=="string"||!/^(intents|faq|policies|tickets)\/[A-Za-z0-9._-]+\.md$/.test(p)){kbMsg="Invalid knowledge-base path";render();return;}
- kbSel=p;kbMsg="Loading…";kbBuf="";kbLoaded=false;kbLoadError="";render();
+ kbTrackDraft();const request=++kbRequest;
+ kbSel=p;kbCreating=false;kbBuf="";kbOriginal="";kbLoaded=false;kbLoadError="";kbMode=kbDrafts.has(p)?"edit":"preview";render();
  try{
   const r=await fetch(KBAPI+"/file?path="+encodeURIComponent(p),{cache:"no-store"});
   let d={};try{d=await r.json();}catch(e){}
+  if(request!==kbRequest)return;
   if(!r.ok||typeof d.content!=="string")throw new Error(d.error||("Request failed ("+r.status+")"));
-  kbBuf=d.content;kbLoaded=true;kbMsg="";
- }catch(e){kbBuf="";kbLoaded=false;kbLoadError=e&&e.message?e.message:"The file API did not respond.";kbMsg="File not loaded";}
+  kbOriginal=d.content;kbBuf=kbDrafts.has(p)?kbDrafts.get(p):d.content;kbLoaded=true;kbTrackDraft();
+ }catch(e){if(request!==kbRequest)return;kbBuf="";kbLoaded=false;kbLoadError=e?.message||"The file API did not respond.";}
  render();
+ if(tab==="kb")document.getElementById("kb-article-title")?.focus({preventScroll:true});
 }
 async function saveKb(){
- const ta=document.getElementById("kb-text");if(!ta||!kbSel||!kbLoaded||kbLoadError)return;
- kbBuf=ta.value;kbMsg="Saving…";render();
- try{const r=await fetch(KBAPI+"/save",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:kbSel,content:kbBuf})});kbMsg=r.ok?"Saved — re-index to apply":"Save failed";}catch(e){kbMsg="Save failed";}
- render();
+ if(!kbSel||!kbLoaded||kbLoadError||kbSaving||!kbDirty())return;
+ const path=kbSel,content=kbBuf;kbSaving=true;kbMsg="";kbIndexError=false;render();
+ try{
+  const r=await fetch(KBAPI+"/save",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path,content})});
+  if(!r.ok)throw new Error("Save failed");
+  kbOriginal=content;kbTrackDraft();kbNeedsIndex=true;kbIndexVersion++;kbMsg="Article saved. Re-index to update the agent’s search.";
+  const title=content.match(/^title:\s*(.+)$/m)?.[1];const file=kbData?.folders.flatMap(g=>g.files||[]).find(f=>f.path===path);if(file&&title)file.title=title;
+ }catch(e){kbMsg="Could not save. Your edits are still here; try again.";kbIndexError=true;}
+ kbSaving=false;render();document.getElementById('kb-save')?.focus({preventScroll:true});
 }
-async function newKbFile(folder){
- const name=prompt("New "+folder.slice(0,-1)+" file name (e.g. warranty):");if(!name)return;
- const tmpl="---\ntitle: "+name+"\ncategory: "+folder+"\nstatus: confirmed\ntags: []\n---\n\n## Overview\n\n";
- try{const r=await fetch(KBAPI+"/new",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({folder:folder,filename:name,content:tmpl})});const d=await r.json();if(r.ok){await loadKb();openKbFile(d.path);}else{alert(d.error||"could not create file");}}catch(e){alert("could not create file");}
+function newKbFile(){
+ if(kbSaving||kbCreatingBusy)return;kbTrackDraft();kbCreating=true;kbNewError="";kbNewCategory=kbCategory==='all'?'policies':kbCategory;render();document.getElementById('kb-new-title')?.focus();
+}
+async function createKbFile(){
+ if(kbCreatingBusy)return;
+ const name=kbNewTitle.trim(),folder=kbNewCategory;
+ if(!name||!KB_CATEGORIES[folder])return;
+ const tmpl="---\ntitle: "+JSON.stringify(name)+"\ncategory: "+folder+"\nstatus: confirmed\ntags: []\n---\n\n## Overview\n\n";
+ kbCreatingBusy=true;kbNewError="";render();
+ try{
+  const r=await fetch(KBAPI+"/new",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({folder,filename:name,content:tmpl})});const d=await r.json();
+  if(!r.ok)throw new Error(d.error||'Could not create article');
+  kbNeedsIndex=true;kbIndexVersion++;kbCreatingBusy=false;kbCreating=false;kbNewTitle="";kbQuery="";kbCategory=folder;
+  await loadKb();await openKbFile(d.path);kbMode='edit';render();document.getElementById('kb-text')?.focus();
+ }catch(e){kbNewError=e?.message||"Could not create article. Try again.";kbCreatingBusy=false;render();document.getElementById('kb-new-title')?.focus();}
 }
 async function reindexKb(){
- if(kbReindexing)return;kbReindexing=true;kbMsg="";render();
- try{await fetch(KBAPI+"/reindex",{method:"POST"});}catch(e){}
- pollReindex();
+ if(kbReindexing||kbSaving||kbCreatingBusy)return;
+ kbReindexing=true;kbIndexError=false;kbMsg="Updating the agent’s search. Unsaved edits are not included.";render();
+ try{const r=await fetch(KBAPI+"/reindex",{method:"POST"});if(!r.ok)throw new Error('Re-index failed');pollReindex(kbIndexVersion);}
+ catch(e){kbReindexing=false;kbIndexError=true;kbMsg="Could not start re-indexing. Your saved articles are safe; try again.";render();}
 }
-function pollReindex(){
- setTimeout(async()=>{
-  const s=await jget(KBAPI+"/reindex-status");
-  if(s&&s.running){pollReindex();}
-  else{kbReindexing=false;if(tab==="kb"){kbMsg=s&&s.ok?"Re-indexed — changes are live":"Re-index finished";render();}}
+function pollReindex(version=kbIndexVersion){
+ if(kbIndexTimer)return;
+ kbIndexTimer=setTimeout(async()=>{
+  kbIndexTimer=null;const s=await jget(KBAPI+"/reindex-status");
+  if(s?.running){pollReindex(version);return;}
+  kbReindexing=false;kbIndexError=!s?.ok;
+  if(s?.ok){if(version===kbIndexVersion)kbNeedsIndex=false;kbMsg=kbNeedsIndex?"Search updated. Newer saved edits still need re-indexing.":"Search updated. Saved articles are ready for the agent.";}
+  else kbMsg=s?"Re-indexing failed. Your articles are saved; try re-indexing again.":"Could not confirm re-index status. Refresh before trying again.";
+  if(tab==="kb")render();
  },3000);
 }
+function bindKbList(){
+ document.querySelectorAll(".kbitem[data-open]").forEach(b=>b.onclick=()=>openKbFile(b.dataset.open));
+ const clear=document.getElementById('kb-clear-search');if(clear)clear.onclick=()=>{kbQuery="";render();document.getElementById('kb-search')?.focus();};
+}
+function bindKb(){
+ bindKbList();
+ const search=document.getElementById('kb-search');if(search)search.oninput=()=>{kbQuery=search.value;document.getElementById('kb-list-results').innerHTML=kbListView();bindKbList();};
+ document.querySelectorAll('[data-kb-category]').forEach(b=>b.onclick=()=>{kbCategory=b.dataset.kbCategory;render();document.querySelector(`[data-kb-category="${kbCategory}"]`)?.focus({preventScroll:true});});
+ document.querySelectorAll('[data-kb-mode]').forEach(b=>b.onclick=()=>{kbMode=b.dataset.kbMode;render();document.querySelector(`[data-kb-mode="${kbMode}"]`)?.focus({preventScroll:true});});
+ document.querySelectorAll('[data-kb-new]').forEach(b=>b.onclick=newKbFile);
+ const editor=document.getElementById('kb-text');if(editor)editor.oninput=()=>{
+  kbBuf=editor.value;kbTrackDraft();const dirty=kbDirty(),save=document.getElementById('kb-save'),state=document.getElementById('kb-save-state');if(save)save.disabled=!dirty||kbSaving;if(state){state.textContent=dirty?'Unsaved changes':'Saved article';state.classList.toggle('dirty',dirty);}
+  document.getElementById('kb-word-count').textContent=(kbBuf.trim()?kbBuf.trim().split(/\s+/).length:0).toLocaleString()+' words';
+  const item=document.querySelector('.kbitem.on'),dot=item?.querySelector('.kb-draft-dot');if(dirty&&item&&!dot)item.insertAdjacentHTML('beforeend','<span class="kb-draft-dot" role="img" aria-label="Unsaved changes"></span>');else if(!dirty&&dot)dot.remove();
+ };
+ const ks=document.getElementById('kb-save');if(ks)ks.onclick=saveKb;
+ const retry=document.getElementById('kb-retry-file');if(retry)retry.onclick=()=>openKbFile(kbSel);
+ const listRetry=document.getElementById('kb-retry-list');if(listRetry)listRetry.onclick=loadKb;
+ const reindex=document.getElementById('kb-reindex');if(reindex)reindex.onclick=reindexKb;
+ const form=document.getElementById('kb-new-form');if(form)form.onsubmit=e=>{e.preventDefault();createKbFile();};
+ const title=document.getElementById('kb-new-title');if(title)title.oninput=()=>{kbNewTitle=title.value;};
+ const category=document.getElementById('kb-new-category');if(category)category.onchange=()=>{kbNewCategory=category.value;};
+ const cancel=document.getElementById('kb-new-cancel');if(cancel)cancel.onclick=()=>{kbCreating=false;render();document.querySelector('[data-kb-new]')?.focus();};
+}
+window.addEventListener('beforeunload',e=>{if(kbDrafts.size){e.preventDefault();e.returnValue='';}});
 
 function waNum(jid){return jid?("+"+String(jid).split("@")[0]):"";}
 let waSig="";
@@ -979,11 +1151,7 @@ function bind(){
  const retryNotifications=document.getElementById("retry-notifications");if(retryNotifications)retryNotifications.onclick=()=>loadNotifications();
  const markAllNotifications=document.getElementById("mark-all-notifications");if(markAllNotifications)markAllNotifications.onclick=async()=>{await markNotificationsRead([],true);render();};
  document.querySelectorAll("[data-notification-index]").forEach(button=>button.onclick=()=>openDashboardNotification(Number(button.dataset.notificationIndex)));
-document.querySelectorAll(".kbitem[data-open]").forEach(b=>b.onclick=e=>{e.stopPropagation();openKbFile(b.dataset.open);});
- document.querySelectorAll("[data-new]").forEach(b=>b.onclick=()=>newKbFile(b.dataset.new));
- const ks=document.getElementById("kb-save");if(ks)ks.onclick=saveKb;
- const kretry=document.getElementById("kb-retry-file");if(kretry)kretry.onclick=()=>openKbFile(kbSel);
- const kr=document.getElementById("kb-reindex");if(kr)kr.onclick=reindexKb;
+ bindKb();
  const ws=document.getElementById("wa-save");if(ws)ws.onclick=saveWa;
  const wt=document.getElementById("wa-test");if(wt)wt.onclick=testWa;
  const wu=document.getElementById("wa-unlink");if(wu)wu.onclick=unlinkWa;

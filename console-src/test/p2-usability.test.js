@@ -150,6 +150,7 @@ for (const width of [1340, 390]) {
     assert.ok(layout.text.includes(title));
     assert.ok(layout.text.includes('intents/sizing.md'), 'path stays available as secondary text');
     await item.click();
+    await page.locator('[data-kb-mode=edit]').click();
     await page.locator('#kb-text').waitFor();
     assert.equal(await page.getByRole('textbox', { name: /document.*intents\/sizing\.md/i }).count(), 1);
     assert.deepEqual(writes, [], 'opening a document must not save or re-index it');
