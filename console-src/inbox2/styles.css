@@ -918,6 +918,59 @@ summary::-webkit-details-marker {
   flex-wrap: wrap;
 }
 
+.draft-edit {
+  color: var(--acc);
+  width: 38px;
+  min-height: 38px;
+  padding: 0;
+  justify-content: center;
+}
+
+#draft-rewrite {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  color: var(--ink);
+}
+
+#draft-rewrite textarea {
+  margin-top: 7px;
+  resize: vertical;
+  min-height: 100px;
+  font-size: 14px;
+}
+
+#draft-rewrite .dialog-actions {
+  flex-wrap: wrap;
+}
+
+.rewrite-preview {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rewrite-preview .draft-body {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: var(--control-radius);
+  background: var(--bg);
+}
+
+.rewrite-error {
+  color: var(--red);
+  background: var(--red-s);
+  border-radius: var(--control-radius);
+  padding: 10px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+#rewrite-status:not(:empty) {
+  margin-top: 12px;
+}
+
 .draft-source {
   margin-left: auto;
   font-size: 10px;

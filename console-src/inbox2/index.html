@@ -214,6 +214,18 @@ M17338 3005 c-48 -8 -104 -23 -125 -34 -21 -10 -65 -27 -98 -36 -33 -9 -76
       <button type="button" class="rail-reopen-label" data-action="rail" aria-controls="customer-rail" aria-expanded="false" title="Open customer details">Customer details</button>
     </aside>
   </div>
+  <dialog id="draft-rewrite" aria-labelledby="rewrite-title" aria-describedby="rewrite-description">
+    <form id="rewrite-form">
+      <div class="dialog-heading"><h2 id="rewrite-title">Edit reply with AI</h2><button type="button" class="icon-button" data-action="cancel-rewrite" aria-label="Close AI editor"><span data-icon="close"></span></button></div>
+      <p id="rewrite-description" class="small muted">Tell AI what to change. Review the updated suggestion before using it.</p>
+      <details class="rewrite-preview"><summary>Current suggestion</summary><div id="rewrite-current" class="draft-body" dir="auto"></div></details>
+      <label for="rewrite-instruction">How should AI change this reply?</label>
+      <textarea id="rewrite-instruction" rows="4" maxlength="5000" required placeholder="For example: Make it shorter and warmer, and ask which color they received."></textarea>
+      <p id="rewrite-error" class="rewrite-error" role="alert" hidden></p>
+      <p id="rewrite-status" class="small muted" role="status"></p>
+      <div class="dialog-actions"><button type="button" class="button" data-action="cancel-rewrite">Cancel</button><button type="submit" class="button primary" id="rewrite-submit" disabled>Update suggestion</button></div>
+    </form>
+  </dialog>
   <dialog id="send-review" aria-labelledby="send-review-title" aria-describedby="send-review-recipient">
     <h2 id="send-review-title">Send this reply?</h2>
     <p id="send-review-recipient" class="send-review-recipient"></p>

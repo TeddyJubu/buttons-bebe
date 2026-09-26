@@ -33,7 +33,7 @@ const plain = value => {
   }
   return text.replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').replace(/\n{4,}/g,'\n\n\n').trim();
 };
-const keys = {state:'bb-inbox-ticket-state-v1',local:'bb-inbox-local-tickets-v1',read:'bb-inbox-read-v1',drafts:'bb-inbox2-composer-v1',dismiss:'bb-inbox2-dismissed-v1'};
+const keys = {state:'bb-inbox-ticket-state-v1',local:'bb-inbox-local-tickets-v1',read:'bb-inbox-read-v1',drafts:'bb-inbox2-composer-v1',dismiss:'bb-inbox2-dismissed-v1',rewrites:'bb-inbox2-rewrites-v1'};
 const memory = new Map();
 function stored(key, fallback) {if(memory.has(key))return memory.get(key);try {const raw = localStorage.getItem(key);return raw ? JSON.parse(raw) : (memory.get(key) ?? fallback);} catch {return memory.get(key) ?? fallback;}}
 function persist(key, value) {memory.set(key,value);try {localStorage.setItem(key,JSON.stringify(value));memory.delete(key);return true;} catch {toast('Browser storage is unavailable. Changes will last for this session only.');return false;}}
@@ -149,7 +149,7 @@ async function checkSendStatus(){
   finally{if(button)button.disabled=false;}
 }
 $('#send-review').addEventListener('cancel',()=>{sendState.review=null;});
-window.addEventListener('pagehide',()=>resetSendAccess());
+window.addEventListener('pagehide',()=>{closeRewrite();resetSendAccess();});
 
 async function api(tool, args={}) {
   const response = await fetch('/inbox/api/helpdesk',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:`helpdesk.${tool}`,arguments:args}),signal:AbortSignal.timeout(65000)});
@@ -236,12 +236,71 @@ async function loadOlder(){
     renderTicket();
   }catch(error){toast(error.message);if(button)button.disabled=false;}
 }
-function showAuth() {resetSendAccess();const href='/console/login?next='+encodeURIComponent(location.pathname+location.search);$('#conversation').innerHTML=`<div class="empty-state"><h2>Sign in to continue</h2><p>Your support session has expired.</p><a class="button primary" href="${esc(href)}">Sign in</a></div>`;}
-function currentDraft(t) {const body=plain(t.readonlyDraft).replace(/^\[SENSITIVE\s*[—–-]\s*REVIEW CAREFULLY BEFORE SENDING\]\s*/i,'').trim();return body.includes('\n')?body:body.replace(/([.!?])\s+(?=(?:Because|Since|However|Please note)\b)/g,'$1\n\n');}
+function showAuth() {closeRewrite();resetSendAccess();const href='/console/login?next='+encodeURIComponent(location.pathname+location.search);$('#conversation').innerHTML=`<div class="empty-state"><h2>Sign in to continue</h2><p>Your support session has expired.</p><a class="button primary" href="${esc(href)}">Sign in</a></div>`;}
+function currentDraft(t) {const revised=objectStore(keys.rewrites)[t.id];const body=plain(!t.draftSuperseded&&revised?.source===draftId(t)?revised.body:t.readonlyDraft).replace(/^\[SENSITIVE\s*[—–-]\s*REVIEW CAREFULLY BEFORE SENDING\]\s*/i,'').trim();return body.includes('\n')?body:body.replace(/([.!?])\s+(?=(?:Because|Since|However|Please note)\b)/g,'$1\n\n');}
 function draftId(t) {return `${t.draftSourceMessageId||''}:${t.draftProcessedAt||''}:${t.readonlyDraft||''}`;}
 function draftAvailable(t) {return Boolean(t.readonlyDraft&&!t.draftSuperseded&&objectStore(keys.dismiss)[t.id]!==draftId(t));}
+// AI edits are browser-local candidates, tied to the exact projected suggestion.
+let rewriteState=null;
+function closeRewrite(){
+  rewriteState?.controller?.abort();rewriteState=null;
+  $('#draft-rewrite').close();
+  $('[data-action="edit-draft"]')?.focus({preventScroll:true});
+}
+function openRewrite(){
+  const t=state.ticket;
+  if(!t||!draftAvailable(t)||!t.draftSourceMessageId||t.syncStale||!/^gorgias:[1-9][0-9]{0,17}$/.test(t.id))return;
+  rewriteState={id:t.id,source:draftId(t),sourceMessageId:String(t.draftSourceMessageId),draft:currentDraft(t),request:state.ticketRequest,busy:false};
+  $('#rewrite-current').textContent=rewriteState.draft;
+  $('#rewrite-instruction').value='';$('#rewrite-instruction').disabled=false;
+  $('#rewrite-error').hidden=true;$('#rewrite-status').textContent='';
+  $('#rewrite-submit').disabled=true;$('#rewrite-submit').textContent='Update suggestion';
+  $('#draft-rewrite').showModal();$('#rewrite-instruction').focus();
+}
+function rewriteStillCurrent(context){
+  const t=state.ticket;
+  return rewriteState===context&&state.ticketRequest===context.request&&t?.id===context.id&&!t.syncStale&&draftAvailable(t)&&draftId(t)===context.source&&currentDraft(t)===context.draft;
+}
+function rewriteError(error){
+  if(error.auth)return error.message;
+  const code=error.body?.error;
+  if(['source_message_not_in_console','ticket_not_in_console'].includes(code))return 'This message is still syncing. Refresh the ticket and try again shortly.';
+  if(code==='rewrite_busy_try_later')return 'AI is working on another edit. Please try again shortly.';
+  if(code==='rewrite_timed_out'||error.name==='TimeoutError')return 'AI took too long to respond. Your suggestion is unchanged. Please try again.';
+  if(code==='rewrite_input_too_large')return 'The reply or instructions are too long. Shorten them and try again.';
+  return 'AI could not update the suggestion. Your reply is unchanged. Please try again.';
+}
+async function submitRewrite(){
+  const context=rewriteState,instruction=$('#rewrite-instruction').value.trim();
+  if(!context||context.busy||!instruction)return;
+  const showError=message=>{$('#rewrite-error').textContent=message;$('#rewrite-error').hidden=false;};
+  const staleMessage='This ticket or suggestion changed. Close this window and review the latest suggestion before editing again.';
+  if(!rewriteStillCurrent(context)){showError(staleMessage);return;}
+  context.busy=true;context.controller=new AbortController();
+  $('#rewrite-instruction').disabled=true;$('#rewrite-submit').disabled=true;
+  $('#rewrite-submit').textContent='Updating…';$('#rewrite-error').hidden=true;
+  $('#rewrite-status').textContent='AI is updating the suggestion…';
+  try{
+    const result=await consoleRequest(`/ticket/${context.id.slice(8)}/rewrite`,{method:'POST',signal:AbortSignal.any([context.controller.signal,AbortSignal.timeout(165000)]),body:JSON.stringify({draft:context.draft,instruction,source_message_id:context.sourceMessageId})});
+    if(rewriteState!==context)return;
+    if(!rewriteStillCurrent(context)){showError(staleMessage);return;}
+    if(result.ok!==true||typeof result.draft!=='string'||!result.draft.trim()||result.draft.length>50000)throw new Error('invalid_rewrite');
+    const revised=objectStore(keys.rewrites);revised[context.id]={source:context.source,body:result.draft.trim()};persist(keys.rewrites,revised);
+    closeRewrite();renderTicket();
+    $('[data-action="edit-draft"]')?.focus({preventScroll:true});
+    toast('Suggestion updated. Review it, then choose Use draft.');
+  }catch(error){if(rewriteState===context)showError(rewriteError(error));}
+  finally{
+    if(rewriteState===context){context.busy=false;$('#rewrite-instruction').disabled=false;$('#rewrite-submit').disabled=!$('#rewrite-instruction').value.trim();$('#rewrite-submit').textContent='Update suggestion';$('#rewrite-status').textContent='';}
+  }
+}
+$('#draft-rewrite').addEventListener('cancel',event=>{event.preventDefault();closeRewrite();});
+$('#rewrite-form').addEventListener('submit',event=>{event.preventDefault();submitRewrite();});
+$('#rewrite-instruction').addEventListener('input',()=>{$('#rewrite-submit').disabled=Boolean(rewriteState?.busy)||!$('#rewrite-instruction').value.trim();});
+
 async function selectTicket(id,push=true,focus=false) {
   if(!id)return;
+  closeRewrite();
   if(!sendState.busy)cancelSendReview();
   const request=++state.ticketRequest;state.id=id;state.ticket=null;state.olderLoaded=false;state.tab='conversation';syncUrl(push);listRender();
   $('#workspace').classList.add('ticket-open');$('#workspace').classList.remove('rail-open');
@@ -397,7 +456,7 @@ function detailsHtml(t) {
 }
 function replyHtml(t) {
   const sensitive=t.draftAction==='sensitive_draft'||/^\[SENSITIVE/i.test(t.readonlyDraft||'');
-  const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft">${icon('check')} Use draft</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
+  const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft">${icon('check')} Use draft</button><button class="button draft-edit" data-action="edit-draft" aria-label="Edit suggested reply with AI" aria-haspopup="dialog" aria-controls="draft-rewrite" title="${t.draftSourceMessageId&&!t.syncStale?'Edit suggested reply with AI':'Refresh this ticket before editing the suggestion'}" ${!t.draftSourceMessageId||t.syncStale?'disabled':''}>${icon('edit')}</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
   return `<section class="reply-area">${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
 }
 function renderRail() {
@@ -536,6 +595,8 @@ document.addEventListener('click',async event=>{
   if(action==='cancel-send'){cancelSendReview();return;}
   if(action==='check-send-status'){await checkSendStatus();return;}
   if(action==='copy-reply'){const value=$('#reply')?.value;if(value)copyText(value,'Reply copied.');else toast('Write a reply or use the suggested draft first.');return;}
+  if(action==='edit-draft'){openRewrite();return;}
+  if(action==='cancel-rewrite'){closeRewrite();return;}
   if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
   if(action==='new'){toast('This inbox reads Gorgias tickets. Create new tickets in Gorgias.');return;}

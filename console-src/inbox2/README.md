@@ -26,6 +26,19 @@ success alone clears the matching submitted draft; newer edits are preserved.
 The additive `inbox_send_grants` table is created on first enable. Expired grants
 are cleaned up on subsequent enable; grants and action records are runtime data.
 
+## AI edits
+
+The pencil icon beside Use draft opens an instruction field for revising the
+suggested reply. It calls the existing authenticated
+`/console/api/ticket/{id}/rewrite` action with the current suggestion, operator
+instructions and source message ID. It works while Gorgias is read-only and
+never sends a message or enables send access.
+
+Revisions stay in this browser, tied to the exact source suggestion. A new or
+superseded suggestion stops using that revision. Cancelled requests and responses
+for changed tickets cannot replace the current suggestion. The reply composer
+is preserved; choose Use draft after reviewing the updated suggestion.
+
 ## Data flow
 
 - `live_api.py` synchronizes Gorgias ticket summaries and retrieves opened tickets
@@ -101,6 +114,8 @@ supply a synthetic read-only API:
 
 Then run node console-src/inbox2/tests/layout.mjs and
 node console-src/inbox2/tests/customer-loading.mjs. Run
+node console-src/inbox2/tests/rewrite-draft.mjs for mocked AI editing, retry,
+cancellation and stale-response handling. Run
 node console-src/inbox2/tests/send-access.mjs for the mocked manual-send flow and
 `PYTHONPATH=webhook/src python -m unittest webhook.test_inbox_send_access` for
 server authorization. These tests do not send real customer messages. Install Playwright and its
