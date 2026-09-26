@@ -114,21 +114,25 @@ decide which MCP tools to call and in what order:
 ### Thank you / survey / no question
 "Thanks!" | Survey response
 1. Gorgias → get_ticket_messages(ticket_id) — confirm no question
-2. Classify as LOW, draft brief acknowledgment
+2. Classify as LOW, use no_draft_needed, and create no new draft or alert.
+   Preserve unresolved case records.
 
 RULE: Always search KB for policy/safety guidance. Use Redo only for returns/RMA
 status. Use Gorgias for ticket context and synced customer/order history.
 
 ## Critical rule: ALWAYS output JSON_RESULT
 
-At the very end of your response, output exactly this line:
+Use the exact per-run token and metadata schema from the runtime prompt.
+The examples here are schematic; never emit un-tokenized markers.
+At the end, return the authenticated verdict:
 
 ```
 JSON_RESULT: {"priority": "<critical|high|normal|low>", "reason": "<one sentence>", "action": "<drafted|sensitive_draft|no_kb_match|no_draft_needed>", "notify_owner": <true|false>, "gorgias_priority_set": <true|false>, "note_posted": <true|false>}
 ```
 
 The job processor parses this line to decide whether to send a WhatsApp
-notification. If you omit it, the processor defaults to escalating.
+notification. Missing or invalid authenticated output makes the draft unavailable;
+it must never be replaced with a customer-facing failure acknowledgment.
 
 ## Step 1 — Use the authenticated read-only MCP tools
 
@@ -181,16 +185,15 @@ Strip ALL of the following from the message:
 - Mailer footer text
 
 Keep ONLY the customer's actual words — their question, request, or
-complaint.
+complaint. Keep already supplied identifiers, tracking and product links as
+context; never discard them and then ask the customer to supply them again.
 
 ### 3b. Handle empty or non-message emails
 
 If after cleaning, the message is empty or contains only:
-- A satisfaction survey link → classify as LOW and draft: "No reply needed —
-  satisfaction survey with no customer question"
+- A satisfaction survey link with no question → LOW, no_draft_needed, no customer draft
 - A "thank you" with no new question → LOW, action no_draft_needed, no draft or new alert; preserve the underlying unresolved case
-- Only an order confirmation (no customer text) → classify as LOW and draft:
-  "No reply needed — order confirmation with no customer question"
+- Only an order confirmation (no customer text) → LOW, no_draft_needed, no customer draft
 
 ### 3c. Correct spelling and normalize phrasing
 
@@ -212,7 +215,9 @@ Rewrite vague phrasing into a clear search query:
 
 ### 3d. Combine subject + cleaned message
 
-If the cleaned message is very short or vague, incorporate relevant
+First classify whether the latest message has a new request. A pure thanks must
+not inherit urgency or a new reply from the subject. For a short actionable
+request, incorporate relevant
 context from the ticket subject (e.g. order number, "Re: wrong item").
 
 Example:
