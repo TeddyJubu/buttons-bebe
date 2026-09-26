@@ -15,11 +15,15 @@ Orders usually ship within 24–48 hours. This is processing time, not carrier d
 
 Locate order.
 Check fulfillment status.
-If unfulfilled, explain normal processing time.
+If unfulfilled, report that exact state. Do not infer packing or a dispatch date.
+Mention normal processing time only when the order could still be within it;
+otherwise acknowledge that it is past the usual window and identify the staff check.
 If shipped, provide tracking/update.
 
 ## Customer response
 
-Hi! Orders usually ship within 24–48 hours.
-Please note that this is the processing time before the package leaves us. Carrier delivery time depends on the shipping method selected at checkout.
-USPS can be slow, so if you need an order by a specific date, we recommend choosing a faster shipping option.
+Answer the observed shipping-status question first and include confirmed tracking
+when available. Ask for an order number only if context cannot identify the order.
+A general “are you shipping today?” question requires a current operational-hours
+answer, not an order lookup. If staff must confirm dispatch or opening hours, mark
+Needs staff input and specify that task outside the customer reply.

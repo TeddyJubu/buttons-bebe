@@ -1,4 +1,4 @@
-"""One final review policy for model display and persisted processor results."""
+"""Keep business urgency, generation health and missing facts independent."""
 from __future__ import annotations
 import re
 from typing import Any
@@ -15,11 +15,14 @@ def final_review_result(value: dict[str,Any]) -> dict[str,Any]:
     this function never creates a customer reply or performs an external action.
     """
     result=dict(value)
-    priority=normalize(result.get('priority',Priority.HIGH.value),default=Priority.HIGH)
+    priority=normalize(result.get('priority',Priority.NORMAL.value),default=Priority.NORMAL)
     action=str(result.get('action','')).strip().lower()
     draft=str(result.get('draft_text') or '').strip()
-    sensitive=(action in {'sensitive_draft','no_kb_match','escalated'}
-               or bool(_HEADER.match(draft)) or at_least(priority,Priority.HIGH))
+    state=result.get('generation_state')
+    review=bool(result.get('review_required')) or action=='no_kb_match'
+    header=_HEADER.match(draft)
+    sensitive=(at_least(priority,Priority.HIGH) or
+               (action in {'sensitive_draft','escalated'} and not review))
     if sensitive:
         result['action']='sensitive_draft'
         result['priority']=priority if at_least(priority,Priority.HIGH) else Priority.HIGH.value
@@ -31,6 +34,20 @@ def final_review_result(value: dict[str,Any]) -> dict[str,Any]:
                 draft=f'{SENSITIVE_DRAFT_PREFIX}\n\n{body}'
     else:
         result['priority']=priority
+        result['notify_owner']=False
+        if header:
+            draft=draft[header.end():]
+            review=True
+    result['review_required']=review
+    if state=='no_reply' or action=='no_draft_needed':
+        result.update(priority='low', action='no_draft_needed', notify_owner=False,
+                      review_required=False, generation_state='no_reply', no_draft=True)
+    elif state=='failed':
+        result['no_draft']=True
+    else:
+        result['generation_state']='needs_review' if review else 'ready'
+    if review and not result.get('staff_next_step'):
+        result['staff_next_step']='Check the missing answer and complete the reply before sending.'
     result['draft_text']='' if result.get('no_draft') else draft
     result['gorgias_priority_set']=False
     result['note_posted']=False

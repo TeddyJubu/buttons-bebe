@@ -27,30 +27,34 @@ If a customer needs it by a specific date, recommend a faster shipping option.
 
 This is the single most common question. Look up the order's fulfillment status
 and tracking. If it shipped, share the tracking number/link. If it hasn't
-shipped yet, let the customer know it's being prepared and the normal 24–48 hour
-processing time. Keep it warm and brief.
+shipped yet, report the observed status. Unfulfilled does not prove preparation,
+packing, or a dispatch date. Mention the normal 24–48 hour processing window only
+while the order could still be within it; otherwise acknowledge the elapsed window.
 
 ## Can you ship my order ASAP?
 
-Yes, when the warehouse is open and the item is in stock, agents will prioritize
-"please ship ASAP" requests and confirm ("we will ship it asap" / "shipping it
-out now"). If the warehouse is already closed for the day, explain kindly that it
-couldn't go out today and will ship the next business day. Never promise the
-carrier's delivery date.
+Check the observed order status and any current warehouse notice. Staff must
+confirm whether a rush request is possible. The AI may prepare that staff task,
+but must not claim prioritization, active packing, same-day dispatch, or shipment
+on the next business day without explicit evidence. Never promise arrival dates.
 
 ## Can it arrive by a specific date? / I need it urgently
 
-The warehouse can be asked to **prioritize** the order, but delivery depends on the
-shipping method selected at checkout. If a slow method was selected and the order
-has not shipped yet, offer an upgraded shipping option. Do not guarantee a delivery
-date the carrier controls. See `../intents/intent-18-order-needed-urgently.md`.
+Staff can check whether prioritization or a shipping upgrade is possible before
+dispatch. Neither is confirmed until staff verify the option for that order.
+Ask for the needed-by date only if it is missing, and put the warehouse/upgrade
+check in staff_next_step. Do not promise prioritization, an upgrade, dispatch or
+delivery. See `../intents/intent-18-order-needed-urgently.md`.
 
 ## Can I pick up locally / what are the hours?
 
-Yes — local customers can pick up at the Toms River warehouse during posted
-hours, and there are bins by the side door available outside business hours
-("the bins stay outside by the side door 24 hours a day"). Hours vary and are
-sometimes extended, so confirm the day's hours before quoting them.
+Toms River outdoor pickup bins are accessible 24/7 **once the order is ready**.
+Selecting pickup at checkout does not establish readiness; verify a ready-for-pickup
+record or notification before inviting collection of a specific order. Staffed
+hours are separate from bin access. Quote regular hours as regular hours, and
+confirm today's or holiday hours from a current notice or staff before stating
+the location is open. Lakewood's return drop-off instructions do not establish
+pickup availability there.
 
 ## Do you ship internationally?
 

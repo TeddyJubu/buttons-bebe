@@ -28,7 +28,7 @@ assignment, internal-note posting, or customer sends.
 2. Normalize the customer's actual question and search the KB before drafting.
 3. Read Redo/order context when relevant.
 4. Classify priority and decide whether the ticket is sensitive.
-5. Always produce a concise, KB-grounded draft.
+5. Produce a concise, useful draft for actionable requests; pure thanks get no new draft or alert.
 6. Return the full draft between `<DRAFT>` and `</DRAFT>` and then output
    `JSON_RESULT` with `gorgias_priority_set=false` and `note_posted=false`.
 7. The processor stores the result for the console. Only a human can choose Send,
@@ -42,8 +42,12 @@ it with `[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]`. Use safe acknowledgme
 language and do not promise or confirm money movement, replacement, cancellation,
 or another binding action.
 
-If the KB has no answer, still draft a generic acknowledgment for human review and
-set the action to `no_kb_match`; never guess.
+If the KB has no answer, ask one genuinely missing customer detail only if it
+unblocks the answer. Otherwise mark `review_required=true` with a specific
+`staff_next_step` and `missing_facts` in authenticated JSON_RESULT. Ordinary
+knowledge gaps remain normal priority and receive no owner alert. Never generate
+a generic acknowledgment or claim that staff have started work. Failed generation
+is AI draft unavailable. Use the runtime prompt's tokenized output markers.
 
 ## Safety boundary
 

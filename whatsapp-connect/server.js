@@ -260,6 +260,12 @@ const requireSendAuth = createSendAuth(SEND_SECRET, (req) => {
 
 app.get(`${BASE}/status`, requireAuth, (req, res) => res.json(statusPayload()));
 
+// Authenticated route/configuration probe. Never calls sendAlert or the socket.
+app.get(`${BASE}/send/check`, requireSendAuth, (req, res) => res.json({
+  ok: true, route: "owner_alert", connected: state === "connected",
+  destinationConfigured: Boolean(destJid()),
+}));
+
 // Push an important message to the linked WhatsApp (used by the escalation path).
 // Delivers to the configured destination (linked owner account, or a typed number).
 app.post(`${BASE}/send`, requireSendAuth, (req, res) => {

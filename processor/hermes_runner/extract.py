@@ -136,11 +136,16 @@ def _merge_verdicts(
             str(block[1]["priority"]).lower().strip(), -1
         ),
     )[1]
+    review_blocks=[block for block in blocks if block[1].get('review_required') is True]
+    review_source=max(review_blocks,key=lambda block:RANK.get(str(block[1]['priority']).lower().strip(),-1))[1] if review_blocks else best
     merged: dict[str, Any] = {
         "priority": best.get("priority"),
         "reason": best.get("reason"),
         "action": best.get("action"),
         "notify_owner": best.get("notify_owner"),
+        "review_required": any(p.get('review_required') is True for _, p in blocks),
+        "staff_next_step": review_source.get('staff_next_step', ''),
+        "missing_facts": review_source.get('missing_facts', []),
     }
     merged["notify_owner"] = any(
         _as_bool(payload.get("notify_owner")) for _match, payload in blocks
@@ -238,6 +243,15 @@ def _parse_json_result(
 
     result = _merge_verdicts(blocks)
     try:
+        for _, payload in blocks:
+            if 'review_required' in payload and type(payload['review_required']) is not bool:
+                return _token_failure_result('Invalid authenticated review metadata — no draft stored')
+            facts = payload.get('missing_facts', [])
+            step = payload.get('staff_next_step', '')
+            if (not isinstance(facts, list) or len(facts) > 20 or
+                    any(not isinstance(f, str) or not f.strip() or len(f) > 200 for f in facts) or
+                    not isinstance(step, str) or len(step) > 1000):
+                return _token_failure_result('Invalid authenticated review metadata — no draft stored')
         result["priority"] = str(result["priority"]).lower().strip()
         result["reason"] = " ".join(str(result.get("reason", "")).split())[:_MAX_REASON]
         raw_action = result.get("action")

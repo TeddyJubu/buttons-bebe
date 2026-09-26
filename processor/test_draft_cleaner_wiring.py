@@ -140,7 +140,7 @@ class ShouldDraftGateTests(unittest.TestCase):
                 self.assertEqual(result["draft_text"], "")
                 self.assertEqual(result["action"], "no_draft_needed")
                 self.assertFalse(result["notify_owner"])
-                self.assertEqual(result["priority"], "normal")
+                self.assertEqual(result["priority"], "low")
                 self.assertEqual(draft_for_console(result), "")
 
     @patch("hermes_runner.runner.run_bounded")
@@ -210,7 +210,7 @@ class GateRegressionTests(unittest.TestCase):
     @patch("hermes_runner.runner.get_settings")
     def test_unknown_action_fails_closed_to_sensitive_draft(self, get_settings, run):
         get_settings.return_value = SimpleNamespace(job_timeout=30, hermes_toolsets="buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias")
-        for action in ["no_draft_needed", "\x00<script>", "", "DELETED"]:
+        for action in ["\x00<script>", "", "DELETED"]:
             with self.subTest(action=action):
                 run.side_effect = _raw(
                     f'JSON_RESULT[@@T@@]: {{"priority":"low","reason":"r",'
@@ -405,7 +405,7 @@ class CleanDraftWiringTests(unittest.TestCase):
         self.assertEqual(result["priority"], "high")
         self.assertTrue(result["notify_owner"])
         self.assertEqual(draft_for_console(result), "")
-        self.assertNotEqual(draft_for_console(result), _FALLBACK_RESULT["draft_text"])
+        self.assertEqual(result['generation_error'],'safety_rejected')
 
     @patch("hermes_runner.runner.run_bounded")
     @patch("hermes_runner.runner.get_settings")
@@ -417,12 +417,9 @@ class CleanDraftWiringTests(unittest.TestCase):
             "Hi! We'll send you a prepaid return label and get the replacement shipped."
         )
         result = _call(message_text="My item arrived damaged.")
-        self.assertFalse(result.get("no_draft", False))
-        self.assertEqual(draft_for_console(result), dc._SAFE_REVIEW_BODY)
-        self.assertTrue(any(
-            "review-only fallback" in reason
-            for reason in result["clean_reasons"]
-        ))
+        self.assertTrue(result.get("no_draft", False))
+        self.assertEqual(draft_for_console(result), '')
+        self.assertEqual(result['generation_error'],'safety_rejected')
 
     @patch("hermes_runner.runner.run_bounded")
     @patch("hermes_runner.runner.get_settings")
@@ -516,13 +513,15 @@ class RunnerFailureTests(unittest.TestCase):
 
     @patch("hermes_runner.runner.run_bounded")
     @patch("hermes_runner.runner.get_settings")
-    def test_hermes_process_failure_keeps_the_existing_reviewable_fallback(
+    def test_hermes_process_failure_is_unavailable_without_customer_text(
         self, get_settings, run
     ):
         get_settings.return_value = SimpleNamespace(job_timeout=30, hermes_toolsets="buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias")
         run.return_value = SimpleNamespace(returncode=1, stderr="boom", stdout="")
         result = _call()
-        self.assertEqual(result["priority"], "high")
+        self.assertEqual(result["priority"], "normal")
+        self.assertEqual(result['generation_state'],'failed')
+        self.assertEqual(result['draft_text'],'')
         self.assertEqual(draft_for_console(result), _FALLBACK_RESULT["draft_text"])
 
     @patch("hermes_runner.runner.run_bounded")

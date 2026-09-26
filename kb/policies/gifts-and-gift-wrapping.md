@@ -37,3 +37,13 @@ returns are kept completely private. Baby gifts can be returned for **store cred
 within 21 days of delivery**. Ask for the **invoice number** on the packing slip to
 look up the original order, then arrange the return. See
 `return-windows-and-refund-tiers.md`.
+
+## Drafting gift changes and broken portals
+
+General gift policy does not prove that a particular order has been changed.
+For invoice omission and gift-note requests, address both parts and ask for an
+order identifier only if missing. Put staff-only packing/note checks in
+authenticated staff_next_step; never claim the change or a follow-up is underway.
+If a gift-return portal rejects a supplied invoice, do not repeat that portal or
+ask for the same invoice. Hold the draft for staff to validate the invoice and
+confirm the supported return route.

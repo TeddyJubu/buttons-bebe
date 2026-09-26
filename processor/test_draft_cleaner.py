@@ -356,17 +356,10 @@ class QualityGuardTests(unittest.TestCase):
             ]:
             with self.subTest(draft=draft):
                 result = dc.clean_draft(draft)
-                self.assertFalse(result.no_draft)
-                self.assertIn(
-                    result.text,
-                    (
-                        dc._SAFE_REVIEW_BODY,
-                        dc._COMPACT_SAFE_REVIEW_BODY,
-                        dc._SHORT_SAFE_REVIEW_BODY,
-                    ),
-                )
+                self.assertTrue(result.no_draft)
+                self.assertEqual(result.text, '')
                 self.assertLessEqual(len(result.text), len(draft))
-                self.assertIn("review-only fallback", " ".join(result.reasons))
+                self.assertIn("rejected unsupported operational promise", " ".join(result.reasons))
 
     def test_abbreviations_do_not_consume_the_sentence_budget(self):
         draft = (
@@ -397,14 +390,14 @@ class QualityGuardTests(unittest.TestCase):
         result = dc.clean_draft(
             "Hi! We're reviewing whether we can update the order, and we'll switch it right away."
         )
-        self.assertFalse(result.no_draft)
-        self.assertEqual(result.text, dc._SAFE_REVIEW_BODY)
-        self.assertIn("review-only fallback", " ".join(result.reasons))
+        self.assertTrue(result.no_draft)
+        self.assertEqual(result.text, '')
+        self.assertIn("rejected unsupported operational promise", " ".join(result.reasons))
 
     def test_short_unsafe_draft_gets_a_short_safe_fallback(self):
         result = dc.clean_draft("We'll ship.")
-        self.assertFalse(result.no_draft)
-        self.assertEqual(result.text, dc._SHORT_SAFE_REVIEW_BODY)
+        self.assertTrue(result.no_draft)
+        self.assertEqual(result.text, '')
         self.assertLessEqual(len(result.text), len("We'll ship."))
 
     def test_verified_shipping_status_is_not_treated_as_a_promise(self):
@@ -548,10 +541,10 @@ class NoCatastrophicBacktrackingTests(unittest.TestCase):
         # why that reasoning is wrong. The question fell off the end.
         padded = ("thanks " * 286) + "Why has my refund still not arrived?"
         self.assertGreater(len(padded), dc._MAX_GATE_SUBJECT)
-        self.assertTrue(dc.should_draft("thanks", padded).ok,
+        self.assertTrue(dc.should_draft("", padded).ok,
                         "a question past the subject cap was dropped")
         # ...and the same subject just under the cap always worked.
-        self.assertTrue(dc.should_draft("thanks", padded[:1_996]).ok)
+        self.assertTrue(dc.should_draft("", padded[:1_996]).ok)
 
     def test_a_padded_subject_alone_is_still_an_acknowledgement(self):
         self.assertFalse(dc.should_draft("thanks", "Re: " + " " * 100_000).ok)
@@ -593,7 +586,7 @@ class NoCatastrophicBacktrackingTests(unittest.TestCase):
         try:
             # The BODY has to be contentless, or should_draft returns before
             # it ever looks at the subject.
-            dc.should_draft("thanks", "Order" + " " * 500_000)
+            dc.should_draft("", "Order" + " " * 500_000)
         finally:
             dc._SUBJECT_NOISE_RE = real
         self.assertTrue(seen, "the subject pattern was never reached")
@@ -878,12 +871,9 @@ class ShouldDraftTests(unittest.TestCase):
                 self.assertFalse(dc.should_draft("thanks so much!", subject).ok)
 
     def test_a_subject_that_really_asks_something_still_drafts(self):
-        for subject, message in [("Do you have this in 6-9 months?", ""),
-                                 ("wrong size sent", "thanks"),
-                                 ("order not received", "thanks"),
-                                 ("Damaged item", "thanks!")]:
-            with self.subTest(subject=subject):
-                self.assertTrue(dc.should_draft(message, subject).ok)
+        self.assertTrue(dc.should_draft('', 'Do you have this in 6-9 months?').ok)
+        for subject in ('wrong size sent','order not received','Damaged item','Refund request'):
+            self.assertFalse(dc.should_draft('thanks!',subject).ok)
 
     def test_a_one_word_confirmation_is_not_an_acknowledgement(self):
         """"ok" answers "shall I cancel order #10234 before it ships?".
@@ -943,7 +933,7 @@ class ShouldDraftTests(unittest.TestCase):
         s = dc.should_draft("", subject="Do you have this in 6-9 months?")
         self.assertTrue(s.ok)
         s = dc.should_draft("thanks!", subject="Where is order #10322?")
-        self.assertTrue(s.ok)
+        self.assertFalse(s.ok)
         # both empty is still nothing to answer
         self.assertFalse(dc.should_draft("", subject="").ok)
         # a thank-you subject with a thank-you body is still an ack

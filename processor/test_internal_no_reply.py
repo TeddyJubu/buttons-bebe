@@ -2,13 +2,22 @@
 import unittest
 from draft_cleaner import clean_draft
 from hermes_runner.runner import draft_for_console
-from test_draft_cleaner_wiring import _compliant
+from test_draft_cleaner_wiring import _compliant, _raw
 from types import SimpleNamespace
 from unittest.mock import patch
 from hermes_runner import process_ticket_with_hermes
 
 
 class InternalNoReplyTests(unittest.TestCase):
+    def test_authenticated_no_reply_verdict_is_suppressed_without_safety_failure(self):
+        output='<DRAFT:@@T@@>No reply needed — empty message.</DRAFT:@@T@@>\nJSON_RESULT[@@T@@]: {"priority":"low","action":"no_draft_needed","reason":"No request","notify_owner":false}'
+        with patch('hermes_runner.runner.get_settings',return_value=SimpleNamespace(job_timeout=30,hermes_toolsets='buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias')), \
+             patch('hermes_runner.runner.run_bounded',side_effect=_raw(output)):
+            result=process_ticket_with_hermes(123,'','Empty / survey','',[])
+        self.assertEqual(result['generation_state'],'no_reply')
+        self.assertFalse(result['notify_owner'])
+        self.assertEqual(result['draft_text'],'')
+
     def test_bounded_internal_markers_are_empty_with_diagnostic(self):
         for text in ('No reply needed.', 'No response required', 'No draft is necessary.',
                      'No reply needed — this message contains no customer question or request.'):

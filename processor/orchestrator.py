@@ -15,7 +15,7 @@ Risk mitigations:
   - Singleton lock (only one processor instance can run)
   - Periodic stale job recovery (reclaims crashed 'processing' jobs)
   - Per-job timeout (prevents hung Hermes calls from blocking the queue)
-  - Retry with backoff (up to 3 retries for transient failures)
+  - Durable generation retries after 30 and 120 seconds for transient failures
   - Graceful shutdown (finishes current job, then exits)
   - DB lock retry (WAL mode + busy_timeout + retry-on-locked)
   - All failures logged with context for debugging
@@ -49,6 +49,7 @@ from bb_webhook.database import (  # noqa: E402
     get_pending_job_window,
     get_job_stats,
     init_db,
+    set_setting,
     requeue_stale_jobs,
 )
 
@@ -60,7 +61,7 @@ from hermes_runner import draft_for_console, process_ticket_with_hermes  # noqa:
 from logging_setup import get_logger, setup_logging, log_event  # noqa: E402
 from shared.priority import Priority, at_least, normalize
 from shared.review_policy import final_review_result  # noqa: E402
-from whatsapp_notifier import send_whatsapp  # noqa: E402
+from whatsapp_notifier import send_whatsapp, check_alert_route  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -194,6 +195,9 @@ def _save_result_to_webhook(
         "gorgias_priority_set": False,
         "note_posted": False,
         "draft_text": draft_text,
+        **{key: hermes_result[key] for key in (
+            'generation_attempt_id', 'generation_state', 'generation_error',
+            'review_required', 'staff_next_step', 'missing_facts') if key in hermes_result},
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -326,6 +330,12 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
     result["action"] = hermes_result.get("action", "sensitive_draft")
     notify_owner = hermes_result.get("notify_owner", False)
 
+    if hermes_result.get('action') == 'no_draft_needed' and det_result['sensitive']:
+        hermes_result.update(action='sensitive_draft', generation_state='failed',
+            generation_error='invalid_output', no_draft=True, draft_text='', review_required=True,
+            staff_next_step='Review the unresolved sensitive request; the model incorrectly suppressed its reply.')
+        result['action'] = 'sensitive_draft'
+
     # ── Deterministic classifier enforcement (escalate-only) ──────
     # If the deterministic classifier (which ran before Hermes) flagged
     # this ticket as IMMEDIATE or HIGH, escalate the final result to
@@ -377,6 +387,8 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
     # Unknown KB facts, explicit warnings and elevated priority cannot persist as
     # an ordinary draft merely because the model chose a contradictory action.
     hermes_result = final_review_result(hermes_result)
+    if job.get('generation_attempt_id'):
+        hermes_result['generation_attempt_id'] = job['generation_attempt_id']
     result["priority"] = hermes_result["priority"]
     result["action"] = hermes_result.get("action", "sensitive_draft")
 
@@ -501,7 +513,7 @@ async def run_processor() -> int:
     # Monotonic timestamp of the last "still alive" line. Starts at -inf so the
     # first idle pass logs immediately, proving liveness right after startup.
     last_idle_heartbeat = float("-inf")
-    last_recovery = time.monotonic()
+    last_recovery = float('-inf')
     # Sweep between jobs under the singleton lock, never in a background task
     # that could reclaim this process's still-running job. Newly abandoned
     # claims after a quick restart will age out without a second restart.
@@ -515,6 +527,7 @@ async def run_processor() -> int:
                     max_retries=settings.max_retries,
                 )
                 last_recovery = time.monotonic()
+                await set_setting('notification_route_health', json.dumps(check_alert_route()), settings.db_path_absolute)
                 if recovered:
                     log_event(logger, "WARNING", "Resolved abandoned claims; exhausted retries marked failed",
                               count=recovered,
@@ -615,6 +628,8 @@ async def _process_one_job(
     settings: Any,
 ) -> None:
     """Process a single job with claim, timeout, and error handling."""
+    from bb_webhook.draft_generation import begin_attempt, result_state, recover_attempt
+    from bb_webhook.db import Database
     job_id = job["id"]
     retry_count = job.get("retry_count", 0)
 
@@ -631,12 +646,23 @@ async def _process_one_job(
 
     try:
         saved = await get_job_result(job_id, settings.db_path_absolute) if is_customer else None
-        if saved is not None:
+        if saved is not None and result_state(saved) not in {'failed', 'retry_wait'}:
             # A prior attempt may have committed successfully before losing its
             # HTTP response or crashing. Keep that reviewed draft and do not run
             # Hermes again or create another owner-alert attempt.
             result = saved
         elif is_customer:
+            classification = _classify_for_selection(job) or {}
+            priority_context = dict(
+                priority={IMMEDIATE: 'critical', HIGH: 'high'}.get(classification.get('priority'), 'normal'),
+                notify_owner=classification.get('should_notify_owner', False),
+                reason=classification.get('reason', ''),
+            )
+            attempt_id = await begin_attempt(job_id, settings.db_path_absolute,
+                                             priority_context=priority_context)
+            if attempt_id is None:
+                return
+            job = dict(job, generation_attempt_id=attempt_id)
             result = await _run_with_timeout(
                 process_customer_message(job), timeout=settings.job_timeout, job_id=job_id,
             )
@@ -646,11 +672,17 @@ async def _process_one_job(
             )
 
         if is_customer:
+            current = await Database(settings.db_path_absolute).fetch(
+                'SELECT status FROM job_queue WHERE id=?', (job_id,))
+            if current and current[0]['status'] == 'skipped':
+                return  # New customer message or human action won publication.
             saved = await get_job_result(job_id, settings.db_path_absolute)
             if saved is None:
                 raise RuntimeError("No committed result for this job; completion refused")
             if saved.get("notify_owner"):
                 await _notify_owner_once(job, saved, settings.db_path_absolute)
+            if result_state(saved) == 'retry_wait':
+                return  # Durable next_attempt_at controls eligibility.
 
         completed = await complete_job(
             job_id, db_path=settings.db_path_absolute, require_result=is_customer,
@@ -663,6 +695,9 @@ async def _process_one_job(
                   priority=result.get("priority"))
 
     except asyncio.TimeoutError:
+        if is_customer and await recover_attempt(job_id, settings.db_path_absolute, 'timeout'):
+            await _notify_recovered_result(job, settings.db_path_absolute)
+            return
         error_msg = f"Job timed out after {settings.job_timeout}s"
         await fail_job(job_id, error_msg, settings.db_path_absolute)
         log_event(logger, "ERROR", "Job failed — timeout",
@@ -675,6 +710,9 @@ async def _process_one_job(
                       job_id=job_id, retry_count=retry_count + 1)
 
     except Exception as exc:
+        if is_customer and await recover_attempt(job_id, settings.db_path_absolute, 'runtime_error'):
+            await _notify_recovered_result(job, settings.db_path_absolute)
+            return
         error_msg = f"{type(exc).__name__}: {exc}"
         await fail_job(job_id, error_msg, settings.db_path_absolute)
         log_event(logger, "ERROR", "Job failed — exception",
@@ -687,6 +725,21 @@ async def _process_one_job(
             await requeue_failed_job(job_id, settings.db_path_absolute, max_retries=settings.max_retries)
             log_event(logger, "INFO", "Job requeued for retry",
                       job_id=job_id, retry_count=retry_count + 1)
+
+
+async def _notify_recovered_result(job: dict, db_path: Path) -> None:
+    """An unavailable draft must not suppress an urgent request's owner alert."""
+    from bb_webhook.db import Database
+    rows = await Database(db_path).fetch('SELECT status FROM job_queue WHERE id=?', (job['id'],))
+    if not rows or rows[0]['status'] == 'skipped':
+        return
+    saved = await get_job_result(job['id'], db_path)
+    if saved and saved.get('notify_owner'):
+        try:
+            await _notify_owner_once(job, saved, db_path)
+        except Exception:
+            # A claimed alert remains uncertain and visible; never retry it here.
+            log_event(logger, 'ERROR', 'Recovered generation alert needs operator review', job_id=job['id'])
 
 
 def main() -> int:

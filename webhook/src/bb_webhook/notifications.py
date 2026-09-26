@@ -39,7 +39,8 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
         subject = str(ticket.get("ticket_subject") or "(no subject)")
         customer = str(ticket.get("customer_email") or "Customer")
 
-        if job_status == "failed":
+        generation_state = ticket.get('generation_state')
+        if job_status == "failed" or generation_state == 'failed':
             # message_id can fall back to ticket_id above, and distinct tickets
             # share a message_id across jobs in the legacy store shape —
             # suffixing the job's ticket_id keeps ids unique so one ticket's
@@ -48,7 +49,7 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
                 "id": f"failed:{message_id}:{ticket.get('ticket_id')}",
                 "kind": "failed",
                 "severity": "error",
-                "title": "Ticket processing failed",
+                "title": "AI draft unavailable" if generation_state == 'failed' else "Ticket processing failed",
                 "detail": str(ticket.get("reason") or subject),
                 "ticket_id": ticket.get("ticket_id"),
                 "message_id": message_id,
@@ -59,11 +60,12 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
             })
             continue
 
-        if "escal" in action or priority in _REVIEW_PRIORITIES:
+        if "escal" in action or priority in _REVIEW_PRIORITIES or ticket.get('review_required'):
             title = (
                 "Sensitive ticket needs review"
                 if "escal" in action
-                else "High-priority ticket needs review"
+                else "High-priority ticket needs review" if priority in _REVIEW_PRIORITIES
+                else "Needs staff input"
             )
             notifications.append({
                 # Same collision as failed ids above: suffix the ticket_id so
@@ -73,7 +75,7 @@ def dashboard_notifications(tickets: list[dict[str, Any]]) -> list[dict[str, Any
                 "kind": "review",
                 "severity": "warning",
                 "title": title,
-                "detail": str(ticket.get("reason") or subject),
+                "detail": str(ticket.get('staff_next_step') or ticket.get("reason") or subject),
                 "ticket_id": ticket.get("ticket_id"),
                 "message_id": message_id,
                 "subject": subject,

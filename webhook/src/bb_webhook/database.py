@@ -150,6 +150,8 @@ async def init_db(db_path: Path | None = None) -> None:
         for column in ("ticket_spam", "ticket_trashed", "ticket_snoozed"):
             if column not in columns:
                 await conn.execute(f"ALTER TABLE parsed_messages ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+        from .draft_generation import migrate
+        await migrate(conn)
         await conn.commit()
 
     logger.info("Database initialized (WAL mode) at %s", db_path)
@@ -305,7 +307,7 @@ async def get_next_pending_job(db_path: Path | None = None) -> dict | None:
     db = Database(db_path)
     rows = await db.fetch(
         """SELECT * FROM job_queue
-           WHERE status = 'pending'
+           WHERE status = 'pending' AND (next_attempt_at IS NULL OR julianday(next_attempt_at)<=julianday('now'))
            ORDER BY is_customer_message DESC, created_at ASC
            LIMIT 1""",
         operation="get_next_pending_job",
@@ -329,7 +331,7 @@ async def get_pending_job_window(
     db = Database(db_path)
     rows = await db.fetch(
         """SELECT * FROM job_queue
-           WHERE status = 'pending'
+           WHERE status = 'pending' AND (next_attempt_at IS NULL OR julianday(next_attempt_at)<=julianday('now'))
            ORDER BY is_customer_message DESC, created_at ASC
            LIMIT ?""",
         (limit,),
@@ -352,7 +354,8 @@ async def claim_job(
     affected = await db.execute(
         """UPDATE job_queue
            SET status = 'processing', started_at = ?
-           WHERE id = ? AND status = 'pending'""",
+           WHERE id = ? AND status = 'pending'
+             AND (next_attempt_at IS NULL OR julianday(next_attempt_at)<=julianday('now'))""",
         (now, job_id),
         operation="claim_job",
         return_rowcount=True,
@@ -422,6 +425,14 @@ async def requeue_stale_jobs(
         raise ValueError("Recovery age and retry limit must be nonnegative")
     db = Database(db_path)
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)).isoformat()
+    from .draft_generation import recover_attempt
+    abandoned = await db.fetch("""SELECT DISTINCT j.id FROM job_queue j
+        JOIN draft_generation_attempts a ON a.job_id=j.id AND a.outcome='running'
+        WHERE j.status='processing' AND (julianday(j.started_at) IS NULL OR
+        julianday(j.started_at)<julianday(?)) ORDER BY j.id LIMIT 100""", (cutoff,))
+    recovered = 0
+    for row in abandoned:
+        recovered += int(await recover_attempt(row['id'], db_path))
     affected = await db.execute(
         """UPDATE job_queue
            SET status = CASE WHEN retry_count < ? THEN 'pending' ELSE 'failed' END,
@@ -444,7 +455,7 @@ async def requeue_stale_jobs(
     if affected:
         logger.warning("Resolved %d abandoned claims (retry limit %d); exhausted claims are failed",
                        affected, max_retries)
-    return int(affected or 0)
+    return int(affected or 0) + recovered
 
 
 async def requeue_failed_job(
@@ -647,6 +658,8 @@ async def get_dashboard_tickets(
         tr.note_posted,
         tr.draft_text,
         tr.processed_at,
+        tr.generation_state,tr.generation_error,tr.attempt_count,tr.next_retry_at,
+        tr.review_required,tr.staff_next_step,tr.missing_facts,
         CASE WHEN oa.status = 'attempting' THEN 'uncertain'
              ELSE oa.status END AS owner_alert_status
     FROM parsed_messages pm
@@ -662,7 +675,8 @@ async def get_dashboard_tickets(
         (limit, offset),
         operation="get_dashboard_tickets",
     )
-    return [dict(row) for row in (rows or [])]
+    from .draft_generation import public_result
+    return [public_result(row) for row in (rows or [])]
 
 
 async def dashboard_ticket_exists(
@@ -731,7 +745,14 @@ async def get_result_stats(db_path: Path | None = None) -> dict:
         "SELECT COUNT(*) AS count FROM owner_alert_attempts WHERE status != 'accepted'",
         operation="owner_alert_attention_count",
     )
+    generation = await db.fetch("""SELECT outcome,COUNT(*) AS count FROM draft_generation_attempts
+        WHERE outcome!='running' GROUP BY outcome""", operation="generation_stats")
+    generation_counts = {row['outcome']: row['count'] for row in generation}
+    from .notification_health import read_health
     return {**job_stats, **result_stats,
+            "notification_route": await read_health(db_path),
+            "generation_attempts": generation_counts,
+            "generation_succeeded": generation_counts.get('ready', 0) + generation_counts.get('needs_review', 0),
             "owner_alerts_need_attention": alert_rows[0]["count"]}
 
 

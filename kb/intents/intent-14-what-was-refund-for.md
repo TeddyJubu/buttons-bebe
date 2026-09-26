@@ -28,15 +28,12 @@ Do not assume a return-related refund is correct until reviewed. A refund connec
 
 ## Customer response if refund was before shipping
 
-Hi! We checked your order.
-The refund was issued because [item name] was out of stock/unavailable before your order shipped, so you were refunded for that item.
+Explain the refund reason only when that reason is explicitly recorded; an unfulfilled order or a typical stock issue does not establish it. Otherwise mark Needs staff input and have staff verify the affected item, amount and recorded reason.
 
 ## Customer response if refund was connected to a return
 
-Hi! We’ll look into this for you.
-Since this refund was connected to a return, we want to review the return details carefully to make sure everything was processed correctly. We’ll check the items, refund amount, and return status and get back to you.
+Use verified return/refund facts only. Ask for an identifying order or invoice only if missing. If records do not explain the amount or decision, hold the draft for a specific staff review of items, amount, return status and applicable policy.
 
 ## Customer response while under review
 
-Hi! We’re checking into this now.
-We want to make sure the refund was processed correctly, so we’re reviewing the order/return details before confirming.
+Mark Needs staff input with the specific refund facts to verify. Do not claim someone is reviewing, promise an update, or replace the answer with a generic acknowledgment.

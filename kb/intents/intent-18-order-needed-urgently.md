@@ -16,11 +16,14 @@ Warehouse can be asked to rush processing, but delivery depends on selected ship
 Locate order.
 Ask warehouse to prioritize if possible.
 Check selected shipping method.
-If slow shipping was selected, offer upgraded shipping if order has not shipped.
-Do not guarantee delivery unless shipping method/carrier supports it.
+If slow shipping was selected, staff must verify available upgrades and any cost
+before offering one. Record this as staff_next_step with review_required=true
+when no verified customer step is available. Never imply prioritization or a
+shipping change has happened. Do not guarantee dispatch or delivery.
 
 ## Customer response
 
-Hi! We’ll do our best to help.
-We can send a message to the warehouse asking them to try to get your order out faster. Please note that delivery timing will still depend on the shipping method selected at checkout.
-If you need it by a specific date and the order has not shipped yet, we can check whether a faster shipping option is available.
+Use observed fulfillment and shipping facts only. Ask for the needed-by date
+if it is absent: "What date do you need the order by?" If it is already supplied,
+do not ask again. Hold the draft for staff to confirm possible dispatch/upgrade
+options, with the exact order and deadline in authenticated internal metadata.

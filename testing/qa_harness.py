@@ -164,7 +164,7 @@ finally:
 
 
 class Harness:
-    def __init__(self, *, output: Path, model_config: Path, hermes: Path, hermes_python: Path, hermes_source: Path, kb_mode: str, timeout: int, base_port: int, product_manifest: Path | None = None, product_manifest_sha256: str | None = None):
+    def __init__(self, *, output: Path, model_config: Path, hermes: Path, hermes_python: Path, hermes_source: Path, kb_mode: str, timeout: int, base_port: int, product_manifest: Path | None = None, product_manifest_sha256: str | None = None, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None):
         if not model_config.is_file() or model_config.is_symlink() or model_config.stat().st_mode & 0o077:
             raise ValueError("Model-only config must be a private regular file")
         if model_config.stat().st_size > 16384:
@@ -209,6 +209,16 @@ class Harness:
         extra = load_manifest(product_manifest,product_manifest_sha256) if product_manifest is not None else set()
         self.catalog_receipt = {"sha256":product_manifest_sha256,"count":len(extra)}
         atomic_json(self.allowlist,sorted(policy_files(REPO) | extra))
+        if (policy_overlay is None) != (policy_overlay_sha256 is None):
+            raise ValueError('Policy snapshot and reviewed hash must be supplied together')
+        self.policy_overlay = None
+        if policy_overlay is not None:
+            if kb_mode != 'policies-only':
+                raise ValueError('Proposed content requires the policies-only projection')
+            from qa_policy_overlay import load_overlay
+            self.policy_overlay = self.output/'policy-overlay.json'
+            atomic_json(self.policy_overlay, load_overlay(policy_overlay, policy_overlay_sha256, REPO))
+        self.policy_overlay_sha256 = policy_overlay_sha256
         self.kb_mode=kb_mode;self.timeout=timeout;self.children=[]
         self.secret_values=([model["access_token"]] if "access_token" in model else []) + [value for key,value in model["model"].items() if key=="api_key" and isinstance(value,str) and value]
 
@@ -219,6 +229,9 @@ class Harness:
                 probe.bind(("127.0.0.1",port))
         for group,port in self.ports.items():
             command=[sys.executable,str(HERE/"qa_mcp_server.py"),"--group",group,"--port",str(port),"--fixture",str(self.fixture_path),"--audit",str(self.audit_path),"--allowlist",str(self.allowlist),"--kb-mode",self.kb_mode]
+            if self.policy_overlay:
+                command.extend(['--policy-overlay', str(self.policy_overlay), '--policy-overlay-sha256',
+                                hashlib.sha256(self.policy_overlay.read_bytes()).hexdigest()])
             self.children.append(subprocess.Popen(command,env=self.env,cwd=self.output,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True))
         schemas={}
         deadline=time.monotonic()+20
@@ -236,7 +249,8 @@ class Harness:
                  "production_prompt_sha256":hashlib.sha256((REPO/"processor/hermes_runner/prompt.py").read_bytes()).hexdigest(),
                  "production_extract_sha256":hashlib.sha256((REPO/"processor/hermes_runner/extract.py").read_bytes()).hexdigest(),
                  "profile_sha256":hashlib.sha256(json.dumps(self.config,sort_keys=True).encode()).hexdigest(),
-                 "product_catalog_manifest":self.catalog_receipt,"policy_allowlist_sha256":hashlib.sha256(self.allowlist.read_bytes()).hexdigest()}
+                 "product_catalog_manifest":self.catalog_receipt,"policy_allowlist_sha256":hashlib.sha256(self.allowlist.read_bytes()).hexdigest(),
+                 "proposed_policy_snapshot_sha256":self.policy_overlay_sha256}
         atomic_json(self.output/"preflight.json",receipt)
         self.assert_no_fatal_audit()
 

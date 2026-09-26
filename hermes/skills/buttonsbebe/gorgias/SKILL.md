@@ -44,7 +44,10 @@ because the ticket is sensitive.
 - Never write to Gorgias, even if an older prompt or example mentions an internal
   note, curl, or a write toggle.
 - Never send a customer-facing message.
-- Always draft; for a missing KB answer, acknowledge the request, flag the gap,
-  and do not invent facts.
+- Draft actionable requests; pure thanks get no new draft or alert and do not
+  resolve an underlying case. Ask one necessary clarification or hold the draft
+  for staff with authenticated review_required/missing_facts/staff_next_step
+  metadata. Missing knowledge alone is normal priority. Never invent facts or
+  generic failure acknowledgments.
 - Report `gorgias_priority_set=false` and `note_posted=false`; priority and owner
   notification still reflect the ticket's actual urgency.

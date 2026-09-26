@@ -722,17 +722,20 @@ async function loadOwnerAlerts(offset=0){
  if(tab==="overview"){render();requestAnimationFrame(()=>document.getElementById("owner-alert-title")?.focus());}
 }
 function overview(){
- const ownerAlerts=`${loadErrors.includes("stats")?"":ownerAlertWarning(stats.owner_alerts_need_attention)}${ownerAlertInspection()}`;
+ const route=stats.notification_route;
+ const routeWarning=route&&(route.status!=='ok'||!route.connected||!route.destination_configured)?`<div class="warn" role="status">Owner notification connection needs attention (${esc(route.status)}). Transport acceptance does not confirm delivery. Existing alerts remain available below.</div>`:'';
+ const ownerAlerts=`${routeWarning}${loadErrors.includes("stats")?"":ownerAlertWarning(stats.owner_alerts_need_attention)}${ownerAlertInspection()}`;
  if(loadErrors.includes("stats")||loadErrors.includes("tickets"))return `${opsPanel()}${ownerAlerts}<div class="panel" role="alert"><h3>Overview metrics are unavailable</h3><div class="ph">Refresh to retry. No missing values are being presented as zero.</div></div>${learnPanel()}`;
  const standardDrafts=stats.drafted||0,sensitiveDrafts=stats.sensitive_draft||0,noKbDrafts=stats.no_kb_match||0,legacyEscalated=stats.escalated||0;
  const drafted=standardDrafts+sensitiveDrafts+noKbDrafts,escalated=legacyEscalated+sensitiveDrafts,done=stats.done||0,failed=stats.failed||0;
  const handled=drafted+legacyEscalated,autor=handled?Math.round(drafted/handled*100):0;
  const queue=(stats.pending||0)+(stats.processing||0),currentEsc=tickets.filter(isEsc).length;
+ const generation=stats.generation_attempts||{},generated=stats.generation_succeeded||0,genFailed=(generation.failed||0)+(generation.retry_wait||0);
  const kpis=[
   {l:"Tickets processed",v:done,s:"all-time",up:true},
-  {l:"AI drafts written",v:drafted,s:"created all-time",up:true},
+  {l:"AI generations completed",v:generated,s:"recorded successful attempts",up:true},
   {l:"Escalated to you",v:escalated,s:"sensitive only",up:false},
-  {l:"Draft coverage",v:autor+"%",s:"drafted vs escalated",up:true},
+  {l:"AI generation failures",v:genFailed,s:"failed attempts, including retries",up:!genFailed,dn:!!genFailed},
   {l:"Failed jobs",v:failed,s:failed?"needs a look":"all clear",up:!failed,dn:!!failed},
   {l:"In queue",v:queue,s:"waiting / running",up:true}
  ];
@@ -749,7 +752,7 @@ function overview(){
   <div class="panel"><h3>Risk breakdown</h3><div class="ph">Historical classifications — filtered inbox drill-downs unavailable</div>
    <div class="hb">${pr.map(p=>`<div class="r"><div class="lab">${p[0]}</div><div class="track"><div class="fill" style="width:${Math.round(p[1]/mx*100)}%;background:${p[2]}"></div></div><div class="n">${p[1]}</div></div>`).join("")}</div></div>
   <div class="panel"><div class="panel-head"><div><h3>Recent activity</h3><div class="ph">Latest tickets your agent touched</div></div><button class="view-all" data-go-filter="all">Open inbox →</button></div>
-   <div class="act">${recent.length?recent.map(t=>`<button class="r activity-link" data-go-ticket="${esc(keyOf(t))}"><div class="ic ${isEsc(t)?'a':'g'}">${isEsc(t)?'!':IC.check}</div><div><b>${esc(nameOf(t))}</b> - ${esc(t.ticket_subject||"(no subject)")}<br><small>${isEsc(t)?'Escalated to you':'AI drafted a reply'}</small></div><div class="tm">${ago(t)}</div></button>`).join(""):'<div class="hint">No tickets processed yet.</div>'}</div></div>
+   <div class="act">${recent.length?recent.map(t=>`<button class="r activity-link" data-go-ticket="${esc(keyOf(t))}"><div class="ic ${isEsc(t)?'a':'g'}">${isEsc(t)?'!':IC.check}</div><div><b>${esc(nameOf(t))}</b> - ${esc(t.ticket_subject||"(no subject)")}<br><small>${['failed','retry_wait'].includes(t.generation_state)?'AI draft unavailable':t.generation_state==='needs_review'?'Needs staff input':t.generation_state==='no_reply'?'No new question':isEsc(t)?'Flagged for review':'AI drafted a reply'}</small></div><div class="tm">${ago(t)}</div></button>`).join(""):'<div class="hint">No tickets processed yet.</div>'}</div></div>
  </div>${learnPanel()}`;
 }
 function learnPanel(){

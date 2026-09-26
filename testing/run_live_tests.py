@@ -20,15 +20,19 @@ def main():
     parser.add_argument("--output",type=Path,required=True,help="New private run directory outside the live application")
     parser.add_argument("--product-manifest",type=Path)
     parser.add_argument("--product-manifest-sha256")
+    parser.add_argument('--policy-overlay', type=Path, help='Reviewed proposed KB snapshot; no live publication')
+    parser.add_argument('--policy-overlay-sha256')
     parser.add_argument("--kb-mode",choices=("fixture","policies-only"),default="fixture")
     parser.add_argument("--base-port",type=int,default=18877)
     parser.add_argument("--timeout",type=int,default=180)
     parser.add_argument("--limit",type=int,default=0)
     parser.add_argument("--ids",default="")
+    parser.add_argument('--suite',choices=('core','reliability'),default='core')
     args=parser.parse_args()
-    scenarios=json.loads((Path(__file__).parent/"scenarios.json").read_text())
-    if len(scenarios)!=48 or len({s["id"] for s in scenarios})!=48:
-        parser.error("Scenario catalog must have exactly48 unique IDs")
+    filename,expected=('scenarios.json',48) if args.suite=='core' else ('reliability-scenarios.json',10)
+    scenarios=json.loads((Path(__file__).parent/filename).read_text())
+    if len(scenarios)!=expected or len({s["id"] for s in scenarios})!=expected:
+        parser.error(f'Scenario catalog must have exactly {expected} unique IDs')
     indexed=list(enumerate(scenarios,1))
     if args.ids:
         wanted=set(args.ids.split(","))
@@ -43,7 +47,8 @@ def main():
     try:
         harness=Harness(output=args.output,model_config=args.model_config,hermes=args.hermes,hermes_python=args.hermes_python,
                         hermes_source=args.hermes_source,kb_mode=args.kb_mode,timeout=args.timeout,base_port=args.base_port,
-                        product_manifest=args.product_manifest,product_manifest_sha256=args.product_manifest_sha256)
+                        product_manifest=args.product_manifest,product_manifest_sha256=args.product_manifest_sha256,
+                        policy_overlay=args.policy_overlay,policy_overlay_sha256=args.policy_overlay_sha256)
         harness.start(scenario_fixture(indexed[0][1],indexed[0][0]))
         results=[]
         for ordinal,scenario in indexed:

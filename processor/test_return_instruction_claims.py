@@ -16,6 +16,15 @@ class ReturnInstructionTests(unittest.TestCase):
                 + INSTRUCTION + ' Both drop-off and mail options work.')
         self.assertEqual(clean_draft(text).text, text)
 
+    def test_observed_combined_return_guidance_is_preserved(self):
+        text = ('Please include a note inside listing each item and its order '
+                'number so the warehouse can process them correctly.')
+        self.assertEqual(clean_draft(text).text, text)
+        for unsafe in (text + ' We will issue your refund.',
+                       text.replace('correctly.', 'correctly and refund you.'),
+                       text.replace('them correctly', 'your refund today')):
+            self.assertTrue(clean_draft(unsafe).no_draft)
+
     def test_exception_does_not_hide_other_claims_or_financial_changes(self):
         for text in (INSTRUCTION + ' We will issue your refund.',
                      'We will credit your account. ' + INSTRUCTION,

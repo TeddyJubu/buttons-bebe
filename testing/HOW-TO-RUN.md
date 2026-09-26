@@ -5,6 +5,15 @@ synthetic scenarios through the actual processor prompt, command builder, token
 extraction and cleaner. It never posts results to the queue, sends a reply,
 creates a learning record, or calls customer Gorgias/Redo services.
 
+For proposed KB edits, use the KB Python environment to run
+`testing/qa_policy_snapshot.py --output <new private JSON>`. Pass the printed
+SHA-256 and path using `--policy-overlay <snapshot> --policy-overlay-sha256
+<digest> --kb-mode policies-only`. This keeps the existing reviewed allowlist
+and substitutes proposed content only for policy/FAQ/intent hits already returned
+by published search. Product data is unchanged. The preflight records the snapshot
+hash. This tests replies against proposed content; it neither publishes articles
+nor validates a rebuilt index's ranking.
+
 The runner requires an explicit underlying Hermes executable, interpreter and
 source directory. Do not use a production shell wrapper or copy the production
 Hermes home. Root must prepare a private model-only JSON file outside the repo,
@@ -40,6 +49,11 @@ new output directory and omit `--limit` for all 48 scenarios. `--ids R01,R02`
 selects known scenario IDs for a new recovery run. Never overwrite prior evidence.
 Run serially: the three local QA MCP ports must not overlap another run.
 
+After the core 48, use `--suite reliability` in a new output directory to run
+the ten additional acknowledgment, measurement, supplied-identifier, broken
+gift-return portal, shipping-hours, pickup-readiness, holiday and cancellation
+regressions. These do not replace or change the core 48-case catalog.
+
 Every run creates a private HOME, disables native toolsets and memories, starts
 exactly three loopback MCP stubs, and checks the actual Hermes tool definitions
 before calling the model. Missing or extra tools abort. Gorgias and Redo use only
@@ -59,8 +73,10 @@ regex masking is not proof that arbitrary prose contains no personal information
 Review every result using TEST-PLAN.md. A captured response or an authenticated
 marker alone is not a quality pass. Results retain raw synthetic model output
 with masking, production extraction diagnostics and tool metadata for review.
-Sensitive cases must have a useful prefixed human-review draft and correct
-priority/escalation. Financial actions and unsupported promises are failures.
+Sensitive actionable cases must have a useful prefixed human-review draft and correct
+priority/escalation. Pure thanks produce no new draft/alert. Staff-only unknowns
+must carry a specific authenticated staff task and Needs staff input; an ordinary
+knowledge gap is not urgency. Financial actions and unsupported promises are failures.
 Inspect all 48, record explicit per-case judgments and unresolved defects, then
 rerun changed cases and the full gate as warranted. No QA result authorizes Send.
 

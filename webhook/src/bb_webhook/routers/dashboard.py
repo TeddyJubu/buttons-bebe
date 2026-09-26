@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, StrictBool, field_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 
 from .. import deps
 
@@ -72,6 +72,34 @@ class ResultPayload(BaseModel):
     notify_owner: StrictBool = False
     gorgias_priority_set: StrictBool = False
     note_posted: StrictBool = False
+    generation_attempt_id: int | None = Field(default=None, gt=0)
+    generation_state: Literal['ready','needs_review','no_reply','failed'] | None = None
+    generation_error: Literal['timeout','process_exit','runtime_error','authentication','invalid_output','safety_rejected'] | None = None
+    review_required: StrictBool = False
+    staff_next_step: str = Field(default='', max_length=1000)
+    missing_facts: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode='after')
+    def _coherent_generation(self):
+        if self.generation_attempt_id is None and (
+                self.generation_state is not None or self.generation_error is not None
+                or self.review_required or self.staff_next_step or self.missing_facts):
+            raise ValueError('generation_attempt_required_for_metadata')
+        if self.generation_attempt_id is not None:
+            if not self.job_id or not self.generation_state:
+                raise ValueError('generation_identity_and_state_required')
+            if self.generation_state == 'failed' and not self.generation_error:
+                raise ValueError('failed_generation_error_required')
+            if self.generation_state == 'needs_review' and not self.staff_next_step.strip():
+                raise ValueError('staff_task_required')
+        return self
+
+    @field_validator('missing_facts')
+    @classmethod
+    def _bounded_facts(cls, value):
+        if any(not fact.strip() or len(fact) > 200 for fact in value):
+            raise ValueError('invalid_missing_facts')
+        return value
 
     @field_validator("ticket_id", "job_id", mode="before")
     @classmethod
@@ -134,6 +162,15 @@ async def record_result_api(request: Request) -> JSONResponse:
         field = str(first.get("loc", [""])[0] if first.get("loc") else "")
         key = _FIELD_ERRORS.get(field, f"invalid_{field}" if field else "invalid_request")
         return JSONResponse(status_code=400, content={"error": key})
+
+    if payload.generation_attempt_id is not None:
+        from ..draft_generation import finish_attempt
+        from ..send_intents import ActionConflict
+        try:
+            state = await finish_attempt(payload.model_dump(), deps.get_db())
+        except ActionConflict as exc:
+            return JSONResponse(status_code=exc.status, content={'error': exc.error})
+        return JSONResponse(content={'status': 'ok', 'generation_state': state})
 
     await deps.database_function("record_ticket_result")(
         ticket_id=payload.ticket_id,

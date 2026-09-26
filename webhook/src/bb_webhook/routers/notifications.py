@@ -16,6 +16,13 @@ router = APIRouter(prefix="/dashboard/api")
 _NOTIFICATION_READ_STATE_KEY = "console_notification_read_state_v1"
 
 
+@router.get('/notification-health')
+async def notification_health() -> JSONResponse:
+    """Read the processor's sanitized, non-sending route check."""
+    from ..notification_health import read_health
+    return JSONResponse(content=await read_health(deps.get_db()), headers={'Cache-Control': 'no-store'})
+
+
 def _read_notification_state(raw_state: str) -> dict[str, str]:
     """Read the bounded, server-side acknowledgement map safely."""
     try:

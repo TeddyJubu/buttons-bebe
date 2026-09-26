@@ -22,12 +22,7 @@ response only when the read-only order record confirms a human completed it.
 
 ## Customer response while staff reviews the requested change
 
-Hi! No problem — we’re reviewing whether we can update the item to size
-[new size] before it ships. We’ll confirm as soon as our team has checked it.
-
-The AI must not say the size was switched or the order was updated. A human may
-replace this draft with completed-action wording only after the order record
-confirms that authorized staff made the change.
+Report observed fulfillment and availability facts only. When staff must decide or apply the size change, mark Needs staff input with the exact requested item/size and checks in staff_next_step. Never say staff are reviewing, that a change happened, or that confirmation will follow. Retain urgency for a change before shipment.
 
 ## Customer response if requested size unavailable
 

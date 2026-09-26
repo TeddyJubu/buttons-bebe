@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -12,7 +13,7 @@ from logging_setup import get_logger, log_event
 from shared.priority import RANK
 from shared.review_policy import final_review_result
 
-from .process import run_bounded
+from .process import run_bounded, OutputLimitExceeded
 
 from .constants import (
     _FALLBACK_RESULT,
@@ -68,7 +69,7 @@ def draft_for_console(hermes_result: dict[str, Any]) -> str:
     if reviewed.get("no_draft"):
         return ""
     draft = reviewed["draft_text"]
-    return draft if draft else str(_FALLBACK_RESULT["draft_text"])
+    return draft
 
 
 
@@ -93,6 +94,10 @@ def _no_draft_result(parsed: dict[str, Any], reason: str) -> dict[str, Any]:
     result["draft_text"] = ""
     result["no_draft"] = True
     result["reason"] = reason
+    result['generation_state'] = 'failed'
+    result['generation_error'] = 'safety_rejected'
+    result['review_required'] = True
+    result['staff_next_step'] = 'Write a grounded reply manually; the generated reply failed safety review.'
     return result
 
 
@@ -142,6 +147,7 @@ def process_ticket_with_hermes(
         return skipped
 
     settings = get_settings()
+    timeout = getattr(settings, 'hermes_timeout', getattr(settings, 'job_timeout', 240))
     run_token = _make_run_token()
     prompt = _build_prompt(
         ticket_id,
@@ -161,14 +167,14 @@ def process_ticket_with_hermes(
             ticket_id=ticket_id,
             prompt_length=len(prompt),
             hermes_flags=command[1:-1],
-            timeout=settings.job_timeout,
+            timeout=timeout,
         )
 
         result = run_bounded(
             command,
             capture_output=True,
             text=True,
-            timeout=settings.job_timeout,
+            timeout=timeout,
             env=_run_environment(settings),
         )
         stdout = str(result.stdout or "").strip()
@@ -180,7 +186,9 @@ def process_ticket_with_hermes(
                 ticket_id=ticket_id,
                 returncode=result.returncode,
             )
-            return dict(_FALLBACK_RESULT)
+            diagnostic=(stdout[:100000]+' '+str(result.stderr or '')[:100000])
+            auth_error=re.search(r'\b(?:401|403|unauthorized|authentication failed|invalid api key|access token expired)\b',diagnostic,re.I)
+            return dict(_FALLBACK_RESULT, generation_error='authentication' if auth_error else 'process_exit')
         if not stdout:
             return _authentication_failure(
                 "Hermes produced empty output — no run-token authentication; "
@@ -220,6 +228,11 @@ def process_ticket_with_hermes(
             return _authentication_failure(
                 "Hermes verdict failed run-token normalization — no draft stored"
             )
+        if parsed.get('action') == 'no_draft_needed':
+            # An authenticated non-action decision is not a rejected customer
+            # draft. The orchestrator still refuses suppression of a genuinely
+            # sensitive newest request using its independent classification.
+            return final_review_result(dict(parsed,generation_state='no_reply',no_draft=True,draft_text=''))
         draft_text = draft_info.text
         cleaned = clean_draft(draft_text)
         if cleaned.reasons:
@@ -284,9 +297,13 @@ def process_ticket_with_hermes(
             "ERROR",
             "Hermes invocation timed out",
             ticket_id=ticket_id,
-            timeout=settings.job_timeout,
+            timeout=timeout,
         )
-        return dict(_FALLBACK_RESULT)
+        return dict(_FALLBACK_RESULT, generation_error='timeout')
+    except (ValueError, OutputLimitExceeded) as exc:
+        log_event(logger, "ERROR", "Hermes output or configuration rejected",
+                  ticket_id=ticket_id, error_type=type(exc).__name__)
+        return dict(_FALLBACK_RESULT, generation_error='invalid_output')
     except Exception as exc:  # noqa: BLE001 - queue loop must fail soft
         log_event(
             logger,

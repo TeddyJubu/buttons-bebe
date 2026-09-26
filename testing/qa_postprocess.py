@@ -19,7 +19,7 @@ import types
 from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parent.parent
-DATABASE_FUNCTIONS = ('claim_job claim_owner_alert finish_owner_alert get_job_result complete_job fail_job get_next_pending_job get_pending_job_window get_job_stats init_db requeue_stale_jobs').split()
+DATABASE_FUNCTIONS = ('claim_job claim_owner_alert finish_owner_alert get_job_result complete_job fail_job get_next_pending_job get_pending_job_window get_job_stats init_db requeue_stale_jobs set_setting').split()
 
 
 def forbidden(*args, **kwargs):

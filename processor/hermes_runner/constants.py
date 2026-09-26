@@ -13,9 +13,10 @@ _NONCE_BYTES = 8
 
 # These are the only action values that a trusted Hermes verdict may use.
 _ALLOWED_ACTIONS = frozenset(
-    {"drafted", "sensitive_draft", "escalated", "no_kb_match"}
+    {"drafted", "sensitive_draft", "escalated", "no_kb_match", "no_draft_needed"}
 )
 _ACTION_SEVERITY = {
+    "no_draft_needed": 0,
     "drafted": 0,
     "no_kb_match": 1,
     "sensitive_draft": 2,
@@ -38,18 +39,20 @@ def _make_run_token() -> str:
     return secrets.token_hex(_NONCE_BYTES)
 
 
-# ADR-015 §2.3 — runner execution failure is sendable; token failure is not.
+# Execution failure is an operator state, never a customer acknowledgment.
 _FALLBACK_RESULT: dict[str, Any] = {
-    "priority": "high",
-    "reason": "Hermes invocation failed — defaulting to high for safety",
-    "action": "sensitive_draft",
-    "notify_owner": True,
+    "priority": "normal",
+    "reason": "AI draft unavailable — generation failed",
+    "action": "no_kb_match",
+    "notify_owner": False,
     "gorgias_priority_set": False,
     "note_posted": False,
-    "draft_text": (
-        f"{SENSITIVE_DRAFT_PREFIX}\n\n"
-        "Thanks for your message. I don’t have a confirmed answer to share yet."
-    ),
+    "draft_text": "",
+    "no_draft": True,
+    "generation_state": "failed",
+    "generation_error": "runtime_error",
+    "review_required": True,
+    "staff_next_step": "Retry AI generation or write the reply manually.",
 }
 
 
@@ -67,6 +70,10 @@ _TOKEN_FAILURE_RESULT: dict[str, Any] = {
     "note_posted": False,
     "draft_text": "",
     "no_draft": True,
+    "generation_state": "failed",
+    "generation_error": "authentication",
+    "review_required": True,
+    "staff_next_step": "Review the ticket manually; the AI output could not be authenticated.",
 }
 
 
@@ -80,8 +87,9 @@ def _token_failure_result(reason: str | None = None) -> dict[str, Any]:
 
 
 _NO_DRAFT_RESULT: dict[str, Any] = {
-    "priority": "normal",
+    "priority": "low",
     "reason": "No draft generated — nothing to answer in the customer message",
+    "generation_state": "no_reply",
     "action": "no_draft_needed",
     "notify_owner": False,
     "gorgias_priority_set": False,

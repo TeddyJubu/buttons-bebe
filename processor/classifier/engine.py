@@ -30,6 +30,11 @@ def classify(
     """Classify a ticket while preserving the legacy three-view contract."""
     raw_subject_text = str(payload.get("ticket_subject") or "")
     raw_message_text = str(payload.get("message_text") or "")
+    from draft_cleaner import should_draft
+    if not should_draft(raw_message_text, raw_subject_text).ok:
+        return {'priority': NORMAL, 'sensitive': False, 'should_notify_owner': False,
+                'reason': 'No new request in the latest acknowledgment', 'matched': [],
+                'should_draft': False, 'source': 'deterministic'}
     main_views = [f"{raw_subject_text} {raw_message_text}".lower()]
     folded = _views._fold_smart_quotes(main_views[0])
     if folded != main_views[0]:

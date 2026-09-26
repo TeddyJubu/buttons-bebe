@@ -2,7 +2,7 @@
 title: Intent 21 — Customer asks when a brand is launching
 category: intents
 status: confirmed
-tags: [launch, new-arrivals, brand, launch-date, do-not-guess, escalate]
+tags: [launch, new-arrivals, brand, launch-date, do-not-guess, staff-review]
 ---
 
 ## Policy — brand launch date
@@ -15,13 +15,12 @@ If launch date is known, answer. If unknown, do not guess.
 
 Check saved launch calendar/info.
 If date is known, answer.
-If date is not known, give general answer.
+If date is not known, hold for a specific staff check.
 If many customers ask about same brand, escalate to staff and save answer for future.
 
 ## Customer response if date unknown
 
-Hi! New arrivals are posted regularly, and launches are usually announced through our website, emails/texts, or Instagram.
-We don’t always have an exact time to share, but if a date is available, we’re happy to let you know.
+Do not invent a launch date or substitute a generic acknowledgment. Mark Needs staff input at normal priority and set staff_next_step to verify the named brand/collection launch date with staff. General announcement channels may be described as background only when supported.
 
 ## Customer response if date known
 
