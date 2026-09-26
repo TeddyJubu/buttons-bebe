@@ -54,6 +54,21 @@ class ReliabilityContractTests(unittest.TestCase):
             self.assertEqual(result['generation_state'],'failed')
             self.assertEqual(result['draft_text'],'')
 
+    def test_customer_clarification_is_usable_but_legacy_gaps_stay_held(self):
+        token='0123456789abcdef'
+        legacy=dict(priority='normal',action='no_kb_match',reason='Product not identified',notify_owner=False)
+        clarification={**legacy,'review_required':False,'staff_next_step':'','missing_facts':[]}
+        marker=lambda data:f'JSON_RESULT[{token}]: '+json.dumps(data)
+        for verdict, expected in ((clarification,'ready'),(legacy,'needs_review')):
+            parsed=_parse_json_result(marker(verdict),token=token)
+            result=final_review_result({**parsed,'draft_text':'Could you send the product link? '})
+            self.assertEqual(result['generation_state'],expected)
+            self.assertEqual(result['priority'],'normal')
+            self.assertFalse(result['notify_owner'])
+        self.assertEqual(final_review_result(legacy)['generation_state'],'needs_review')
+        merged=_parse_json_result(marker(clarification)+'\n'+marker(legacy),token=token)
+        self.assertTrue(merged['review_required'])
+
     def test_inner_timeout_is_independent_and_provider_auth_failure_is_not_transient(self):
         settings=SimpleNamespace(job_timeout=270,hermes_timeout=240,
             hermes_toolsets='buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias')

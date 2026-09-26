@@ -90,8 +90,8 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
 
 - Production: VPS **`srv1766050`** (2.25.137.77), Ubuntu, everything under
   `/root/Buttonsbebe Agent/`. This repo mirrors that tree.
-- Brain: **Hermes Agent** CLI (Nous Research), model **`glm-5.2`** via Ollama
-  Cloud (`~/.hermes/config.yaml`).
+- Brain: **Hermes Agent** CLI (Nous Research), currently **`gpt-6-luna`** via
+  the OpenAI Codex provider (`~/.hermes/config.yaml`; verified 2026-09-26).
 - **A push to `main` that passes CI auto-deploys to production** — see §8.
 
 ## 4. End-to-end flow

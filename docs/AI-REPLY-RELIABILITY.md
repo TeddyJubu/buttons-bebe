@@ -54,6 +54,12 @@ shipping/hours questions do not require an order number. A broken return portal
 needs a specific staff task, not the same broken link again. Product measurements
 need evidence for that product; ordinary gaps remain normal priority.
 
+A necessary customer clarification remains usable when authenticated metadata
+explicitly sets review_required=false, including a no_kb_match result. Older
+results without that metadata retain staff review; multiple verdicts retain any
+review requirement. A future staff task does not block asking the customer for
+the product or order identifier needed first.
+
 Order pickup requires confirmed readiness, independently of pickup selection,
 outdoor-bin accessibility and staffed hours. Regular hours do not prove holiday
 or particular-day opening. Unfulfilled is not evidence of packing, dispatch,
@@ -117,3 +123,10 @@ Proposed KB articles can be tested with the hash-pinned policy snapshot describe
 in testing/HOW-TO-RUN.md. This uses published search ranking with proposed article
 content, without publishing articles or rebuilding the live index. Verify index
 retrieval separately after the approved KB publication.
+
+When only parsing/cleaning changes after a model capture, qa_postprocess.py
+--reparse revalidates the immutable authenticated stdout through the current
+runner, cleaner and orchestrator without new model calls or external effects.
+It records each input hash and executed source hashes. Report this separately
+from a fresh model run, retain the original failures, and rerun the model when
+the prompt or knowledge changes.

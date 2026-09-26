@@ -3,6 +3,25 @@ import unittest
 from qa_postprocess import replay
 
 class PostprocessTests(unittest.TestCase):
+    def test_recorded_model_output_is_revalidated_without_another_model_call(self):
+        import json
+        record=self.record('What is the sleeve length of this dress?')
+        record['scenario']['intent']='product'
+        verdict=dict(priority='normal',reason='Need exact product',action='no_kb_match',
+                     notify_owner=False,review_required=False,missing_facts=[],staff_next_step='')
+        token='0123456789abcdef'
+        record.update(model_called=True,process_returncode=0,authenticated_verdict=True,
+            run_token=token,hermes_output=f'<DRAFT:{token}>Could you share the product link?</DRAFT:{token}>\nJSON_RESULT[{token}]: '+json.dumps(verdict))
+        record['result'].update(generation_state='needs_review',review_required=True)
+        original=copy.deepcopy(record)
+        result=replay([record],reparse=True)['records'][0]
+        self.assertEqual(record,original)
+        self.assertEqual(result['console_result']['generation_state'],'ready')
+        self.assertEqual(result['console_draft'],'Could you share the product link?')
+        self.assertTrue(result['reparsed_stdout'])
+        record['run_token']='f'*16
+        with self.assertRaises(RuntimeError): replay([record],reparse=True)
+
     def record(self, message='Please cancel order #10361 before shipping.'):
         return {'id':'QA-1','scenario':{'id':'QA-1','subject':'Order request','message':message,'email':'qa@example.com','intent':'cancel'},
                 'result':{'priority':'normal','action':'drafted','notify_owner':False,'draft_text':'Your cancellation request needs staff approval.','gorgias_priority_set':False,'note_posted':False}}

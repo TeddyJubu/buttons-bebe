@@ -19,7 +19,9 @@ def final_review_result(value: dict[str,Any]) -> dict[str,Any]:
     action=str(result.get('action','')).strip().lower()
     draft=str(result.get('draft_text') or '').strip()
     state=result.get('generation_state')
-    review=bool(result.get('review_required')) or action=='no_kb_match'
+    # An authenticated false means the customer can supply the one missing
+    # detail. Older results without metadata retain their cautious fallback.
+    review=bool(result.get('review_required', action=='no_kb_match'))
     header=_HEADER.match(draft)
     sensitive=(at_least(priority,Priority.HIGH) or
                (action in {'sensitive_draft','escalated'} and not review))

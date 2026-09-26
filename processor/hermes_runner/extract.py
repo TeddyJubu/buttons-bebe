@@ -136,14 +136,17 @@ def _merge_verdicts(
             str(block[1]["priority"]).lower().strip(), -1
         ),
     )[1]
-    review_blocks=[block for block in blocks if block[1].get('review_required') is True]
+    def needs_review(payload: dict[str, Any]) -> bool:
+        return payload.get('review_required', str(payload.get('action', '')).strip().lower() == 'no_kb_match') is True
+
+    review_blocks=[block for block in blocks if needs_review(block[1])]
     review_source=max(review_blocks,key=lambda block:RANK.get(str(block[1]['priority']).lower().strip(),-1))[1] if review_blocks else best
     merged: dict[str, Any] = {
         "priority": best.get("priority"),
         "reason": best.get("reason"),
         "action": best.get("action"),
         "notify_owner": best.get("notify_owner"),
-        "review_required": any(p.get('review_required') is True for _, p in blocks),
+        "review_required": any(needs_review(p) for _, p in blocks),
         "staff_next_step": review_source.get('staff_next_step', ''),
         "missing_facts": review_source.get('missing_facts', []),
     }

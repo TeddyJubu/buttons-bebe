@@ -6,6 +6,17 @@ from hermes_runner.prompt import _build_prompt
 
 
 class EvidenceDraftTests(unittest.TestCase):
+    def test_conditional_pickup_policy_does_not_confirm_an_order_change(self):
+        safe=("Hi there, we can switch a pickup order to shipping if it hasn’t been picked up, "
+              "but the change and any shipping charge are not confirmed yet.")
+        self.assertEqual(cleaner.clean_draft(safe).text,safe)
+        for unsafe in (safe+' We will change your order.',
+                       safe[:-1]+', and we will change your order.',
+                       safe.replace('are not confirmed yet','are confirmed'),
+                       'We can switch your order to shipping.'):
+            with self.subTest(unsafe=unsafe):
+                self.assertTrue(cleaner.clean_draft(unsafe).no_draft)
+
     def test_conditional_refund_explanation_is_not_an_issued_refund_claim(self):
         safe=("Refund amounts can vary depending on whether the refund was issued before shipping "
               "or was connected to a return, and I can’t confirm the reason yet.")

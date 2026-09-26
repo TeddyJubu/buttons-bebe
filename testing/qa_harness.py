@@ -297,7 +297,7 @@ class Harness:
         valid_verdicts=_valid_verdicts(output,token=token)[0] if output else []
         extraction=_extract_draft_details(output,token=token) if output else None
         return {"id":scenario["id"],"scenario":scenario,"result":result,"hermes_output":redact(output),
-                "seconds":round(time.monotonic()-started,2),"process_returncode":process.returncode if process else None,
+                "seconds":round(time.monotonic()-started,2),"run_token":token,"process_returncode":process.returncode if process else None,
                 "model_called":captured.get("attempted",False),"authenticated_verdict":bool(valid_verdicts),
                 "draft_extraction":vars(extraction) if extraction else None,"human_review":"pending",
                 "tool_calls":[json.loads(line) for line in self.audit_path.read_text().splitlines() if json.loads(line).get("scenario_id")==scenario["id"]] if self.audit_path.exists() else []}

@@ -188,6 +188,11 @@ _PACKING_TEAM_CLAIM_RE = re.compile(
     rf"(?:{_OPERATION_VERBS}|{_OPERATION_PARTICIPLES}|{_UPDATE_OPERATION})\b",
     re.IGNORECASE,
 )
+_CONDITIONAL_PICKUP_POLICY_RE = re.compile(
+    r"\A\s*(?:hi\s+there,\s*)?we\s+can\s+switch\s+a\s+pickup\s+order\s+to\s+shipping\s+"
+    r"if\s+it\s+hasn['’]t\s+been\s+picked\s+up,\s+but\s+the\s+change\s+and\s+any\s+"
+    r"shipping\s+charge\s+are\s+not\s+confirmed\s+yet[.!]?\s*\Z", re.IGNORECASE,
+)
 
 # No tool evidence is available to the cleaner. First-person work commitments
 # cannot be authenticated here; preserve factual policy and customer questions.
@@ -392,7 +397,8 @@ def _find_action_claim(text: str) -> str:
         sentence_end = min(endings) + 1 if endings else len(text)
         full_sentence = text[sentence_start:sentence_end]
         if (len(full_sentence) <= 250
-                and _RETURN_IDENTIFICATION_INSTRUCTION_RE.fullmatch(full_sentence)):
+                and (_RETURN_IDENTIFICATION_INSTRUCTION_RE.fullmatch(full_sentence)
+                     or _CONDITIONAL_PICKUP_POLICY_RE.fullmatch(full_sentence))):
             continue
         sentence = text[sentence_start:match.end()]
         # A policy explanation conditional on refund timing does not assert
