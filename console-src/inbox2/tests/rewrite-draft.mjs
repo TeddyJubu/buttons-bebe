@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const base=process.env.INBOX_TEST_URL||'http://127.0.0.1:8878';
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(10000);
@@ -37,7 +38,7 @@ async function request(instruction='Make it shorter and warmer, and ask which co
   await edit.click();await input.fill(instruction);await submit.click();
 }
 async function refresh(){await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));}
-await page.goto('http://127.0.0.1:8878/inbox/?ticket=gorgias%3A123');await ready();
+await page.goto(`${base}/inbox/?ticket=gorgias%3A123`);await ready();
 assert.equal(await page.getByRole('switch').getAttribute('aria-checked'),'false');
 await edit.click();assert(await dialog.isVisible());assert(await submit.isDisabled());
 assert(await input.evaluate(el=>el===document.activeElement));
@@ -87,7 +88,7 @@ delay=new Promise(resolve=>release=resolve);await request();
 await page.evaluate(()=>{history.pushState({},'', '/inbox/?ticket=gorgias%3A789');dispatchEvent(new PopStateEvent('popstate'));});
 await body.filter({hasText:other.readonlyDraft}).waitFor();assert(await dialog.isHidden());release();delay=null;
 await page.waitForTimeout(100);assert.equal(await body.textContent(),other.readonlyDraft);
-await page.goto('http://127.0.0.1:8878/inbox/?ticket=gorgias%3A123');await ready();assert.equal(await body.textContent(),ticket.readonlyDraft);
+await page.goto(`${base}/inbox/?ticket=gorgias%3A123`);await ready();assert.equal(await body.textContent(),ticket.readonlyDraft);
 // Source-less or superseded suggestions cannot be edited.
 ticket.draftSourceMessageId='';await page.reload();await ready();assert(await edit.isDisabled());
 ticket.draftSourceMessageId='456';ticket.draftSuperseded=true;await page.reload();await composer.waitFor();assert.equal(await edit.count(),0);

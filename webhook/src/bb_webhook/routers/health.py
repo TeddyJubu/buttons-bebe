@@ -60,6 +60,8 @@ async def ready() -> JSONResponse:
                         "oldest_pending_seconds": _age(by_status["pending"]["oldest_created"]) if "pending" in by_status else None,
                         "oldest_processing_seconds": _age(by_status["processing"]["oldest_started"]) if "processing" in by_status else None,
                     }
+                    from ..notification_health import read_health
+                    diagnostics['notification_route'] = await read_health(path)
     except Exception:
         # Never echo DB paths, credentials or provider errors from a public probe.
         checks["db"] = "unavailable"

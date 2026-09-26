@@ -12,7 +12,7 @@ function slice(from, to) {
 function harness() {
   const context = {
     loadErrors: [],
-    stats: { done: 91, drafted: 80, sensitive_draft: 10, escalated: 3, failed: 6, pending: 4, processing: 2, critical: 7 },
+    stats: { done: 91, drafted: 80, sensitive_draft: 10, escalated: 3, failed: 6, pending: 4, processing: 2, critical: 7, generation_succeeded:55,generation_attempts:{failed:3,retry_wait:2} },
     tickets: [{ ticket_id: 42, ticket_subject: "Example ticket", escalated: true }],
     opsPanel: () => "", ownerAlertWarning: () => "", ownerAlertInspection: () => "", learnPanel: () => "",
     digits: String, esc: String, isEsc: ticket => ticket.escalated,
@@ -46,7 +46,8 @@ test("UI-03: explicit all-inbox and individual ticket actions remain available",
 test("UI-03: historical KPI and risk totals stay separate from recent-ticket counts", () => {
   const html = harness().overview();
   assert.match(html, /<strong>1<\/strong>[\s\S]*?Recent escalations/);
-  assert.match(html, /AI drafts written<\/div><div class="v">90<\/div>/);
+  assert.match(html, /AI generations completed<\/div><div class="v">55<\/div>/);
+  assert.match(html, /AI generation failures<\/div><div class="v">5<\/div>/);
   assert.match(html, /Escalated to you<\/div><div class="v">13<\/div>/);
   assert.match(html, /Critical<\/div>[\s\S]*?<div class="n">7<\/div>/);
 });

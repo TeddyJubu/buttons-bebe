@@ -27,5 +27,4 @@ Hi! Your order was updated to ship to the address on file. You’ll receive trac
 
 ## Customer response if shipping payment is needed
 
-Hi! We can switch your order from pickup to shipping.
-Your order does not meet the free-shipping minimum, so there will be a shipping charge. We can send you an invoice for the shipping cost, and once it’s paid, we’ll have the order shipped out.
+State a shipping charge only when verified for this order. If staff have not confirmed the change and invoice, hold the draft as Needs staff input. Set staff_next_step to verify pickup status, address, shipping eligibility/cost and the required invoice. Never claim a switch, invoice or dispatch has happened or is guaranteed.

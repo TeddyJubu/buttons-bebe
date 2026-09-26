@@ -23,6 +23,26 @@ class ProjectionTests(unittest.TestCase):
             db.execute("INSERT INTO parsed_messages VALUES(1,'m1','customer','qa@example.com','qa@example.com','<script>title</script>','email','closed','agent@example.com','[\"vip\"]','urgent',0,0,0,'2099-01-01','2099-01-01',1,?)",('<img onerror=alert(1)>'+('x'*21000),))
             db.execute("INSERT INTO ticket_results VALUES(1,'m1','Draft only','high','sensitive_draft','Review','2099-01-01')")
     def tearDown(self):self.tmp.cleanup()
+
+    def test_empty_failure_and_staff_metadata_remain_visible_with_exact_revision(self):
+        import hashlib
+        with sqlite3.connect(self.source) as db:
+            for name,kind in [('generation_state','TEXT'),('review_required','INTEGER'),('missing_facts','TEXT'),('staff_next_step','TEXT')]:
+                db.execute(f'ALTER TABLE ticket_results ADD COLUMN {name} {kind}')
+            db.execute("UPDATE ticket_results SET draft_text='',generation_state='failed'")
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertEqual(ticket['draftGenerationState'],'failed')
+        self.assertEqual(ticket['draftRevision'],hashlib.sha256(b'').hexdigest())
+        self.assertEqual(ticket['readonlyDraft'],'')
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE ticket_results SET draft_text=?,generation_state='needs_review',review_required=1,missing_facts=?,staff_next_step=?",
+                ('x'*25000,'["sleeve length"]','Measure the named dress sleeve.'))
+        export(self.source,self.dest,now=self.now)
+        ticket=query('helpdesk.get_ticket',{'ticketId':'gorgias:1'},self.dest)['ticket']
+        self.assertTrue(ticket['draftReviewRequired'])
+        self.assertEqual(ticket['draftMissingFacts'],['sleeve length'])
+        self.assertEqual(ticket['draftRevision'],hashlib.sha256(b'x'*25000).hexdigest())
     def test_identity_allowlist_from_same_event_never_exports_other_payload_fields(self):
         payload={'ticket':{'id':1,'customer':{'id':987,'name':'Synthetic Customer','email':'qa@example.com',
                   'phone':'+1 synthetic','password':'NEVER-EXPORT','orders':[{'total':999}],

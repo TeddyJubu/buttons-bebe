@@ -56,7 +56,8 @@ class ProcessorSettings(BaseSettings):
 
     # ── Processor tuning ──────────────────────────────────
     poll_interval: float = Field(default=2.0, alias="PROCESSOR_POLL_INTERVAL")
-    job_timeout: int = Field(default=120, alias="PROCESSOR_JOB_TIMEOUT")  # seconds
+    job_timeout: int = Field(default=270, alias="PROCESSOR_JOB_TIMEOUT", ge=1)
+    hermes_timeout: int = Field(default=240, alias="HERMES_TIMEOUT", ge=1)
     max_retries: int = Field(default=3, alias="PROCESSOR_MAX_RETRIES")
     stale_job_minutes: int = Field(default=10, alias="PROCESSOR_STALE_MINUTES")
     # How often the idle loop emits a "still alive" log line. This is the
@@ -93,6 +94,12 @@ class ProcessorSettings(BaseSettings):
     # ── Logging ───────────────────────────────────────────
     log_format: str = Field(default="json", alias="LOG_FORMAT")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    @model_validator(mode="after")
+    def validate_generation_budget(self) -> "ProcessorSettings":
+        if self.job_timeout <= self.hermes_timeout:
+            raise ValueError('PROCESSOR_JOB_TIMEOUT must exceed HERMES_TIMEOUT')
+        return self
 
     @model_validator(mode="after")
     def validate_demo_boundary(self) -> "ProcessorSettings":

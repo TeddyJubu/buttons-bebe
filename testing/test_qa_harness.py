@@ -54,6 +54,12 @@ class PolicyBoundaryTests(unittest.TestCase):
         for index,row in enumerate(rows,1):scenario_fixture(row,index)
         with self.assertRaises(ValueError):scenario_fixture({**SCENARIO,"email":"person@customer.invalid"},1)
 
+    def test_reliability_regressions_are_separate_synthetic_cases(self):
+        rows=json.loads((Path(__file__).parent/'reliability-scenarios.json').read_text())
+        self.assertEqual(len(rows),10)
+        self.assertEqual(len({r['id'] for r in rows}),10)
+        for index,row in enumerate(rows,1):scenario_fixture(row,index)
+
 
 class RuntimeBoundaryTests(unittest.TestCase):
     def setUp(self):

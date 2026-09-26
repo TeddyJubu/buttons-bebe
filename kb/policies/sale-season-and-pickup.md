@@ -22,6 +22,9 @@ The warehouse / pickup location is:
 **Buttons Bebe — 2133 Lakewood Rd, Unit 104, Toms River, NJ 08755**
 Hours: **Mon–Thu 9am–3pm · Fri 9am–2pm**
 
+These are regular staffed hours, not confirmation of a particular day's or
+holiday schedule. Verify a current notice or ask staff before saying “open today.”
+
 Customers are welcome to visit during hours to browse, try items on, pick up, or
 return. Extended hours are sometimes available — customers can text 908-910-5441 to
 confirm hours before visiting.
@@ -42,6 +45,9 @@ Warehouse pickup orders are placed in **outdoor pickup bins** at the Toms River
 address, accessible **24/7**. Orders stay in the bin for approximately **2 months**.
 To pick up, the customer selects the Toms River pickup option at checkout. For any
 pickup trouble, text **848-240-8260**.
+
+Pickup selection and 24/7 access do not prove the order is ready. Invite collection
+of a specific order only after a ready-for-pickup record or notification is confirmed.
 
 ## Public contacts
 

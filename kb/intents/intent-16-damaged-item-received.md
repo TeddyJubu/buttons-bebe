@@ -24,6 +24,6 @@ If no replacement is available, follow refund/return/store-credit policy.
 
 ## Customer response
 
-Hi! We’re so sorry the item arrived damaged.
-Please send us clear photos of the damage, along with a photo of the item tag/label if possible. We’ll pass this along to the company and check what can be done.
-If we have another one available, we’ll also check whether we can send a replacement.
+Hi there, I’m sorry the item arrived damaged. Could you send clear photos of the damage and the item’s tag?
+
+Ask only for photos not already supplied. When evidence is complete, hold the draft for a staff decision about the item/vendor/replacement; record the exact task in staff_next_step without claiming it has started.

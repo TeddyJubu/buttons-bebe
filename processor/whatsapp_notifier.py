@@ -19,6 +19,39 @@ from logging_setup import get_logger, log_event
 
 logger = get_logger(__name__)
 
+
+def check_alert_route() -> dict:
+    """Authenticated GET only. Never send text or expose the token-bearing URL."""
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+    result = {'checked_at': datetime.now(timezone.utc).isoformat(), 'status': 'unconfigured'}
+    url = os.getenv('WHATSAPP_SEND_URL', '').strip()
+    secret = os.getenv('WA_SEND_SECRET', '').strip()
+    if not url or not secret:
+        return result
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'http' or parsed.hostname not in {'127.0.0.1', '::1'} or
+                parsed.port != (8185 if demo_mode_enabled() else 8085) or
+                not parsed.path.startswith('/connect-whatsapp/') or not parsed.path.endswith('/send') or
+                parsed.username or parsed.password or parsed.query or parsed.fragment):
+            return {**result, 'status': 'invalid_route'}
+        request = urllib.request.Request(url + '/check', headers={'Authorization': 'Bearer ' + secret}, method='GET')
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(request, timeout=3) as response:
+            body = json.loads(response.read(2049))
+        if body.get('ok') is not True or body.get('route') != 'owner_alert':
+            return {**result, 'status': 'invalid_response'}
+        return {**result, 'status': 'ok', 'connected': body.get('connected') is True,
+                'destination_configured': body.get('destinationConfigured') is True}
+    except urllib.error.HTTPError as exc:
+        return {**result, 'status': 'route_mismatch' if exc.code == 404 else
+                'authentication_failed' if exc.code in (401,403) else 'unavailable'}
+    except Exception:
+        return {**result, 'status': 'unavailable'}
+
 # The alert body below is newline-delimited, and every value interpolated into
 # it is customer-controlled. `subject` is the Gorgias ticket subject, typed by
 # whoever emailed in. A newline in it does not wrap a line - it writes NEW
@@ -179,10 +212,10 @@ def send_whatsapp(
             if ok:
                 if attempt > 0:
                     log_event(logger, "INFO",
-                              "WhatsApp alert sent on retry",
+                              "WhatsApp alert accepted by bridge on retry",
                               ticket_id=ticket_id, attempt=attempt + 1)
                 else:
-                    log_event(logger, "INFO", "WhatsApp alert sent",
+                    log_event(logger, "INFO", "WhatsApp alert accepted by bridge",
                               ticket_id=ticket_id)
                 return True
 

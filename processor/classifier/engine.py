@@ -13,6 +13,7 @@ from . import data as _data
 from . import matching as _matching
 from . import patterns as _patterns
 from . import views as _views
+from .request_context import service_issue_view
 
 
 logger = get_logger("classifier")
@@ -30,13 +31,20 @@ def classify(
     """Classify a ticket while preserving the legacy three-view contract."""
     raw_subject_text = str(payload.get("ticket_subject") or "")
     raw_message_text = str(payload.get("message_text") or "")
-    main_views = [f"{raw_subject_text} {raw_message_text}".lower()]
+    from draft_cleaner import should_draft
+    if not should_draft(raw_message_text, raw_subject_text).ok:
+        return {'priority': NORMAL, 'sensitive': False, 'should_notify_owner': False,
+                'reason': 'No new request in the latest acknowledgment', 'matched': [],
+                'should_draft': False, 'source': 'deterministic'}
+    classification_subject = service_issue_view(raw_subject_text)
+    classification_message = service_issue_view(raw_message_text)
+    main_views = [f"{classification_subject} {classification_message}".lower()]
     folded = _views._fold_smart_quotes(main_views[0])
     if folded != main_views[0]:
         main_views.append(folded)
 
-    raw_message = _views._normalise_text(raw_message_text)
-    raw_subject = _views._normalise_text(raw_subject_text)
+    raw_message = _views._normalise_text(classification_message)
+    raw_subject = _views._normalise_text(classification_subject)
     message_text = raw_message.lower()
     ticket_subject = raw_subject.lower()
     combined_text = f"{ticket_subject} {_views._drop_store_boilerplate(message_text)}"

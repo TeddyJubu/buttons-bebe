@@ -24,7 +24,6 @@ Do not rely only on inventory count.
 
 ## Customer response
 
-Hi! We’re so sorry about that.
-We’ll help get this corrected. Please send us a photo of the item you received, including the tag/label if possible, so we can confirm what was sent.
-Once confirmed, our team will review the order and let you know the approved
-next step.
+Hi there, I’m sorry you received the wrong item. Could you send a photo of the item with its tag?
+
+Ask only if the photo is not already supplied. Put any warehouse/replacement decision in authenticated staff_next_step; never promise a correction or follow-up.

@@ -16,8 +16,10 @@ as general advice, never as a guarantee for a specific item:
 - Tumble dry low or lay flat to reduce shrinkage; many baby knits and cottons can
   shrink on high heat.
 
-If the customer needs item-specific instructions we don't have, say we'll check
-and route to a human rather than guessing.
+If the customer needs item-specific instructions we don't have, request normal
+staff review with a specific care-label task rather than guessing or claiming
+someone has started work. If the item is not identified, ask for its link or a
+care-label photo; that necessary clarification does not require staff input.
 
 ## Shrinkage / damage after washing
 

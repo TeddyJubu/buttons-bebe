@@ -28,22 +28,28 @@ assignment, internal-note posting, or customer sends.
 2. Normalize the customer's actual question and search the KB before drafting.
 3. Read Redo/order context when relevant.
 4. Classify priority and decide whether the ticket is sensitive.
-5. Always produce a concise, KB-grounded draft.
-6. Return the full draft between `<DRAFT>` and `</DRAFT>` and then output
-   `JSON_RESULT` with `gorgias_priority_set=false` and `note_posted=false`.
+5. Produce a concise, useful draft for actionable requests; pure thanks get no new draft or alert.
+6. Return the exact run-token DRAFT and JSON_RESULT markers and metadata
+   required by the runtime prompt; gorgias_priority_set and note_posted stay false.
 7. The processor stores the result for the console. Only a human can choose Send,
    internal Note, or Request edit.
 
 ## Sensitive tickets
 
 Refunds, chargebacks, disputes, damaged/wrong/missing items, lost packages,
-cancellations, address changes, and angry customers always receive a draft. Prefix
-it with `[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]`. Use safe acknowledgment
-language and do not promise or confirm money movement, replacement, cancellation,
-or another binding action.
+cancellations, urgent address changes, and unresolved urgent complaints require
+elevated review when they are the latest actionable request. Pure thanks on those
+threads produce no new draft or alert and preserve the case. Prefix sensitive
+drafts with `[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]`; supply a grounded
+answer, necessary clarification, or specific staff task without promising money
+movement, replacement, cancellation or another binding action.
 
-If the KB has no answer, still draft a generic acknowledgment for human review and
-set the action to `no_kb_match`; never guess.
+If the KB has no answer, ask one genuinely missing customer detail only if it
+unblocks the answer. Otherwise mark `review_required=true` with a specific
+`staff_next_step` and `missing_facts` in authenticated JSON_RESULT. Ordinary
+knowledge gaps remain normal priority and receive no owner alert. Never generate
+a generic acknowledgment or claim that staff have started work. Failed generation
+is AI draft unavailable. Use the runtime prompt's tokenized output markers.
 
 ## Safety boundary
 

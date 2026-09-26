@@ -3299,11 +3299,12 @@ class ContractTests(unittest.TestCase):
                 self.assertTrue(result["sensitive"])
                 self.assertTrue(result["should_notify_owner"])
 
-    def test_classifier_never_suppresses_a_draft(self):
-        # main's contract: this classifier may escalate, never stop a draft.
-        for message in ["", "thanks", "chargeback", "SHOUTING AT YOU RIGHT NOW OK"]:
+    def test_classifier_drafts_actionable_requests_only(self):
+        for message in ["chargeback", "SHOUTING AT YOU RIGHT NOW OK"]:
             with self.subTest(message=message):
                 self.assertTrue(_c(message)["should_draft"])
+        for message in ['', 'thanks']:
+            self.assertFalse(_c(message)['should_draft'])
 
 
 @unittest.skipUnless(SCENARIOS.is_file(),

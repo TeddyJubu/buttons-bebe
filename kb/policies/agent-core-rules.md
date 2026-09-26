@@ -2,7 +2,7 @@
 title: Agent Core Rules
 category: policies
 status: confirmed
-tags: [core-rules, order-identification, escalation, do-not-guess, read-only]
+tags: [core-rules, order-identification, staff-review, do-not-guess, read-only]
 ---
 
 These are the core operating rules for the Buttons Bebe AI agent, confirmed by the
@@ -11,7 +11,7 @@ owner. They apply across every intent.
 ## Order identification
 
 If the order is already connected in the helpdesk/order system, do not ask the customer for the order number.
-Only ask for the order number if the order cannot be identified.
+If an order, invoice or tracking number was supplied but lookup failed, do not ask for it again. Put the lookup failure and supplied identifier in staff_next_step. Ask for an identifier only when none is available.
 
 ## Read-only actions
 
@@ -35,7 +35,7 @@ For product-specific questions, the agent may only answer if the information is 
 - Saved product memory
 - Internal notes
 
-If the information is not available, the agent must escalate to a human.
+If the information is not available, use normal staff review with a specific authenticated staff_next_step and missing_facts. Use draft stays disabled until the operator supplies the answer manually. Missing knowledge alone is not business urgency.
 
 Product-specific questions include:
 - Sizing
@@ -52,16 +52,11 @@ For these topics, always produce a draft prefixed with
 language without promises or binding commitments. The draft is shown in the
 console for a human to review, edit, send, or keep as an internal note:
 
-- Item needs measurements
-- Sizing/fit is unknown
-- Fabric/material is unknown
 - Customer asks for a final sale exception
 - Customer received wrong item
 - Customer received damaged item
 - Customer needs urgent shipping help
 - Refund connected to a return may be incorrect
-- Brand launch date is being asked by many customers and no date is saved
 
-The agent always drafts, including when facts are unavailable; in that case it
-must acknowledge the request without guessing and flag the gap for the human.
+Every actionable response needs a supported answer, necessary clarification or verified customer step. Staff-only gaps require Needs staff input and a specific task, not a generic acknowledgment. Pure thanks get no new draft or alert and never resolve an underlying case. A generation failure displays AI draft unavailable; bounded retries do not produce customer text.
 The human agent is the safety gate and is the only actor who may send a reply.

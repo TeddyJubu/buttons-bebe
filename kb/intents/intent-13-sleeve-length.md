@@ -16,7 +16,7 @@ Answer only if information is available from product data, image, title, descrip
 Check product page/title/description.
 Check saved product info.
 If clear, answer.
-If not clear, escalate.
+If not clear, use normal staff review.
 
 ## Customer response if known
 
@@ -24,4 +24,4 @@ Hi! This item is [long sleeve / short sleeve].
 
 ## Customer response if unknown
 
-Hi! We’re checking that for you and will get back to you as soon as we can.
+Ask for product identity only if missing; otherwise hold for normal staff input. Set staff_next_step to verify sleeve type/length for the exact item and size. Never invent the measurement or claim it is being checked.

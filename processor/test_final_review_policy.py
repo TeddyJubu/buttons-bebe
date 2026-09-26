@@ -22,12 +22,9 @@ class FinalReviewTests(unittest.IsolatedAsyncioTestCase):
         return returned, save.call_args.kwargs
 
     async def test_contradictory_outputs_are_sensitive_at_actual_persistence_boundary(self):
-        for fields in ({'action': 'no_kb_match', 'priority': 'normal'},
-                       {'action': 'escalated', 'priority': 'low'},
+        for fields in ({'action': 'escalated', 'priority': 'low'},
                        {'action': 'drafted', 'priority': ' CRITICAL '},
-                       {'action': 'drafted', 'priority': 'HIGH'},
-                       {'action': 'drafted', 'priority': 'normal',
-                        'draft_text': '[SENSITIVE] Please share the product name.'}):
+                       {'action': 'drafted', 'priority': 'HIGH'}):
             with self.subTest(fields=fields):
                 model = {'draft_text': 'Please share the product name.', 'notify_owner': False, **fields}
                 returned, saved = await self.persist(model)
@@ -38,6 +35,16 @@ class FinalReviewTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(saved['draft_text'].startswith(SENSITIVE_DRAFT_PREFIX))
                 self.assertEqual(saved['draft_text'], draft_for_console(model))
                 self.assertFalse(saved['hermes_result']['note_posted'])
+
+    async def test_missing_facts_and_headers_require_review_without_urgency(self):
+        for fields in ({'action': 'no_kb_match'}, {'action': 'drafted',
+                'draft_text': '[SENSITIVE] Please share the product name.'}):
+            _, saved = await self.persist({'priority': 'normal',
+                'draft_text': 'Please share the product name.', **fields})
+            self.assertEqual(saved['hermes_result']['priority'], 'normal')
+            self.assertTrue(saved['hermes_result']['review_required'])
+            self.assertFalse(saved['hermes_result']['notify_owner'])
+            self.assertFalse(saved['draft_text'].startswith('[SENSITIVE'))
 
     async def test_normal_facts_remain_ordinary_without_owner_alert(self):
         for priority in ('low', 'normal'):

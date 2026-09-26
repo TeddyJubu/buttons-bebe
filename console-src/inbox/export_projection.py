@@ -5,6 +5,7 @@ import argparse
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 import grp
+import hashlib
 import json
 import os
 import re
@@ -102,9 +103,16 @@ def identity_context(row, raw):
 def extract(source, now):
     cutoff=(datetime.fromtimestamp(now,timezone.utc)-timedelta(days=90)).isoformat()
     with closing(connect(source)) as db:
+        db.create_function('draft_revision', 1, lambda value: hashlib.sha256((value or '').encode()).hexdigest())
         deadline=time.monotonic()+5
         db.set_progress_handler(lambda:int(time.monotonic()>deadline),10000)
         db.execute('BEGIN')
+        columns={r[1] for r in db.execute('PRAGMA table_info(ticket_results)')}
+        extra=','.join('r.'+key if key in columns else 'NULL AS '+key for key in
+            ('generation_state','generation_error','attempt_count','next_retry_at',
+             'review_required','staff_next_step','missing_facts'))
+        tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        job_state="(SELECT status FROM job_queue j WHERE j.ticket_id=p.ticket_id AND j.message_id=p.message_id ORDER BY j.id DESC LIMIT 1)" if 'job_queue' in tables else 'NULL'
         cursor=db.execute('''WITH ranked AS (
             SELECT *,ROW_NUMBER() OVER(PARTITION BY ticket_id ORDER BY received_at DESC,message_id DESC) n,
             COUNT(*) OVER(PARTITION BY ticket_id) observed_count
@@ -113,7 +121,8 @@ def extract(source, now):
             p.channel,p.ticket_status,p.ticket_assignee,p.ticket_tags,p.ticket_priority,
             p.ticket_spam,p.ticket_trashed,p.ticket_snoozed,p.created_at,p.received_at,p.is_customer_message,p.observed_count,
             substr(p.message_text,1,20001) message_text, substr(r.draft_text,1,20001) draft_text,
-            r.priority,r.action,substr(r.reason,1,20001) reason,r.processed_at
+            draft_revision(r.draft_text) AS draft_revision,
+            r.priority,r.action,substr(r.reason,1,20001) reason,r.processed_at,'''+extra+','+job_state+''' AS job_status
             FROM ranked p LEFT JOIN ticket_results r ON r.ticket_id=p.ticket_id AND r.message_id=p.message_id
             WHERE p.n<=100 ORDER BY p.ticket_id,p.received_at,p.message_id''',(cutoff,))
         rows=[];size=0
@@ -195,11 +204,34 @@ def build(rows):
               **({'originalText':r['original_text'],
                   **({'originalTextTruncated':True} if r.get('original_text_truncated') else {})}
                  if r.get('original_text') else {})})
-        draft_rows=[r for r in items if r['draft_text']]
+        draft_rows=[r for r in items if r['processed_at']]
         draft=max(draft_rows,key=lambda r:r['processed_at'] or '') if draft_rows else None
         latest_customer=next((r for r in reversed(items) if r['is_customer_message']),None)
         superseded=bool(draft and (not latest_customer or draft['message_id']!=latest_customer['message_id']))
         draft_text,cut=text(draft['draft_text'] if draft and not superseded else '');truncated|=cut
+        generation_state=draft.get('generation_state') if draft else None
+        if draft and not generation_state:
+            old_reason=str(draft.get('reason') or '')
+            if old_reason.startswith(('Hermes invocation failed','Hermes output failed run-token',
+                    'Hermes draft rejected by safety cleaning','Hermes emitted no valid',
+                    'Hermes produced empty output','Hermes emitted malformed',
+                    'Hermes emitted multiple','Hermes output exceeded','Hermes verdict failed')):
+                generation_state='failed'
+            elif draft.get('action')=='no_draft_needed':
+                generation_state='no_reply'
+            else:
+                generation_state='ready' if draft_text else 'needs_review'
+        draft_revision=draft.get('draft_revision') if draft else None
+        try:
+            missing_facts=json.loads(draft.get('missing_facts') or '[]') if draft else []
+        except (TypeError, ValueError):
+            missing_facts=[]
+        if not isinstance(missing_facts,list):missing_facts=[]
+        missing_facts=[v[:200] for v in missing_facts[:20] if isinstance(v,str)]
+        if generation_state in ('failed','retry_wait','superseded'):
+            draft_text=''
+        if draft and draft.get('job_status') in ('pending','processing') and generation_state in ('failed','retry_wait'):
+            generation_state='retry_wait' if draft.get('next_retry_at') else 'queued'
         reason,reason_cut=text(draft['reason'] if draft else '');truncated|=reason_cut
         subject,subject_cut=text(latest['ticket_subject']);truncated|=subject_cut
         raw_channel = latest.get('channel') if isinstance(latest.get('channel'), str) else ''
@@ -235,6 +267,11 @@ def build(rows):
           'historyIncomplete':True,'truncated':bool(truncated),'observedMessageCount':latest['observed_count'],
           'tags':observed_tags,
           'readonlyDraft':draft_text,'draftReason':reason,'draftSuperseded':superseded,
+          'draftGenerationState':generation_state,'draftGenerationError':draft.get('generation_error') if draft else None,
+          'draftAttemptCount':draft.get('attempt_count') if draft else 0,'draftNextRetryAt':draft.get('next_retry_at') if draft else None,
+          'draftReviewRequired':bool(draft.get('review_required')) if draft else False,
+          'draftStaffNextStep':draft.get('staff_next_step') if draft else None,'draftRevision':draft_revision,
+          'draftMissingFacts':missing_facts,
           'draftSourceMessageId':draft['message_id'] if draft else None,'draftSourceMessageAt':(draft['created_at'] or draft['received_at']) if draft else None,'draftProcessedAt':draft['processed_at'] if draft else None,
           'priority':draft['priority'] if draft else None,'draftAction':draft['action'] if draft else None}
         ticket['gorgiasSpam']=bool(gorgias_spam)

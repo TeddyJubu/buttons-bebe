@@ -174,6 +174,25 @@ _PENDING_ACTION_RE = re.compile(
     rf"(?:{_OPERATION_VERBS}|update)\b",
     re.IGNORECASE,
 )
+_UNCONFIRMED_ACTION_RE = re.compile(
+    r"\b(?:i|we)\s+(?:cannot|can['’]t)\s+confirm\s+(?:that|whether|if)\s+"
+    r"[^.!?\n;,:—–]{0,180}\Z", re.IGNORECASE,
+)
+_CONDITIONAL_REFUND_CONTEXT_RE = re.compile(
+    r"\bdepending\s+on\s+whether\s+(?:the|a)\s+refund\s+was\s+issued\Z",
+    re.IGNORECASE,
+)
+_PACKING_TEAM_CLAIM_RE = re.compile(
+    r"\b(?:(?:the|our)\s+)?(?:packing|warehouse|fulfillment|shipping)\s+team\s+"
+    r"(?:will|would|can|has|have|already|just)\s+"
+    rf"(?:{_OPERATION_VERBS}|{_OPERATION_PARTICIPLES}|{_UPDATE_OPERATION})\b",
+    re.IGNORECASE,
+)
+_CONDITIONAL_PICKUP_POLICY_RE = re.compile(
+    r"\A\s*(?:hi\s+there,\s*)?we\s+can\s+switch\s+a\s+pickup\s+order\s+to\s+shipping\s+"
+    r"if\s+it\s+hasn['’]t\s+been\s+picked\s+up,\s+but\s+the\s+change\s+and\s+any\s+"
+    r"shipping\s+charge\s+are\s+not\s+confirmed\s+yet[.!]?\s*\Z", re.IGNORECASE,
+)
 
 # No tool evidence is available to the cleaner. First-person work commitments
 # cannot be authenticated here; preserve factual policy and customer questions.
@@ -195,17 +214,11 @@ _SPANISH_REVIEW_COMMITMENT_RE = re.compile(
 # Confirmed return-packing guidance describes why the customer identifies each
 # item/order. It does not promise an individual return or financial outcome.
 _RETURN_IDENTIFICATION_INSTRUCTION_RE = re.compile(
-    r"\A\s*please\s+include\s+a\s+note\s+(?:inside\s+)?(?:the|your)\s+package\s+"
-    r"identifying\s+each\s+item\s+and\s+its\s+order\s+number\s+"
-    r"so\s+the\s+warehouse\s+can\s+process\s+each\s+return\s+correctly[.!]?\s*\Z",
+    r"\A\s*please\s+include\s+a\s+note\s+(?:inside\s+)?(?:(?:the|your)\s+package\s+)?"
+    r"(?:identifying|listing)\s+each\s+item\s+and\s+its\s+order\s+number\s+"
+    r"so\s+the\s+warehouse\s+can\s+process\s+(?:each\s+return|them)\s+correctly[.!]?\s*\Z",
     re.IGNORECASE,
 )
-
-_SAFE_REVIEW_BODY = "Thanks for your message. I don’t have a confirmed answer to share yet."
-_COMPACT_SAFE_REVIEW_BODY = "Thanks for your message."
-_SHORT_SAFE_REVIEW_BODY = "Thank you."
-
-
 
 @dataclass
 class CleanResult:
@@ -358,24 +371,6 @@ def _shorten_to_sentence_limit(text: str) -> tuple[str, str]:
     return shortened, removed_tail
 
 
-def _safe_review_fallback(text: str) -> str:
-    """Return a concise, non-committal draft when the model promised an action."""
-
-    header = _SENSITIVE_HEADER_RE.match(text)
-    body = (
-        _SAFE_REVIEW_BODY
-        if len(text.strip()) >= len(_SAFE_REVIEW_BODY)
-        else (
-            _COMPACT_SAFE_REVIEW_BODY
-            if len(text.strip()) >= len(_COMPACT_SAFE_REVIEW_BODY)
-            else _SHORT_SAFE_REVIEW_BODY
-        )
-    )
-    if header:
-        return f"{header.group(1)}\n\n{body}"
-    return body
-
-
 def _exceeds_sentence_limit(text: str) -> bool:
     """Return whether a draft exceeds the normal or sensitive sentence cap."""
 
@@ -388,7 +383,7 @@ def _exceeds_sentence_limit(text: str) -> bool:
 def _find_action_claim(text: str) -> str:
     """Return the first unsupported operational claim, if any."""
 
-    commitment = _REVIEW_COMMITMENT_RE.search(text)
+    commitment = _REVIEW_COMMITMENT_RE.search(text) or _PACKING_TEAM_CLAIM_RE.search(text)
     if commitment:
         return " ".join(commitment.group(0).split())[:240]
     for match in _ACTION_CLAIM_RE.finditer(text):
@@ -402,9 +397,21 @@ def _find_action_claim(text: str) -> str:
         sentence_end = min(endings) + 1 if endings else len(text)
         full_sentence = text[sentence_start:sentence_end]
         if (len(full_sentence) <= 250
-                and _RETURN_IDENTIFICATION_INSTRUCTION_RE.fullmatch(full_sentence)):
+                and (_RETURN_IDENTIFICATION_INSTRUCTION_RE.fullmatch(full_sentence)
+                     or _CONDITIONAL_PICKUP_POLICY_RE.fullmatch(full_sentence))):
             continue
         sentence = text[sentence_start:match.end()]
+        # A policy explanation conditional on refund timing does not assert
+        # that a refund was issued. Later independent claims remain checked.
+        if _CONDITIONAL_REFUND_CONTEXT_RE.search(sentence[-240:]):
+            continue
+        uncertainty = _UNCONFIRMED_ACTION_RE.search(sentence)
+        # Only an explicitly uncertain passive outcome is exempt. A subsequent
+        # independent promise, contrast, punctuation or first-person action is
+        # still checked. Never remove an arbitrary negated prefix from a draft.
+        if (uncertainty and re.match(r'(?:your|the|a|an|order)\b',match.group(),re.I)
+                and not re.search(r'\b(?:but|however|yet|instead|then)\b',uncertainty.group(),re.I)):
+            continue
         pending_action = _PENDING_ACTION_RE.search(sentence)
         if pending_action and pending_action.end() == match.end() - sentence_start:
             continue
@@ -477,10 +484,10 @@ def clean_draft(text: str) -> CleanResult:
     action_claim = _find_action_claim(out)
     if action_claim:
         return CleanResult(
-            text=_safe_review_fallback(out),
-            no_draft=False,
+            text="",
+            no_draft=True,
             reasons=reasons + [
-                "replaced unsupported operational promise with review-only fallback"
+                "rejected unsupported operational promise"
             ],
             removed_note="\n".join(part for part in (note, action_claim) if part),
         )
@@ -641,8 +648,8 @@ def _carries_no_content(value: str | None) -> bool:
 def should_draft(message: str, subject: str = "") -> ShouldDraft:
     """Return ok=False only when there is genuinely nothing to answer.
 
-    The subject and the body are judged INDEPENDENTLY and suppression needs
-    both to be empty. An email with a blank body and a real subject line
+    A nonempty pure acknowledgment takes precedence over inherited subjects.
+    An email with a blank body and a real subject line
     ("Do you have this in 6-9 months?") is a real question; equally, a thread
     whose subject is "Thanks" must not silence a body that asks something.
 
@@ -660,6 +667,10 @@ def should_draft(message: str, subject: str = "") -> ShouldDraft:
 
     if not _carries_no_content(message):
         return ShouldDraft(True)
+    # A reply-thread subject is inherited context, not a new request. Keep
+    # blank-body subject questions and decision words ("yes", "okay") alive.
+    if message.strip():
+        return ShouldDraft(False, "no question to answer (thanks/ack only)")
     if not _carries_no_content(_SUBJECT_NOISE_RE.sub(" ", subject)):
         return ShouldDraft(True)
 

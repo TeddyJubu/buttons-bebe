@@ -56,10 +56,19 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    requires review and a final confirm click, current recipient/source checks,
    a durable operation ID, and an audit record. This grants no writes to Hermes,
    the Inbox read API, MCP tools, or Shopify. No automatic send or resend.
-4. Every ticket gets a draft. Sensitive tickets (refunds, chargebacks,
-   disputes, damaged/wrong/missing items, cancellations, angry customers) get
-   a clearly prefixed sensitive draft, HIGH/CRITICAL priority, and an owner
-   alert. The human remains the safety gate.
+4. Actionable requests get a grounded answer, necessary clarification, or
+   verified customer action. Pure thanks get no new draft/alert and do not
+   resolve the underlying case. Missing facts alone are normal staff review,
+   never HIGH solely because retrieval failed or a review header appeared.
+   Sensitive requests (refunds, disputes, defects, cancellations, urgent
+   changes/follow-ups) retain HIGH/CRITICAL priority and an owner-alert attempt.
+   Staff-only answers use authenticated missing_facts/staff_next_step metadata
+   and Needs staff input; Use draft is disabled, manual composition stays open.
+   Failed generation shows AI draft unavailable, never a generic acknowledgment.
+   The singleton processor uses 240 seconds for Hermes and 270 for processing;
+   transient failures have only two durable delayed retries (30/120 seconds).
+   Authentication, invalid output and safety rejection require staff review.
+   See docs/AI-REPLY-RELIABILITY.md for migrations and release checks.
 5. Jobs, results, alerts, and learning actions are all logged.
 6. The inbox's ticket-detail controls (status, priority, assignee, mark
    read/unread, rename) are **first-party local state** — writes persist in
@@ -81,8 +90,8 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
 
 - Production: VPS **`srv1766050`** (2.25.137.77), Ubuntu, everything under
   `/root/Buttonsbebe Agent/`. This repo mirrors that tree.
-- Brain: **Hermes Agent** CLI (Nous Research), model **`glm-5.2`** via Ollama
-  Cloud (`~/.hermes/config.yaml`).
+- Brain: **Hermes Agent** CLI (Nous Research), currently **`gpt-6-luna`** via
+  the OpenAI Codex provider (`~/.hermes/config.yaml`; verified 2026-09-26).
 - **A push to `main` that passes CI auto-deploys to production** — see §8.
 
 ## 4. End-to-end flow

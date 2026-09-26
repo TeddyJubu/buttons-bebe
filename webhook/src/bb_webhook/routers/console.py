@@ -18,6 +18,27 @@ from ..logging_utils import get_logger, log_event
 router = APIRouter(prefix="/dashboard/api")
 logger = get_logger(__name__)
 
+
+@router.post('/ticket/{ticket_id}/retry-draft')
+async def retry_failed_draft(ticket_id: int, request: Request) -> JSONResponse:
+    """Queue read-only AI work; never enable send access or call a provider."""
+    from ..draft_generation import retry_draft
+    from ..send_intents import ActionConflict
+    reviewer = actor(request)
+    if not reviewer:
+        return JSONResponse(status_code=401, content={'error': 'not_authenticated'})
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={'error': 'invalid_json'})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={'error': 'invalid_json_object'})
+    try:
+        result = await retry_draft(ticket_id, body, reviewer, deps.get_db())
+        return JSONResponse(status_code=202, content=result)
+    except ActionConflict as exc:
+        return JSONResponse(status_code=exc.status, content={'error': exc.error})
+
 _HERMES_BIN = _os.environ.get("HERMES_BIN", "/usr/local/bin/hermes")
 _HERMES_HOME = _os.environ.get("HERMES_OS_HOME", "/root")
 _HERMES_PROFILE = _os.environ.get("HERMES_PROFILE", "").strip()

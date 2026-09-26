@@ -247,11 +247,13 @@ def enrich(ticket):
         old=projection_query('helpdesk.get_ticket',{'ticketId':ticket['id']}).get('ticket',{})
     except ProjectionUnavailable: old={}
     if (old.get('fromEmail') or '').casefold() != (ticket.get('fromEmail') or '').casefold(): old={}
-    for key in ('readonlyDraft','draftReason','draftSuperseded','draftSourceMessageId','draftSourceMessageAt','draftProcessedAt','priority','draftAction'):
+    for key in ('readonlyDraft','draftReason','draftSuperseded','draftSourceMessageId','draftSourceMessageAt','draftProcessedAt','priority','draftAction',
+                'draftGenerationState','draftGenerationError','draftAttemptCount','draftNextRetryAt','draftMissingFacts',
+                'draftReviewRequired','draftStaffNextStep','draftRevision'):
         if key in old: ticket[key]=old[key]
     latest=max((epoch(m['at']) for m in ticket['messages'] if not m['internal']),default=0)
     source=epoch(ticket.get('draftSourceMessageAt'))
-    if ticket.get('readonlyDraft') and (not source or latest>source): ticket['draftSuperseded']=True
+    if (ticket.get('readonlyDraft') or ticket.get('draftGenerationState')) and (not source or latest>source): ticket['draftSuperseded']=True
     attach_shop_rail(ticket)
     attach_customer_details(ticket)
     return ticket

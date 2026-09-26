@@ -21,8 +21,7 @@ the read-only order record confirms a human completed it.
 
 ## Customer response if completed
 
-Hi! We went ahead and removed/refunded the package protection for you.
-You should see the refund back to your original payment method once it is processed by your bank/payment provider.
+Only describe a removal/refund as completed when the read-only record explicitly proves it. Do not infer bank timing. Otherwise hold the draft for the authorized removal/refund decision with a specific staff_next_step. Keep the refund request sensitive.
 
 ## Customer response if order cannot be identified
 

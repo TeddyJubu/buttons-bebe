@@ -111,11 +111,7 @@ class HermesReadOnlyPromptTests(unittest.TestCase):
                 "draft_text": "Hi! We're reviewing this for you.",
             }).startswith("[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]")
         )
-        self.assertTrue(
-            draft_for_console({}).startswith(
-                "[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]"
-            )
-        )
+        self.assertEqual(draft_for_console({}), '')
 
     def test_valid_json_without_draft_fails_closed_to_non_sendable_result(self) -> None:
         with patch.object(

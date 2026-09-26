@@ -21,6 +21,4 @@ Explain whether return was outside refund window.
 
 ## Customer response
 
-Hi! Returns are eligible for a refund only within the refund window.
-If the item was held onto past the refund window, the return changes to store credit instead of a refund.
-We can check your order and confirm the timing for you.
+Explain the verified policy and compare the observed delivery and carrier-scan dates only when available. Never assume a late return caused this customer’s store credit. If the reason or dates are missing, hold the draft for staff to verify them; ask for an order identifier only if it was not supplied.

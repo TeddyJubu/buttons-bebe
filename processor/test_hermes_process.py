@@ -131,7 +131,8 @@ time.sleep(.1)
                     execute.return_value = outcome
                 result = runner.process_ticket_with_hermes(
                     1, 'My order never arrived', 'Missing order', 'test@example.invalid', [])
-                self.assertTrue(result['draft_text'])
+                self.assertFalse(result['draft_text'])
+                self.assertEqual(result['generation_state'], 'failed')
                 self.assertFalse(result['note_posted'])
                 self.assertNotIn('PROVIDER-SECRET', str(log.call_args_list))
 
@@ -146,8 +147,9 @@ time.sleep(.1)
                 result = runner.process_ticket_with_hermes(
                     1, 'My order never arrived', 'Missing order', 'test@example.invalid', [])
                 execute.assert_not_called()
-                self.assertTrue(result['draft_text'])
-                self.assertEqual(result['priority'], 'high')
-                self.assertTrue(result['notify_owner'])
+                self.assertFalse(result['draft_text'])
+                self.assertEqual(result['generation_state'], 'failed')
+                self.assertEqual(result['priority'], 'normal')
+                self.assertFalse(result['notify_owner'])
                 self.assertFalse(result['gorgias_priority_set'])
                 self.assertFalse(result['note_posted'])

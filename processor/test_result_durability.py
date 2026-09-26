@@ -25,6 +25,7 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
                  author_type="customer", is_customer_message=True,
                  message_text="Synthetic question"), "{}", self.path)
         self.job = await database.get_next_pending_job(self.path)
+        orchestrator._classification_cache.clear()
 
     async def save(self, *, alert=True, draft="First draft"):
         await database.record_ticket_result(123, "synthetic", self.job_id, "high", "sensitive_draft",
@@ -41,14 +42,32 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
             process.side_effect = OSError("Synthetic unavailable result endpoint")
             await orchestrator._process_one_job(self.job, True, self.settings)
             self.assertEqual((await self.status())["status"], "pending")
-            self.assertIsNone(await database.get_job_result(self.job_id, self.path))
+            saved=await database.get_job_result(self.job_id,self.path)
+            self.assertEqual(saved['generation_state'],'retry_wait')
+            self.assertEqual(saved['draft_text'],'')
+            self.assertIsNone(await database.get_next_pending_job(self.path))
             notify.assert_not_called()
 
     async def test_successful_coroutine_without_saved_result_cannot_complete(self):
         with patch.object(orchestrator, "process_customer_message", AsyncMock(return_value={"action": "drafted"})):
             await orchestrator._process_one_job(self.job, True, self.settings)
         self.assertEqual((await self.status())["status"], "pending")
-        self.assertEqual((await self.status())["retry_count"], 1)
+        self.assertEqual((await self.status())["generation_cycle_attempts"], 1)
+        self.assertIsNotNone((await self.status())['next_attempt_at'])
+
+    async def test_generation_crash_preserves_current_dispute_urgency_and_alerts_once(self):
+        import json
+        self.job['payload'] = json.dumps(dict(message_text='I am filing a chargeback for order #87654.'))
+        with patch.object(orchestrator, 'process_customer_message', AsyncMock(side_effect=TimeoutError())), \
+             patch.object(orchestrator, 'send_whatsapp', return_value=True) as notify:
+            await orchestrator._process_one_job(self.job, True, self.settings)
+            saved = await database.get_job_result(self.job_id, self.path)
+            self.assertEqual(saved['priority'], 'critical')
+            self.assertEqual(saved['generation_state'], 'retry_wait')
+            self.assertTrue(saved['notify_owner'])
+            notify.assert_called_once()
+            await orchestrator._notify_recovered_result(self.job, self.path)
+            notify.assert_called_once()
 
     async def test_result_written_but_response_lost_retry_skips_model_and_alerts_once(self):
         async def response_lost(_job):

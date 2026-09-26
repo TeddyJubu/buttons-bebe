@@ -17,12 +17,11 @@ Check product data.
 Check saved fit notes.
 Check previous customer-service answers.
 If known, answer.
-If unknown, escalate.
+If unknown, use normal staff review.
 
 ## Customer response if unknown
 
-Hi! We can try to check this for you.
-Fit can vary by brand and style, and we don’t want to guess if we don’t have exact notes on this item. We’ll check and get back to you with the best information we can.
+If the item is unidentified, ask one concise product-link or brand/style question. Otherwise hold the draft for normal staff review with the exact style and required fit evidence in staff_next_step. Never infer a fit recommendation or promise follow-up.
 
 ## Customer response if known
 

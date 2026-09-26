@@ -239,7 +239,34 @@ async function loadOlder(){
 function showAuth() {closeRewrite();resetSendAccess();const href='/console/login?next='+encodeURIComponent(location.pathname+location.search);$('#conversation').innerHTML=`<div class="empty-state"><h2>Sign in to continue</h2><p>Your support session has expired.</p><a class="button primary" href="${esc(href)}">Sign in</a></div>`;}
 function currentDraft(t) {const revised=objectStore(keys.rewrites)[t.id];const body=plain(!t.draftSuperseded&&revised?.source===draftId(t)?revised.body:t.readonlyDraft).replace(/^\[SENSITIVE\s*[—–-]\s*REVIEW CAREFULLY BEFORE SENDING\]\s*/i,'').trim();return body.includes('\n')?body:body.replace(/([.!?])\s+(?=(?:Because|Since|However|Please note)\b)/g,'$1\n\n');}
 function draftId(t) {return `${t.draftSourceMessageId||''}:${t.draftProcessedAt||''}:${t.readonlyDraft||''}`;}
-function draftAvailable(t) {return Boolean(t.readonlyDraft&&!t.draftSuperseded&&objectStore(keys.dismiss)[t.id]!==draftId(t));}
+function draftAvailable(t) {return Boolean(t.readonlyDraft&&!t.draftSuperseded&&!['failed','retry_wait','queued','superseded','no_reply'].includes(t.draftGenerationState)&&objectStore(keys.dismiss)[t.id]!==draftId(t));}
+function draftNeedsStaff(t){return t.draftGenerationState==='needs_review'||t.draftReviewRequired===true;}
+const draftRetries=new Map();
+function draftStatusHtml(t){
+  if(t.draftSuperseded)return '';
+  const pending=draftRetries.get(t.id)?.pending||['queued','retry_wait'].includes(t.draftGenerationState);
+  if(t.draftGenerationState==='failed'||pending)return `<section class="draft-card" aria-label="AI draft unavailable"><div class="draft-heading">${icon('info')}<h3>${pending?'AI retry queued':'AI draft unavailable'}</h3></div><p>${pending?'A new suggestion will appear here when ready. You can continue writing your reply.':'AI could not produce a usable reply. Retry or write your reply below.'}</p>${t.draftNextRetryAt?`<p class="small muted">Next attempt: ${esc(date(t.draftNextRetryAt))}</p>`:''}<button class="button" data-action="retry-draft" ${pending||t.syncStale||!t.draftRevision?'disabled':''}>${icon('refresh')} Retry AI draft</button></section>`;
+  if(t.draftGenerationState==='no_reply')return '<p class="small muted">No new question to answer. You can still write a reply below.</p>';
+  if(draftNeedsStaff(t))return `<div class="info-banner" role="status">${icon('info')}<span><strong>Needs staff input</strong><br>${esc(t.draftStaffNextStep||'Check the missing answer and write the completed reply below.')}</span></div>`;
+  return '';
+}
+async function retryDraft(){
+  const t=state.ticket;
+  if(!t||t.syncStale||t.draftSuperseded||t.draftGenerationState!=='failed'||!t.draftRevision||draftRetries.get(t.id)?.pending)return;
+  const context={id:t.id,source:t.draftSourceMessageId,revision:t.draftRevision,processedAt:t.draftProcessedAt};
+  const prior=draftRetries.get(t.id);
+  const operation=prior?.source===context.source&&prior?.revision===context.revision?prior.operation:crypto.randomUUID();
+  draftRetries.set(t.id,{...context,operation,pending:true});renderTicket();
+  try{
+    const response=await consoleRequest(`/ticket/${t.id.slice(8)}/retry-draft`,{method:'POST',body:JSON.stringify({operation_id:operation,source_message_id:context.source,draft_revision:context.revision})});
+    if(response.ok!==true)throw new Error(response.error||'retry_failed');
+    toast('AI retry queued. Your reply stays unchanged.');
+  }catch(error){
+    draftRetries.set(context.id,{...context,operation,pending:false});
+    toast(['new_customer_message_refresh_ticket','draft_changed_refresh_ticket','human_action_already_initiated','failed_draft_required'].includes(error.message)?'This ticket changed. Refresh it before retrying.':'Retry could not be confirmed. Try again using the same request.');
+  }
+  if(state.id===context.id)renderTicket();
+}
 // AI edits are browser-local candidates, tied to the exact projected suggestion.
 let rewriteState=null;
 function closeRewrite(){
@@ -455,9 +482,11 @@ function detailsHtml(t) {
   return `<div class="message-area"><dl class="ticket-fields">${fields.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>`;
 }
 function replyHtml(t) {
+  const retry=draftRetries.get(t.id);
+  if(retry&&(t.draftGenerationState!=='failed'||retry.source!==t.draftSourceMessageId||retry.processedAt!==t.draftProcessedAt))draftRetries.delete(t.id);
   const sensitive=t.draftAction==='sensitive_draft'||/^\[SENSITIVE/i.test(t.readonlyDraft||'');
-  const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft">${icon('check')} Use draft</button><button class="button draft-edit" data-action="edit-draft" aria-label="Edit suggested reply with AI" aria-haspopup="dialog" aria-controls="draft-rewrite" title="${t.draftSourceMessageId&&!t.syncStale?'Edit suggested reply with AI':'Refresh this ticket before editing the suggestion'}" ${!t.draftSourceMessageId||t.syncStale?'disabled':''}>${icon('edit')}</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
-  return `<section class="reply-area">${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
+  const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft" ${draftNeedsStaff(t)?'disabled title="Complete the missing answer in the reply below"':''}>${icon('check')} Use draft</button><button class="button draft-edit" data-action="edit-draft" aria-label="Edit suggested reply with AI" aria-haspopup="dialog" aria-controls="draft-rewrite" title="${t.draftSourceMessageId&&!t.syncStale?'Edit suggested reply with AI':'Refresh this ticket before editing the suggestion'}" ${!t.draftSourceMessageId||t.syncStale?'disabled':''}>${icon('edit')}</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
+  return `<section class="reply-area">${draftStatusHtml(t)}${draft}<div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
 }
 function renderRail() {
   const t=state.ticket;if(!t)return;
@@ -597,7 +626,8 @@ document.addEventListener('click',async event=>{
   if(action==='copy-reply'){const value=$('#reply')?.value;if(value)copyText(value,'Reply copied.');else toast('Write a reply or use the suggested draft first.');return;}
   if(action==='edit-draft'){openRewrite();return;}
   if(action==='cancel-rewrite'){closeRewrite();return;}
-  if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
+  if(action==='retry-draft'){await retryDraft();return;}
+  if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)&&!draftNeedsStaff(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
   if(action==='new'){toast('This inbox reads Gorgias tickets. Create new tickets in Gorgias.');return;}
     if(action==='sign-out'){resetSendAccess();try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}

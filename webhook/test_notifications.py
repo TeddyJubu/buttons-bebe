@@ -8,6 +8,16 @@ from bb_webhook.notifications import dashboard_notifications
 
 
 class DashboardNotificationTests(unittest.TestCase):
+    def test_failed_generation_and_normal_staff_review_are_attention_items(self):
+        items=dashboard_notifications([
+            {'ticket_id':1,'message_id':'m1','job_status':'done','priority':'normal','generation_state':'failed'},
+            {'ticket_id':2,'message_id':'m2','job_status':'done','priority':'normal','review_required':True,
+             'staff_next_step':'Measure the named dress sleeve.'},
+            {'ticket_id':3,'message_id':'m3','job_status':'done','priority':'low','generation_state':'no_reply'},
+        ])
+        self.assertEqual([x['title'] for x in items],['AI draft unavailable','Needs staff input'])
+        self.assertEqual(items[1]['detail'],'Measure the named dress sleeve.')
+
     def test_only_current_human_action_items_are_emitted(self) -> None:
         notifications = dashboard_notifications([
             {

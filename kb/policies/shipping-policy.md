@@ -34,10 +34,10 @@ order's fulfillment status and tracking and share it. See
 
 ## Rush / urgent requests
 
-The warehouse can be asked to **prioritize** an order, but delivery still depends on
-the shipping method selected at checkout. If a slow shipping method was selected and
-the order has **not shipped yet**, offer an upgraded shipping option. Do not
-guarantee delivery unless the shipping method/carrier supports it. See
+Staff may check whether **prioritization** or an upgrade is possible, but the AI
+must not say it happened or promise an upgrade. Put that check in staff_next_step
+and hold the reply if staff-only facts are needed. Delivery depends on the
+selected carrier/method; do not guarantee a delivery date. See
 `intents/intent-18-order-needed-urgently.md`.
 
 ## Local pickup
@@ -47,6 +47,10 @@ switched to shipping (even after it was processed for pickup) as long as it has 
 been picked up; a shipping order can be switched to pickup only if it has not
 shipped. See `intents/intent-02-pickup-to-shipping.md` and
 `intents/intent-03-shipping-to-pickup.md`.
+
+Do not invite collection of a specific order without verified pickup readiness.
+Outdoor-bin access is separate from staffed hours and confirmed hours for a
+particular day or holiday. An unfulfilled status does not prove packing or dispatch.
 
 ## International shipping
 

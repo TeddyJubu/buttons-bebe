@@ -6,6 +6,40 @@ from hermes_runner.prompt import _build_prompt
 
 
 class EvidenceDraftTests(unittest.TestCase):
+    def test_conditional_pickup_policy_does_not_confirm_an_order_change(self):
+        safe=("Hi there, we can switch a pickup order to shipping if it hasn’t been picked up, "
+              "but the change and any shipping charge are not confirmed yet.")
+        self.assertEqual(cleaner.clean_draft(safe).text,safe)
+        for unsafe in (safe+' We will change your order.',
+                       safe[:-1]+', and we will change your order.',
+                       safe.replace('are not confirmed yet','are confirmed'),
+                       'We can switch your order to shipping.'):
+            with self.subTest(unsafe=unsafe):
+                self.assertTrue(cleaner.clean_draft(unsafe).no_draft)
+
+    def test_conditional_refund_explanation_is_not_an_issued_refund_claim(self):
+        safe=("Refund amounts can vary depending on whether the refund was issued before shipping "
+              "or was connected to a return, and I can’t confirm the reason yet.")
+        self.assertEqual(cleaner.clean_draft(safe).text,safe)
+        for unsafe in (safe+' We will issue a refund.',
+                       'The refund was issued before shipping.',
+                       'Depending on whether the refund was issued, a replacement will be shipped.',
+                       'The packing team will leave the invoice out for your gift.',
+                       'Our fulfillment team has added your gift note.'):
+            with self.subTest(unsafe=unsafe):
+                self.assertTrue(cleaner.clean_draft(unsafe).no_draft)
+
+    def test_explicit_uncertainty_is_not_a_completed_cancellation_or_refund_claim(self):
+        safe="The order has not shipped, but I can’t confirm that it has been canceled or that a refund will be issued."
+        self.assertEqual(cleaner.clean_draft(safe).text,safe)
+        for unsafe in (
+            "I can't confirm that it was canceled. A refund will be issued.",
+            "I can't confirm that it was canceled, but a refund will be issued.",
+            "I can't confirm that it was canceled but a refund will be issued.",
+            "I can't confirm that it was canceled and we will issue a refund.",
+            "I can't confirm that it was canceled; a refund will be issued.",
+        ):
+            with self.subTest(unsafe=unsafe):self.assertTrue(cleaner.clean_draft(unsafe).no_draft)
     def test_first_person_work_and_followup_promises_are_not_safe_acknowledgments(self):
         for text in (
             "We're reviewing this for you and will get back shortly.",
@@ -20,7 +54,7 @@ class EvidenceDraftTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 result=cleaner.clean_draft(text)
-                self.assertFalse(result.no_draft)
+                self.assertTrue(result.no_draft)
                 self.assertTrue(result.reasons)
                 self.assertNotEqual(result.text,text)
                 self.assertFalse(cleaner._find_action_claim(result.text))
@@ -41,15 +75,16 @@ class EvidenceDraftTests(unittest.TestCase):
 
     def test_fallback_preserves_sensitive_header_and_removed_reviewer_warning(self):
         result=cleaner.clean_draft('[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]\n\nWe are reviewing your request.\n\nAGENT NOTE: Verify identity before responding.')
-        self.assertTrue(result.text.startswith('[SENSITIVE — REVIEW CAREFULLY BEFORE SENDING]'))
+        self.assertEqual(result.text, '')
         self.assertIn('Verify identity',result.removed_note)
         self.assertNotIn('reviewing your request',result.text)
-        self.assertFalse(result.no_draft)
+        self.assertTrue(result.no_draft)
 
     def test_runner_execution_fallback_also_makes_no_work_commitment(self):
         from hermes_runner.constants import _FALLBACK_RESULT, _TOKEN_FAILURE_RESULT
         text=_FALLBACK_RESULT['draft_text']
-        self.assertTrue(text.startswith('[SENSITIVE'))
+        self.assertEqual(text, '')
+        self.assertEqual(_FALLBACK_RESULT['generation_state'], 'failed')
         self.assertFalse(cleaner._find_action_claim(text))
         self.assertEqual(cleaner.clean_draft(text).text,text)
         self.assertTrue(_TOKEN_FAILURE_RESULT['no_draft'])
@@ -57,7 +92,7 @@ class EvidenceDraftTests(unittest.TestCase):
 
     def test_prompt_demands_product_evidence_and_exact_observed_order_state(self):
         prompt=_build_prompt(ticket_id=123,message_text='Sizing question',ticket_subject='Question',customer_email='synthetic@example.invalid',intents=[],token='0123456789abcdef')
-        for phrase in ('Never map age or weight alone to a size','exact brand/product','measurements required by its chart',"does NOT mean being prepared",'general processing window is policy','not a promised dispatch date','ask only for a genuinely missing detail','Never skip drafting','READ-ONLY','<DRAFT:0123456789abcdef>','JSON_RESULT[0123456789abcdef]'):
+        for phrase in ('Never map age or weight alone to a size','exact brand/product','measurements required by its chart',"does NOT mean being prepared",'general processing window is policy','not a promised dispatch date','ask only for a genuinely missing detail','review_required=true','READ-ONLY','<DRAFT:0123456789abcdef>','JSON_RESULT[0123456789abcdef]'):
             self.assertIn(phrase,prompt)
         self.assertNotIn("write 'We're checking on that for you and will follow up shortly.'",prompt)
         self.assertNotIn("say that it is being reviewed",prompt)
@@ -76,7 +111,7 @@ class EvidenceDraftTests(unittest.TestCase):
                        'The customer-facing draft may ask'):
             self.assertIn(phrase,prompt)
         self.assertNotIn('Do not ask questions.',prompt)
-        self.assertIn('Never skip drafting',prompt)
+        self.assertIn('review_required=true',prompt)
         self.assertIn('READ-ONLY',prompt)
         self.assertIn('JSON_RESULT[0123456789abcdef]',prompt)
 
@@ -84,7 +119,7 @@ class EvidenceDraftTests(unittest.TestCase):
         prompt=_build_prompt(ticket_id=123,message_text='General inquiry',ticket_subject='Question',customer_email='synthetic@example.invalid',intents=[],token='0123456789abcdef')
         for phrase in ('acknowledgments warm and specific',
                        "limitations that affect the customer's decision",
-                       'Staff routing belongs in AGENT NOTE',
+                       'Staff routing belongs in staff_next_step',
                        'explicit financial-uncertainty rules below still apply',
                        'does not establish a specialist department',
                        'generic contact page or a product keyword',
@@ -96,7 +131,7 @@ class EvidenceDraftTests(unittest.TestCase):
         # banned from customer-facing text (it belongs in AGENT NOTE at most).
         self.assertIn('about your refund request',prompt)
         self.assertIn('from the information available',prompt)
-        self.assertIn('belongs, at most, in the AGENT NOTE',prompt)
+        self.assertIn('authenticated JSON_RESULT',prompt)
         self.assertNotIn("I can't confirm an outcome for this request from the information",prompt)
 
     def test_review_commitment_detector_has_bounded_cpu_on_adversarial_near_matches(self):

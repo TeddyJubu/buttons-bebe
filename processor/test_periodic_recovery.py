@@ -83,10 +83,11 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(orchestrator, "time", SimpleNamespace(monotonic=monotonic)),
                 patch.object(orchestrator, "get_pending_job_window", side_effect=window_job),
                 patch.object(orchestrator, "requeue_stale_jobs", new_callable=AsyncMock) as recover,
+                patch.object(orchestrator, 'check_alert_route',return_value={'status':'ok'}),
             ):
                 recover.return_value = 0
                 self.assertEqual(await orchestrator.run_processor(), 0)
-                self.assertEqual(recover.await_count, 3)  # startup and two later sweeps
+                self.assertEqual(recover.await_count, 4)  # startup, first probe, two later sweeps
                 release.assert_called_once()
         finally:
             orchestrator._shutdown = False

@@ -28,6 +28,13 @@ are cleaned up on subsequent enable; grants and action records are runtime data.
 
 ## AI edits
 
+AI failures appear as **AI draft unavailable**, with an authenticated Retry AI
+draft action that uses the existing queue without enabling Send. Automatic
+retry schedules survive restart. Results only replace the suggestion; manual
+text, browser-local edits and dismissals remain tied to their original source.
+**Needs staff input** displays the specific internal task and disables Use draft.
+The operator can still compose the completed answer manually.
+
 The pencil icon beside Use draft opens an instruction field for revising the
 suggested reply. It calls the existing authenticated
 `/console/api/ticket/{id}/rewrite` action with the current suggestion, operator

@@ -146,15 +146,15 @@ class TheTimersMustNotBeReorderedTests(unittest.TestCase):
     or the Hermes-timeout fallback becomes dead code.
     """
 
-    def test_both_timers_still_use_the_same_budget(self):
+    def test_generation_has_a_separate_smaller_budget(self):
         from hermes_runner import runner as hermes_runner_runner
         import orchestrator
 
         source = inspect.getsource(hermes_runner_runner.process_ticket_with_hermes)
-        configured_timeout = (
-            "settings.job_timeout" in source
-            or 'getattr(settings, "job_timeout"' in source
-        )
+        from config import ProcessorSettings
+        self.assertEqual(ProcessorSettings.model_fields['hermes_timeout'].default,240)
+        self.assertEqual(ProcessorSettings.model_fields['job_timeout'].default,270)
+        configured_timeout = "'hermes_timeout'" in source
         subprocess_timeout = (
             "timeout=settings.job_timeout" in source or "timeout=timeout" in source
         )

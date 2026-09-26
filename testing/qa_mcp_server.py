@@ -13,10 +13,14 @@ from pydantic import StrictInt
 from qa_safety import GROUPS, audit, filter_policy_results, validate_fixture
 
 
-def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, allowlist: Path, kb_mode: str):
+def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, allowlist: Path, kb_mode: str, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None):
     if group not in GROUPS or not 1024 <= port <= 65535:
         raise ValueError("Invalid QA endpoint")
     server = FastMCP(group, host="127.0.0.1", port=port, log_level="ERROR", stateless_http=True, json_response=True)
+    overlay = {}
+    if policy_overlay is not None:
+        from qa_policy_overlay import load_overlay
+        overlay = load_overlay(policy_overlay, policy_overlay_sha256, Path(__file__).resolve().parent.parent)
 
     def state(tool):
         if fixture_path.is_symlink() or fixture_path.stat().st_size > 100000:
@@ -119,8 +123,11 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
                         raise ValueError("Unexpected KB response")
                     rows = json.loads(blocks[0])
                 safe, filtered = filter_policy_results(rows, set(json.loads(allowlist.read_text())))
+                if overlay:
+                    from qa_policy_overlay import replace_hits
+                    safe = replace_hits(safe, overlay)
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], filtered=filtered,
-                      returned=min(len(safe),k), files=[row["file"] for row in safe[:k]])
+                      returned=min(len(safe),k), files=[row["file"] for row in safe[:k]], proposed_policies=bool(overlay))
                 return safe[:k]
             except Exception:
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], fatal=True)
@@ -136,8 +143,10 @@ def main():
     parser.add_argument("--audit", type=Path, required=True)
     parser.add_argument("--allowlist", type=Path, required=True)
     parser.add_argument("--kb-mode", choices=("fixture","policies-only"), required=True)
+    parser.add_argument('--policy-overlay', type=Path)
+    parser.add_argument('--policy-overlay-sha256')
     args = parser.parse_args()
-    create_server(args.group,args.port,args.fixture,args.audit,args.allowlist,args.kb_mode).run(transport="streamable-http")
+    create_server(args.group,args.port,args.fixture,args.audit,args.allowlist,args.kb_mode,args.policy_overlay,args.policy_overlay_sha256).run(transport="streamable-http")
 
 
 if __name__ == "__main__":

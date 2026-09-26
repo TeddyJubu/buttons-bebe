@@ -19,5 +19,4 @@ Escalate if unsure.
 
 ## Customer response
 
-Hi! We can try to help identify it.
-We’ll check the order to see if there was a gift note or sender information included. If there is a note, we can pass that along. If there wasn’t a note, we’ll do our best to help based on the order details.
+Ask for an invoice or tracking identifier only if none was supplied. If staff must check the gift note or permission to disclose sender details, hold the draft as Needs staff input and name that exact privacy check in staff_next_step. Never claim a lookup is underway or disclose purchaser information from a guess.
