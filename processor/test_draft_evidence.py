@@ -6,6 +6,18 @@ from hermes_runner.prompt import _build_prompt
 
 
 class EvidenceDraftTests(unittest.TestCase):
+    def test_conditional_refund_explanation_is_not_an_issued_refund_claim(self):
+        safe=("Refund amounts can vary depending on whether the refund was issued before shipping "
+              "or was connected to a return, and I can’t confirm the reason yet.")
+        self.assertEqual(cleaner.clean_draft(safe).text,safe)
+        for unsafe in (safe+' We will issue a refund.',
+                       'The refund was issued before shipping.',
+                       'Depending on whether the refund was issued, a replacement will be shipped.',
+                       'The packing team will leave the invoice out for your gift.',
+                       'Our fulfillment team has added your gift note.'):
+            with self.subTest(unsafe=unsafe):
+                self.assertTrue(cleaner.clean_draft(unsafe).no_draft)
+
     def test_explicit_uncertainty_is_not_a_completed_cancellation_or_refund_claim(self):
         safe="The order has not shipped, but I can’t confirm that it has been canceled or that a refund will be issued."
         self.assertEqual(cleaner.clean_draft(safe).text,safe)

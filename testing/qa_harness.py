@@ -226,6 +226,9 @@ class Harness:
         atomic_json(self.fixture_path,{**first_fixture,"scenario_id":"QA-PREFLIGHT"})
         for group,port in self.ports.items():
             with socket.socket() as probe:
+                # Match the MCP server's reuse behavior: a completed serial run
+                # can leave TIME_WAIT sockets, but an active listener still fails.
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 probe.bind(("127.0.0.1",port))
         for group,port in self.ports.items():
             command=[sys.executable,str(HERE/"qa_mcp_server.py"),"--group",group,"--port",str(port),"--fixture",str(self.fixture_path),"--audit",str(self.audit_path),"--allowlist",str(self.allowlist),"--kb-mode",self.kb_mode]

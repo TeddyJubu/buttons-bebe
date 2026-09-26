@@ -178,6 +178,16 @@ _UNCONFIRMED_ACTION_RE = re.compile(
     r"\b(?:i|we)\s+(?:cannot|can['’]t)\s+confirm\s+(?:that|whether|if)\s+"
     r"[^.!?\n;,:—–]{0,180}\Z", re.IGNORECASE,
 )
+_CONDITIONAL_REFUND_CONTEXT_RE = re.compile(
+    r"\bdepending\s+on\s+whether\s+(?:the|a)\s+refund\s+was\s+issued\Z",
+    re.IGNORECASE,
+)
+_PACKING_TEAM_CLAIM_RE = re.compile(
+    r"\b(?:(?:the|our)\s+)?(?:packing|warehouse|fulfillment|shipping)\s+team\s+"
+    r"(?:will|would|can|has|have|already|just)\s+"
+    rf"(?:{_OPERATION_VERBS}|{_OPERATION_PARTICIPLES}|{_UPDATE_OPERATION})\b",
+    re.IGNORECASE,
+)
 
 # No tool evidence is available to the cleaner. First-person work commitments
 # cannot be authenticated here; preserve factual policy and customer questions.
@@ -368,7 +378,7 @@ def _exceeds_sentence_limit(text: str) -> bool:
 def _find_action_claim(text: str) -> str:
     """Return the first unsupported operational claim, if any."""
 
-    commitment = _REVIEW_COMMITMENT_RE.search(text)
+    commitment = _REVIEW_COMMITMENT_RE.search(text) or _PACKING_TEAM_CLAIM_RE.search(text)
     if commitment:
         return " ".join(commitment.group(0).split())[:240]
     for match in _ACTION_CLAIM_RE.finditer(text):
@@ -385,6 +395,10 @@ def _find_action_claim(text: str) -> str:
                 and _RETURN_IDENTIFICATION_INSTRUCTION_RE.fullmatch(full_sentence)):
             continue
         sentence = text[sentence_start:match.end()]
+        # A policy explanation conditional on refund timing does not assert
+        # that a refund was issued. Later independent claims remain checked.
+        if _CONDITIONAL_REFUND_CONTEXT_RE.search(sentence[-240:]):
+            continue
         uncertainty = _UNCONFIRMED_ACTION_RE.search(sentence)
         # Only an explicitly uncertain passive outcome is exempt. A subsequent
         # independent promise, contrast, punctuation or first-person action is

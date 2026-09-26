@@ -22,11 +22,11 @@ Items must come back clean, unworn, unwashed, with all original tags and
 accessories. The agent may explain these timings, but the refund/store-credit money
 action is escalation-only.
 
-## Baby-gift return window — 21 days, store credit only
+## Baby-gift return window — confirm with staff, store credit only
 
-Mined practice (confirm the exact window with the owner): baby gifts have a longer
-return window of about **21 days from delivery**, and gift
-returns are issued as **store credit only** (not a cash refund). Gift returns are
+The exact baby-gift return deadline requires owner confirmation; historical
+practice alone is not a verified deadline and must not be quoted as policy. Eligible
+gift returns receive **store credit only** (not a cash refund). Gift returns are
 kept private — the sender is not notified. Look up the original order by the invoice
 number on the packing slip. See `gifts-and-gift-wrapping.md`.
 
