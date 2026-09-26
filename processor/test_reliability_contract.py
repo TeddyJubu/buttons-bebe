@@ -16,6 +16,24 @@ from shared.review_policy import final_review_result
 
 
 class ReliabilityContractTests(unittest.TestCase):
+    def test_portal_failure_and_pickup_notice_are_not_product_or_package_failures(self):
+        messages=(
+            'The gift return portal is broken. Invoice TEST-INV-456 is invalid.',
+            'I tried the broken return portal twice. How can I return the gift?',
+            'I chose local pickup. I have not received a ready-for-pickup notice. Can I collect it now?',
+            "I haven't received my ready for pickup email.",
+        )
+        for message in messages:
+            with self.subTest(message=message):
+                result=classify({'message_text':message,'ticket_subject':message})
+                self.assertEqual(result['priority'],'normal')
+                self.assertFalse(result['should_notify_owner'])
+                for extra in (' The zipper is broken.', ' I want a refund.', ' I never received the package.'):
+                    self.assertTrue(classify({'message_text':message+extra})['should_notify_owner'])
+        for message in ('I still have not received a ready-for-pickup notice.',
+                        'URGENT: I have not received a ready-for-pickup notice.'):
+            self.assertTrue(classify({'message_text':message})['should_notify_owner'])
+
     def test_latest_ack_precedes_refund_subject_intent_and_kb_without_resolving_case(self):
         payload=dict(ticket_subject='Refund request unresolved',message_text='Thanks so much!',
                      intents=[{'name':'refund/request'}])
