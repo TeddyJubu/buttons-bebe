@@ -6,7 +6,8 @@ import unittest
 import uuid
 from unittest.mock import Mock, patch
 
-from bb_webhook import app as app_module, database
+from bb_webhook import database
+from bb_webhook.routers import console as console_router
 from bb_webhook.db import Database
 from bb_webhook.send_intents import IntentStore, ActionConflict
 from webhook.action_test_support import setup_action_case
@@ -34,7 +35,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stale_fresh_reply_is_not_attempted_but_note_policy_is_preserved(self):
         await self.newer_customer()
-        with patch.object(app_module, '_GClient') as transport:
+        with patch.object(console_router, '_GClient') as transport:
             response=await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'new_customer_message_refresh_ticket')
@@ -46,7 +47,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_malformed_legacy_chronology_blocks_fresh_reply_without_transport(self):
         await self.newer_customer(at='invalid')
-        with patch.object(app_module, '_GClient') as transport:
+        with patch.object(console_router, '_GClient') as transport:
             response=await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'message_chronology_unavailable')
@@ -116,7 +117,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             raise TimeoutError('ambiguous transport failure')
         fake.send_public_reply = send
         recorder = Mock(return_value=True)
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             first = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
             retry = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(first.status_code, 202)
@@ -136,7 +137,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             return {'status': 'sent'}
         fake.send_public_reply, fake._wait_for_delivery = send, read
         recorder = Mock(return_value=True)
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload | {'approve_learning': True,
                 'message_text': 'forged browser facts', 'ai_draft': 'forged browser draft'})
             self.assertEqual(response.status_code, 202)
@@ -160,7 +161,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             return {'ok': True, 'message': {'id': 101}}
         fake.post_internal_note = note
         recorder = Mock()
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             refused = await self.client.post('/dashboard/api/ticket/1/note', json=self.payload | {'confirmed': False})
             accepted = await self.client.post('/dashboard/api/ticket/1/note', json=self.payload | {'approve_learning': True})
         self.assertEqual(refused.status_code, 409)
@@ -176,7 +177,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_changed_server_draft_requires_fresh_owner_review(self):
         await Database(self.path).execute("UPDATE ticket_results SET draft_text='changed after review' WHERE message_id='source-1'")
-        with patch.object(app_module, '_GClient') as transport:
+        with patch.object(console_router, '_GClient') as transport:
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'draft_changed_refresh_ticket')
@@ -191,7 +192,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             return {'ok': True, 'message_id': 99, 'delivery_status': 'sent'}
         fake.send_public_reply = send
         recorder = Mock(side_effect=[False, True])
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             result = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload | {'approve_learning': True})
             retry = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload | {'approve_learning': True})
         self.assertEqual(result.status_code, 200)
@@ -201,13 +202,13 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_operation_or_confirmation_cannot_construct_transport(self):
         for body in (self.payload | {'operation_id': ''}, self.payload | {'confirmed': False}):
-            with patch.object(app_module, '_GClient') as client:
+            with patch.object(console_router, '_GClient') as client:
                 response = await self.client.post('/dashboard/api/ticket/1/send', json=body)
             self.assertIn(response.status_code, (400, 409))
             client.assert_not_called()
 
     async def test_preflight_refusals_allow_recovery_only_without_prior_intent(self):
-        with patch.object(app_module, '_GClient') as transport:
+        with patch.object(console_router, '_GClient') as transport:
             response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'draft_revision':'0'*64})
             self.assertEqual(response.json()['delivery_status'],'not_attempted')
             self.assertIsNone(await self.store.get(self.operation))
@@ -219,7 +220,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unauthenticated_or_wrong_origin_cannot_send(self):
         self.client.cookies.clear()
-        with patch.object(app_module, '_GClient') as client:
+        with patch.object(console_router, '_GClient') as client:
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 401)
         client.assert_not_called()

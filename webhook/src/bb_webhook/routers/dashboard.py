@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 
-from .. import deps
+from .. import database, deps
 
 router = APIRouter(prefix="/dashboard/api")
 
@@ -20,7 +20,7 @@ async def dashboard_messages(
     customer_only: bool = False,
 ) -> JSONResponse:
     """Return parsed messages as JSON."""
-    messages = await deps.database_function("get_parsed_messages")(
+    messages = await database.get_parsed_messages(
         limit=max(1, min(limit, 200)),
         offset=max(0, offset),
         customer_only=customer_only,
@@ -31,13 +31,13 @@ async def dashboard_messages(
 @router.get("/stats")
 async def dashboard_stats() -> JSONResponse:
     """Return aggregate processing statistics."""
-    return JSONResponse(content=await deps.database_function("get_result_stats")())
+    return JSONResponse(content=await database.get_result_stats())
 
 
 @router.get("/tickets")
 async def dashboard_tickets_api(limit: int = 100, offset: int = 0) -> JSONResponse:
     """Return customer messages joined with AI processing results."""
-    tickets = await deps.database_function("get_dashboard_tickets")(
+    tickets = await database.get_dashboard_tickets(
         limit=max(1, min(limit, 500)),
         offset=max(0, offset),
     )
@@ -47,7 +47,7 @@ async def dashboard_tickets_api(limit: int = 100, offset: int = 0) -> JSONRespon
 @router.get("/owner-alerts")
 async def dashboard_owner_alerts(limit: int = 50, offset: int = 0) -> JSONResponse:
     """Read-only inspection of owner-alert attempts needing attention."""
-    return JSONResponse(content=await deps.database_function("get_owner_alerts")(
+    return JSONResponse(content=await database.get_owner_alerts(
         limit=limit, offset=offset,
     ))
 

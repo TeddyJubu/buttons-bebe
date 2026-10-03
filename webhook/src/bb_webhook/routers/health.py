@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timezone
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from .. import deps
+from ..config import get_settings
 from ..db import Database
 from ..result_auth import configured_secret
 
@@ -32,7 +32,7 @@ def _age(value):
 
 @router.get("/ready")
 async def ready() -> JSONResponse:
-    settings = deps.get_settings()
+    settings = get_settings()
     checks = {"db": "unavailable", "schema": "unavailable", "gorgias_configured": bool(settings.gorgias_auth), "processor_result_configured": bool(configured_secret(settings))}
     diagnostics = {}
     try:

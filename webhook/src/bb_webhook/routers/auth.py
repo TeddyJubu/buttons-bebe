@@ -9,7 +9,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from .. import deps, session_store
+from .. import session_store
+from ..config import get_settings
 from ..password_executor import verify_bounded, PasswordVerifierBusy
 from ..middleware.console_session import resolve_identity, trusted_origin, UNSAFE_METHODS
 from ..console_auth import (
@@ -72,7 +73,7 @@ async def auth_login(request: Request) -> JSONResponse:
         return _invalid_origin()
     if not _login_allowed(request):
         return JSONResponse(status_code=429, content={"error": "too_many_attempts"})
-    settings = deps.get_settings()
+    settings = get_settings()
     if not settings.console_password_hash or not settings.console_session_secret:
         return _auth_unconfigured()
     try:
@@ -169,7 +170,7 @@ async def auth_page_check(request: Request) -> Response:
 async def auth_logout(request: Request) -> Response:
     if not trusted_origin(request):
         return _invalid_origin()
-    settings = deps.get_settings()
+    settings = get_settings()
     claims = session_claims(request.cookies.get(_COOKIE_NAME), settings.console_session_secret)
     if claims and claims.username == settings.console_username:
         try:

@@ -3,7 +3,7 @@ import unittest
 import uuid
 import hashlib
 from unittest.mock import Mock, patch
-from bb_webhook import app as app_module
+from bb_webhook.routers import console as console_router
 from webhook.action_test_support import setup_action_case
 
 class ConsoleSendStatusTests(unittest.IsolatedAsyncioTestCase):
@@ -16,7 +16,7 @@ class ConsoleSendStatusTests(unittest.IsolatedAsyncioTestCase):
             await kwargs['on_created'](result['message_id'])
             return result
         fake.send_public_reply=send
-        with patch.object(app_module,'_GClient',return_value=fake):
+        with patch.object(console_router,'_GClient',return_value=fake):
             return await self.client.post('/dashboard/api/ticket/1/send',json={
                 'text':'Thanks!', 'confirmed':True,'operation_id':str(uuid.uuid4()),'source_message_id':'source-1',
                 'draft_revision':hashlib.sha256(b'I can help check that.').hexdigest()})

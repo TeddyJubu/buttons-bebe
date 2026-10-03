@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from bb_webhook import app as app_module
+from bb_webhook.routers import console as console_router
 from bb_webhook.hermes_permissions import canonical_toolsets, child_environment
 from webhook.action_test_support import setup_action_case
 
@@ -70,12 +70,12 @@ print(f'<DRAFT:{{token}}>Thank you for checking in.</DRAFT:{{token}}>')
         self.child.chmod(0o755)
         for name, value in {'_HERMES_BIN': str(self.child), '_HERMES_HOME': '/controlled',
                             '_HERMES_PROFILE': 'synthetic', '_HERMES_IGNORE_RULES': True}.items():
-            p = patch.object(app_module, name, value)
+            p = patch.object(console_router, name, value)
             p.start()
             self.addCleanup(p.stop)
 
     async def rewrite(self, policy):
-        with patch.object(app_module, '_HERMES_REWRITE_TOOLSETS', policy), \
+        with patch.object(console_router, '_HERMES_REWRITE_TOOLSETS', policy), \
              patch.dict(os.environ, {'PATH': '/usr/bin:/bin', 'OPENAI_API_KEY': 'synthetic-model',
                  'LANG': 'C', 'WA_TOKEN': 'synthetic-private', 'CONSOLE_SESSION_SECRET': 'synthetic-private',
                  'GORGIAS_API_KEY': 'synthetic-private', 'PYTHONPATH': '/injected'}, clear=True):

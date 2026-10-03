@@ -3,7 +3,7 @@ import hashlib
 import unittest
 import uuid
 from unittest.mock import patch
-from bb_webhook import app as app_module
+from bb_webhook.routers import console as console_router
 from bb_webhook.db import Database
 from bb_webhook.send_intents import IntentStore
 from webhook.action_test_support import setup_action_case
@@ -17,7 +17,7 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         return await self.client.get(self.url,params={'source_message_id':'source-1',**params})
     async def test_context_is_readonly_exact_and_send_locked(self):
         before=self.path.read_bytes()
-        with patch.object(app_module,'_GClient') as transport:
+        with patch.object(console_router,'_GClient') as transport:
             response=await self.get()
         transport.assert_not_called()
         self.assertEqual(response.status_code,200)

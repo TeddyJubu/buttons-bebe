@@ -11,6 +11,7 @@ from unittest.mock import patch
 import httpx
 
 from bb_webhook import app as app_module, database, db as db_module, session_store
+from bb_webhook.middleware import console_session
 from bb_webhook.console_auth import build_session_token, session_claims
 from bb_webhook.db import Database
 from bb_webhook.draft_generation import begin_attempt, finish_attempt
@@ -186,7 +187,7 @@ class OwnerAlertApiTests(OwnerAlertFixture, unittest.IsolatedAsyncioTestCase):
             console_username="test-owner", console_session_secret="synthetic-session-secret",
             db_path_absolute=self.path,
         )
-        for target in (app_module, db_module):
+        for target in (console_session, db_module):
             patched = patch.object(target, "get_settings", return_value=self.settings)
             patched.start()
             self.addCleanup(patched.stop)

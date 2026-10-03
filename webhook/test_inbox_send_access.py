@@ -4,7 +4,8 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, Mock, patch
 
-from bb_webhook import app as app_module, session_store
+from bb_webhook import session_store
+from bb_webhook.routers import console as console_router
 from bb_webhook.console_auth import build_session_token, session_claims
 from bb_webhook.db import Database
 from bb_webhook.inbox_send_access import InboxSendAccess
@@ -28,7 +29,7 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
             await kwargs['on_created'](9001)
             return {'ok':True,'delivery_status':'sent','message_id':9001}
         self.provider.send_public_reply=AsyncMock(side_effect=send)
-        factory=patch.object(app_module,'_GClient',return_value=self.provider)
+        factory=patch.object(console_router,'_GClient',return_value=self.provider)
         self.factory=factory.start();self.addCleanup(factory.stop)
 
     async def enable(self):

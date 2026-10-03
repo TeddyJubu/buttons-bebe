@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from bb_webhook import app as app_module
+from bb_webhook import database
 
 
 class RouterContractTests(unittest.TestCase):
@@ -67,7 +68,7 @@ class RouterContractTests(unittest.TestCase):
             patch.object(app_module, "setup_logging", Mock(side_effect=lambda: events.append("logging"))),
             patch.object(app_module, "get_settings", Mock(side_effect=lambda: (events.append("settings") or settings))),
             patch.object(app_module, "log_event", Mock(side_effect=lambda *args, **kwargs: events.append("log"))),
-            patch.object(app_module, "init_db", AsyncMock(side_effect=init_db)),
+            patch.object(database, "init_db", AsyncMock(side_effect=init_db)),
             patch.object(app_module.session_store, "initialize", AsyncMock(side_effect=lambda *args: events.append("sessions"))),
         ):
             import asyncio

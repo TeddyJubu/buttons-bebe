@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from bb_webhook.console_auth import build_session_token, hash_password
 from bb_webhook.routers import auth
+from bb_webhook.middleware import console_session
 from starlette.requests import Request
 
 
@@ -75,7 +76,8 @@ class ConsoleAuthEndpointTests(unittest.IsolatedAsyncioTestCase):
             "POST", "/auth/login",
             body={"username": "chaim", "password": "correct password", "next": "/console/tickets"},
         )
-        with patch.object(auth.deps, "get_settings", return_value=self.settings), \
+        with patch.object(auth, "get_settings", return_value=self.settings), \
+             patch.object(console_session, "get_settings", return_value=self.settings), \
              patch.object(auth, "_login_allowed", return_value=True):
             response = await auth.auth_login(request)
 
@@ -92,7 +94,8 @@ class ConsoleAuthEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bad_credentials_and_unconfigured_auth_fail_closed(self) -> None:
         bad = request_for("POST", "/auth/login", body={"username": "chaim", "password": "wrong"})
-        with patch.object(auth.deps, "get_settings", return_value=self.settings), \
+        with patch.object(auth, "get_settings", return_value=self.settings), \
+             patch.object(console_session, "get_settings", return_value=self.settings), \
              patch.object(auth, "_login_allowed", return_value=True):
             response = await auth.auth_login(bad)
         self.assertEqual(response.status_code, 401)
@@ -101,13 +104,15 @@ class ConsoleAuthEndpointTests(unittest.IsolatedAsyncioTestCase):
         unconfigured = SimpleNamespace(
             console_username="chaim", console_password_hash="", console_session_secret="", demo_mode=False
         )
-        with patch.object(auth.deps, "get_settings", return_value=unconfigured), \
+        with patch.object(auth, "get_settings", return_value=unconfigured), \
+             patch.object(console_session, "get_settings", return_value=unconfigured), \
              patch.object(auth, "_login_allowed", return_value=True):
             response = await auth.auth_login(request_for("POST", "/auth/login", body={}))
         self.assertEqual(response.status_code, 503)
 
     async def test_page_check_redirects_and_logout_expires_cookie(self) -> None:
-        with patch.object(auth.deps, "get_settings", return_value=self.settings):
+        with patch.object(auth, "get_settings", return_value=self.settings), \
+             patch.object(console_session, "get_settings", return_value=self.settings):
             redirect = await auth.auth_page_check(request_for("GET", "/auth/page-check"))
             self.assertEqual(redirect.status_code, 302)
             self.assertEqual(redirect.headers["location"], "/console/login?next=%2Fconsole%2F")

@@ -19,7 +19,8 @@ async def setup_action_case(case):
     await session_store.initialize(case.path)
     case.settings = SimpleNamespace(db_path_absolute=case.path, console_session_secret='test-action-secret',
                                     console_username='owner', demo_mode=False)
-    for target in ('bb_webhook.app.get_settings', 'bb_webhook.db.get_settings'):
+    for target in ('bb_webhook.deps.get_settings', 'bb_webhook.db.get_settings',
+                   'bb_webhook.middleware.console_session.get_settings'):
         patched = patch(target, return_value=case.settings)
         patched.start()
         case.addCleanup(patched.stop)

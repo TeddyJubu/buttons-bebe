@@ -47,7 +47,7 @@ const plain = value => {
   }
   return text.replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').replace(/\n{4,}/g,'\n\n\n').trim();
 };
-const keys = {state:'bb-inbox-ticket-state-v1',local:'bb-inbox-local-tickets-v1',read:'bb-inbox-read-v1',drafts:'bb-inbox2-composer-v1',dismiss:'bb-inbox2-dismissed-v1',rewrites:'bb-inbox2-rewrites-v1'};
+const keys = {read:'bb-inbox-read-v1',drafts:'bb-inbox2-composer-v1',dismiss:'bb-inbox2-dismissed-v1',rewrites:'bb-inbox2-rewrites-v1'};
 const memory = new Map();
 function stored(key, fallback) {if(memory.has(key))return memory.get(key);try {const raw = localStorage.getItem(key);return raw ? JSON.parse(raw) : (memory.get(key) ?? fallback);} catch {return memory.get(key) ?? fallback;}}
 function persist(key, value) {memory.set(key,value);try {localStorage.setItem(key,JSON.stringify(value));memory.delete(key);return true;} catch {toast('Browser storage is unavailable. Changes will last for this session only.');return false;}}
@@ -56,7 +56,7 @@ function arrayStore(key) {const v=stored(key,[]);return Array.isArray(v)?v:[];}
 let toastTimer;
 function toast(message) {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6000);}
 let params = new URLSearchParams(location.search);
-const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['all','open','closed'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',operator:'',ticketRequest:0,listRequest:0,olderRequest:0};
+const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['all','open','closed'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',ticketRequest:0,listRequest:0,olderRequest:0};
 $('#search').value=state.query;
 // Manual send authority lives only in this page's memory. Never persist a grant.
 const sendAccess={token:'',expiresAt:0,busy:false,timer:null};
@@ -175,15 +175,11 @@ async function api(tool, args={}) {
   if (result.source && result.source!=='gorgias_api') throw new Error('Live ticket data is unavailable.');
   return result;
 }
-function localRows() {return [];}
-function localValue() {return '';}
 function observed(ticket, field) {
   if(field==='priority') return ticket.gorgiasPriority || '';
   if(field==='assignee') return ticket.assigneeEmail || (typeof ticket.assignee==='string'?ticket.assignee:ticket.assignee?.email || ticket.assignee?.name) || '';
   return ticket[field] || '';
 }
-function effective(ticket, field) {return observed(ticket,field);}
-function allRows() {return [...localRows(),...state.rows];}
 function filtered() {return state.rows;}
 function syncUrl(push=false) {
   const p=new URLSearchParams();if(state.id)p.set('ticket',state.id);if(state.view!=='all')p.set('view',state.view);if(state.query)p.set('q',state.query);
@@ -195,7 +191,7 @@ function age(value) {const days=Math.max(0,Math.floor((Date.now()-new Date(value
 function listRender() {
   const rows=filtered();
   const offset=state.page*state.size,page=rows;
-  $('#ticket-list').innerHTML=page.map(t=>`<button class="ticket-row" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(plain(t.snippet)||'No message preview')}</div>${t.localOnly||effective(t,'status')==='closed'?`<div class="row-state">${t.localOnly?'Local ticket':`Closed${t.draftAction==='auto_close'?' · Auto-close':''}`}</div>`:''}</button>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
+  $('#ticket-list').innerHTML=page.map(t=>`<button class="ticket-row" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(plain(t.snippet)||'No message preview')}</div>${t.localOnly||observed(t,'status')==='closed'?`<div class="row-state">${t.localOnly?'Local ticket':`Closed${t.draftAction==='auto_close'?' · Auto-close':''}`}</div>`:''}</button>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
   const count=state.loading&&!rows.length?'Loading tickets…':rows.length?`${offset+1}–${Math.min(offset+rows.length,state.total)} of ${state.total.toLocaleString()}`:'0 tickets';
   $('#count').textContent=count;
   $('[data-action="page-prev"]').disabled=state.page===0;
@@ -362,8 +358,7 @@ async function selectTicket(id,push=true,focus=false) {
   }
 }
 function ticketTitle(t) {return t.shopifyRail?.order?.name?`Order ${t.shopifyRail.order.name.replace(/^#/,'')}`:t.subject||'No subject';}
-function options(values,selected) {return values.map(([v,text])=>`<option value="${esc(v)}"${v===selected?' selected':''}>${esc(text)}</option>`).join('');}
-function control(t,field,values,iconName,prefix='') {
+function control(t,field,iconName,prefix='') {
   const value=observed(t,field),text=field==='status'?(label(value)||'Status unavailable'):`${prefix}: ${value?field==='assignee'?value:label(value):'not set'}`;
   return `<div class="control readonly-control ${field==='status'?'status-control '+statusTone(value):field==='priority'?statusTone(value):''}" title="Read-only value from Gorgias"><span>${field==='status'?'<span class="status-dot"></span>':icon(iconName)}</span><span>${esc(text)}</span></div>`;
 }
@@ -371,9 +366,7 @@ function htmlElement(markup) {return document.createRange().createContextualFrag
 function renderTicket() {
   const t=state.ticket;if(!t)return;
   const expandedQuotes=new Set([...document.querySelectorAll('.quoted-email[open]')].map(el=>el.dataset.messageId));
-  const people=[...new Set([state.operator,...allRows().map(x=>observed(x,'assignee')),localValue(t,'assignee')].filter(Boolean))];
-  const overrides=['status','priority','assignee'].filter(f=>localValue(t,f)).map(f=>`${label(f)}: ${localValue(t,f)} (observed: ${observed(t,f)||'unknown'})`);
-  const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div><div class="ticket-actions">${control(t,'status',[['open','Open · local'],['closed','Closed · local']],'','Status')}${control(t,'priority',[['low','Low · local'],['normal','Normal · local'],['high','High · local'],['critical','Critical · local']],'flag','Priority')}${control(t,'assignee',[['unassigned','Unassigned · local'],...people.filter(x=>x!=='unassigned').map(x=>[x,x+' · local'])],'user','Assignee')}<button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div>${overrides.length?`<div class="local-observed">Browser changes · ${esc(overrides.join(' · '))}</div>`:''}<p class="live-ticket-sync" id="live-ticket-sync">${t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
+  const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div><div class="ticket-actions">${control(t,'status','','Status')}${control(t,'priority','flag','Priority')}${control(t,'assignee','user','Assignee')}<button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div><p class="live-ticket-sync" id="live-ticket-sync">${t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
   const content=`<section id="ticket-content" role="tabpanel" aria-labelledby="${state.tab==='conversation'?'conversation-tab':'details-tab'}">${state.tab==='conversation'?conversationHtml(t):detailsHtml(t)}</section>`;
   const conversation=$('#conversation'),sameTicket=conversation.dataset.ticketId===t.id&&Boolean($('.reply-area',conversation)?.isConnected);
   if(sameTicket){
@@ -578,7 +571,6 @@ function captureDraftRevision(id,value) {
 function saveReply(value) {if(state.ticket)captureDraftRevision(state.id,value);}
 function sizeReplyEditor(editor) {editor.style.height='auto';editor.style.height=`${editor.scrollHeight}px`;}
 async function copyText(value,message) {try {await navigator.clipboard.writeText(value);toast(message);}catch {toast('Copy is unavailable in this browser. Select the text and copy it manually.');}}
-function setField(field,value) {if(!state.ticket)return;const records=objectStore(keys.state);records[state.id]={...(records[state.id]||{}),[field]:value?{value,by:state.operator||'operator',at:Date.now()}:null};persist(keys.state,records);renderTicket();listRender();toast('Saved in this browser. Observed Gorgias values are unchanged.');}
 // Refresh only the context rail while a background lookup runs; never touch the editor.
 let customerDetailsTimer;
 let customerDetailsRequest=0;
@@ -645,7 +637,6 @@ let searchTimer;
 $('#search').addEventListener('input',event=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.query=event.target.value;state.page=0;syncUrl();loadList();},250);});
 document.addEventListener('input',event=>{if(event.target.id==='reply'){sizeReplyEditor(event.target);saveReply(event.target.value);$('#saved-note').textContent='Saved in this browser';}});
 window.addEventListener('resize',()=>{const editor=$('#reply');if(editor)sizeReplyEditor(editor);});
-document.addEventListener('change',event=>{if(event.target.dataset.field)setField(event.target.dataset.field,event.target.value);});
 document.addEventListener('click',async event=>{
   const ticketButton=event.target.closest('[data-ticket]');if(ticketButton){await selectTicket(ticketButton.dataset.ticket,true,true);return;}
   const view=event.target.closest('[data-view]');if(view){state.view=view.dataset.view;state.page=0;syncUrl();loadList();return;}
@@ -701,7 +692,6 @@ document.addEventListener('keydown', event => {
 window.addEventListener('popstate',()=>{params=new URLSearchParams(location.search);state.query=params.get('q')||'';state.view=['all','open','closed'].includes(params.get('view'))?params.get('view'):'all';$('#search').value=state.query;const id=params.get('ticket');if(id)selectTicket(id,false);else{state.id='';state.ticket=null;$('#workspace').classList.remove('ticket-open');const first=filtered()[0];if(first)selectTicket(first.id,false);}state.page=0;loadList();});
 
 renderSendAccess();
-api('capabilities').then(result=>{state.operator=result.operatorEmail||'';}).catch(()=>{});
 if(state.id)selectTicket(state.id,false);
 loadList();
 

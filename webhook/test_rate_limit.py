@@ -8,6 +8,7 @@ from unittest.mock import patch
 import httpx
 
 from bb_webhook import app as app_module
+from bb_webhook.routers import webhook as webhook_router
 from bb_webhook.middleware import rate_limit
 
 
@@ -37,8 +38,8 @@ class RateLimitRouteTests(unittest.IsolatedAsyncioTestCase):
             base_url="http://demo.test",
         ) as client:
             with (
-                patch.object(app_module, "verify_signature", lambda *_args: True),
-                patch.object(app_module, "_check_rate_limit", lambda _ip: False),
+                patch.object(webhook_router, "verify_signature", lambda *_args: True),
+                patch.object(webhook_router, "_check_rate_limit", lambda _ip: False),
             ):
                 response = await client.post(
                     "/webhook/gorgias/demo-tenant",
@@ -54,16 +55,16 @@ class RateLimitRouteTests(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=app_module.app),
             base_url="http://demo.test",
         ) as client:
-            app_module._rate_window.clear()
+            rate_limit._rate_window.clear()
             with (
-                patch.object(app_module, "verify_signature", lambda *_args: True),
-                patch.object(app_module, "parse_event", lambda _raw: None),
-                patch.object(app_module, "_MAX_REQUESTS_PER_MINUTE", 1),
+                patch.object(webhook_router, "verify_signature", lambda *_args: True),
+                patch.object(webhook_router, "parse_event", lambda _raw: None),
+                patch.object(rate_limit, "_MAX_REQUESTS_PER_MINUTE", 1),
             ):
                 first = await client.post("/webhook/gorgias/demo", content=b"{}")
                 second = await client.post("/webhook/gorgias/demo", content=b"{}")
 
-            with patch.object(app_module, "_MAX_WEBHOOK_BODY_BYTES", 1):
+            with patch.object(webhook_router, "_MAX_WEBHOOK_BODY_BYTES", 1):
                 oversized = await client.post(
                     "/webhook/gorgias/demo",
                     content=b"{}",

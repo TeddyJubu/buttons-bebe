@@ -15,8 +15,10 @@ from unittest.mock import patch
 import httpx
 from fastapi import Request
 from bb_webhook import app as app_module, database, session_store, password_executor
+from bb_webhook.routers import webhook as webhook_router
 from bb_webhook.console_auth import build_session_token, hash_password, safe_next_path
-from bb_webhook.routers import auth
+from bb_webhook.routers import auth, health
+from bb_webhook.middleware import console_session
 
 ORIGIN = "https://support.buttonsbebe.com"
 
@@ -34,8 +36,10 @@ class SessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         await database.init_db(self.path)
         await session_store.initialize(self.path)
         self.settings = SimpleNamespace(console_username="chaim", console_password_hash=hash_password("local-test-password"), console_session_secret="local-test-secret", demo_mode=False, db_path_absolute=self.path, gorgias_auth="local-placeholder", processor_result_secret="synthetic-result-secret-0123456789")
-        self.settings_patch = patch.object(app_module, "get_settings", return_value=self.settings)
-        self.settings_patch.start()
+        for consumer in (auth, health, console_session):
+            settings_patch = patch.object(consumer, "get_settings", return_value=self.settings)
+            settings_patch.start()
+            self.addCleanup(settings_patch.stop)
         self.login_patch = patch.object(auth, "_login_allowed", return_value=True)
         self.login_patch.start()
         self.app = app_module.create_app()
@@ -49,7 +53,6 @@ class SessionSecurityTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.aclose()
         self.login_patch.stop()
-        self.settings_patch.stop()
         self.temp.cleanup()
 
     async def login(self):
@@ -161,7 +164,7 @@ class SessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.1)
             saturated = await asyncio.wait_for(self.client.post("/auth/login",headers={"origin":ORIGIN},json=payload),timeout=0.75)
             self.assertEqual(saturated.status_code,429)
-            with patch.object(app_module,"verify_signature",return_value=False):
+            with patch.object(webhook_router,"verify_signature",return_value=False):
                 intake = await asyncio.wait_for(self.client.post("/webhook/gorgias/test",content=b"{}"),timeout=0.75)
             self.assertEqual(intake.status_code,401)
             self.assertEqual(intake.json()["error"],"invalid_signature")

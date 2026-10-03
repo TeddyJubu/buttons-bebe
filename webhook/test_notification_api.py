@@ -6,7 +6,8 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from bb_webhook import app as app_module
+from bb_webhook import database
+from bb_webhook.routers import notifications
 
 
 class DashboardNotificationApiTests(unittest.IsolatedAsyncioTestCase):
@@ -22,10 +23,10 @@ class DashboardNotificationApiTests(unittest.IsolatedAsyncioTestCase):
         # The stored key is a legacy unsuffixed "review:{message_id}" ack
         # recorded before ids gained their :{ticket_id} suffix.
         with (
-            patch.object(app_module, "get_dashboard_tickets", AsyncMock(return_value=self._tickets)),
-            patch.object(app_module, "get_setting", AsyncMock(return_value='{"review:review":"earlier"}')),
+            patch.object(database, "get_dashboard_tickets", AsyncMock(return_value=self._tickets)),
+            patch.object(database, "get_setting", AsyncMock(return_value='{"review:review":"earlier"}')),
         ):
-            response = await app_module.dashboard_notifications_api()
+            response = await notifications.dashboard_notifications_api()
 
         body = response.body.decode()
         self.assertIn('"unread_count":0', body)
@@ -39,11 +40,11 @@ class DashboardNotificationApiTests(unittest.IsolatedAsyncioTestCase):
 
         store = AsyncMock()
         with (
-            patch.object(app_module, "get_dashboard_tickets", AsyncMock(return_value=self._tickets)),
-            patch.object(app_module, "get_setting", AsyncMock(return_value='{"review:review":"earlier"}')),
-            patch.object(app_module, "set_setting", store),
+            patch.object(database, "get_dashboard_tickets", AsyncMock(return_value=self._tickets)),
+            patch.object(database, "get_setting", AsyncMock(return_value='{"review:review":"earlier"}')),
+            patch.object(database, "set_setting", store),
         ):
-            response = await app_module.mark_dashboard_notifications_read(Request())
+            response = await notifications.mark_dashboard_notifications_read(Request())
 
         saved_state = json.loads(store.await_args.args[1])
         # the legacy ack migrated to the new id, not dropped by the prune
@@ -57,11 +58,11 @@ class DashboardNotificationApiTests(unittest.IsolatedAsyncioTestCase):
 
         store = AsyncMock()
         with (
-            patch.object(app_module, "get_dashboard_tickets", AsyncMock(return_value=self._tickets)),
-            patch.object(app_module, "get_setting", AsyncMock(return_value='{"stale":"earlier"}')),
-            patch.object(app_module, "set_setting", store),
+            patch.object(database, "get_dashboard_tickets", AsyncMock(return_value=self._tickets)),
+            patch.object(database, "get_setting", AsyncMock(return_value='{"stale":"earlier"}')),
+            patch.object(database, "set_setting", store),
         ):
-            response = await app_module.mark_dashboard_notifications_read(Request())
+            response = await notifications.mark_dashboard_notifications_read(Request())
 
         self.assertIn('"unread_count":0', response.body.decode())
         saved_state = store.await_args.args[1]

@@ -85,6 +85,7 @@ class WebhookAdversarialTests(unittest.IsolatedAsyncioTestCase):
             cls.config = config
             cls.app_module = importlib.import_module("bb_webhook.app")
             cls.database = importlib.import_module("bb_webhook.database")
+            cls.rate_limit = importlib.import_module("bb_webhook.middleware.rate_limit")
         finally:
             dotenv.load_dotenv = original_load_dotenv
 
@@ -101,7 +102,7 @@ class WebhookAdversarialTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         # The rate limiter is process-global in the real app; clear only its
         # in-memory test state between isolated temporary-DB cases.
-        self.app_module._rate_window.clear()
+        self.rate_limit._rate_window.clear()
         for suffix in ("", "-wal", "-shm"):
             path = Path(f"{self.db_path}{suffix}")
             if path.exists():
@@ -266,7 +267,7 @@ class WebhookAdversarialTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_concurrent_duplicate_delivery_cannot_enqueue_multiple_jobs(self) -> None:
         """Expose the receiver's check-then-insert idempotency race."""
-        original_is_duplicate = self.app_module.is_duplicate
+        original_is_duplicate = self.database.is_duplicate
         waiter_count = 0
         waiter_lock = asyncio.Lock()
         all_read = asyncio.Event()
@@ -282,7 +283,7 @@ class WebhookAdversarialTests(unittest.IsolatedAsyncioTestCase):
             await all_read.wait()
             return result
 
-        self.app_module.is_duplicate = synchronized_duplicate_check
+        self.database.is_duplicate = synchronized_duplicate_check
         try:
             raw = json.dumps(
                 self.payload(message_id=1501), separators=(",", ":")
@@ -291,7 +292,7 @@ class WebhookAdversarialTests(unittest.IsolatedAsyncioTestCase):
                 *(self.post_raw(raw) for _ in range(concurrent_requests))
             )
         finally:
-            self.app_module.is_duplicate = original_is_duplicate
+            self.database.is_duplicate = original_is_duplicate
 
         self.assertTrue(all(response.status_code in (200, 202) for response in responses))
         events, jobs, parsed = await self.db_counts()

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio as _asyncio
 import os as _os
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import JSONResponse
 
-from .. import deps
+from .. import database, deps
 from ..console_actions import execute_action, action_status, actor, preflight_refusal
 from ..gorgias_client import GorgiasClient as _GClient
 from ..learning import ledger as _ledger, record_lesson as _record_lesson
@@ -53,10 +52,6 @@ _HERMES_IGNORE_RULES = _os.environ.get("HERMES_IGNORE_RULES", "").strip().lower(
 _SUPPORT_STORE_NAME = " ".join(
     _os.environ.get("SUPPORT_STORE_NAME", "Buttons Bebe").split()
 )[:80] or "Buttons Bebe"
-
-
-def _app_value(name: str, default):
-    return deps.resolve(name, default)
 
 
 @router.get("/inbox/review-context/{inbox_ticket_id}")
@@ -159,7 +154,7 @@ async def action_send(ticket_id: int, request: Request) -> JSONResponse:
         return await preflight_refusal(400, "invalid_json", body)
     if not isinstance(body, dict):
         return await preflight_refusal(400, "invalid_json_object", body)
-    if not await deps.database_function("dashboard_ticket_exists")(ticket_id):
+    if not await database.dashboard_ticket_exists(ticket_id):
         return await preflight_refusal(404, "ticket_not_in_console", body)
     raw_text = body.get("text", "")
     if not isinstance(raw_text, str):
@@ -170,7 +165,7 @@ async def action_send(ticket_id: int, request: Request) -> JSONResponse:
     if body.get("confirmed") is not True:
         return await preflight_refusal(409, "confirmation_required", body)
     return await execute_action('send', ticket_id, request, body, text,
-                                _app_value("_GClient", _GClient), _app_value("_record_lesson", _record_lesson))
+                                _GClient, _record_lesson)
 
 
 @router.post("/ticket/{ticket_id}/note")
@@ -183,7 +178,7 @@ async def action_note(ticket_id: int, request: Request) -> JSONResponse:
         return await preflight_refusal(400, "invalid_json", body)
     if not isinstance(body, dict):
         return await preflight_refusal(400, "invalid_json_object", body)
-    if not await deps.database_function("dashboard_ticket_exists")(ticket_id):
+    if not await database.dashboard_ticket_exists(ticket_id):
         return await preflight_refusal(404, "ticket_not_in_console", body)
     raw_text = body.get("text", "")
     if not isinstance(raw_text, str):
@@ -192,13 +187,13 @@ async def action_note(ticket_id: int, request: Request) -> JSONResponse:
     if not text or len(text) > 50_000:
         return await preflight_refusal(400, "empty note", body)
     return await execute_action('note', ticket_id, request, body, text,
-                                _app_value("_GClient", _GClient), _app_value("_record_lesson", _record_lesson))
+                                _GClient, _record_lesson)
 
 
 @router.get("/ticket/{ticket_id}/actions/{operation_id}")
 async def get_action_status(ticket_id: int, operation_id: str, request: Request) -> JSONResponse:
     return await action_status(ticket_id, operation_id, request,
-                               _app_value("_GClient", _GClient), _app_value("_record_lesson", _record_lesson))
+                               _GClient, _record_lesson)
 
 
 @router.post("/ticket/{ticket_id}/rewrite")
@@ -210,7 +205,7 @@ async def action_rewrite(ticket_id: int, request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"error": "invalid_json"})
     if not isinstance(body, dict):
         return JSONResponse(status_code=400, content={"error": "invalid_json_object"})
-    if not await deps.database_function("dashboard_ticket_exists")(ticket_id):
+    if not await database.dashboard_ticket_exists(ticket_id):
         return JSONResponse(status_code=404, content={"error": "ticket_not_in_console"})
     for field in ("draft", "instruction", "message_text", "customer_name"):
         if field in body and not isinstance(body[field], str):
@@ -235,19 +230,17 @@ async def action_rewrite(ticket_id: int, request: Request) -> JSONResponse:
     if not rows:
         return JSONResponse(status_code=404, content={"error": "source_message_not_in_console"})
     customer_msg = rows[0]["message_text"] or ""
-    command = [_app_value("_HERMES_BIN", _HERMES_BIN)]
-    profile = _app_value("_HERMES_PROFILE", _HERMES_PROFILE)
-    if profile:
-        command.extend(["-p", profile])
-    if _app_value("_HERMES_IGNORE_RULES", _HERMES_IGNORE_RULES):
+    command = [_HERMES_BIN]
+    if _HERMES_PROFILE:
+        command.extend(["-p", _HERMES_PROFILE])
+    if _HERMES_IGNORE_RULES:
         command.append("--ignore-rules")
-    toolsets = _app_value("_HERMES_REWRITE_TOOLSETS", _HERMES_REWRITE_TOOLSETS)
-    env = child_environment(_os.environ, home=_app_value("_HERMES_HOME", _HERMES_HOME),
+    env = child_environment(_os.environ, home=_HERMES_HOME,
                             path=_os.environ.get("PATH", ""))
     try:
         reply = await run_rewrite(command, env,
-            store_name=_app_value("_SUPPORT_STORE_NAME", _SUPPORT_STORE_NAME),
-            customer_message=customer_msg, draft=draft, instruction=instruction, toolsets=toolsets)
+            store_name=_SUPPORT_STORE_NAME,
+            customer_message=customer_msg, draft=draft, instruction=instruction, toolsets=_HERMES_REWRITE_TOOLSETS)
     except RewriteFailure as exc:
         return JSONResponse(status_code=exc.status, content={"error": exc.error})
     except Exception as exc:
@@ -261,4 +254,4 @@ async def action_rewrite(ticket_id: int, request: Request) -> JSONResponse:
 @router.get("/learning")
 async def learning_stats() -> JSONResponse:
     """Return the learning ledger used by the console."""
-    return JSONResponse(content=_app_value("_ledger", _ledger)())
+    return JSONResponse(content=_ledger())
