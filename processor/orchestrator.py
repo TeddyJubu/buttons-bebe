@@ -486,12 +486,10 @@ async def run_processor() -> int:
     await init_db(settings.db_path_absolute)
 
     # 3. Recover stale jobs
-    stale_count = await requeue_stale_jobs(
-        settings.stale_job_minutes, settings.db_path_absolute, max_retries=settings.max_retries,
-    )
-    if stale_count > 0:
+    stale = await _recover_stale_jobs(settings)
+    if stale:
         log_event(logger, "INFO", "Resolved abandoned claims; exhausted retries marked failed",
-                  count=stale_count,
+                  count=len(stale),
                   max_age_minutes=settings.stale_job_minutes)
 
     # 4. Log startup stats
@@ -522,15 +520,14 @@ async def run_processor() -> int:
     while not _shutdown:
         try:
             if time.monotonic() - last_recovery >= recovery_interval:
-                recovered = await requeue_stale_jobs(
-                    settings.stale_job_minutes, settings.db_path_absolute,
-                    max_retries=settings.max_retries,
-                )
+                recovered = await _recover_stale_jobs(settings)
                 last_recovery = time.monotonic()
-                await set_setting('notification_route_health', json.dumps(check_alert_route()), settings.db_path_absolute)
+                # The probe blocks on a 3-second network timeout; keep the loop responsive.
+                route = await asyncio.to_thread(check_alert_route)
+                await set_setting('notification_route_health', json.dumps(route), settings.db_path_absolute)
                 if recovered:
                     log_event(logger, "WARNING", "Resolved abandoned claims; exhausted retries marked failed",
-                              count=recovered,
+                              count=len(recovered),
                               max_age_minutes=settings.stale_job_minutes)
             # One bounded window query per pass, with customer messages ordered
             # ahead of agent feedback work. Within that window the processor
@@ -727,16 +724,27 @@ async def _process_one_job(
                       job_id=job_id, retry_count=retry_count + 1)
 
 
+async def _recover_stale_jobs(settings: Any) -> list[int]:
+    """Reclaim abandoned claims; a crash on the last attempt must still alert."""
+    recovered = await requeue_stale_jobs(
+        settings.stale_job_minutes, settings.db_path_absolute, max_retries=settings.max_retries,
+    )
+    for job_id in recovered:
+        await _notify_recovered_result({'id': job_id}, settings.db_path_absolute)
+    return recovered
+
+
 async def _notify_recovered_result(job: dict, db_path: Path) -> None:
     """An unavailable draft must not suppress an urgent request's owner alert."""
     from bb_webhook.db import Database
-    rows = await Database(db_path).fetch('SELECT status FROM job_queue WHERE id=?', (job['id'],))
+    rows = await Database(db_path).fetch('SELECT * FROM job_queue WHERE id=?', (job['id'],))
     if not rows or rows[0]['status'] == 'skipped':
         return
     saved = await get_job_result(job['id'], db_path)
     if saved and saved.get('notify_owner'):
         try:
-            await _notify_owner_once(job, saved, db_path)
+            # The stale sweep passes only an ID; the queue row supplies the rest.
+            await _notify_owner_once({**dict(rows[0]), **job}, saved, db_path)
         except Exception:
             # A claimed alert remains uncertain and visible; never retry it here.
             log_event(logger, 'ERROR', 'Recovered generation alert needs operator review', job_id=job['id'])

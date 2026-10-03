@@ -186,7 +186,8 @@ def process_ticket_with_hermes(
                 ticket_id=ticket_id,
                 returncode=result.returncode,
             )
-            diagnostic=(stdout[:100000]+' '+str(result.stderr or '')[:100000])
+            # stderr only: stdout can echo customer text such as "unauthorized charge".
+            diagnostic=str(result.stderr or '')[:100000]
             auth_error=re.search(r'\b(?:401|403|unauthorized|authentication failed|invalid api key|access token expired)\b',diagnostic,re.I)
             return dict(_FALLBACK_RESULT, generation_error='authentication' if auth_error else 'process_exit')
         if not stdout:

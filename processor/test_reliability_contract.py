@@ -100,6 +100,9 @@ class ReliabilityContractTests(unittest.TestCase):
             result=runner.process_ticket_with_hermes(1,'Where is my order?','','',[])
             self.assertEqual(result['generation_error'],'authentication')
             self.assertNotIn('synthetic-private-error',json.dumps(result))
+            # Customer text echoed on stdout must not turn a crash into an auth failure.
+            run.return_value=subprocess.CompletedProcess([],1,'I see an unauthorized charge','Traceback: crash')
+            self.assertEqual(runner.process_ticket_with_hermes(1,'Where is my order?','','',[])['generation_error'],'process_exit')
 
     def test_a_second_processor_cannot_generate_while_the_first_holds_the_lock(self):
         with tempfile.TemporaryDirectory() as folder:
