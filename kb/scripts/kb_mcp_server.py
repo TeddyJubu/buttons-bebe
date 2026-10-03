@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from search_kb import search
+from search_kb import SearchOutcome, search
 from kb_lib import CATEGORY_WEIGHT, CONTENT_FOLDERS, _get_model
 
 HOST = os.environ.get("KB_MCP_HOST", "127.0.0.1")
@@ -52,12 +52,14 @@ _validate_category_configuration()
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True))
-def search_kb(query: str, k: int = 5) -> list[dict]:
+def search_kb(query: str, k: int = 5) -> SearchOutcome:
     """Search the shared, weighted Buttons Bebe knowledge base.
 
-    Returns the top matching passages, each with a relevance score and a risk
-    label ("sensitive": true means return a safely prefixed draft for elevated
-    human review; never send it and never suppress the draft)."""
+    Returns status, independent notice_board and index health, and results.
+    Healthy empty results mean no match. Unavailable notices may hide active
+    overrides. Use passage source and tags to distinguish current policy from
+    learned examples. Retrieval gaps alone do not create urgency. Sensitive
+    requests still require elevated human review. Never send a reply."""
     return search(query, k=k)
 
 

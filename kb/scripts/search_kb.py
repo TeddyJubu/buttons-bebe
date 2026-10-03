@@ -4,9 +4,11 @@ Usage:   ./search.sh "where is my order"
 
 It runs HYBRID search -- keyword search and meaning search at the same time --
 then blends the two result lists. This catches both exact words (SKUs, order
-numbers, other languages) and paraphrases. Returns the best passages with a
-relevance score and the file's risk label.
+numbers, other languages) and paraphrases. Returns independent source health
+and the best passages with relevance, risk, and stored provenance.
 """
+from __future__ import annotations
+
 import os
 import fcntl
 import glob
@@ -14,18 +16,33 @@ import re
 import sys
 import tempfile
 from contextlib import contextmanager
+from typing import Literal, TypedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lancedb
 from kb_lib import CATEGORY_WEIGHT, DB_DIR, PROMOTE_LOCK_PATH, TABLE, embed_query
 
-try:
-    # Notice Board: owner-posted overrides that ride on top of every search.
-    from notices_lib import as_search_results as _notice_results
-except Exception:                      # never let the board break search
-    def _notice_results(*_a, **_k):
-        return []
+from notices_lib import as_search_results as _notice_results
+
+HealthState = Literal["healthy", "degraded", "unavailable"]
+
+
+class RetrievalHealth(TypedDict):
+    state: HealthState
+    codes: list[str]
+
+
+class NoticeHealth(RetrievalHealth):
+    active_count: int | None
+    operator_action: str
+
+
+class SearchOutcome(TypedDict):
+    status: HealthState
+    notice_board: NoticeHealth
+    index: RetrievalHealth
+    results: list[dict]
 
 K = 5         # how many results to return
 POOL = 100    # deep enough to diversify repeated chunks across the 22 intents
@@ -125,35 +142,64 @@ def _heal_missing_index() -> str | None:
     return newest.rsplit("/", 1)[-1]
 
 
-def search(query: str, k: int = K) -> list[dict]:
+def _diagnose(code: str, exc: Exception | None = None) -> None:
+    known_types = (FileNotFoundError, PermissionError, TypeError, AttributeError,
+                   KeyError, IndexError, AssertionError, OSError, ValueError, RuntimeError)
+    error_type = next((cls.__name__ for cls in known_types if isinstance(exc, cls)),
+                      "Exception" if exc is not None else "none")
+    kind = "unexpected" if exc is not None and not isinstance(exc, (OSError, ValueError, RuntimeError)) else "source"
+    print(f"search_kb: code={code} kind={kind} error_type={error_type}", file=sys.stderr)
+
+
+def _index_results(query: str, k: int) -> tuple[RetrievalHealth, list[dict]]:
     candidate_pool = max(POOL, k * 20)
-    with _index_read_lock():
-        try:
+    codes: list[str] = []
+    vec_hits: list[dict] = []
+    kw_hits: list[dict] = []
+    successful_queries = 0
+    stage = "index_lock_failed"
+    try:
+        with _index_read_lock():
+            stage = "index_recovery_failed"
             healed = _heal_missing_index()
             if healed:
-                print(f"search_kb: restored crash-mid-swap backup {healed}; run ./update.sh to rebuild clean",
-                      file=sys.stderr)
+                _diagnose("index_restored")
+            stage = "index_open_failed"
             db = lancedb.connect(str(DB_DIR))
             table = db.open_table(TABLE)
-        except Exception as exc:
-            # ponytail: friendly fail-closed — the heal (os.replace) can raise
-            # too, and owner Notice-Board overrides must survive an index
-            # outage, never a raw LanceDB traceback to Hermes.
-            print(f"search_kb: index unavailable ({exc}); run ./update.sh to rebuild",
-                  file=sys.stderr)
-            return _notice_results()
+            try:
+                qv = embed_query(query)
+            except Exception as exc:
+                codes.append("embedding_failed")
+                _diagnose(codes[-1], exc)
+            else:
+                try:
+                    vec_hits = table.search(qv).metric("cosine").limit(candidate_pool).to_list()
+                    successful_queries += 1
+                except Exception as exc:
+                    codes.append("vector_lookup_failed")
+                    _diagnose(codes[-1], exc)
+            try:
+                kw_hits = table.search(query, query_type="fts").limit(candidate_pool).to_list()
+                successful_queries += 1
+            except Exception as exc:
+                codes.append("keyword_lookup_failed")
+                _diagnose(codes[-1], exc)
+            stage = "index_lock_failed"
+    except Exception as exc:
+        codes.append(stage)
+        _diagnose(stage, exc)
+    if not successful_queries:
+        return {"state": "unavailable", "codes": codes}, []
+    try:
+        results = _rank_results(query, vec_hits, kw_hits, k)
+    except Exception as exc:
+        _diagnose("index_rows_invalid", exc)
+        return {"state": "unavailable", "codes": [*codes, "index_rows_invalid"]}, []
+    return {"state": "degraded" if codes else "healthy", "codes": codes}, results
 
-        # 1) meaning search (vectors)
-        qv = embed_query(query)
-        vec_hits = table.search(qv).metric("cosine").limit(candidate_pool).to_list()
 
-        # 2) keyword search (full text / BM25)
-        try:
-            kw_hits = table.search(query, query_type="fts").limit(candidate_pool).to_list()
-        except Exception:
-            kw_hits = []   # if the keyword index isn't ready, fall back to meaning only
-
-    # 3) blend the two lists with reciprocal rank fusion
+def _rank_results(query: str, vec_hits: list[dict], kw_hits: list[dict], k: int) -> list[dict]:
     scores: dict[str, float] = {}
     info: dict[str, dict] = {}
     for rank, hit in enumerate(vec_hits):
@@ -165,11 +211,6 @@ def search(query: str, k: int = K) -> list[dict]:
         scores[i] = scores.get(i, 0.0) + 1.0 / (RRF_K + rank + 1)
         info.setdefault(i, hit)
 
-    # Exact platform identifiers are an independent lexical anchor. Treat each
-    # verbatim identifier match as rank-one RRF evidence before applying the
-    # category trust prior. Unknown categories keep the neutral multiplier so a
-    # malformed row cannot gain extra authority; queries without identifiers
-    # retain the ordinary post-RRF weighting behavior.
     identifiers = _platform_identifiers(query)
     weighted_scores = {
         i: _weighted_score(score, info[i], identifiers) for i, score in scores.items()
@@ -182,17 +223,32 @@ def search(query: str, k: int = K) -> list[dict]:
         results.append(
             dict(score=round(score, 4), file=hit["file"], title=hit["title"],
                  category=hit.get("category"), status=hit.get("status"),
+                 source=hit.get("source") or "", tags=hit.get("tags") or "",
                  sensitive=bool(hit.get("sensitive")), heading=hit.get("heading"),
                  text=hit["text"])
         )
 
-    # Notice Board: prepend active owner overrides so the agent always sees them
-    # first. Fail-safe -- any error here must not break normal search.
+    return results
+
+
+def search(query: str, k: int = K) -> SearchOutcome:
+    """Return independent source health and passages, including empty success."""
     try:
         notices = _notice_results()
-    except Exception:
+        notice_health: NoticeHealth = {"state": "healthy", "active_count": len(notices), "codes": [], "operator_action": ""}
+    except Exception as exc:
+        code = "notice_store_invalid" if isinstance(exc, ValueError) else "notice_read_failed"
+        _diagnose(code, exc)
         notices = []
-    return notices + results
+        notice_health = {"state": "unavailable", "active_count": None, "codes": [code],
+                         "operator_action": "Inspect the Notice Board. Active owner overrides may still exist."}
+    index_health, results = _index_results(query, k)
+    states = (notice_health["state"], index_health["state"])
+    status: HealthState = "healthy" if states == ("healthy", "healthy") else (
+        "unavailable" if states == ("unavailable", "unavailable") else "degraded"
+    )
+    return {"status": status, "notice_board": notice_health, "index": index_health,
+            "results": notices + results}
 
 
 def main() -> None:
@@ -200,15 +256,20 @@ def main() -> None:
         print('Usage: ./search.sh "your question"')
         return
     query = " ".join(sys.argv[1:])
-    results = search(query)
+    outcome = search(query)
+    for name in ("notice_board", "index"):
+        health = outcome[name]
+        if health["state"] != "healthy":
+            print(f"{name}: {health['state']} ({', '.join(health['codes'])})")
+    results = outcome["results"]
     if not results:
-        print("No matches found. If you just added content, run ./update.sh first.")
+        print("No matches found." if outcome["status"] == "healthy" else "No passages available from the readable sources. Check retrieval health before answering.")
         return
-    print(f'\nTop matches for: "{query}"')
+    print("\nTop matches")
     for r in results:
         flag = "  [SENSITIVE -> escalate]" if r["sensitive"] else ""
         print(f"\n[{r['score']}]  {r['title']}  >  {r['heading']}{flag}")
-        print(f"        (file: {r['file']}, status: {r['status']})")
+        print(f"        (file: {r['file']}, status: {r['status']}, source: {r['source']}, tags: {r['tags']})")
         snippet = r["text"].replace("\n", "\n  ")
         print("  " + snippet[:500])
 

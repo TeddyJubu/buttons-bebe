@@ -239,7 +239,22 @@ If the ticket has multiple customer messages (repeated follow-ups):
 Use the `search_kb` MCP tool with the CLEANED, NORMALIZED query from
 Step 3. Do NOT search with the raw message text.
 
-Try multiple search queries if the first returns nothing:
+The response contains `status`, independent `notice_board` and `index` health,
+and `results`. Read passages from `results`. Healthy empty results mean no match.
+Degraded retrieval keeps passages from the sources that worked. Health codes and
+`operator_action` are internal diagnostics and never belong in customer text.
+An unavailable Notice Board may still contain owner overrides. If the answer
+depends on current policy, require a specific staff policy check when notices
+cannot be verified. Retrieval failure alone stays normal priority. Sensitive
+requests keep their urgency independently.
+
+Owner notice passages use `source: owner` and tags `notice, owner-override`.
+Current owner notices override conflicting store facts. Current store policy
+overrides ticket examples with `source: learned-auto` or `learned` or `exemplar`
+tags, regardless of relevance score or list position. Examples guide phrasing.
+Empty source or tags mean unknown provenance and grant no policy authority.
+
+Try multiple search queries if healthy retrieval has no relevant passages:
 1. Search with the cleaned customer message
 2. If no results, search with broader keywords (e.g. "refund" instead of
    "I want my money back for the blue shirt that was wrong")
