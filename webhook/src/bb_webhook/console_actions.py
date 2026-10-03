@@ -74,7 +74,7 @@ async def execute_action(kind, ticket_id, request, body, text, client_factory, r
                                          text=text, draft_revision=body.get('draft_revision'), approve_learning=kind == 'send' and body.get('approve_learning') is True,
                                          expected_recipient=body.get('expected_recipient'), expected_context_id=body.get('context_id'))
     except ActionConflict as exc:
-        if exc.error in {'valid_operation_id_required','source_message_id_required','draft_revision_required','source_message_not_in_console','recipient_unavailable','draft_changed_refresh_ticket','recipient_changed_refresh_ticket','review_changed_refresh_ticket'}:
+        if exc.error in {'valid_operation_id_required','source_message_id_required','draft_revision_required','source_message_not_in_console','recipient_unavailable','draft_changed_refresh_ticket','recipient_changed_refresh_ticket','review_changed_refresh_ticket','new_customer_message_refresh_ticket','message_chronology_unavailable'}:
             return await preflight_refusal(exc.status,exc.error,body)
         return JSONResponse(status_code=exc.status, content={'error': exc.error,
             'message': {'previous_delivery_unresolved': 'An earlier action is unresolved. Check its status before sending again.',

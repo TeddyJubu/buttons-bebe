@@ -10,6 +10,7 @@ import aiosqlite
 
 from .config import get_settings
 from .logging_utils import get_logger
+from .message_times import utc_microseconds
 
 logger = get_logger(__name__)
 
@@ -45,6 +46,7 @@ class Database:
             try:
                 async with aiosqlite.connect(str(self.path)) as conn:
                     await conn.execute("PRAGMA busy_timeout=5000")
+                    await conn.create_function("utc_microseconds", 1, utc_microseconds, deterministic=True)
                     if fetch:
                         conn.row_factory = aiosqlite.Row
                         cursor = await conn.execute(sql, params)
@@ -90,6 +92,7 @@ class Database:
                 async with aiosqlite.connect(str(self.path)) as conn:
                     conn.row_factory = aiosqlite.Row
                     await conn.execute("PRAGMA busy_timeout=5000")
+                    await conn.create_function("utc_microseconds", 1, utc_microseconds, deterministic=True)
                     try:
                         await conn.execute("BEGIN IMMEDIATE")
                         result = await callback(conn)

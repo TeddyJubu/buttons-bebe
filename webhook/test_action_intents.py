@@ -6,7 +6,7 @@ import unittest
 import uuid
 from unittest.mock import Mock, patch
 
-from bb_webhook import app as app_module
+from bb_webhook import app as app_module, database
 from bb_webhook.db import Database
 from bb_webhook.send_intents import IntentStore, ActionConflict
 from webhook.action_test_support import setup_action_case
@@ -26,6 +26,51 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
                     ticket_id=1, source_message_id='source-1', text='I can help check that.',
                     draft_revision=self.payload['draft_revision'])
         return await self.store.reserve(**(args | changes))
+
+    async def newer_customer(self, at='2026-09-26T01:00:00.000200Z'):
+        await database.ingest_event(dict(tenant_id='test', ticket_id=1, message_id='new-source',
+            event_type='message', author_type='customer', is_customer_message=True,
+            message_text='A new customer question', created_at=at), '{}', self.path)
+
+    async def test_stale_fresh_reply_is_not_attempted_but_note_policy_is_preserved(self):
+        await self.newer_customer()
+        with patch.object(app_module, '_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'new_customer_message_refresh_ticket')
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.assertIsNone(await self.store.get(self.operation))
+        transport.assert_not_called()
+        _, fresh=await self.reserve(kind='note')
+        self.assertTrue(fresh)
+
+    async def test_malformed_legacy_chronology_blocks_fresh_reply_without_transport(self):
+        await self.newer_customer(at='invalid')
+        with patch.object(app_module, '_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'message_chronology_unavailable')
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.assertIsNone(await self.store.get(self.operation))
+        transport.assert_not_called()
+        self.assertTrue((await self.reserve(kind='note'))[1])
+
+    async def test_both_replay_paths_survive_newer_source_and_restart(self):
+        await self.reserve()
+        await self.newer_customer()
+        self.store=IntentStore(self.path)
+        for state in ('uncertain', 'pending', 'sent'):
+            await self.store.finish(self.operation, state, {'ok':state=='sent', 'delivery_status':state}, 200 if state=='sent' else 202)
+            for operation in (self.operation, str(uuid.uuid4())):
+                row, fresh=await self.reserve(operation_id=operation)
+                self.assertFalse(fresh)
+                self.assertEqual((row['operation_id'], row['state']), (self.operation, state))
+        with self.assertRaisesRegex(ActionConflict, 'new_customer_message_refresh_ticket'):
+            await self.reserve(operation_id=str(uuid.uuid4()), text='A distinct reply')
+        await Database(self.path).execute("UPDATE parsed_messages SET created_at='invalid' WHERE message_id='new-source'")
+        self.assertFalse((await self.reserve(operation_id=str(uuid.uuid4())))[1])
+        rows=await Database(self.path).fetch('SELECT * FROM console_action_intents')
+        self.assertEqual(len(rows), 1)
 
     async def test_two_concurrent_keys_reserve_only_one_semantic_action(self):
         results = await asyncio.gather(self.reserve(), self.reserve(operation_id=str(uuid.uuid4())))

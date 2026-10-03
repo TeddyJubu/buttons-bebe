@@ -27,6 +27,7 @@ async def setup_action_case(case):
         message_id='source-1', event_type='ticket.message.created', author_type='customer',
         customer_email='customer@example.com', message_text='Where is my parcel?',
         is_customer_message=True, created_at='2026-09-26T01:00:00+00:00'), '{}', case.path)
+    await Database(case.path).execute("UPDATE parsed_messages SET received_at='2026-09-26T01:00:01+00:00' WHERE message_id='source-1'")
     await database.claim_job(case.job_id, case.path)
     attempt = await begin_attempt(case.job_id, case.path)
     await finish_attempt(dict(ticket_id=1, message_id='source-1', job_id=case.job_id,

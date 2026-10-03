@@ -8,17 +8,17 @@ there is no provider write or automatic customer reply.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
-from typing import Any
 
 import httpx
 
 from bb_webhook.database import ingest_event
 from bb_webhook.db import Database
 from bb_webhook.message_content import message_text
+from bb_webhook.message_times import normalize_timestamp, utc_microseconds, SOURCE_TIME_SQL
 from logging_setup import get_logger, log_event
 
 logger = get_logger(__name__)
@@ -28,13 +28,6 @@ MAX_DETAILS = 5
 MAX_ACTIVE_JOBS = 5
 SCAN_SECONDS = 60
 LOOKBACK_DAYS = 90  # The Inbox draft projection has the same window.
-
-
-def epoch(value: Any) -> float:
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-    except (TypeError, ValueError, OverflowError):
-        return 0
 
 
 class ReadOnlyMCP:
@@ -121,18 +114,19 @@ class ReadOnlyMCP:
         return data
 
 
-def _candidate(ticket: dict, cutoff: float) -> bool:
+def _candidate(ticket: dict, cutoff: int) -> bool:
     if type(ticket.get("id")) is not int or ticket["id"] <= 0:
         return False
     if ticket.get("status") != "open" or ticket.get("spam") or ticket.get("trashed_datetime"):
         return False
-    return epoch(ticket.get("last_received_message_datetime")) >= cutoff
+    received = utc_microseconds(ticket.get("last_received_message_datetime"))
+    return received is not None and received >= cutoff
 
 
 def _latest_public(messages: list[dict]) -> dict | None:
     public = [m for m in messages if isinstance(m, dict) and m.get("public") is not False
-              and m.get("channel") != "internal-note" and epoch(m.get("created_datetime"))]
-    return max(public, key=lambda m: (epoch(m.get("created_datetime")), str(m.get("id") or "")),
+              and m.get("channel") != "internal-note" and utc_microseconds(m.get("created_datetime")) is not None]
+    return max(public, key=lambda m: (utc_microseconds(m.get("created_datetime")), str(m.get("id") or "")),
                default=None)
 
 
@@ -152,7 +146,9 @@ def _event(ticket: dict, message: dict, tenant: str) -> tuple[dict, str] | None:
     tags = [x.get("name", "") if isinstance(x, dict) else str(x) for x in raw_tags]
     intents = [{"name": str(x.get("name"))[:80]} for x in message.get("intents") or []
                if isinstance(x, dict) and x.get("name")][:10]
-    created_at = message["created_datetime"]
+    created_at = normalize_timestamp(message.get("created_datetime"))
+    if created_at is None:
+        return None
     event = {"tenant_id": tenant, "ticket_id": ticket["id"], "message_id": message["id"],
              "event_type": "ticket-message-created", "author_type": "customer",
              "author_email": author_email, "channel": message.get("channel") or ticket.get("channel"),
@@ -204,7 +200,7 @@ async def reconcile_page(db_path: Path, tenant: str, cursor: str | None = None,
     slots = max(0, max_active_jobs - int(active_rows[0]["n"]))
     if not slots:
         return cursor, 0
-    cutoff = (now or time.time()) - timedelta(days=LOOKBACK_DAYS).total_seconds()
+    cutoff = int((now if now is not None else time.time()) * 1_000_000) - LOOKBACK_DAYS * 86400 * 1_000_000
     async with client_factory() as client:
         page = await client.call("list_inbox_tickets", {"limit": PAGE_SIZE,
                               **({"cursor": cursor} if cursor else {})})
@@ -222,13 +218,14 @@ async def reconcile_page(db_path: Path, tenant: str, cursor: str | None = None,
             ids, operation="gorgias_reconcile_seen_read")
         seen = {row["ticket_id"]: row["updated_at"] for row in seen_rows}
         parsed_rows = await db.fetch(
-            f"SELECT ticket_id,MAX(created_at) AS newest FROM parsed_messages "
+            f"SELECT ticket_id,MAX({SOURCE_TIME_SQL}) AS newest, "
+            f"MAX({SOURCE_TIME_SQL} IS NULL OR utc_microseconds(received_at) IS NULL) AS chronology_invalid FROM parsed_messages "
             f"WHERE is_customer_message=1 AND ticket_id IN ({placeholders}) GROUP BY ticket_id",
             ids, operation="gorgias_reconcile_parsed_read")
-        parsed = {row["ticket_id"]: epoch(row["newest"]) for row in parsed_rows}
+        parsed = {row["ticket_id"]: row["newest"] if not row["chronology_invalid"] else None for row in parsed_rows}
         unchecked = [t for t in candidates
                      if seen.get(t["id"]) != (t.get("updated_datetime") or "")
-                     and parsed.get(t["id"], 0) < epoch(t["last_received_message_datetime"])]
+                     and (parsed.get(t["id"]) is None or parsed[t["id"]] < utc_microseconds(t["last_received_message_datetime"]))]
         if not unchecked:
             return next_cursor if next_cursor != cursor else None, 0
         enqueued = 0
@@ -252,7 +249,7 @@ async def reconcile_page(db_path: Path, tenant: str, cursor: str | None = None,
                     continue
                 if latest.get("from_agent") is not False:
                     continue
-                if epoch(latest.get("created_datetime")) < epoch(ticket["last_received_message_datetime"]):
+                if utc_microseconds(latest.get("created_datetime")) < utc_microseconds(ticket["last_received_message_datetime"]):
                     continue  # The ticket summary is ahead of the message page.
                 normalized = _event(ticket, latest, tenant)
                 if normalized is None:

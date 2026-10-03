@@ -42,7 +42,7 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.get(expected_recipient='changed@example.com')).json()['error'],'recipient_changed_refresh_ticket')
     async def test_new_customer_message_invalidates_previous_context(self):
         old=(await self.get()).json()['context']
-        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,received_at) VALUES('newer',1,'created','customer',1,'zz-later')")
+        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,received_at) VALUES('newer',1,'created','customer',1,'2026-09-26T01:00:02+00:00')")
         response=await self.get()
         self.assertEqual(response.status_code,409)
         self.assertEqual(response.json()['error'],'new_customer_message_refresh_ticket')

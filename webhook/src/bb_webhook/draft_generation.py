@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from .db import Database
+from .message_times import LATEST_CUSTOMER_SQL, freshness_error
 from .send_intents import ActionConflict, valid_operation
 
 TRANSIENT_ERRORS = frozenset({"timeout", "process_exit", "runtime_error"})
@@ -114,11 +115,10 @@ async def one(conn, sql, params=()):
 
 
 async def conflict(conn, ticket_id, message_id):
-    latest = await one(conn, """SELECT message_id FROM parsed_messages
-        WHERE ticket_id=? AND is_customer_message=1
-        ORDER BY COALESCE(NULLIF(created_at,''),received_at) DESC,received_at DESC,message_id DESC LIMIT 1""", (ticket_id,))
-    if not latest or latest["message_id"] != message_id:
-        return SUPERSEDED_BY_CUSTOMER
+    latest = await one(conn, LATEST_CUSTOMER_SQL, (ticket_id,))
+    problem = freshness_error(latest, message_id)
+    if problem:
+        return problem
     exists = await one(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='console_action_intents'")
     if exists:
         action = await one(conn, """SELECT operation_id FROM console_action_intents

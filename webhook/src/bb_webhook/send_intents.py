@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .db import Database
+from .message_times import LATEST_CUSTOMER_SQL, freshness_error
 
 _SCHEMA = '''CREATE TABLE IF NOT EXISTS console_action_intents (
  operation_id TEXT PRIMARY KEY, semantic_hash TEXT NOT NULL UNIQUE,
@@ -96,12 +97,10 @@ class IntentStore:
                                            operation="review_context")
         source = source_rows[0] if source_rows else None
         if not source: raise ActionConflict('source_message_not_in_console', 404)
-        latest_rows = await self.db.fetch(
-            "SELECT message_id FROM parsed_messages WHERE ticket_id=? AND is_customer_message=1 "
-            "ORDER BY COALESCE(NULLIF(created_at,''),received_at) DESC,received_at DESC,message_id DESC LIMIT 1",
-            (ticket_id,), operation="review_context")
-        if not latest_rows or latest_rows[0]['message_id'] != source_message_id:
-            raise ActionConflict('new_customer_message_refresh_ticket')
+        latest_rows = await self.db.fetch(LATEST_CUSTOMER_SQL, (ticket_id,), operation="review_context")
+        problem = freshness_error(latest_rows[0] if latest_rows else None, source_message_id)
+        if problem:
+            raise ActionConflict(problem)
         draft, revision, recipient = _checked_context(
             source, draft_revision=expected_revision, expected_recipient=expected_recipient)
         channel = source['channel'] or ''
@@ -183,6 +182,13 @@ class IntentStore:
             await cursor.close()
             if unresolved:
                 raise ActionConflict('previous_delivery_unresolved', operation_id=unresolved['operation_id'])
+            if kind == 'send':
+                cursor = await conn.execute(LATEST_CUSTOMER_SQL, (ticket_id,))
+                latest = await cursor.fetchone()
+                await cursor.close()
+                problem = freshness_error(latest, source_message_id)
+                if problem:
+                    raise ActionConflict(problem)
             now = _now()
             response = {'ok': False, 'error': 'delivery_unconfirmed', 'delivery_status': 'unknown',
                         'operation_id': operation_id,

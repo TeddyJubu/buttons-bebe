@@ -98,6 +98,28 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.scan(client), ("older", 0))
         self.assertEqual(client.detail_calls, [])
 
+    async def test_legacy_offset_and_microseconds_prevent_duplicate_recovery(self):
+        for local, summary in (
+            ('2026-09-25T16:39:03+02:00', WHEN),
+            ('2026-09-25T14:39:03.000200Z', '2026-09-25T14:39:03.000100Z'),
+        ):
+            await Database(self.db_path).execute('DELETE FROM parsed_messages')
+            await Database(self.db_path).execute("""INSERT INTO parsed_messages
+                (message_id,ticket_id,event_type,author_type,is_customer_message,created_at,received_at)
+                VALUES ('legacy',284477559,'message','customer',1,?,?)""", (local, WHEN))
+            client=FakeMCP([ticket(received=summary)], {284477559:[message()]})
+            self.assertEqual(await self.scan(client), ('older', 0))
+            self.assertEqual(client.detail_calls, [])
+
+    async def test_recovery_normalizes_utc_and_rejects_timezone_free_provider_time(self):
+        client=FakeMCP([ticket(received='2026-09-25T16:39:03+02:00')],
+            {284477559:[message(at='2026-09-25T16:39:03+02:00')]})
+        self.assertEqual(await self.scan(client), ('older', 1))
+        self.assertEqual(self.rows('SELECT created_at FROM parsed_messages'), [(WHEN,)])
+        invalid=FakeMCP([ticket(999, received='2026-09-25T14:39:03')], {})
+        self.assertEqual(await self.scan(invalid), ('older', 0))
+        self.assertEqual(invalid.detail_calls, [])
+
     async def test_summary_ahead_of_messages_retries(self):
         later = "2026-09-25T14:40:00+00:00"
         client = FakeMCP([ticket(received=later)], {284477559: [message()]})

@@ -17,6 +17,7 @@ from typing import Any
 from .message_content import message_text as retained_message_text
 from .config import get_settings
 from .logging_utils import get_logger, log_event
+from .message_times import normalize_timestamp as _normalize_timestamp
 
 logger = get_logger(__name__)
 
@@ -101,20 +102,6 @@ def _extract_email(val: Any) -> str | None:
         if "@" in parsed and "{" not in parsed:
             return parsed.strip()
     return None
-
-
-def _normalize_timestamp(val: Any) -> str | None:
-    """Return a validated, timezone-aware ISO timestamp string."""
-    if not isinstance(val, str) or not val.strip():
-        return None
-    ts = val.strip()
-    try:
-        parsed = datetime.fromisoformat(ts)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.isoformat()
 
 
 def _normalize_ticket_status(val: Any) -> str | None:
