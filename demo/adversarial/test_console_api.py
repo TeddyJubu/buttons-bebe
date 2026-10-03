@@ -2,9 +2,11 @@
 
 The tests use the production ``bb_webhook.app`` routes through an ASGI
 transport, but every test gets a throwaway SQLite database.  Gorgias and
-Hermes are replaced only at the app's external transport boundaries:
-``_GClient`` and ``create_subprocess_exec``.  No real network or model call is
-permitted.
+Hermes are replaced only at their owners' external transport boundaries: the
+console router's ``_GClient`` and the rewrite runner's
+``create_subprocess_exec``.  No real network or model call is permitted.
+Results are seeded through the processor's real claim and generation-attempt
+lifecycle, never by writing result rows directly.
 
 Some tests deliberately document currently observable weaknesses.  They
 assert the behavior so a future hardening change turns into a visible test
@@ -48,17 +50,17 @@ sys.path.append(str(ROOT))
 from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
 
 with without_root_dotenv():
-    from bb_webhook import app as app_module, session_store  # noqa: E402
+    from bb_webhook import app as app_module, rewrite_runner, session_store  # noqa: E402
     from bb_webhook.config import get_settings  # noqa: E402
     from bb_webhook.console_auth import build_session_token, session_claims  # noqa: E402
     from bb_webhook.database import (  # noqa: E402
         claim_job,
         complete_job,
-        fail_job,
         ingest_event,
         init_db,
-        record_ticket_result,
     )
+    from bb_webhook.draft_generation import begin_attempt, finish_attempt  # noqa: E402
+    from bb_webhook.routers import console as console_router  # noqa: E402
 
 
 class RecordingGorgias:
@@ -86,7 +88,7 @@ class RecordingGorgias:
         return {**self.result, "message": {"id": 7000 + len(self.calls)}}
 
 
-REAL_EXEC = app_module._asyncio.create_subprocess_exec
+REAL_EXEC = rewrite_runner.asyncio.create_subprocess_exec
 # A local stand-in for Hermes: answers only inside the run-token tags it was given.
 FAKE_MODEL = ("import re,sys;t=re.search(r'<DRAFT:([a-f0-9]+)>',sys.argv[-1]).group(1);"
               "print(f'<DRAFT:{t}>{sys.argv[1]}</DRAFT:{t}>')")
@@ -126,7 +128,9 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         )
         RecordingGorgias.calls = []
         RecordingGorgias.result = {"ok": True}
-        self._lesson_patch = patch.object(app_module, "_record_lesson", lambda *a, **k: True)
+        self.drafts: dict[str, str] = {}
+        self.attempts: dict[str, tuple[int, int]] = {}
+        self._lesson_patch = patch.object(console_router, "_record_lesson", lambda *a, **k: True)
         self._lesson_patch.start()
 
         await self._seed_demo_rows()
@@ -147,9 +151,15 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         text: str,
         priority: str = "normal",
         action: str = "drafted",
-        status: str = "done",
-        result: bool = True,
+        state: str = "ready",
+        error: str | None = None,
+        publish: bool = True,
     ) -> None:
+        """Ingest, claim and open one generation attempt, then optionally publish it.
+
+        ``publish=False`` leaves the claimed job with its running attempt so a
+        test can publish through the authenticated ``/results`` route.
+        """
         event = {
             "tenant_id": "cute-things-demo",
             "ticket_id": ticket_id,
@@ -166,26 +176,33 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             "created_at": "2026-08-23T00:00:00+00:00",
         }
         job_id = await ingest_event(event, json.dumps(event), db_path=self.db_path)
-        await claim_job(job_id, db_path=self.db_path)
-        if status == "done":
-            await complete_job(job_id, db_path=self.db_path)
-        elif status == "failed":
-            await fail_job(job_id, "synthetic processor failure", db_path=self.db_path)
-        if not result:
+        self.assertIsNone(await ingest_event(event, json.dumps(event), db_path=self.db_path))
+        self.assertTrue(await claim_job(job_id, db_path=self.db_path))
+        attempt_id = await begin_attempt(job_id, self.db_path)
+        self.assertIsNotNone(attempt_id)
+        self.attempts[message_id] = (job_id, attempt_id)
+        if not publish:
             return
-        await record_ticket_result(
-            ticket_id=ticket_id,
-            message_id=message_id,
-            job_id=job_id,
-            priority=priority,
-            action=action,
-            reason=f"reason for {message_id}",
-            notify_owner=priority in {"high", "critical"},
-            gorgias_priority_set=False,
-            note_posted=False,
-            draft_text=f"Draft for {message_id}",
-            db_path=self.db_path,
+        draft = f"Draft for {message_id}" if state in {"ready", "needs_review"} else ""
+        stored = await finish_attempt(
+            {
+                "ticket_id": ticket_id,
+                "message_id": message_id,
+                "job_id": job_id,
+                "generation_attempt_id": attempt_id,
+                "generation_state": state,
+                "generation_error": error,
+                "priority": priority,
+                "action": action,
+                "reason": f"reason for {message_id}",
+                "notify_owner": priority in {"high", "critical"},
+                "draft_text": draft,
+            },
+            self.db_path,
         )
+        self.assertEqual(stored, state)
+        self.assertTrue(await complete_job(job_id, db_path=self.db_path, require_result=True))
+        self.drafts[message_id] = draft
 
     async def _seed_demo_rows(self) -> None:
         await self._seed_message(
@@ -202,7 +219,8 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             text="I need a refund.",
             priority="critical",
             action="escalated",
-            status="failed",
+            state="failed",
+            error="authentication",
         )
         await self._seed_message(
             "m-normal",
@@ -229,13 +247,17 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         return await client.post(path, json=payload)
 
     def _action(self, message_id: str, text: str, **extra: Any) -> dict[str, Any]:
-        """A reviewed human action bound to the seeded source message and draft."""
-        revision = hashlib.sha256(f"Draft for {message_id}".encode()).hexdigest()
+        """A reviewed human action bound to the seeded source message and stored draft."""
+        revision = hashlib.sha256(self.drafts[message_id].encode()).hexdigest()
         return {"operation_id": str(uuid.uuid4()), "source_message_id": message_id, "text": text,
                 "draft_revision": revision, "confirmed": True, **extra}
 
     async def _post_result(self, payload: Any = None, *, content: str | None = None) -> httpx.Response:
         return await self._post("/dashboard/api/results", payload, content=content, client=self.processor)
+
+    async def _ticket_row(self, ticket_id: int) -> dict[str, Any]:
+        rows = (await self._get("/dashboard/api/tickets?limit=20")).json()
+        return next(row for row in rows if row["ticket_id"] == ticket_id)
 
     async def test_real_list_stats_tickets_and_notifications_endpoints(self) -> None:
         messages = await self._get("/dashboard/api/messages?limit=20&customer_only=true")
@@ -288,11 +310,26 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(malformed.status_code, 400)
         self.assertEqual(malformed.json()["error"], "invalid_json")
 
+        # The retired direct-result shape lacks the attempt identity and state.
+        job_id, _attempt_id = self.attempts["m-high"]
+        legacy = await self._post_result(
+            {"ticket_id": 1001, "message_id": "m-high", "job_id": job_id,
+             "priority": "normal", "action": "drafted", "draft_text": "Overwrite"},
+        )
+        self.assertEqual(legacy.status_code, 400)
+        self.assertEqual(legacy.json()["error"], "missing_fields")
+        self.assertIn("generation_attempt_id", legacy.json()["required"])
+        self.assertIn("generation_state", legacy.json()["required"])
+        self.assertEqual((await self._ticket_row(1001))["draft_text"], "Draft for m-high")
+
     async def test_result_endpoint_rejects_wrong_identity_types(self) -> None:
         response = await self._post_result(
             {
                 "ticket_id": "not-an-integer",
                 "message_id": {"not": "a string"},
+                "job_id": 1,
+                "generation_attempt_id": 1,
+                "generation_state": "ready",
                 "priority": "normal",
                 "action": "drafted",
             },
@@ -305,6 +342,9 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             {
                 "ticket_id": 2001,
                 "message_id": "m-invalid-list",
+                "job_id": 1,
+                "generation_attempt_id": 1,
+                "generation_state": "ready",
                 "priority": ["high"],
                 "action": "drafted",
             },
@@ -313,12 +353,15 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["error"], "invalid_priority")
 
     async def test_result_endpoint_persists_processor_no_draft_outcome(self) -> None:
-        await self._seed_message("m-thanks", 1005, subject="Thanks", text="Thank you!", status="processing",
-                                 result=False)
+        await self._seed_message("m-thanks", 1005, subject="Thanks", text="Thank you!", publish=False)
+        job_id, attempt_id = self.attempts["m-thanks"]
         response = await self._post_result(
             {
                 "ticket_id": 1005,
                 "message_id": "m-thanks",
+                "job_id": job_id,
+                "generation_attempt_id": attempt_id,
+                "generation_state": "no_reply",
                 "priority": "low",
                 "action": "no_draft_needed",
                 "reason": "acknowledgement-only message",
@@ -326,14 +369,71 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "generation_state": "no_reply"})
 
-        tickets = (await self._get("/dashboard/api/tickets?limit=20")).json()
-        persisted = next(row for row in tickets if row["ticket_id"] == 1005)
+        persisted = await self._ticket_row(1005)
         self.assertEqual(persisted["action"], "no_draft_needed")
-        self.assertIsNone(persisted["draft_text"])
+        self.assertEqual(persisted["generation_state"], "no_reply")
+        self.assertEqual(persisted["draft_text"], "")
+
+    async def test_result_publication_is_first_result_wins_with_read_only_replay(self) -> None:
+        await self._seed_message("m-order", 1006, subject="Order", text="Where is order #1006?", publish=False)
+        job_id, attempt_id = self.attempts["m-order"]
+        identity = {"ticket_id": 1006, "message_id": "m-order", "job_id": job_id,
+                    "generation_attempt_id": attempt_id}
+        first = {**identity, "generation_state": "ready", "priority": "normal", "action": "drafted",
+                 "reason": "first", "draft_text": "First reviewed draft"}
+        self.assertEqual((await self._post_result(first)).json(),
+                         {"status": "ok", "generation_state": "ready"})
+        self.assertTrue(await complete_job(job_id, db_path=self.db_path, require_result=True))
+
+        # A lost acknowledgement replays the identical payload: same answer, no new write.
+        replay = await self._post_result(first)
+        self.assertEqual((replay.status_code, replay.json()["generation_state"]), (200, "ready"))
+        # A different body for the closed attempt is answered read-only.
+        rival = await self._post_result({**first, "draft_text": "Rival overwrite", "priority": "critical"})
+        self.assertEqual((rival.status_code, rival.json()["generation_state"]), (200, "ready"))
+        row = await self._ticket_row(1006)
+        self.assertEqual((row["draft_text"], row["priority"]), ("First reviewed draft", "normal"))
+
+        # A completed job cannot open a second attempt that could replace the draft.
+        self.assertIsNone(await begin_attempt(job_id, self.db_path))
+
+        # Attempt identity must match the job, ticket and message it was opened for.
+        other_job, other_attempt = self.attempts["m-high"]
+        for label, forged, status, error in (
+            ("other-attempt", {**first, "generation_attempt_id": other_attempt}, 409, "generation_attempt_mismatch"),
+            ("other-job", {**first, "job_id": other_job}, 409, "generation_attempt_mismatch"),
+            ("other-message", {**first, "message_id": "m-high"}, 409, "generation_attempt_mismatch"),
+            ("unknown-attempt", {**first, "generation_attempt_id": 999_999}, 409, "generation_attempt_mismatch"),
+            ("zero-attempt", {**first, "generation_attempt_id": 0}, 400, "invalid_generation_attempt_id"),
+            ("string-attempt", {**first, "generation_attempt_id": str(attempt_id)}, 400,
+             "invalid_generation_attempt_id"),
+            ("string-job", {**first, "job_id": str(job_id)}, 400, "invalid_job_id"),
+            ("unknown-state", {**first, "generation_state": "sent"}, 400, "invalid_generation_state"),
+            ("failed-without-error", {**first, "generation_state": "failed"}, 400, "invalid_request"),
+        ):
+            with self.subTest(label=label):
+                response = await self._post_result(forged)
+                self.assertEqual((response.status_code, response.json()["error"]), (status, error))
+        self.assertEqual((await self._ticket_row(1006))["draft_text"], "First reviewed draft")
+        self.assertEqual((await self._ticket_row(1001))["draft_text"], "Draft for m-high")
+
+    async def test_result_publication_requires_the_processor_credential(self) -> None:
+        await self._seed_message("m-auth", 1007, subject="Order", text="Where is order #1007?", publish=False)
+        job_id, attempt_id = self.attempts["m-auth"]
+        payload = {"ticket_id": 1007, "message_id": "m-auth", "job_id": job_id,
+                   "generation_attempt_id": attempt_id, "generation_state": "ready",
+                   "priority": "normal", "action": "drafted", "draft_text": "Unauthenticated draft"}
+        owner = await self._post("/dashboard/api/results", payload)
+        wrong = await self.processor.post("/dashboard/api/results", json=payload,
+                                          headers={"Authorization": "Bearer " + "x" * 40})
+        self.assertNotEqual(owner.status_code, 200)
+        self.assertNotEqual(wrong.status_code, 200)
+        self.assertIsNone((await self._ticket_row(1007))["generation_state"])
 
     async def test_send_and_note_require_server_confirmation_and_note_remains_internal(self) -> None:
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             unconfirmed_send = await self._post(
                 "/dashboard/api/ticket/1001/send",
                 self._action("m-high", "Send without confirmation token", confirmed=False),
@@ -369,7 +469,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_send_and_note_transport_failures_are_not_reported_as_success(self) -> None:
         RecordingGorgias.result = {"ok": False, "delivery_status": "not_attempted", "error": "ticket not found"}
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             send = await self._post("/dashboard/api/ticket/1001/send", self._action("m-high", "hello"))
             note = await self._post("/dashboard/api/ticket/1002/note", self._action("m-failed", "hello"))
 
@@ -385,7 +485,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_send_and_note_list_bodies_fail_closed_without_500(self) -> None:
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             send = await self._post("/dashboard/api/ticket/1001/send", ["hello"])
             note = await self._post("/dashboard/api/ticket/1002/note", ["hello"])
         self.assertEqual(send.status_code, 400)
@@ -401,8 +501,8 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(missing_instruction.json()["error"], "no instruction")
 
         with (
-            patch.object(app_module._asyncio, "create_subprocess_exec", fake_model(calls, "A safe rewritten reply.")),
-            patch.object(app_module, "_HERMES_IGNORE_RULES", True),
+            patch.object(rewrite_runner.asyncio, "create_subprocess_exec", fake_model(calls, "A safe rewritten reply.")),
+            patch.object(console_router, "_HERMES_IGNORE_RULES", True),
         ):
             rewritten = await self._post(
                 "/dashboard/api/ticket/1001/rewrite",
@@ -425,7 +525,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rewrite_rejects_a_ticket_missing_from_the_console(self) -> None:
         calls: list[tuple[Any, ...]] = []
-        with patch.object(app_module._asyncio, "create_subprocess_exec", fake_model(calls, "missing-ticket draft")):
+        with patch.object(rewrite_runner.asyncio, "create_subprocess_exec", fake_model(calls, "missing-ticket draft")):
             response = await self._post(
                 "/dashboard/api/ticket/999999/rewrite",
                 {"draft": "old", "instruction": "rewrite it", "source_message_id": "m-high"},
@@ -443,7 +543,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("<script>", response.headers.get("content-type", ""))
 
         RecordingGorgias.calls = []
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             sent = await self._post(
                 "/dashboard/api/ticket/1004/send", self._action("m-xss", '<script>alert("send")</script>')
             )
@@ -490,7 +590,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_ticket_path_is_422_before_any_external_transport(self) -> None:
         RecordingGorgias.calls = []
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             response = await self._post("/dashboard/api/ticket/not-an-int/send", self._action("m-high", "hello"))
         self.assertEqual(response.status_code, 422)
         self.assertEqual(RecordingGorgias.calls, [])
