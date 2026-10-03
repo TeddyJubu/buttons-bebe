@@ -49,6 +49,7 @@ from bb_webhook.database import (  # noqa: E402
     get_pending_job_window,
     get_job_stats,
     init_db,
+    pending_recovery_alerts,
     set_setting,
     requeue_stale_jobs,
 )
@@ -724,12 +725,21 @@ async def _process_one_job(
                       job_id=job_id, retry_count=retry_count + 1)
 
 
+# Each alert send can block up to 15s; the rest wait in the durable queue.
+_RECOVERY_ALERTS_PER_SWEEP = 5
+
+
 async def _recover_stale_jobs(settings: Any) -> list[int]:
-    """Reclaim abandoned claims; a crash on the last attempt must still alert."""
+    """Reclaim abandoned claims, then send owner alerts that recovery owes.
+
+    Recovery records an owed alert in the same transaction that closes the
+    attempt, so a crash before sending it is retried on the next sweep; the
+    once-only claim in _notify_owner_once prevents duplicates.
+    """
     recovered = await requeue_stale_jobs(
         settings.stale_job_minutes, settings.db_path_absolute, max_retries=settings.max_retries,
     )
-    for job_id in recovered:
+    for job_id in await pending_recovery_alerts(_RECOVERY_ALERTS_PER_SWEEP, settings.db_path_absolute):
         await _notify_recovered_result({'id': job_id}, settings.db_path_absolute)
     return recovered
 

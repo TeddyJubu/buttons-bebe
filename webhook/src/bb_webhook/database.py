@@ -563,6 +563,20 @@ async def claim_owner_alert(job_id: int, db_path: Path | None = None) -> bool:
     return affected == 1
 
 
+async def pending_recovery_alerts(limit: int, db_path: Path | None = None) -> list[int]:
+    """Recovered jobs still owed an owner alert, oldest first."""
+    rows = await Database(db_path).fetch(
+        """SELECT p.job_id FROM recovery_alerts_pending p
+           JOIN job_queue j ON j.id=p.job_id AND j.status!='skipped'
+           JOIN ticket_results r ON r.job_id=j.id AND r.ticket_id=j.ticket_id
+                AND r.message_id=j.message_id AND r.notify_owner=1
+           LEFT JOIN owner_alert_attempts oa ON oa.job_id=p.job_id
+           WHERE oa.job_id IS NULL ORDER BY p.job_id LIMIT ?""",
+        (limit,), operation="pending_recovery_alerts",
+    )
+    return [row["job_id"] for row in rows]
+
+
 async def finish_owner_alert(job_id: int, accepted: bool, db_path: Path | None = None) -> None:
     await Database(db_path).execute(
         """UPDATE owner_alert_attempts SET status=?, finished_at=?
