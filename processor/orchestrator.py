@@ -752,8 +752,9 @@ async def _notify_recovered_result(job: dict, db_path: Path, *, owed: bool = Fal
     any other supersession means staff already acted.
     """
     from bb_webhook.db import Database
+    from bb_webhook.draft_generation import SUPERSEDED_BY_CUSTOMER
     rows = await Database(db_path).fetch('SELECT * FROM job_queue WHERE id=?', (job['id'],))
-    superseded_by_customer = owed and rows and rows[0]['error'] == 'new_customer_message_refresh_ticket'
+    superseded_by_customer = owed and rows and rows[0]['error'] == SUPERSEDED_BY_CUSTOMER
     if not rows or (rows[0]['status'] == 'skipped' and not superseded_by_customer):
         return
     saved = await get_job_result(job['id'], db_path)

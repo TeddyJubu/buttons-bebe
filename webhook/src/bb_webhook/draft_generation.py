@@ -16,6 +16,8 @@ from .db import Database
 from .send_intents import ActionConflict, valid_operation
 
 TRANSIENT_ERRORS = frozenset({"timeout", "process_exit", "runtime_error"})
+# Skip reason when a newer customer message supersedes a job; owed alerts survive it.
+SUPERSEDED_BY_CUSTOMER = "new_customer_message_refresh_ticket"
 STATES = frozenset({"ready", "needs_review", "no_reply", "failed", "retry_wait", "superseded"})
 RESULT_COLUMNS = {
     "generation_state": "TEXT", "generation_error": "TEXT",
@@ -116,7 +118,7 @@ async def conflict(conn, ticket_id, message_id):
         WHERE ticket_id=? AND is_customer_message=1
         ORDER BY COALESCE(NULLIF(created_at,''),received_at) DESC,received_at DESC,message_id DESC LIMIT 1""", (ticket_id,))
     if not latest or latest["message_id"] != message_id:
-        return "new_customer_message_refresh_ticket"
+        return SUPERSEDED_BY_CUSTOMER
     exists = await one(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='console_action_intents'")
     if exists:
         action = await one(conn, """SELECT operation_id FROM console_action_intents

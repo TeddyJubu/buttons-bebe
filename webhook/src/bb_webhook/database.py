@@ -571,13 +571,16 @@ async def pending_recovery_alerts(limit: int, db_path: Path | None = None) -> li
     already acted, so that alert is dropped. Rows whose alert was attempted or
     dropped are deleted here, so the table only holds alerts still owed.
     """
+    from .draft_generation import SUPERSEDED_BY_CUSTOMER
     db = Database(db_path)
     await db.execute(
         """DELETE FROM recovery_alerts_pending
            WHERE job_id IN (SELECT job_id FROM owner_alert_attempts)
               OR job_id IN (SELECT id FROM job_queue WHERE status='skipped'
-                            AND COALESCE(error,'')!='new_customer_message_refresh_ticket')""",
-        operation="clear_recovery_alerts",
+                            AND COALESCE(error,'')!=?)
+              OR job_id NOT IN (SELECT job_id FROM ticket_results
+                                WHERE notify_owner=1 AND job_id IS NOT NULL)""",
+        (SUPERSEDED_BY_CUSTOMER,), operation="clear_recovery_alerts",
     )
     rows = await db.fetch(
         """SELECT p.job_id FROM recovery_alerts_pending p
