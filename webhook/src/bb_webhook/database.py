@@ -564,14 +564,24 @@ async def claim_owner_alert(job_id: int, db_path: Path | None = None) -> bool:
 
 
 async def pending_recovery_alerts(limit: int, db_path: Path | None = None) -> list[int]:
-    """Recovered jobs still owed an owner alert, oldest first."""
-    rows = await Database(db_path).fetch(
+    """Recovered jobs still owed an owner alert, oldest first.
+
+    A newer message superseding the job does not cancel the alert: the urgent
+    request it reported is still unanswered. Rows whose alert was attempted
+    are deleted here, so the table only holds alerts still owed.
+    """
+    db = Database(db_path)
+    await db.execute(
+        """DELETE FROM recovery_alerts_pending
+           WHERE job_id IN (SELECT job_id FROM owner_alert_attempts)""",
+        operation="clear_recovery_alerts",
+    )
+    rows = await db.fetch(
         """SELECT p.job_id FROM recovery_alerts_pending p
-           JOIN job_queue j ON j.id=p.job_id AND j.status!='skipped'
+           JOIN job_queue j ON j.id=p.job_id
            JOIN ticket_results r ON r.job_id=j.id AND r.ticket_id=j.ticket_id
                 AND r.message_id=j.message_id AND r.notify_owner=1
-           LEFT JOIN owner_alert_attempts oa ON oa.job_id=p.job_id
-           WHERE oa.job_id IS NULL ORDER BY p.job_id LIMIT ?""",
+           ORDER BY p.job_id LIMIT ?""",
         (limit,), operation="pending_recovery_alerts",
     )
     return [row["job_id"] for row in rows]

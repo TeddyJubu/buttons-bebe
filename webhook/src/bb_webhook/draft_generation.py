@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS draft_generation_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_draft_attempt_job ON draft_generation_attempts(job_id,id);
 -- Owner alerts owed by recovered attempts; committed with the recovery itself
--- so a crash before the alert cannot lose it. Cleared by owner_alert_attempts.
+-- so a crash before the alert cannot lose it. Deleted once an alert is attempted.
 CREATE TABLE IF NOT EXISTS recovery_alerts_pending (
  job_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL
 );
