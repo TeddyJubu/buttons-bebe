@@ -22,10 +22,14 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 PROCESSOR = ROOT / "processor"
 sys.path.insert(0, str(PROCESSOR))
+sys.path.append(str(ROOT))
 
-import hermes_runner as hermes  # noqa: E402
-from hermes_runner import extract, prompt, runner  # noqa: E402
-import whatsapp_notifier as whatsapp  # noqa: E402
+from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
+
+with without_root_dotenv():
+    import hermes_runner as hermes  # noqa: E402
+    from hermes_runner import extract, prompt, runner  # noqa: E402
+    import whatsapp_notifier as whatsapp  # noqa: E402
 
 
 TOKEN = "0123456789abcdef"
@@ -95,7 +99,7 @@ def tagged_output(
 def settings() -> SimpleNamespace:
     return SimpleNamespace(
         job_timeout=2,
-        hermes_toolsets="mcp-demo-kb,mcp-demo-redo,mcp-demo-gorgias",
+        hermes_toolsets="buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias",
         hermes_skip_approval=False,
     )
 

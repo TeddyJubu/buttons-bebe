@@ -20,6 +20,7 @@ def load_module(name: str, filename: str):
 
 
 fake_gorgias = load_module("fake_gorgias_mcp", "fake_gorgias_mcp.py")
+QA_GORGIAS_TOOLS = load_module("qa_safety", "../testing/qa_safety.py").TOOLS["buttonsbebe_gorgias"]
 # fake_gorgias_rest imports fake_gorgias_mcp by module name, matching normal
 # execution while remaining dependency-light for this direct-file test.
 import sys
@@ -29,19 +30,33 @@ fake_rest = load_module("fake_gorgias_rest", "fake_gorgias_rest.py")
 
 
 class FakeGorgiasMCPTests(unittest.TestCase):
-    def test_mcp_registers_exactly_the_five_read_only_tools(self):
+    def test_mcp_registers_exactly_the_six_production_read_only_tools(self):
         registered = tuple(fake_gorgias.mcp._tool_manager._tools.keys())
-        self.assertEqual(
-            set(registered),
-            {
-                "list_recent_tickets",
-                "get_ticket",
-                "get_ticket_messages",
-                "get_customer",
-                "search_customer",
-            },
-        )
-        self.assertEqual(len(registered), 5)
+        self.assertEqual(set(registered), QA_GORGIAS_TOOLS)
+        self.assertEqual(len(registered), 6)
+
+    def test_inbox_paging_walks_every_ticket_once_newest_first(self):
+        first = fake_gorgias.list_inbox_tickets(4)
+        self.assertEqual(set(first), {"data", "meta"})
+        self.assertEqual(set(first["data"][0]), set(fake_gorgias.INBOX_FIELDS))
+        self.assertNotIn("messages", first["data"][0])
+        self.assertNotIn("synthetic", first["data"][0])
+        second = fake_gorgias.list_inbox_tickets(4, first["meta"]["next_cursor"])
+        self.assertIsNone(second["meta"]["next_cursor"])
+        rows = first["data"] + second["data"]
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(len({row["id"] for row in rows}), 6)
+        stamps = [row["updated_datetime"] for row in rows]
+        self.assertEqual(stamps, sorted(stamps, reverse=True))
+        self.assertEqual(len(fake_gorgias.list_inbox_tickets(500)["data"]), 6)
+
+    def test_inbox_paging_rejects_invalid_limits_and_cursors(self):
+        for limit in (0, -1, True, "4"):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                fake_gorgias.list_inbox_tickets(limit)
+        for cursor in ("", "4", "demo-cursor:", "demo-cursor:-1", "demo-cursor:x", 4):
+            with self.subTest(cursor=cursor), self.assertRaises(ValueError):
+                fake_gorgias.list_inbox_tickets(10, cursor)
 
     def test_fixture_covers_all_demo_orders_and_is_synthetic(self):
         data = fake_gorgias.load_fixtures()

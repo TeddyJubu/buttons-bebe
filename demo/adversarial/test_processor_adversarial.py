@@ -30,13 +30,11 @@ PROCESSOR = ROOT / "processor"
 WEBHOOK_SRC = ROOT / "webhook" / "src"
 sys.path.insert(0, str(PROCESSOR))
 sys.path.insert(0, str(WEBHOOK_SRC))
+sys.path.append(str(ROOT))
 
-# Importing the production config modules normally calls load_dotenv() on the
-# project-root .env.  Disable that call before importing them.  We also patch
-# get_settings at every call site below, so no Settings object is constructed.
-import dotenv  # noqa: E402
+from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
 
-with patch.object(dotenv, "load_dotenv", lambda *_args, **_kwargs: None):
+with without_root_dotenv():
     import classifier  # noqa: E402
     import draft_cleaner  # noqa: E402
     import hermes_runner as hermes  # noqa: E402
@@ -47,12 +45,13 @@ with patch.object(dotenv, "load_dotenv", lambda *_args, **_kwargs: None):
 
 TOKEN = "0123456789abcdef"
 ALLOWED_PRIORITIES = {"low", "normal", "high", "critical"}
+TOOLSETS = "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias"
 
 
 def fake_settings(timeout: int = 2) -> SimpleNamespace:
     return SimpleNamespace(
         job_timeout=timeout,
-        hermes_toolsets="demo_kb,demo_redo,demo_gorgias",
+        hermes_toolsets=TOOLSETS,
         hermes_skip_approval=False,
         hermes_profile="",
         hermes_ignore_rules=False,
@@ -130,14 +129,22 @@ class ProcessorAdversarialTests(unittest.TestCase):
 
         self.assertEqual(cmd[0], "hermes")
         self.assertIn("-t", cmd)
-        toolsets = cmd[cmd.index("-t") + 1].split(",")
-        self.assertEqual(
-            toolsets,
-            ["demo_kb", "demo_redo", "demo_gorgias"],
-        )
+        self.assertEqual(cmd[cmd.index("-t") + 1], TOOLSETS)
         self.assertNotIn("--yolo", cmd)
         self.assertNotIn("terminal", cmd)
         self.assertNotIn("file", cmd)
+
+    def test_unapproved_toolsets_are_rejected_before_launch(self) -> None:
+        for toolsets in (
+            "demo_kb,demo_redo,demo_gorgias",
+            "buttonsbebe_kb,buttonsbebe_redo",
+            "",
+            TOOLSETS + ",terminal",
+        ):
+            unsafe = fake_settings()
+            unsafe.hermes_toolsets = toolsets
+            with self.subTest(toolsets=toolsets), self.assertRaises(ValueError):
+                hermes.build_hermes_command("safe prompt", unsafe)
 
     def test_demo_profile_is_explicit_without_changing_the_tool_allow_list(self) -> None:
         demo = fake_settings()
@@ -148,10 +155,7 @@ class ProcessorAdversarialTests(unittest.TestCase):
 
         self.assertEqual(cmd[:3], ["/Users/demo/.local/bin/hermes", "-p", "cutethingsdemo"])
         self.assertIn("--ignore-rules", cmd)
-        self.assertEqual(
-            cmd[cmd.index("-t") + 1],
-            "demo_kb,demo_redo,demo_gorgias",
-        )
+        self.assertEqual(cmd[cmd.index("-t") + 1], TOOLSETS)
 
     def test_prompt_boundary_neutralises_customer_control_markers(self) -> None:
         hostile = (

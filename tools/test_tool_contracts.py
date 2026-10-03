@@ -133,6 +133,8 @@ class DemoReleaseGateTests(unittest.TestCase):
         self,
         directory: Path,
         demo_exit_code: int | None = None,
+        browser_ready: bool = True,
+        skipped: int = 0,
     ) -> tuple[Path, Path, Path]:
         """Return fake Python, node, and rg commands for the shell gate.
 
@@ -163,7 +165,19 @@ class DemoReleaseGateTests(unittest.TestCase):
             encoding="utf-8",
         )
         node_path = directory / "node"
-        node_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        # `node -e` is the browser-dependency preflight; the gate reads node's
+        # TAP summary to reject skipped browser tests.
+        node_path.write_text(
+            "#!/bin/sh\n"
+            f"[ \"$1\" = -e ] && exit {0 if browser_ready else 1}\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in\n"
+            f"    --test-reporter-destination=*.tap) printf '# skipped {skipped}\\n# todo 0\\n' > \"${{arg#*=}}\" ;;\n"
+            "  esac\n"
+            "done\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
         rg_path = directory / "rg"
         rg_path.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
         for path in (python_path, node_path, rg_path):
@@ -174,10 +188,11 @@ class DemoReleaseGateTests(unittest.TestCase):
         self,
         demo_mode: str | None,
         demo_exit_code: int | None = None,
+        **node,
     ) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory(prefix="release-gate-demo-") as temp_dir:
             temp = Path(temp_dir)
-            fake_python, _node, log_path = self._fake_toolchain(temp, demo_exit_code)
+            fake_python, _node, log_path = self._fake_toolchain(temp, demo_exit_code, **node)
             env = os.environ.copy()
             env.pop("DEMO_MODE", None)
             if demo_mode is not None:
@@ -214,6 +229,16 @@ class DemoReleaseGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("demo/verify_config.py", invocations)
         self.assertIn("demo isolation verification failed", result.stderr)
+
+    def test_missing_browser_dependencies_fail_the_gate(self) -> None:
+        result, _invocations = self._run_gate(demo_mode=None, browser_ready=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("browser dependencies missing", result.stderr)
+
+    def test_skipped_console_tests_fail_the_gate(self) -> None:
+        result, _invocations = self._run_gate(demo_mode=None, skipped=1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("console tests skipped work", result.stderr)
 
     def test_invalid_demo_mode_is_rejected_before_gate(self) -> None:
         for invalid_mode in ("0", "true", "yes"):

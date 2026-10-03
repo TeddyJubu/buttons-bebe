@@ -17,13 +17,17 @@ WEBHOOK_SRC = ROOT / "webhook" / "src"
 for path in (PROCESSOR, WEBHOOK_SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+sys.path.append(str(ROOT))
 
-from bb_webhook.config import Settings as WebhookSettings  # noqa: E402
-from config import ProcessorSettings  # noqa: E402
-from demo.local_only import require_loopback  # noqa: E402
-from demo_safety import demo_url_allowed  # noqa: E402
-import orchestrator  # noqa: E402
-import whatsapp_notifier  # noqa: E402
+from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
+
+with without_root_dotenv():
+    from bb_webhook.config import Settings as WebhookSettings  # noqa: E402
+    from config import ProcessorSettings  # noqa: E402
+    from demo.local_only import require_loopback  # noqa: E402
+    from demo_safety import demo_url_allowed  # noqa: E402
+    import orchestrator  # noqa: E402
+    import whatsapp_notifier  # noqa: E402
 
 
 PROCESSOR_DEMO = {
@@ -50,7 +54,7 @@ WEBHOOK_DEMO = {
     "WEBHOOK_DB_PATH": "./data/cute-things-demo-webhook.db",
     "FEEDBACK_KB_ROOT": "./demo/data/kb",
     "HERMES_PROFILE": "cutethingsdemo",
-    "HERMES_REWRITE_TOOLSETS": "",
+    "HERMES_REWRITE_TOOLSETS": "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias",
     "HERMES_IGNORE_RULES": True,
     "SUPPORT_STORE_NAME": "Cute Things",
 }
@@ -117,6 +121,7 @@ class DemoIsolationTests(unittest.TestCase):
                 "DASHBOARD_RESULT_URL": "https://client.example/results",
             }, clear=False),
             patch("urllib.request.urlopen") as urlopen,
+            self.assertRaisesRegex(RuntimeError, "Demo result persistence destination is blocked"),
         ):
             orchestrator._save_result_to_webhook(
                 1,

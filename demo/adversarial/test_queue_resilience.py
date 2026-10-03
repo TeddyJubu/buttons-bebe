@@ -27,9 +27,13 @@ ROOT = Path(__file__).resolve().parents[2]
 PROCESSOR_DIR = ROOT / "processor"
 WEBHOOK_SRC = ROOT / "webhook" / "src"
 sys.path[:0] = [str(PROCESSOR_DIR), str(WEBHOOK_SRC)]
+sys.path.append(str(ROOT))
 
-from bb_webhook import database  # noqa: E402
-import orchestrator  # noqa: E402
+from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
+
+with without_root_dotenv():
+    from bb_webhook import database  # noqa: E402
+    import orchestrator  # noqa: E402
 
 
 def _payload(message_id: str, ticket_id: int, *, event_created_at: str | None = None) -> dict:

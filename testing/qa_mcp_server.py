@@ -127,7 +127,9 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
                     from qa_policy_overlay import replace_hits
                     safe = replace_hits(safe, overlay)
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], filtered=filtered,
-                      returned=min(len(safe),k), files=[row["file"] for row in safe[:k]], proposed_policies=bool(overlay))
+                      returned=min(len(safe),k), files=[row["file"] for row in safe[:k]], proposed_policies=bool(overlay),
+                      headings=[row["heading"] for row in safe[:k]],
+                      content_sha256=[hashlib.sha256(row["text"].encode()).hexdigest() for row in safe[:k]])
                 return safe[:k]
             except Exception:
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], fatal=True)

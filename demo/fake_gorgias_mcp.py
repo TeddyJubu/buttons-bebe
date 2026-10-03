@@ -1,9 +1,10 @@
 """Fixture-backed, read-only Gorgias MCP service for the Cute Things demo.
 
 The public tool surface intentionally mirrors ``tools/gorgias_mcp.py``:
-``list_recent_tickets``, ``get_ticket``, ``get_ticket_messages``,
-``get_customer``, and ``search_customer``.  The fixture data is synthetic and
-the module has no HTTP client, credentials, or write operation.
+``list_recent_tickets``, ``list_inbox_tickets``, ``get_ticket``,
+``get_ticket_messages``, ``get_customer``, and ``search_customer``.  The
+fixture data is synthetic and the module has no HTTP client, credentials, or
+write operation.
 """
 
 from __future__ import annotations
@@ -106,6 +107,37 @@ def list_recent_tickets(limit: int = 10) -> dict[str, Any]:
     )
     tickets = [{key: item.get(key) for key in keep} for item in _tickets()[:safe_limit]]
     return {"count": len(tickets), "tickets": copy.deepcopy(tickets)}
+
+
+INBOX_FIELDS = (
+    "id", "subject", "status", "priority", "channel", "customer", "assignee_user",
+    "assignee_team", "created_datetime", "updated_datetime", "last_message_datetime",
+    "last_received_message_datetime", "excerpt", "tags", "spam", "trashed_datetime",
+)
+CURSOR_PREFIX = "demo-cursor:"
+
+
+@mcp.tool()
+def list_inbox_tickets(limit: int = 100, cursor: str | None = None) -> dict[str, Any]:
+    """Page synthetic tickets by last update with an opaque cursor (read-only)."""
+
+    if type(limit) is not int or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    offset = 0
+    if cursor is not None:
+        if not isinstance(cursor, str) or not cursor.startswith(CURSOR_PREFIX):
+            raise ValueError("Invalid ticket cursor")
+        position = cursor.removeprefix(CURSOR_PREFIX)
+        if not position.isascii() or not position.isdigit():
+            raise ValueError("Invalid ticket cursor")
+        offset = int(position)
+    ordered = sorted(_tickets(), key=lambda item: item.get("updated_datetime", ""), reverse=True)
+    page = ordered[offset:offset + min(limit, 100)]
+    end = offset + len(page)
+    return {
+        "data": [{key: copy.deepcopy(item.get(key)) for key in INBOX_FIELDS} for item in page],
+        "meta": {"next_cursor": f"{CURSOR_PREFIX}{end}" if end < len(ordered) else None},
+    }
 
 
 @mcp.tool()

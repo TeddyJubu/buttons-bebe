@@ -1,9 +1,9 @@
-"""Immutable filename-only manifest of reviewed generated Shopify product docs."""
+"""Immutable manifest pinning the content of reviewed generated Shopify product docs."""
 import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 
 NAME = re.compile(r'products/product-[a-z0-9][a-z0-9-]*\.md\Z')
@@ -22,13 +22,21 @@ def load_manifest(path, expected_hash):
     if not re.fullmatch('[a-f0-9]{64}', expected_hash or '') or hashlib.sha256(raw).hexdigest()!=expected_hash:
         raise ValueError('Catalog manifest hash does not match reviewed snapshot')
     value=json.loads(raw)
-    if set(value)!={'schema','source','generator_sha256','files'} or value['schema']!=1 or value['source']!='shopify-sync-products':
+    if set(value)!={'schema','source','generator_sha256','directory','files'} or value['schema']!=2 or value['source']!='shopify-sync-products':
         raise ValueError('Unsupported catalog provenance')
     files=value['files']
-    if not isinstance(files,list) or not 1<=len(files)<=50000 or any(not isinstance(x,str) or not NAME.fullmatch(x) for x in files) or len(set(files))!=len(files):
-        raise ValueError('Catalog manifest must contain unique product filenames only')
+    if not isinstance(files,dict) or not 1<=len(files)<=50000 or any(not NAME.fullmatch(x) or not re.fullmatch('[a-f0-9]{64}',str(h)) for x,h in files.items()):
+        raise ValueError('Catalog manifest must map product filenames to content hashes only')
     if not re.fullmatch('[a-f0-9]{64}',value['generator_sha256']):
         raise ValueError('Missing reviewed generator digest')
+    directory=Path(value['directory'])
+    if not directory.is_absolute():
+        raise ValueError('Catalog manifest needs the absolute product directory')
+    for name,expected in files.items():
+        path=directory/PurePosixPath(name).name
+        regular(path)
+        if hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+            raise ValueError('Product content differs from the reviewed snapshot')
     return set(files)
 
 
@@ -39,13 +47,13 @@ def snapshot(directory,generator,expected_generator_hash,output):
         raise ValueError('Product generator differs from reviewed source')
     if not directory.is_dir() or any(p.is_symlink() for p in (directory,*directory.parents)):
         raise ValueError('Product directory boundary is invalid')
-    names=[]
+    files={}
     for path in sorted(directory.iterdir()):
         regular(path)
         name='products/'+path.name
         if not NAME.fullmatch(name):
             raise ValueError('Unexpected file in generated product directory')
-        # Inspect only front matter; never copy bodies, URLs, or customer data.
+        # Inspect only front matter and hash the body; never copy bodies, URLs, or customer data.
         with path.open() as handle:
             if handle.readline().strip()!='---':raise ValueError('Missing product provenance')
             header=[]
@@ -56,12 +64,13 @@ def snapshot(directory,generator,expected_generator_hash,output):
             else:raise ValueError('Oversized product front matter')
         if not {'category: products','status: confirmed','source: shopify-sync'}.issubset(header):
             raise ValueError('Unreviewed product provenance')
-        names.append(name)
-    if not names:raise ValueError('Empty product catalog')
-    raw=(json.dumps({'schema':1,'source':'shopify-sync-products','generator_sha256':digest,'files':names},sort_keys=True,indent=2)+'\n').encode()
+        files[name]=hashlib.sha256(path.read_bytes()).hexdigest()
+    if not files:raise ValueError('Empty product catalog')
+    raw=(json.dumps({'schema':2,'source':'shopify-sync-products','generator_sha256':digest,'directory':str(directory.resolve()),
+                     'files':files},sort_keys=True,indent=2)+'\n').encode()
     with output.open('xb') as handle:
         os.chmod(output,0o600);handle.write(raw);handle.flush();os.fsync(handle.fileno())
-    return {'sha256':hashlib.sha256(raw).hexdigest(),'count':len(names),'generator_sha256':digest}
+    return {'sha256':hashlib.sha256(raw).hexdigest(),'count':len(files),'generator_sha256':digest}
 
 
 if __name__=='__main__':
