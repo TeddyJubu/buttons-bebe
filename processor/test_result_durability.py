@@ -150,6 +150,74 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tickets[0]["owner_alert_status"], "accepted")
 
 
+    async def crash_final_attempt(self, job_id, reason='Synthetic refund request'):
+        from bb_webhook.draft_generation import begin_attempt
+        db = Database(self.path)
+        await database.claim_job(job_id, self.path)
+        await db.execute("UPDATE job_queue SET generation_cycle_attempts=2 WHERE id=?", (job_id,))
+        self.assertIsNotNone(await begin_attempt(job_id, self.path, priority_context=dict(
+            priority='high', notify_owner=True, reason=reason)))
+        await db.execute("UPDATE job_queue SET started_at='2000-01-01' WHERE id=?", (job_id,))
+
+    async def test_alert_survives_crash_between_recovery_and_notification(self):
+        await self.crash_final_attempt(self.job_id)
+        # Recovery commits, then the processor dies before attempting the alert.
+        self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), [self.job_id])
+        self.assertEqual((await self.status())["status"], "done")
+        settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
+        with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
+            await orchestrator._recover_stale_jobs(settings)
+            await orchestrator._recover_stale_jobs(settings)
+            notify.assert_called_once()
+        self.assertIn("Synthetic refund request", notify.call_args.kwargs["reason"])
+        tickets = await database.get_dashboard_tickets(db_path=self.path)
+        self.assertEqual(tickets[0]["owner_alert_status"], "accepted")
+
+    async def test_owed_alert_survives_supersession_and_pending_row_is_cleared(self):
+        await self.crash_final_attempt(self.job_id)
+        self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), [self.job_id])
+        # A newer customer message supersedes the job before the deferred alert is sent.
+        await Database(self.path).execute(
+            "UPDATE job_queue SET status='skipped', error='new_customer_message_refresh_ticket' WHERE id=?",
+            (self.job_id,))
+        settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
+        with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
+            await orchestrator._recover_stale_jobs(settings)
+            await orchestrator._recover_stale_jobs(settings)
+            notify.assert_called_once()
+        rows = await Database(self.path).fetch("SELECT COUNT(*) AS n FROM recovery_alerts_pending")
+        self.assertEqual(rows[0]["n"], 0)
+
+    async def test_owed_alert_dropped_when_staff_already_acted(self):
+        await self.crash_final_attempt(self.job_id)
+        await database.requeue_stale_jobs(10, self.path, max_retries=3)
+        await Database(self.path).execute(
+            "UPDATE job_queue SET status='skipped', error='human_action_already_initiated' WHERE id=?",
+            (self.job_id,))
+        settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
+        with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
+            await orchestrator._recover_stale_jobs(settings)
+            notify.assert_not_called()
+        rows = await Database(self.path).fetch("SELECT COUNT(*) AS n FROM recovery_alerts_pending")
+        self.assertEqual(rows[0]["n"], 0)
+
+    async def test_pending_recovery_alerts_are_bounded_per_sweep(self):
+        jobs = [self.job_id]
+        for n in range(6):
+            jobs.append(await database.ingest_event(
+                dict(tenant_id="test", ticket_id=200 + n, message_id=f"synthetic-{n}", event_type="created",
+                     author_type="customer", is_customer_message=True, message_text="Synthetic question"),
+                "{}", self.path))
+        for job_id in jobs:
+            await self.crash_final_attempt(job_id)
+        settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
+        with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
+            await orchestrator._recover_stale_jobs(settings)
+            self.assertEqual(notify.call_count, orchestrator._RECOVERY_ALERTS_PER_SWEEP)
+            await orchestrator._recover_stale_jobs(settings)
+            self.assertEqual(notify.call_count, len(jobs))
+
+
 class ResultAcknowledgementTests(unittest.TestCase):
     def test_durable_alert_disables_ambiguous_transport_retries(self):
         import whatsapp_notifier

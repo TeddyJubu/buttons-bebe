@@ -49,6 +49,7 @@ from bb_webhook.database import (  # noqa: E402
     get_pending_job_window,
     get_job_stats,
     init_db,
+    pending_recovery_alerts,
     set_setting,
     requeue_stale_jobs,
 )
@@ -724,21 +725,37 @@ async def _process_one_job(
                       job_id=job_id, retry_count=retry_count + 1)
 
 
+# Each alert send can block up to 15s; the rest wait in the durable queue.
+_RECOVERY_ALERTS_PER_SWEEP = 5
+
+
 async def _recover_stale_jobs(settings: Any) -> list[int]:
-    """Reclaim abandoned claims; a crash on the last attempt must still alert."""
+    """Reclaim abandoned claims, then send owner alerts that recovery owes.
+
+    Recovery records an owed alert in the same transaction that closes the
+    attempt, so a crash before sending it is retried on the next sweep; the
+    once-only claim in _notify_owner_once prevents duplicates.
+    """
     recovered = await requeue_stale_jobs(
         settings.stale_job_minutes, settings.db_path_absolute, max_retries=settings.max_retries,
     )
-    for job_id in recovered:
-        await _notify_recovered_result({'id': job_id}, settings.db_path_absolute)
+    for job_id in await pending_recovery_alerts(_RECOVERY_ALERTS_PER_SWEEP, settings.db_path_absolute):
+        await _notify_recovered_result({'id': job_id}, settings.db_path_absolute, owed=True)
     return recovered
 
 
-async def _notify_recovered_result(job: dict, db_path: Path) -> None:
-    """An unavailable draft must not suppress an urgent request's owner alert."""
+async def _notify_recovered_result(job: dict, db_path: Path, *, owed: bool = False) -> None:
+    """An unavailable draft must not suppress an urgent request's owner alert.
+
+    ``owed`` alerts were durably recorded at recovery. A newer customer message
+    replaces the draft but not the urgent request, so they are still sent;
+    any other supersession means staff already acted.
+    """
     from bb_webhook.db import Database
+    from bb_webhook.draft_generation import SUPERSEDED_BY_CUSTOMER
     rows = await Database(db_path).fetch('SELECT * FROM job_queue WHERE id=?', (job['id'],))
-    if not rows or rows[0]['status'] == 'skipped':
+    superseded_by_customer = owed and rows and rows[0]['error'] == SUPERSEDED_BY_CUSTOMER
+    if not rows or (rows[0]['status'] == 'skipped' and not superseded_by_customer):
         return
     saved = await get_job_result(job['id'], db_path)
     if saved and saved.get('notify_owner'):

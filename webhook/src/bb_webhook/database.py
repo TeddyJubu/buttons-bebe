@@ -563,6 +563,36 @@ async def claim_owner_alert(job_id: int, db_path: Path | None = None) -> bool:
     return affected == 1
 
 
+async def pending_recovery_alerts(limit: int, db_path: Path | None = None) -> list[int]:
+    """Recovered jobs still owed an owner alert, oldest first.
+
+    A newer customer message superseding the job does not cancel the alert:
+    the urgent request is still unanswered. Any other supersession means staff
+    already acted, so that alert is dropped. Rows whose alert was attempted or
+    dropped are deleted here, so the table only holds alerts still owed.
+    """
+    from .draft_generation import SUPERSEDED_BY_CUSTOMER
+    db = Database(db_path)
+    await db.execute(
+        """DELETE FROM recovery_alerts_pending
+           WHERE job_id IN (SELECT job_id FROM owner_alert_attempts)
+              OR job_id IN (SELECT id FROM job_queue WHERE status='skipped'
+                            AND COALESCE(error,'')!=?)
+              OR job_id NOT IN (SELECT job_id FROM ticket_results
+                                WHERE notify_owner=1 AND job_id IS NOT NULL)""",
+        (SUPERSEDED_BY_CUSTOMER,), operation="clear_recovery_alerts",
+    )
+    rows = await db.fetch(
+        """SELECT p.job_id FROM recovery_alerts_pending p
+           JOIN job_queue j ON j.id=p.job_id
+           JOIN ticket_results r ON r.job_id=j.id AND r.ticket_id=j.ticket_id
+                AND r.message_id=j.message_id AND r.notify_owner=1
+           ORDER BY p.job_id LIMIT ?""",
+        (limit,), operation="pending_recovery_alerts",
+    )
+    return [row["job_id"] for row in rows]
+
+
 async def finish_owner_alert(job_id: int, accepted: bool, db_path: Path | None = None) -> None:
     await Database(db_path).execute(
         """UPDATE owner_alert_attempts SET status=?, finished_at=?

@@ -16,6 +16,8 @@ from .db import Database
 from .send_intents import ActionConflict, valid_operation
 
 TRANSIENT_ERRORS = frozenset({"timeout", "process_exit", "runtime_error"})
+# Skip reason when a newer customer message supersedes a job; owed alerts survive it.
+SUPERSEDED_BY_CUSTOMER = "new_customer_message_refresh_ticket"
 STATES = frozenset({"ready", "needs_review", "no_reply", "failed", "retry_wait", "superseded"})
 RESULT_COLUMNS = {
     "generation_state": "TEXT", "generation_error": "TEXT",
@@ -36,6 +38,11 @@ CREATE TABLE IF NOT EXISTS draft_generation_attempts (
  duration_ms INTEGER, result_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_draft_attempt_job ON draft_generation_attempts(job_id,id);
+-- Owner alerts owed by recovered attempts; committed with the recovery itself
+-- so a crash before the alert cannot lose it. Deleted once an alert is attempted.
+CREATE TABLE IF NOT EXISTS recovery_alerts_pending (
+ job_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS draft_retry_requests (
  operation_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, ticket_id INTEGER NOT NULL,
  message_id TEXT NOT NULL, expected_revision TEXT NOT NULL,
@@ -111,7 +118,7 @@ async def conflict(conn, ticket_id, message_id):
         WHERE ticket_id=? AND is_customer_message=1
         ORDER BY COALESCE(NULLIF(created_at,''),received_at) DESC,received_at DESC,message_id DESC LIMIT 1""", (ticket_id,))
     if not latest or latest["message_id"] != message_id:
-        return "new_customer_message_refresh_ticket"
+        return SUPERSEDED_BY_CUSTOMER
     exists = await one(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='console_action_intents'")
     if exists:
         action = await one(conn, """SELECT operation_id FROM console_action_intents
@@ -222,6 +229,8 @@ async def finish_attempt(payload, db_path=None):
                                tuple(values.get(f) for f in fields))
             await conn.execute("UPDATE draft_generation_attempts SET result_json=? WHERE id=?",
                                (json.dumps({"result": values}), attempt["id"]))
+        if payload.get("recovery_alert") and values["notify_owner"]:
+            await conn.execute("INSERT OR IGNORE INTO recovery_alerts_pending VALUES (?,?)", (job["id"], ended))
         await conn.execute("""UPDATE draft_generation_attempts SET outcome=?,error_code=?,finished_at=?,duration_ms=? WHERE id=?""",
                            (state, error, ended, duration, attempt["id"]))
         await conn.execute("""UPDATE job_queue SET status=?,next_attempt_at=?,generation_expected_revision=?,
@@ -265,7 +274,7 @@ async def recover_attempt(job_id, db_path=None, error='process_exit'):
         action='sensitive_draft' if sensitive else 'drafted', reason=reason,
         notify_owner=sensitive and bool(context.get('notify_owner')), draft_text='', generation_state='failed', generation_error=error,
         review_required=True, staff_next_step='Retry the AI draft or compose a response.',
-        missing_facts=[]), db_path)
+        missing_facts=[], recovery_alert=True), db_path)
     if state == 'failed':
         await Database(db_path).execute("UPDATE job_queue SET status='done',finished_at=? WHERE id=? AND status='processing'",
                                         (now(), job_id))
