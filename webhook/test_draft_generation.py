@@ -163,7 +163,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(await generation.begin_attempt(self.job['id'],self.path))
             await Database(self.path).execute("UPDATE job_queue SET started_at='2000-01-01' WHERE id=?",(self.job['id'],))
             await db.init_db(self.path)
-            self.assertEqual(await db.requeue_stale_jobs(10,self.path),1)
+            self.assertEqual(await db.requeue_stale_jobs(10,self.path),[self.job['id']])
             saved=await db.get_job_result(self.job['id'],self.path)
             self.assertEqual(saved['attempt_count'],number)
             self.assertEqual(saved['generation_error'],'process_exit')
@@ -174,7 +174,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
             else:
                 self.assertEqual(saved['generation_state'],'failed')
                 self.assertEqual((await self.job_row())['status'],'done')
-        self.assertEqual(await db.requeue_stale_jobs(0,self.path),0)
+        self.assertEqual(await db.requeue_stale_jobs(0,self.path),[])
 
     async def test_transport_retry_cannot_regenerate_terminal_failure(self):
         attempt=await self.start()

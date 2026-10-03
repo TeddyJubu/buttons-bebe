@@ -103,10 +103,12 @@ async def inbox_send_access(request: Request) -> JSONResponse:
         grants = InboxSendAccess(deps.get_db())
         if body['enabled']:
             result = await grants.enable(reviewer, session_id)
+            changed = True
         else:
-            await grants.disable(request.headers.get('X-Inbox-Send-Access'), reviewer, session_id)
+            changed = await grants.disable(request.headers.get('X-Inbox-Send-Access'), reviewer, session_id)
             result = {}
-        log_event(logger, "INFO", "Inbox manual send access changed", actor_id=reviewer, enabled=body['enabled'])
+        if changed:
+            log_event(logger, "INFO", "Inbox manual send access changed", actor_id=reviewer, enabled=body['enabled'])
         return JSONResponse(content={"ok": True, "enabled": body['enabled'], **result})
     except Exception as exc:
         log_event(logger, "ERROR", "Inbox send access unavailable", error_type=type(exc).__name__)

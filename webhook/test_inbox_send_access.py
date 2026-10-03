@@ -46,7 +46,10 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_toggle_never_calls_provider_and_off_revokes(self):
         headers=await self.enable()
-        self.assertEqual((await self.client.post(self.access_url,json={'enabled':False},headers=headers)).status_code,200)
+        with patch('bb_webhook.routers.console.log_event') as log:
+            for _ in range(2):  # Only the call that removed a grant is a change.
+                self.assertEqual((await self.client.post(self.access_url,json={'enabled':False},headers=headers)).status_code,200)
+            self.assertEqual(log.call_count,1)
         response=await self.client.post(self.send_url,json=self.payload,headers=headers)
         self.assertEqual(response.status_code,403)
         self.factory.assert_not_called()

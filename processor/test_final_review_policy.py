@@ -61,6 +61,24 @@ class FinalReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved['draft_text'], '')
         self.assertTrue(saved['hermes_result']['notify_owner'])
 
+    async def test_failed_generation_for_refund_or_defect_stays_urgent(self):
+        from hermes_runner.constants import _FALLBACK_RESULT
+        for text in ('I want a refund for order #1234.',
+                     'The romper arrived torn at the seam, it is defective.'):
+            with self.subTest(text=text):
+                orchestrator._classification_cache.clear()
+                job = {'id': 7, 'payload': json.dumps({'ticket_id': 123, 'message_id': 'synthetic',
+                                                      'message_text': text})}
+                # Real classifier: _FALLBACK_RESULT says normal, the rules must raise it.
+                with patch.object(orchestrator, 'process_ticket_with_hermes', return_value=dict(_FALLBACK_RESULT)), \
+                     patch.object(orchestrator, '_save_result_to_webhook') as save:
+                    await orchestrator.process_customer_message(job)
+                result = save.call_args.kwargs['hermes_result']
+                self.assertIn(result['priority'], {'high', 'critical'})
+                self.assertTrue(result['notify_owner'])
+                self.assertEqual(result['generation_state'], 'failed')
+                self.assertEqual(save.call_args.kwargs['draft_text'], '')
+
     def test_policy_is_idempotent_does_not_mutate_input(self):
         original = {'priority': 'normal', 'action': 'no_kb_match', 'draft_text': 'Question?'}
         reviewed = final_review_result(original)

@@ -24,21 +24,21 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         await database.claim_job(self.job_id, self.path)
 
     async def test_recent_claim_recovers_on_later_sweep_without_restart(self):
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path), 0)
+        self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 0)
         self.assertIsNone(await database.get_next_pending_job(self.path))
         await Database(self.path).execute("UPDATE job_queue SET started_at = ?", (
             (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat(),))
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path), 1)
+        self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 1)
         job = await database.get_next_pending_job(self.path)
         self.assertEqual(job["id"], self.job_id)
         self.assertEqual(job["retry_count"], 1)
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path), 0)
+        self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 0)
 
     async def test_finished_job_is_not_replayed_and_invalid_claim_does_not_strand(self):
         await database.complete_job(self.job_id, db_path=self.path)
-        self.assertEqual(await database.requeue_stale_jobs(0, self.path), 0)
+        self.assertEqual(len(await database.requeue_stale_jobs(0, self.path)), 0)
         await Database(self.path).execute("UPDATE job_queue SET status='processing', started_at=NULL")
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path), 1)
+        self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 1)
 
     async def test_recovery_is_bounded_and_leaves_recent_claims_alone(self):
         db = Database(self.path)
@@ -49,8 +49,8 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
                    author_type, status, payload, created_at, started_at)
                    VALUES ('test', 1, ?, 'created', 'customer', 'processing', '{}',
                            '2000-01-01', '2000-01-01')""", (f"old-{n}",))
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path), 100)
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path), 1)
+        self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 100)
+        self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 1)
         row = (await db.fetch("SELECT status FROM job_queue WHERE id=?", (self.job_id,)))[0]
         self.assertEqual(row["status"], "processing")
 
@@ -85,7 +85,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(orchestrator, "requeue_stale_jobs", new_callable=AsyncMock) as recover,
                 patch.object(orchestrator, 'check_alert_route',return_value={'status':'ok'}),
             ):
-                recover.return_value = 0
+                recover.return_value = []
                 self.assertEqual(await orchestrator.run_processor(), 0)
                 self.assertEqual(recover.await_count, 4)  # startup, first probe, two later sweeps
                 release.assert_called_once()

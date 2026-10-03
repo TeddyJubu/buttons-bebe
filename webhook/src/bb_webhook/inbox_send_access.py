@@ -45,9 +45,11 @@ class InboxSendAccess:
     async def disable(self, token, actor_id, session_id):
         digest = _digest(token)
         if not digest:
-            return
-        await self.db.execute('DELETE FROM inbox_send_grants WHERE token_hash=? AND actor_id=? AND session_id=?',
-                              (digest, actor_id, session_id), operation='disable_inbox_send')
+            return False
+        deleted = await self.db.execute('DELETE FROM inbox_send_grants WHERE token_hash=? AND actor_id=? AND session_id=?',
+                                        (digest, actor_id, session_id), operation='disable_inbox_send',
+                                        return_rowcount=True)
+        return bool(deleted)
 
     async def allowed(self, token, actor_id, session_id):
         digest = _digest(token)

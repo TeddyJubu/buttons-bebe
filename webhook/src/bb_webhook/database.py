@@ -411,7 +411,7 @@ async def requeue_stale_jobs(
     db_path: Path | None = None,
     *,
     max_retries: int = 3,
-) -> int:
+) -> list[int]:
     """Reclaim up to 100 abandoned claims per singleton-loop sweep.
 
     Call only between jobs while holding the processor singleton lock. This
@@ -419,7 +419,8 @@ async def requeue_stale_jobs(
     (including legacy Z offsets) and changes status in one atomic statement.
     Missing/invalid claim timestamps are also abandoned, rather than silently
     remaining processing forever. Exhausted claims become failed with an
-    operator-visible reason. The return count includes both retry and failure.
+    operator-visible reason. Returns the IDs of every retried or failed job so
+    the caller can attempt any owner alert the recovered result requires.
     """
     if max_age_minutes < 0 or max_retries < 0:
         raise ValueError("Recovery age and retry limit must be nonnegative")
@@ -430,32 +431,29 @@ async def requeue_stale_jobs(
         JOIN draft_generation_attempts a ON a.job_id=j.id AND a.outcome='running'
         WHERE j.status='processing' AND (julianday(j.started_at) IS NULL OR
         julianday(j.started_at)<julianday(?)) ORDER BY j.id LIMIT 100""", (cutoff,))
-    recovered = 0
-    for row in abandoned:
-        recovered += int(await recover_attempt(row['id'], db_path))
-    affected = await db.execute(
-        """UPDATE job_queue
-           SET status = CASE WHEN retry_count < ? THEN 'pending' ELSE 'failed' END,
-               started_at = NULL,
-               finished_at = CASE WHEN retry_count < ? THEN NULL ELSE ? END,
-               error = CASE WHEN retry_count < ? THEN NULL
-                       ELSE 'Abandoned job exhausted recovery retries; operator review required' END,
-               retry_count = CASE WHEN retry_count < ? THEN retry_count + 1 ELSE retry_count END
-           WHERE id IN (
-               SELECT id FROM job_queue WHERE status = 'processing'
-                 AND (julianday(started_at) IS NULL OR
-                      julianday(started_at) < julianday(?))
-               ORDER BY id LIMIT 100
-           ) AND status = 'processing'""",
-        (max_retries, max_retries, datetime.now(timezone.utc).isoformat(),
-         max_retries, max_retries, cutoff),
-        operation="requeue_stale_jobs",
-        return_rowcount=True,
-    )
-    if affected:
+    recovered = [row['id'] for row in abandoned if await recover_attempt(row['id'], db_path)]
+    # Safe to select then update: the singleton lock means no concurrent claimer.
+    stale = [row['id'] for row in await db.fetch(
+        """SELECT id FROM job_queue WHERE status = 'processing'
+             AND (julianday(started_at) IS NULL OR julianday(started_at) < julianday(?))
+           ORDER BY id LIMIT 100""", (cutoff,))]
+    if stale:
+        await db.execute(
+            f"""UPDATE job_queue
+               SET status = CASE WHEN retry_count < ? THEN 'pending' ELSE 'failed' END,
+                   started_at = NULL,
+                   finished_at = CASE WHEN retry_count < ? THEN NULL ELSE ? END,
+                   error = CASE WHEN retry_count < ? THEN NULL
+                           ELSE 'Abandoned job exhausted recovery retries; operator review required' END,
+                   retry_count = CASE WHEN retry_count < ? THEN retry_count + 1 ELSE retry_count END
+               WHERE id IN ({','.join('?' * len(stale))}) AND status = 'processing'""",
+            (max_retries, max_retries, datetime.now(timezone.utc).isoformat(),
+             max_retries, max_retries, *stale),
+            operation="requeue_stale_jobs",
+        )
         logger.warning("Resolved %d abandoned claims (retry limit %d); exhausted claims are failed",
-                       affected, max_retries)
-    return int(affected or 0) + recovered
+                       len(stale), max_retries)
+    return recovered + stale
 
 
 async def requeue_failed_job(

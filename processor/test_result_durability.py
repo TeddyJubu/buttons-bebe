@@ -120,13 +120,34 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_retry_exhaustion_is_failed_with_operator_visible_reason(self):
         await database.claim_job(self.job_id, self.path)
         await Database(self.path).execute("UPDATE job_queue SET started_at='2000-01-01', retry_count=3")
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), 1)
+        self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), [self.job_id])
         row = await self.status()
         self.assertEqual(row["status"], "failed")
         self.assertEqual(row["retry_count"], 3)
         self.assertIn("operator review required", row["error"])
         self.assertIsNotNone(row["finished_at"])
-        self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), 0)
+        self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), [])
+
+
+    async def test_stale_sweep_alerts_when_last_attempt_of_high_ticket_crashed(self):
+        from bb_webhook.draft_generation import begin_attempt
+        await database.claim_job(self.job_id, self.path)
+        db = Database(self.path)
+        await db.execute("UPDATE job_queue SET generation_cycle_attempts=2 WHERE id=?", (self.job_id,))
+        self.assertIsNotNone(await begin_attempt(self.job_id, self.path, priority_context=dict(
+            priority='high', notify_owner=True, reason='Synthetic refund request')))
+        # The processor dies mid-generation on the third attempt.
+        await db.execute("UPDATE job_queue SET started_at='2000-01-01' WHERE id=?", (self.job_id,))
+        settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
+        with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
+            self.assertEqual(await orchestrator._recover_stale_jobs(settings), [self.job_id])
+            notify.assert_called_once()
+        saved = await database.get_job_result(self.job_id, self.path)
+        self.assertEqual(saved["generation_state"], "failed")
+        self.assertTrue(saved["notify_owner"])
+        self.assertEqual((await self.status())["status"], "done")
+        tickets = await database.get_dashboard_tickets(db_path=self.path)
+        self.assertEqual(tickets[0]["owner_alert_status"], "accepted")
 
 
 class ResultAcknowledgementTests(unittest.TestCase):
