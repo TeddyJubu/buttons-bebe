@@ -162,7 +162,7 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
         self.assertIn('start buttonsbebe-inbox-projection.timer', calls)
         self.assertIn('buttonsbebe-inbox-projection.timer', json.loads((self.root / 'active.json').read_text()))
 
-    def projection_fixture(self, fail_export=False, fail_ready=False):
+    def projection_fixture(self, fail_export=False, fail_ready=False, readiness=None):
         self.write(self.root / 'active.json', json.dumps([
             'buttonsbebe-webhook','helpdesk-inbox2','buttonsbebe-inbox-projection.timer']))
         self.write(self.bin / 'curl', """#!/usr/bin/env python3
@@ -172,10 +172,14 @@ url=next(arg for arg in sys.argv if arg.startswith('http://'))
 with (root/'calls').open('a') as out:out.write('probe '+url+'\\n')
 if url.endswith('/inbox/api/helpdesk'):
  print(json.dumps({'ok':True,'readOnly':True,'capabilities':{'sendReply':False}}))
-elif url.endswith(':8767/health'):
+elif url.endswith(':8767/ready'):
+ payload={'status':'ready','readOnly':True,'checks':{'storage':'ok','worker':'ok','ticketData':'fresh','projection':'fresh'}}
+ if (root/'live/webhook/app.py').read_text()=='new code':
+  if READINESS is not None:payload=READINESS
+  if FAIL_READY:payload['status']='degraded';payload['checks']['projection']='stale'
+ print(json.dumps(payload))
  if FAIL_READY and (root/'live/webhook/app.py').read_text()=='new code':sys.exit(22)
- print(json.dumps({'ok':True,'readOnly':True}))
-""".replace('FAIL_READY',repr(fail_ready)))
+""".replace('FAIL_READY',repr(fail_ready)).replace('READINESS',repr(readiness)))
         script=(self.bin/'systemctl').read_text()
         script=script.replace("if verb=='start':", """if verb=='start' and name=='buttonsbebe-inbox-projection.service':
  if FAIL_EXPORT and (root/'live/webhook/app.py').read_text()=='new code':sys.exit(1)
@@ -191,8 +195,8 @@ if verb=='start':""".replace('FAIL_EXPORT',repr(fail_export)))
         calls=(self.root/'calls').read_text()
         self.assertLess(calls.index('start buttonsbebe-webhook'),calls.index('start buttonsbebe-inbox-projection.service'))
         self.assertLess(calls.index('probe http://127.0.0.1:8000/ready'),calls.index('start buttonsbebe-inbox-projection.service'))
-        self.assertLess(calls.index('start buttonsbebe-inbox-projection.service'),calls.index('probe http://127.0.0.1:8767/health'))
-        self.assertLess(calls.index('probe http://127.0.0.1:8767/health'),calls.index('start buttonsbebe-inbox-projection.timer'))
+        self.assertLess(calls.index('start buttonsbebe-inbox-projection.service'),calls.index('probe http://127.0.0.1:8767/ready'))
+        self.assertLess(calls.index('probe http://127.0.0.1:8767/ready'),calls.index('start buttonsbebe-inbox-projection.timer'))
 
     def test_failed_projection_export_rolls_back_source_without_rewinding_data(self):
         self.projection_fixture(fail_export=True)
@@ -206,6 +210,22 @@ if verb=='start':""".replace('FAIL_EXPORT',repr(fail_export)))
 
     def test_failed_inbox_ready_cannot_pass_on_send_lock_alone(self):
         self.projection_fixture(fail_ready=True)
+        result=self.run_receiver()
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'Prior source restored',result.stderr)
+        self.assertEqual((self.live/'webhook/app.py').read_text(),'old code')
+
+    def test_inbox_unusable_record_rolls_back_even_when_http_succeeds(self):
+        self.projection_fixture(readiness={'status':'unusable','readOnly':True,
+            'checks':{'storage':'ok','worker':'ok','ticketData':'fresh','projection':'unavailable'}})
+        result=self.run_receiver()
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'Prior source restored',result.stderr)
+        self.assertEqual((self.live/'webhook/data/webhook.db').read_text(),'accepted after deployment began')
+
+    def test_ready_label_without_fresh_projection_cannot_pass(self):
+        self.projection_fixture(readiness={'status':'ready','readOnly':True,
+            'checks':{'storage':'ok','worker':'ok','ticketData':'fresh','projection':'stale'}})
         result=self.run_receiver()
         self.assertNotEqual(result.returncode,0)
         self.assertIn(b'Prior source restored',result.stderr)

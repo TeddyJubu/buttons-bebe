@@ -2,6 +2,8 @@
 from datetime import datetime,timedelta,timezone
 import importlib.util
 import json
+import io
+from urllib.error import HTTPError
 from pathlib import Path
 import tempfile
 import unittest
@@ -50,7 +52,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_queue_readiness_distinguishes_missing_counts_and_old_work(self):
         payload={'status':'ready'}
-        response=MagicMock();response.__enter__.return_value=response
+        response=MagicMock();response.__enter__.return_value=response;response.code=200
         with patch.object(target.urllib.request,'urlopen',return_value=response):
             response.read.return_value=json.dumps(payload).encode()
             self.assertEqual(target.readiness(8000),'unavailable')
@@ -65,16 +67,31 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(target.readiness(8000),'attention')
 
     def test_inbox_monitor_checks_the_active_readonly_service(self):
-        response=MagicMock();response.__enter__.return_value=response
+        response=MagicMock();response.__enter__.return_value=response;response.code=200
         with patch.object(target.urllib.request,'urlopen',return_value=response) as request:
-            response.read.return_value=b'{"ok":true,"readOnly":true}'
+            response.read.return_value=b'{"status":"ready","readOnly":true,"checks":{"storage":"ok","worker":"ok","ticketData":"fresh","projection":"fresh"}}'
             self.assertEqual(target.readiness(8767),'ok')
-            self.assertEqual(request.call_args.args[0], 'http://127.0.0.1:8767/health')
+            self.assertEqual(request.call_args.args[0], 'http://127.0.0.1:8767/ready')
             response.read.return_value=b'{"ok":true,"readOnly":false}'
             self.assertEqual(target.readiness(8767),'unavailable')
         self.assertIn('helpdesk-inbox2',target.SERVICES)
         self.assertIn('buttonsbebe-inbox2-shop',target.SERVICES)
         self.assertNotIn('helpdesk-inbox',target.SERVICES)
+
+    def test_inbox_readiness_parses_only_bounded_structured_503(self):
+        for payload,expected in [({'status':'degraded','readOnly':True},'attention'),
+                                 ({'status':'unusable','readOnly':True},'unavailable'),
+                                 ({'status':'ready','readOnly':True},'unavailable'),
+                                 ({'status':'degraded','readOnly':False},'unavailable')]:
+            error=HTTPError('http://127.0.0.1:8767/ready',503,'Unavailable',{},io.BytesIO(json.dumps(payload).encode()))
+            with patch.object(target.urllib.request,'urlopen',side_effect=error):
+                self.assertEqual(target.readiness(8767),expected)
+        for payload in [b'{',b'[]',b'x'*65537]:
+            error=HTTPError('http://127.0.0.1:8767/ready',503,'Unavailable',{},io.BytesIO(payload))
+            with patch.object(target.urllib.request,'urlopen',side_effect=error):
+                self.assertEqual(target.safe(lambda:target.readiness(8767)),'unavailable')
+        with patch.object(target.urllib.request,'urlopen',side_effect=TimeoutError('synthetic')):
+            self.assertEqual(target.safe(lambda:target.readiness(8767)),'unavailable')
 
     def test_component_failure_cannot_be_hidden_by_other_healthy_services(self):
         with patch.object(target,'active',return_value='ok'),patch.object(target,'last_result',return_value='ok'),patch.object(target,'tcp',return_value='ok'),patch.object(target,'readiness',return_value='ok'),patch.object(target,'backup',return_value='ok'),patch.object(target,'disk',return_value='ok'),patch.object(target,'progress',return_value='stale'):

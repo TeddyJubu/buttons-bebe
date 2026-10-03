@@ -8,8 +8,11 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
+from dataclasses import dataclass, field
 import json
 import logging
+import math
+import os
 import re
 from pathlib import Path
 import sqlite3
@@ -17,6 +20,7 @@ import sys
 import threading
 import time
 import urllib.request
+import uuid
 from urllib.error import HTTPError
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -27,19 +31,61 @@ INBOX_MODULES = Path(__file__).resolve().parent.parent / 'inbox'
 if not (INBOX_MODULES / 'projection.py').is_file():
     INBOX_MODULES = Path('/opt/buttonsbebe/inbox/console-src/inbox')
 sys.path.insert(0, str(INBOX_MODULES))
+import projection
 from projection import query as projection_query, ProjectionUnavailable
 from shop_rail import attach as attach_shop_rail
 import customer_details
 
 DB = Path('/var/lib/buttonsbebe-inbox2/live.sqlite3')
 MCP_URL = 'http://127.0.0.1:8079/mcp'
-STOP = threading.Event()
+WORKER_LOCK = threading.Lock()
+WORKER = None
+CAPACITY_TIMEOUT = 30
+SHUTDOWN_TIMEOUT = 29
+PHASE_LIMITS = {'starting': 30, 'scanning': 90, 'capacity': 30, 'transport': 30,
+                'writing': 20, 'sleeping': 45, 'backoff': 315, 'stopping': 30}
+READ_TIMEOUT = .2
 CAPACITY = threading.BoundedSemaphore(2)
 DETAIL_LOCK = threading.Lock()
 DETAIL_CACHE = {}
 
 class Unavailable(Exception): pass
 class Gone(Exception): pass
+class Cancelled(Exception): pass
+
+@dataclass
+class Worker:
+    worker_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    stop: threading.Event = field(default_factory=threading.Event)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    thread: threading.Thread | None = None
+    phase: str = 'starting'
+    phase_since: float = field(default_factory=time.monotonic)
+    progress_since: float = field(default_factory=time.monotonic)
+    progress_at: str | None = None
+    success_at: str | None = None
+    error: bool = False
+    metadata_error: bool = False
+    shutdown_timeout: bool = False
+
+    def update(self, phase, *, progress=False, success=False, **changes):
+        with self.lock:
+            self.phase = phase
+            self.phase_since = time.monotonic()
+            if progress:
+                self.progress_at = now()
+                self.progress_since = time.monotonic()
+            if success: self.success_at = now()
+            for key, value in changes.items(): setattr(self, key, value)
+
+    def snapshot(self):
+        with self.lock:
+            return {'workerId': self.worker_id, 'alive': bool(self.thread and self.thread.is_alive()), 'phase': self.phase,
+                    'elapsed': time.monotonic() - self.phase_since,
+                    'progressElapsed': time.monotonic() - self.progress_since, 'progressAt': self.progress_at,
+                    'successAt': self.success_at, 'error': self.error,
+                    'metadataError': self.metadata_error, 'shutdownTimeout': self.shutdown_timeout}
+
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def epoch(value):
@@ -70,8 +116,20 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class MCP:
     """Bounded JSON-RPC / SSE client to one fixed local MCP address."""
+    def __init__(self, worker=None):
+        self.worker = worker
+
+    def check_stop(self):
+        if self.worker and self.worker.stop.is_set(): raise Cancelled()
+
     def __enter__(self):
-        CAPACITY.acquire()
+        if self.worker: self.worker.update('capacity')
+        deadline = time.monotonic() + CAPACITY_TIMEOUT
+        while True:
+            self.check_stop()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0: raise Unavailable()
+            if CAPACITY.acquire(timeout=min(.2, remaining)): break
         self.session = None
         self.sequence = 0
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
@@ -83,7 +141,7 @@ class MCP:
             CAPACITY.release()
             raise
     def __exit__(self, *args):
-        if self.session:
+        if self.session and not (self.worker and self.worker.stop.is_set()):
             # Deletes a local MCP transport session, never a Gorgias resource.
             try:
                 request=urllib.request.Request(MCP_URL, method='DELETE', headers={'Mcp-Session-Id':self.session})
@@ -91,6 +149,8 @@ class MCP:
             except Exception: pass
         CAPACITY.release()
     def rpc(self, method, params, notification=False):
+        self.check_stop()
+        if self.worker: self.worker.update('transport')
         self.sequence += 1
         payload={'jsonrpc':'2.0','method':method,'params':params}
         if not notification: payload['id']=self.sequence
@@ -103,6 +163,7 @@ class MCP:
             if 'text/event-stream' in response.headers.get('Content-Type',''):
                 chunks=[];size=0;result=None
                 for line in response:
+                    self.check_stop()
                     size+=len(line)
                     if size>8*1024*1024: raise Unavailable()
                     if line.startswith(b'data:'): chunks.append(line[5:].strip())
@@ -114,6 +175,7 @@ class MCP:
                 raw=response.read(8*1024*1024+1)
                 if len(raw)>8*1024*1024: raise Unavailable()
                 result=json.loads(raw)
+        self.check_stop()
         if result.get('error'): raise Unavailable()
         return result.get('result',{})
     def call(self, tool, args):
@@ -145,7 +207,8 @@ def summary(t):
             'customerContext':{'source':'gorgias_api','status':'observed','conflict':False,
                                'identity':{'email':customer.get('email') or '', 'name':customer.get('name') or ''},'observedAt':now()}}
 
-def sync_once():
+def sync_once(worker):
+    worker.update('scanning')
     with closing(database()) as db:
         meta=get_meta(db)
     start=now();watermark=float(meta.get('watermark',0))
@@ -156,12 +219,13 @@ def sync_once():
     seen=set();newest=max(watermark,float(pending.get('watermark',0)) if full else 0)
     last_head=time.monotonic()
     with closing(database()) as db, db:
-        meta.update(syncing=True,error=False);set_meta(db,meta)
-    while not STOP.is_set():
-        with MCP() as client: result=client.call('list_inbox_tickets',{'limit':100,**({'cursor':cursor} if cursor else {})})
+        meta.update(syncing=True);set_meta(db,meta)
+    while not worker.stop.is_set():
+        with MCP(worker) as client: result=client.call('list_inbox_tickets',{'limit':100,**({'cursor':cursor} if cursor else {})})
         rows=result.get('data')
         if not isinstance(rows,list): raise Unavailable()
         next_cursor=(result.get('meta') or {}).get('next_cursor')
+        worker.update('writing')
         with closing(database()) as db, db:
             for raw in rows:
                 ticket=summary(raw);updated=epoch(ticket['updatedAt']);newest=max(newest,updated)
@@ -170,42 +234,64 @@ def sync_once():
                     db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload,generation=excluded.generation',
                                (ticket['id'],updated,json.dumps(ticket),generation))
             meta=get_meta(db);meta.update(lastPageAt=now(),syncing=True)
+            if cursor is None: meta['lastHeadAt']=now()
             if full:meta['pendingFull']={'cursor':next_cursor,'generation':generation,'watermark':newest}
             set_meta(db,meta)
+        worker.update('scanning', progress=True)
         reached_old=not full and rows and all(epoch(x.get('updated_datetime') or x.get('created_datetime'))<watermark-120 for x in rows)
         if not next_cursor or reached_old:
+            worker.update('writing')
             with closing(database()) as db, db:
                 if full: db.execute('DELETE FROM tickets WHERE generation<>?',(generation,))
-                meta=get_meta(db);meta.update(complete=True,syncing=False,error=False,generatedAt=now(),watermark=newest,generation=generation)
+                meta=get_meta(db);meta.update(complete=True,syncing=False,error=False,generatedAt=now(),lastCompletedAt=now(),watermark=newest,generation=generation)
                 if full:
                     meta['fullAt']=time.time();meta.pop('pendingFull',None)
                 set_meta(db,meta)
+            worker.update('scanning', progress=True, success=True, error=False, metadata_error=False)
             return
         if next_cursor in seen: raise Unavailable()
         seen.add(next_cursor);cursor=next_cursor
         # Keep the newest page fresh during a long historical backfill.
         if full and time.monotonic()-last_head>=30:
-            with MCP() as client: head=client.call('list_inbox_tickets',{'limit':100})
+            with MCP(worker) as client: head=client.call('list_inbox_tickets',{'limit':100})
             if not isinstance(head.get('data'),list): raise Unavailable()
+            worker.update('writing')
             with closing(database()) as db, db:
                 for raw in head['data']:
                     ticket=summary(raw)
                     if ticket['trashed']:db.execute('DELETE FROM tickets WHERE id=?',(ticket['id'],))
                     else:db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload,generation=excluded.generation',(ticket['id'],epoch(ticket['updatedAt']),json.dumps(ticket),generation))
-                meta=get_meta(db);meta['generatedAt']=now();set_meta(db,meta)
+                meta=get_meta(db);meta.update(generatedAt=now(),lastHeadAt=now());set_meta(db,meta)
             last_head=time.monotonic()
-        if STOP.wait(.6): return
+        worker.update('scanning')
+        if worker.stop.wait(.6): return
 
-def sync_loop():
+def sync_loop(worker):
     delay=30
-    while not STOP.is_set():
-        try: sync_once();delay=30
-        except Exception:
-            logging.getLogger('inbox').warning('Gorgias read sync unavailable; retaining last successful data')
-            with closing(database()) as db, db:
-                meta=get_meta(db);meta.update(error=True,syncing=False);set_meta(db,meta)
-            delay=min(delay*2,300)
-        STOP.wait(delay)
+    try:
+        while not worker.stop.is_set():
+            try:
+                sync_once(worker)
+                if worker.stop.is_set(): break
+                delay=30
+                worker.update('sleeping')
+            except Cancelled:
+                break
+            except Exception:
+                worker.update('writing', error=True)
+                logging.getLogger('inbox').warning('Gorgias read sync unavailable; retaining readable ticket rows')
+                try:
+                    with closing(database()) as db, db:
+                        meta=get_meta(db);meta.update(error=True,syncing=False);set_meta(db,meta)
+                except Exception:
+                    worker.update('writing', metadata_error=True)
+                    logging.getLogger('inbox').warning('Sync error metadata could not be stored')
+                delay=min(delay*2,300)
+                worker.update('backoff')
+            worker.stop.wait(delay)
+    finally:
+        worker.update('stopped')
+
 
 def display_content(m):
     text=m.get('preferred_content') or ''
@@ -333,11 +419,36 @@ class Invocation(Arguments):
 SCHEMAS={'helpdesk.list_tickets':ListArguments,'helpdesk.get_ticket':TicketArguments,
          'helpdesk.get_messages':MessageArguments,'helpdesk.capabilities':Arguments}
 
+def start_worker():
+    global WORKER
+    with WORKER_LOCK:
+        if WORKER and WORKER.thread and WORKER.thread.is_alive():
+            raise RuntimeError('Previous Inbox sync worker is still running')
+        init_db()
+        worker=Worker()
+        worker.thread=threading.Thread(target=sync_loop,args=(worker,),daemon=True,name='inbox-sync')
+        WORKER=worker
+        worker.thread.start()
+        return worker
+
+
+def stop_worker(worker):
+    worker.stop.set()
+    worker.update('stopping')
+    worker.thread.join(SHUTDOWN_TIMEOUT)
+    if worker.thread.is_alive():
+        worker.update('stopping', shutdown_timeout=True)
+        logging.getLogger('inbox').warning('Inbox sync worker did not stop before shutdown timeout')
+
+
 @asynccontextmanager
 async def lifespan(app):
-    init_db();worker=threading.Thread(target=sync_loop,daemon=True);worker.start()
-    yield
-    STOP.set()
+    worker=start_worker()
+    try:
+        yield
+    finally:
+        await run_in_threadpool(stop_worker,worker)
+
 app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifespan)
 
 @app.middleware('http')
@@ -349,6 +460,98 @@ async def headers(request,call_next):
 
 @app.get('/health')
 def health(): return {'ok':True,'readOnly':True}
+
+def read_snapshot(path, *, canonical=False):
+    with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=READ_TIMEOUT)) as db:
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
+        if canonical:
+            db.execute('SELECT id,observed_at,summary,detail FROM tickets LIMIT 1').fetchone()
+            row=db.execute('SELECT substr(CAST(payload AS BLOB),1,65537) FROM metadata WHERE id=1').fetchone()
+        else:
+            db.execute('SELECT id,updated,payload,generation FROM tickets LIMIT 1').fetchone()
+            row=db.execute('SELECT substr(CAST(payload AS BLOB),1,65537) FROM meta WHERE id=1').fetchone()
+        if not row or not isinstance(row[0],bytes) or len(row[0])>65536:
+            raise ValueError('Missing or oversized snapshot metadata')
+        meta=json.loads(row[0])
+        if not isinstance(meta,dict): raise ValueError('Invalid snapshot metadata')
+        return meta
+
+
+def freshness(value, wall, limit, *, numeric=False):
+    try:
+        if numeric:
+            if isinstance(value,bool) or not isinstance(value,(int,float)): return 'invalid',None
+            stamp=float(value)
+        else:
+            parsed=datetime.fromisoformat(str(value).replace('Z','+00:00'))
+            if parsed.tzinfo is None: return 'invalid',None
+            stamp=parsed.timestamp()
+        age=wall-stamp
+        if not math.isfinite(stamp) or age<0: return 'invalid',None
+        return ('fresh' if age<=limit else 'stale'),datetime.fromtimestamp(stamp,timezone.utc).isoformat()
+    except (ValueError,TypeError,OverflowError,OSError):
+        return 'invalid',None
+
+
+def assess_readiness():
+    checks={'storage':'unavailable','worker':'unavailable','ticketData':'unavailable','projection':'unavailable'}
+    diagnostics={}
+    unusable=False
+    with WORKER_LOCK: worker=WORKER
+    state=worker.snapshot() if worker else None
+    if state:
+        diagnostics.update(workerId=state['workerId'],workerPhase=state['phase'],phaseElapsedSeconds=round(max(0,state['elapsed']),1),
+                           progressElapsedSeconds=round(max(0,state['progressElapsed']),1),
+                           lastProgressAt=state['progressAt'],lastWorkerSuccessAt=state['successAt'],
+                           errorMetadataUnavailable=state['metadataError'],shutdownTimedOut=state['shutdownTimeout'])
+        if state['alive'] and not state['shutdownTimeout']:
+            limit=PHASE_LIMITS.get(state['phase'],0)
+            no_progress=state['phase'] in {'starting','scanning','capacity','transport','writing'} and state['progressElapsed']>120
+            checks['worker']='stuck' if state['elapsed']>limit or no_progress else 'error' if state['error'] else 'ok'
+    try:
+        meta=read_snapshot(DB)
+        checks['storage']='ok'
+        wall=time.time()
+        completed,stamp=freshness(meta.get('lastCompletedAt'),wall,120)
+        diagnostics['lastCompletedAt']=stamp
+        pending=meta.get('pendingFull')
+        if meta.get('complete') is not True or completed=='invalid':
+            checks['ticketData']='incomplete' if meta.get('complete') is not True else 'invalid'
+            unusable=True
+        elif pending:
+            page,page_stamp=freshness(meta.get('lastPageAt'),wall,120)
+            head,head_stamp=freshness(meta.get('lastHeadAt'),wall,120)
+            diagnostics.update(pendingFull=True,lastPageAt=page_stamp,lastHeadAt=head_stamp)
+            checks['ticketData']='fresh' if page==head=='fresh' else 'stale'
+        else:
+            diagnostics['pendingFull']=False
+            checks['ticketData']=completed
+        if meta.get('error') and checks['worker']=='ok': checks['worker']='error'
+    except (sqlite3.Error,ValueError,TypeError,OSError):
+        unusable=True
+    path=os.environ.get('INBOX_PROJECTION_PATH',projection.DEFAULT_PATH)
+    try:
+        meta=read_snapshot(path,canonical=True)
+        if meta.get('version')!=projection.VERSION: raise ValueError('Invalid projection version')
+        fresh,stamp=freshness(meta.get('generatedAtEpoch'),time.time(),180,numeric=True)
+        diagnostics['projectionGeneratedAt']=stamp
+        if fresh=='invalid':
+            checks['projection']='invalid';unusable=True
+        else:
+            checks['projection']='stale' if Path(path).with_suffix('.error').exists() else fresh
+    except (sqlite3.Error,ValueError,TypeError,OSError):
+        unusable=True
+    ready=checks=={'storage':'ok','worker':'ok','ticketData':'fresh','projection':'fresh'}
+    return {'status':'unusable' if unusable else 'ready' if ready else 'degraded',
+            'readOnly':True,'checks':checks,'diagnostics':diagnostics}
+
+
+@app.get('/ready')
+def readiness():
+    result=assess_readiness()
+    return JSONResponse(result,status_code=200 if result['status']=='ready' else 503)
+
 
 @app.post('/inbox/api/helpdesk')
 async def invoke(request:Request):
