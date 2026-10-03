@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 KB_ROOT = REPO_ROOT / ("kb" if (REPO_ROOT / "kb").is_dir() else "KB")
 sys.path.insert(0, str(REPO_ROOT))
 
-from feedback import config, pii  # noqa: E402
+from feedback import pii  # noqa: E402
+from feedback.learning_paths import LearningPaths, default_kb_root, resolve_learning_paths  # noqa: E402
 from webhook.src.bb_webhook import learning  # noqa: E402
 
 
@@ -37,13 +40,11 @@ class LearningPromotionTests(unittest.TestCase):
         self.learned = self.root / "learned"
         self.tickets = self.root / "tickets"
         self.archive = self.root / "_archive_learned"
+        self.paths = LearningPaths(self.root)
 
         self.config_patches = [
-            patch.object(config, "LEARNED_DIR", self.learned),
-            patch.object(config, "TICKETS_DIR", self.tickets),
-            patch.object(config, "ARCHIVE_DIR", self.archive),
-            patch.object(learning, "LEARNED_DIR", self.learned),
-            patch.object(learning, "LEDGER", self.learned / "_ledger.json"),
+            patch.object(auto_promote_learned, "PATHS", self.paths),
+            patch.object(learning, "PATHS", self.paths),
         ]
         for item in self.config_patches:
             item.start()
@@ -203,6 +204,66 @@ class LearningPromotionTests(unittest.TestCase):
         exemplar = next(self.tickets.glob("*.md")).read_text()
         self.assertIn(approved, exemplar)
 
+    def test_two_character_hebrew_name_is_masked_from_approved_title_and_text(self):
+        self.assertTrue(learning.record_lesson(
+            "sent", 314, "דן asked about her delivery.", "Draft",
+            "We checked the parcel for דן לוי and will update you.",
+            customer_name="דן לוי", operation_id=str(uuid.uuid4()), review_actor="owner:test",
+            learning_approved=True, delivery_status="sent", approved_at="2026-10-04T12:00:00Z",
+        ))
+        lesson = next(self.learned.glob("lesson-*.md"))
+
+        self.assertTrue(auto_promote_learned.promote_one(lesson))
+
+        exemplar = next(self.tickets.glob("exemplar-learned-*.md")).read_text(encoding="utf-8")
+        self.assertNotIn("דן", exemplar)
+        self.assertNotIn("לוי", exemplar)
+        self.assertIn("title: Approved reply - [name] asked", exemplar)
+        self.assertIn("## Approved reply", exemplar)
+
+    def test_missing_approval_actor_operation_or_time_never_promotes(self):
+        variants = (
+            ("actor", {
+                "operation_id": str(uuid.uuid4()), "review_actor": "",
+                "learning_approved": True, "delivery_status": "sent", "approved_at": "now",
+            }),
+            ("operation", {
+                "operation_id": "", "review_actor": "owner:test",
+                "learning_approved": True, "delivery_status": "sent", "approved_at": "now",
+            }),
+            ("approval time", {
+                "operation_id": str(uuid.uuid4()), "review_actor": "owner:test",
+                "learning_approved": True, "delivery_status": "sent", "approved_at": "",
+            }),
+        )
+        for ticket_id, (missing, extra) in enumerate(variants, start=1):
+            with self.subTest(missing=missing):
+                self.assertTrue(learning.record_lesson(
+                    "sent", ticket_id, "Question", "Draft", "Approved answer",
+                    **extra,
+                ))
+        for lesson in sorted(self.learned.glob("lesson-*.md")):
+            self.assertFalse(auto_promote_learned.promote_one(lesson))
+        self.assertEqual(list(self.tickets.glob("exemplar-learned-*.md")), [])
+        self.assertEqual(list(self.archive.glob("lesson-*.md")), [])
+
+    def test_changed_customer_text_does_not_promote(self):
+        self.assertTrue(learning.record_lesson(
+            "sent", 99, "Original customer question", "Draft", "Approved answer",
+            operation_id=str(uuid.uuid4()), review_actor="owner:test", learning_approved=True,
+            delivery_status="sent", approved_at="now",
+        ))
+        lesson = next(self.learned.glob("lesson-*.md"))
+        raw = lesson.read_text(encoding="utf-8")
+        lesson.write_text(raw.replace(
+            "customer_message: Original customer question",
+            "customer_message: Forged customer question",
+        ), encoding="utf-8")
+
+        self.assertFalse(auto_promote_learned.promote_one(lesson))
+        self.assertTrue(lesson.exists())
+        self.assertEqual(list(self.tickets.glob("exemplar-learned-*.md")), [])
+
 
 class KnownValueMaskingTests(unittest.TestCase):
     def test_masks_greeting_name_when_legacy_lesson_has_no_customer_name(self) -> None:
@@ -221,6 +282,158 @@ class KnownValueMaskingTests(unittest.TestCase):
         self.assertNotIn("כהן", masked)
         self.assertNotIn("PO Box 42", masked)
         self.assertNotIn("4111 1111 1111 1111", masked)
+
+    def test_masks_two_character_names_without_changing_longer_words(self) -> None:
+        masked = pii.mask_with_known_values(
+            "Al already also; עדן דני דן לוי and דן.",
+            customer_names=["Al", "דן לוי"],
+        )
+        self.assertEqual(masked, "[name] already also; עדן דני [name] and [name].")
+
+    def test_one_character_name_components_remain_unmasked(self) -> None:
+        masked = pii.mask_with_known_values("A, B and C stayed.", customer_names=["A B"])
+        self.assertEqual(masked, "A, B and C stayed.")
+
+
+class LearningPathResolverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_explicit_relative_path_wins_and_is_anchored_to_repository(self) -> None:
+        paths = resolve_learning_paths(
+            "kb-data",
+            environ={"FEEDBACK_KB_ROOT": "ignored"},
+            repo_root=self.repo_root,
+            default_root=self.repo_root / "kb",
+            corpus_root=self.repo_root / "kb-data",
+        )
+        self.assertEqual(paths.kb_root, self.repo_root / "kb-data")
+        self.assertEqual(paths.learned_dir, self.repo_root / "kb-data" / "learned")
+        self.assertEqual(paths.tickets_dir, self.repo_root / "kb-data" / "tickets")
+        self.assertEqual(paths.archive_dir, self.repo_root / "kb-data" / "_archive_learned")
+        self.assertEqual(paths.ledger_path, self.repo_root / "kb-data" / "learned" / "_ledger.json")
+
+    def test_empty_explicit_path_uses_environment_then_empty_environment_uses_default(self) -> None:
+        custom = self.repo_root / "custom-kb"
+        paths = resolve_learning_paths(
+            "  ",
+            environ={"FEEDBACK_KB_ROOT": "custom-kb"},
+            repo_root=self.repo_root,
+            default_root=self.repo_root / "kb",
+            corpus_root=custom,
+        )
+        self.assertEqual(paths.kb_root, custom)
+
+        paths = resolve_learning_paths(
+            None,
+            environ={"FEEDBACK_KB_ROOT": ""},
+            repo_root=self.repo_root,
+            default_root=self.repo_root / "kb",
+            corpus_root=self.repo_root / "kb",
+        )
+        self.assertEqual(paths.kb_root, self.repo_root / "kb")
+
+    def test_uppercase_only_deployment_default_and_active_corpus_agreement(self) -> None:
+        deployed_root = default_kb_root(self.repo_root, uppercase_only=True)
+        paths = resolve_learning_paths(
+            None,
+            environ={},
+            repo_root=self.repo_root,
+            default_root=deployed_root,
+            corpus_root=deployed_root,
+        )
+        self.assertEqual(paths.kb_root, self.repo_root / "KB")
+
+    def test_mismatched_override_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must match the active KB corpus root"):
+            resolve_learning_paths(
+                "elsewhere",
+                environ={},
+                repo_root=self.repo_root,
+                default_root=self.repo_root / "kb",
+                corpus_root=self.repo_root / "kb",
+            )
+
+    def test_writer_promoter_and_indexer_share_one_corpus_root(self) -> None:
+        indexer_root = Path(auto_promote_learned.__file__).resolve().parents[1]
+        self.assertEqual(auto_promote_learned.PATHS.kb_root, indexer_root)
+        self.assertEqual(learning.PATHS.kb_root, indexer_root)
+
+    def test_legacy_collector_path_override_still_uses_loaded_setting(self) -> None:
+        script = textwrap.dedent(
+            """
+            import pathlib, sys
+            original_exists = pathlib.Path.exists
+            pathlib.Path.exists = lambda path: False if path.name == '.env' else original_exists(path)
+            import feedback.config as config
+            expected = pathlib.Path(sys.argv[1])
+            assert config.KB_ROOT == expected
+            assert config.LEARNED_DIR == expected / 'learned'
+            assert config.TICKETS_DIR == expected / 'tickets'
+            assert config.ARCHIVE_DIR == expected / '_archive_learned'
+            """
+        )
+        configured_root = self.repo_root / "legacy-kb"
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(configured_root)],
+            cwd=REPO_ROOT,
+            env={
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": str(REPO_ROOT),
+                "FEEDBACK_KB_ROOT": str(configured_root),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_active_learning_imports_do_not_load_config_or_open_env_files(self) -> None:
+        script = textwrap.dedent(
+            """
+            import builtins, importlib.abc, importlib.util, io, os, pathlib, sys
+            repo_root, entry = pathlib.Path(sys.argv[1]), sys.argv[2]
+            original_exists = pathlib.Path.exists
+            pathlib.Path.exists = lambda path: False if path.name == '.env' else original_exists(path)
+            original_open = io.open
+            def guarded_open(file, *args, **kwargs):
+                if pathlib.Path(os.fsdecode(file)).name == '.env':
+                    raise AssertionError('credential file open attempted')
+                return original_open(file, *args, **kwargs)
+            io.open = guarded_open
+            builtins.open = guarded_open
+            class ConfigBlocker(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname == 'feedback.config':
+                        raise AssertionError('feedback.config import attempted')
+            sys.meta_path.insert(0, ConfigBlocker())
+            sys.path.insert(0, str(repo_root))
+            if entry == 'writer':
+                import webhook.src.bb_webhook.learning
+            else:
+                source = repo_root / 'kb' / 'scripts' / 'auto_promote_learned.py'
+                spec = importlib.util.spec_from_file_location('isolated_promoter', source)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+            assert 'feedback.config' not in sys.modules
+            """
+        )
+        clean_env = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(REPO_ROOT)}
+        for entry in ("writer", "promoter"):
+            with self.subTest(entry=entry):
+                result = subprocess.run(
+                    [sys.executable, "-c", script, str(REPO_ROOT), entry],
+                    cwd=REPO_ROOT,
+                    env=clean_env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

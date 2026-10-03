@@ -23,13 +23,19 @@ _AGENT_ROOT = pathlib.Path(__file__).resolve().parents[3]
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
-try:
-    from feedback import config as _fc  # reuse the same KB folder config
-    LEARNED_DIR = _fc.LEARNED_DIR
-except Exception:  # pragma: no cover - fallback if feedback pkg unavailable
-    LEARNED_DIR = _AGENT_ROOT / "KB" / "learned"
+from feedback.learning_paths import default_kb_root, resolve_learning_paths
 
-LEDGER = LEARNED_DIR / "_ledger.json"  # underscore => never indexed
+_DEFAULT_KB_ROOT = default_kb_root(
+    _AGENT_ROOT,
+    uppercase_only=(_AGENT_ROOT / "KB").is_dir() and not (_AGENT_ROOT / "kb").is_dir(),
+)
+PATHS = resolve_learning_paths(
+    None,
+    environ=os.environ,
+    repo_root=_AGENT_ROOT,
+    default_root=_DEFAULT_KB_ROOT,
+    corpus_root=_DEFAULT_KB_ROOT,
+)
 
 
 def _now() -> str:
@@ -52,13 +58,13 @@ def _write_staged_content(handle, content):
 
 def _write_unique_lesson(ticket_id: object, content: str, operation_id="") -> tuple[pathlib.Path, bool]:
     """Publish a complete private packet atomically without replacing a prior one."""
-    descriptor, temporary = tempfile.mkstemp(prefix=".capture-", dir=LEARNED_DIR)
+    descriptor, temporary = tempfile.mkstemp(prefix=".capture-", dir=PATHS.learned_dir)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             _write_staged_content(handle, content)
         for _attempt in range(20):
             token = secrets.token_hex(6)
-            out = LEARNED_DIR / (f"lesson-action-{operation_id}.md" if operation_id else f"lesson-{ticket_id}-{_now()}-{token}.md")
+            out = PATHS.learned_dir / (f"lesson-action-{operation_id}.md" if operation_id else f"lesson-{ticket_id}-{_now()}-{token}.md")
             try:
                 os.link(temporary, out)
             except FileExistsError:
@@ -67,10 +73,10 @@ def _write_unique_lesson(ticket_id: object, content: str, operation_id="") -> tu
                         raise ValueError("conflicting action lesson")
                     with out.open("rb") as existing:
                         os.fsync(existing.fileno())
-                    _sync_directory(LEARNED_DIR)
+                    _sync_directory(PATHS.learned_dir)
                     return out, False
                 continue
-            _sync_directory(LEARNED_DIR)
+            _sync_directory(PATHS.learned_dir)
             return out, True
         raise FileExistsError("could not allocate a unique lesson filename")
     finally:
@@ -83,14 +89,15 @@ def _bump_ledger(kind: str, edited: bool) -> None:
     was a weaker second copy)."""
     temp_path: pathlib.Path | None = None
     try:
-        LEARNED_DIR.mkdir(parents=True, exist_ok=True)
-        lock_path = LEDGER.with_suffix(LEDGER.suffix + ".lock")
+        PATHS.learned_dir.mkdir(parents=True, exist_ok=True)
+        ledger_path = PATHS.ledger_path
+        lock_path = ledger_path.with_suffix(ledger_path.suffix + ".lock")
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         with os.fdopen(lock_fd, "r+") as lock_file:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             data = {}
-            if LEDGER.exists():
-                loaded = json.loads(LEDGER.read_text(encoding="utf-8") or "{}")
+            if ledger_path.exists():
+                loaded = json.loads(ledger_path.read_text(encoding="utf-8") or "{}")
                 if isinstance(loaded, dict):
                     data = loaded
             # Dedupe for operation_id retries lives in _write_unique_lesson's
@@ -104,16 +111,16 @@ def _bump_ledger(kind: str, edited: bool) -> None:
                 data[key] = data.get(key, 0) + 1
             data["updated"] = _now()
 
-            temp_path = LEDGER.with_name(
-                f".{LEDGER.name}.{os.getpid()}.{secrets.token_hex(6)}.tmp"
+            temp_path = ledger_path.with_name(
+                f".{ledger_path.name}.{os.getpid()}.{secrets.token_hex(6)}.tmp"
             )
             fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temp_path, LEDGER)
-            _sync_directory(LEARNED_DIR)
+            os.replace(temp_path, ledger_path)
+            _sync_directory(PATHS.learned_dir)
             temp_path = None
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     except Exception as exc:
@@ -130,7 +137,7 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
     """Write a raw lesson packet to learned/. kind = sent | note | rewrite."""
     try:
         import yaml
-        LEARNED_DIR.mkdir(parents=True, exist_ok=True)
+        PATHS.learned_dir.mkdir(parents=True, exist_ok=True)
         if operation_id and str(uuid.UUID(operation_id)) != operation_id:
             raise ValueError("invalid action id")
         approved = (kind == "sent" and learning_approved is True and delivery_status == "sent"
@@ -179,8 +186,8 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
 
 def ledger() -> dict:
     try:
-        if LEDGER.exists():
-            return {key: value for key, value in json.loads(LEDGER.read_text() or "{}").items() if key != "_operations"}
+        if PATHS.ledger_path.exists():
+            return {key: value for key, value in json.loads(PATHS.ledger_path.read_text() or "{}").items() if key != "_operations"}
     except Exception:
         pass
     return {}

@@ -104,7 +104,7 @@ def mask_with_known_values(
     candidates: list[str] = []
     for name in names:
         candidates.append(name)
-        candidates.extend(token for token in re.split(r"[\s,]+", name) if len(token) >= 3)
+        candidates.extend(token for token in re.split(r"[\s,]+", name) if len(token) >= 2)
     for value in sorted(set(candidates), key=len, reverse=True):
         out = re.sub(r"(?<!\w)" + re.escape(value) + r"(?!\w)", "[name]", out, flags=re.I)
     return out
