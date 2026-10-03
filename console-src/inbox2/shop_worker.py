@@ -109,7 +109,8 @@ class Worker:
                 # Never put secrets, upstream bodies, or customer data in logs.
                 logging.warning('Shopify details lookup failed (%s)', type(error).__name__)
                 failures = min(old.get('failures', 0) + 1, 5)
-                payload = {**old, 'status': old.get('status', 'error'), 'email': ticket['fromEmail'],
+                payload = {**({'payloadVersion': exporter.PAYLOAD_VERSION} if not old else old),
+                           'status': old.get('status', 'error'), 'email': ticket['fromEmail'],
                            'refreshError': True, 'failures': failures, 'retryAt': now + min(30 * 2 ** (failures - 1), 300)}
                 if not self.token:
                     self.caches['lookups'] = exporter.MAX_LOOKUPS

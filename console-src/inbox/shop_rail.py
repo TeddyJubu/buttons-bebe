@@ -1,5 +1,6 @@
 """Read-only Shopify rail snapshot for the isolated inbox. No network."""
 from __future__ import annotations
+import copy
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,28 @@ import time
 from contextlib import closing
 
 DEFAULT_PATH = '/var/lib/buttonsbebe-inbox-projection/shop-rail.sqlite3'
+PAYLOAD_VERSION = 2
+
+
+def display_payload(payload):
+    if payload.get('payloadVersion') == PAYLOAD_VERSION:
+        return payload
+    payload = copy.deepcopy(payload)
+    customer = payload.get('customer')
+    if isinstance(customer, dict):
+        customer['amountSpent'] = None
+    order = payload.get('order')
+    if isinstance(order, dict):
+        order['currentTotalPriceSet'] = None
+        lines = order.get('lineItems', {}).get('nodes', []) if isinstance(order.get('lineItems'), dict) else []
+        for line in lines:
+            if isinstance(line, dict):
+                line['originalUnitPriceSet'] = None
+    for history in payload.get('history') or []:
+        if isinstance(history, dict):
+            history['currentTotalPriceSet'] = None
+    payload['legacyMoneyUnverified'] = True
+    return payload
 
 
 def connect(path):
@@ -49,6 +72,7 @@ def attach(ticket, path=None):
         return ticket
     if not isinstance(payload, dict):
         return ticket
+    payload = display_payload(payload)
     context = ticket.get('customerContext') or {}
     identity = context.get('identity') or {}
     email = identity.get('email') or ticket.get('fromEmail') or ticket.get('customerName')

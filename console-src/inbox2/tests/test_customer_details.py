@@ -17,8 +17,12 @@ import live_api
 
 TICKET = {'id': 'gorgias:123', 'fromEmail': 'person@example.com', 'subject': 'Order #10312345',
           'messages': [{'body': 'Please check order #10312345.'}]}
-CUSTOMER = {'id': 'gid://shopify/Customer/1', 'defaultEmailAddress': {'emailAddress': 'person@example.com'}, 'displayName': 'Example Customer'}
-ORDER = {'id': 'gid://shopify/Order/1', 'name': '#10312345', 'customer': CUSTOMER, 'email': 'person@example.com', 'returns': {'nodes': []}}
+CUSTOMER = {'id': 'gid://shopify/Customer/1', 'defaultEmailAddress': {'emailAddress': 'person@example.com'},
+            'displayName': 'Example Customer', 'amountSpent': {'amount': '0.00', 'currencyCode': 'CAD'}}
+ORDER = {'id': 'gid://shopify/Order/1', 'name': '#10312345', 'customer': CUSTOMER,
+         'email': 'person@example.com', 'currentTotalPriceSet': {'shopMoney': {'amount': '0.00', 'currencyCode': 'CAD'}},
+         'lineItems': {'nodes': [], 'pageInfo': {'hasNextPage': False}},
+         'returns': {'nodes': [], 'pageInfo': {'hasNextPage': False}}}
 
 
 class DetailsTests(unittest.TestCase):
@@ -39,9 +43,9 @@ class DetailsTests(unittest.TestCase):
         if document == exporter.CUSTOMER_BY_EMAIL:
             return {'customers': {'nodes': [CUSTOMER]}}
         if document == exporter.ORDER_BY_NAME:
-            return {'orders': {'nodes': [ORDER]}}
+            return {'orders': {'nodes': [ORDER], 'pageInfo': {'hasNextPage': False}}}
         if document == exporter.PAST_ORDERS:
-            return {'customer': {'orders': {'nodes': [ORDER]}}}
+            return {'customer': {'orders': {'nodes': [ORDER], 'pageInfo': {'hasNextPage': False}}}}
         raise AssertionError('Only allowlisted read queries are permitted')
 
     def worker(self, **kwargs):
@@ -73,11 +77,37 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 3)
 
     def test_legacy_customer_only_snapshot_does_not_skip_live_order_lookup(self):
-        ticket = {**TICKET, 'shopifyRail': {'status': 'found', 'customer': CUSTOMER, 'stale': False}}
+        ticket = {**TICKET, 'shopifyRail': {'status': 'found',
+                  'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+                  'stale': False}}
         rail = self.enqueue(ticket)['shopifyRail']
         self.assertTrue(rail['refreshing'])
+        self.assertTrue(rail['legacyMoneyUnverified'])
+        self.assertIsNone(rail['customer']['amountSpent'])
         self.worker().process(shop_worker.read_requests(self.queue))
         self.assertEqual(self.enqueue(ticket)['shopifyRail']['order']['id'], ORDER['id'])
+
+    def test_saved_worker_snapshot_version_invalidates_and_refreshes(self):
+        now = time.time()
+        request = details.request_ticket(TICKET)
+        key = details.request_key(request)
+        legacy = {
+            'status': 'found', 'email': TICKET['fromEmail'], 'requestKey': key,
+            'fetchedAtEpoch': now, 'attemptedAt': now - 1,
+            'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+            'order': {**ORDER, 'currentTotalPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}}},
+            'history': [],
+        }
+        shop_worker.publish({TICKET['id']: {'payload': legacy, 'updated_at': now}}, self.snapshot)
+        rail = self.enqueue(now=now)['shopifyRail']
+        self.assertTrue(rail['refreshing'])
+        self.assertTrue(rail['legacyMoneyUnverified'])
+        self.assertIsNone(rail['customer']['amountSpent'])
+        worker = self.worker()
+        self.assertEqual(worker.process(shop_worker.read_requests(self.queue), now=now + 1), 1)
+        refreshed = self.enqueue(now=now + 2)['shopifyRail']
+        self.assertEqual(refreshed['payloadVersion'], exporter.PAYLOAD_VERSION)
+        self.assertEqual(refreshed['customer']['amountSpent'], {'amount': '0.00', 'currencyCode': 'CAD'})
 
     def test_identity_change_never_reuses_prior_customer(self):
         self.enqueue()

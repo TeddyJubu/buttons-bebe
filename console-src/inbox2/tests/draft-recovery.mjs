@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const base=process.env.INBOX_TEST_URL||'http://127.0.0.1:8878';
-const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+const artifacts=process.env.INBOX_TEST_ARTIFACT_DIR||path.join(os.tmpdir(),'bb-ai-reliability-browser');
+const browser=await chromium.launch({headless:true,args:['--no-sandbox'],...(process.env.INBOX_TEST_BROWSER?{executablePath:process.env.INBOX_TEST_BROWSER}:{})});
 try {
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(10000);
@@ -49,7 +52,7 @@ await page.reload();await page.getByText('Needs staff input',{exact:true}).waitF
 assert(await page.getByRole('button',{name:'Use draft',exact:true}).isDisabled());
 assert.equal(await composer.inputValue(),'Preserve my unfinished manual response.');
 await composer.fill('Staff verified: the sleeve measures 18 cm.');
-fs.mkdirSync('/tmp/bb-ai-reliability-browser',{recursive:true});
+fs.mkdirSync(artifacts,{recursive:true});
 for(const state of ['needs_review','failed','retry_wait']){
  ticket.draftGenerationState=state;ticket.draftNextRetryAt=state==='retry_wait'?new Date(Date.now()+30000).toISOString():null;
  for(const width of [1440,390,320]){
@@ -58,7 +61,7 @@ for(const state of ['needs_review','failed','retry_wait']){
   assert(await composer.isEditable());
   const size=await page.evaluate(()=>({width:document.body.scrollWidth,viewport:innerWidth}));
   assert(size.width<=size.viewport,`${state} overflow at ${width}`);
-  if(width!==320)await page.screenshot({path:`/tmp/bb-ai-reliability-browser/${state}-${width}.png`});
+  if(width!==320)await page.screenshot({path:path.join(artifacts,`${state}-${width}.png`)});
  }
 }
 ticket.draftGenerationState='no_reply';ticket.draftReviewRequired=false;ticket.readonlyDraft='';
