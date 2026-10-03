@@ -1,0 +1,55 @@
+/* Offline adaptation of the copied Inbox; production styles remain untouched. */
+[hidden]{display:none!important}
+.app-header{flex-wrap:wrap;gap:12px}
+.offline-banner{width:100%;margin:0;font-size:11px;color:var(--brand-forest);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.header-actions{margin-left:auto}
+.list-meta{gap:10px}.list-meta select{min-width:0;width:100%;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:6px}
+.workspace .conversation{display:flex;flex-direction:column;overflow:hidden}
+.conversation .ticket-header{flex-shrink:0;padding-top:16px;max-height:40%;overflow:auto}
+.ticket-header .ticket-actions{margin:10px 0}
+.conversation #ticket-content{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain}
+.conversation .reply-area{flex-shrink:0;padding:12px 20px;max-height:40%;overflow:auto}
+.composer textarea{min-height:60px;max-height:140px;resize:vertical}
+.composer-heading{flex-wrap:wrap}.composer-toolbar{flex-wrap:wrap;gap:8px}
+.message-body{white-space:pre-wrap;overflow-wrap:anywhere}
+.attachment-label{font-size:11px;color:var(--ink2);border:1px dashed var(--line);padding:8px;margin-top:8px;overflow-wrap:anywhere}
+.message-note-label{font-size:11px;color:var(--acc);margin:8px 0}
+.saved-fields{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;padding-top:12px}
+.saved-fields dt{color:var(--ink2)}.saved-fields dd{margin:0;overflow-wrap:anywhere}
+.rail-section form{display:grid;gap:8px}.rail-section form input,.rail-section form select{width:100%;min-width:0;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.field-error,.form-error{color:var(--red);font-size:12px;white-space:pre-wrap}
+.delivery-record{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.delivery-record button,#open-reply{padding:8px 12px;border:1px solid var(--line);border-radius:6px;margin-top:8px;background:var(--surface)}
+.delivery-body,.source,.review-body{white-space:pre-wrap;overflow-wrap:anywhere}
+.hint{font-size:11px;color:var(--muted)}
+.activity-item{padding:10px 0;border-top:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}
+dialog{max-width:620px;width:calc(100% - 32px);max-height:85dvh;overflow:auto;padding:24px;border:1px solid var(--line);border-radius:12px;color:var(--ink);background:var(--surface)}
+dialog::backdrop{background:#22222266}dialog form{display:grid;gap:10px}dialog label{display:block;margin-top:8px}
+dialog input,dialog textarea,dialog select{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px}
+dialog button{padding:9px 12px;border:1px solid var(--line);border-radius:6px}dialog .primary{background:var(--acc);color:white}
+.dialog-heading{display:flex;justify-content:space-between;align-items:start;gap:12px}.dialog-heading h2{font-size:22px}.dialog-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.review-body{padding:16px;background:var(--bg);max-height:35dvh;overflow:auto}
+.blank-conversation{display:grid;place-content:center;text-align:center;flex:1;padding:28px}
+.ticket-content-error{padding:20px}.row-state{display:flex;gap:6px;flex-wrap:wrap}
+#toast{max-width:calc(100vw - 32px)}
+@media(max-width:1040px){.app-header nav{margin-left:0}.ticket-subtitle{margin-bottom:4px}}
+@media(max-width:650px){
+  .workspace .conversation{display:none}.workspace.ticket-open .conversation{display:flex}
+  .app-header .brand-logo{width:130px}.app-header nav{order:3;width:100%}.app-header nav a{min-height:30px}
+  .offline-banner{order:4;font-size:10px}.app-header{gap:4px 10px}
+  .conversation .ticket-header{padding:10px 14px 0}.ticket-title{font-size:19px}
+  .ticket-header .mobile-back{min-height:28px;margin-bottom:4px}
+  .ticket-header .ticket-actions{margin:6px 0}.ticket-header .live-ticket-sync{display:none}
+  .ticket-tabs button{padding-top:8px;padding-bottom:8px}
+  .conversation .reply-area{padding:8px 12px}.composer textarea{min-height:50px;max-height:90px}
+  .composer-note{margin:4px 0 0}.composer-toolbar{padding:6px}.saved-note{font-size:10px}
+}
+@media(max-height:700px){
+  .composer textarea{height:44px;min-height:44px;max-height:60px;padding-top:8px;padding-bottom:8px}
+  .composer .saved-note{display:none}.composer-heading{padding-top:6px;padding-bottom:6px}
+  .conversation .reply-area{padding-top:6px;padding-bottom:6px}.composer-note{font-size:10px;margin:3px 0 0}
+}
+
+.account-bar{display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap}.account-bar button,.account-bar a{font:inherit;padding:4px 6px;white-space:nowrap}.unread-label{color:#743700;font-weight:700}.header-actions{flex-wrap:wrap}.login-page{display:grid;place-items:center;min-height:100dvh;height:auto;overflow:auto;padding:20px}.login-card{width:min(100%,440px);padding:24px;border:1px solid #c9c9c9;border-radius:14px;background:#fff}.login-card h1{font-size:24px}.login-card form{display:grid;gap:12px}.login-card form[hidden]{display:none}.login-card input{width:100%;min-height:40px}.login-card p{line-height:1.5}.login-card button{margin-top:8px}#login-error{color:#a12c20}
+
+.assistance-card{margin:20px 0;padding:16px;border:1px solid #d9cebf;border-radius:10px;background:#faf8f4;overflow-wrap:anywhere}.assistance-card h3{font-size:16px;margin:8px 0}.fixture-badge{font-size:11px;color:#743700}.fixture-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.fixture-actions button{white-space:normal}.assistance-card .draft-body,.fixture-evidence p,.staff-step{white-space:pre-wrap;overflow-wrap:anywhere}.fixture-evidence{margin:12px 0;font-size:13px}.fixture-evidence strong{display:block}.fixture-evidence p{margin:6px 0}#fixture-context details{border-top:1px solid #ddd;padding:10px 0}#fixture-context summary{cursor:pointer;font-size:13px;text-transform:capitalize}

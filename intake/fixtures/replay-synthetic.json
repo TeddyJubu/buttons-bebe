@@ -1,0 +1,227 @@
+{
+  "account": "synthetic-replay",
+  "events": [
+    {
+      "event_id": "event-fixture-one",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-one",
+        "channel": "email",
+        "created_datetime": "2026-09-01T12:00:00Z",
+        "from_agent": false,
+        "headers": {
+          "Message-ID": "<fixture-one@example.test>"
+        },
+        "id": "fixture-one",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "subject": "Same synthetic subject"
+    },
+    {
+      "event_id": "event-fixture-two",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-two",
+        "channel": "email",
+        "created_datetime": "2026-09-01T12:00:00Z",
+        "from_agent": false,
+        "headers": {
+          "Message-ID": "<fixture-two@example.test>"
+        },
+        "id": "fixture-two",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "subject": "Same synthetic subject"
+    },
+    {
+      "event_id": "event-fixture-reply",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-reply",
+        "channel": "email",
+        "created_datetime": "2026-09-02T12:00:00Z",
+        "from_agent": false,
+        "headers": {
+          "In-Reply-To": "<fixture-one@example.test>",
+          "Message-ID": "<fixture-reply@example.test>"
+        },
+        "id": "fixture-reply",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "subject": "A changed reply subject"
+    },
+    {
+      "event_id": "event-fixture-review",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-review",
+        "channel": "email",
+        "created_datetime": "2026-09-01T12:00:00Z",
+        "from_agent": false,
+        "headers": {
+          "Message-ID": ""
+        },
+        "id": "fixture-review",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "subject": "Synthetic missing header"
+    },
+    {
+      "event_id": "event-fixture-spam",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-spam",
+        "channel": "email",
+        "created_datetime": "2026-09-01T12:00:00Z",
+        "from_agent": false,
+        "headers": {
+          "Message-ID": "<fixture-spam@example.test>"
+        },
+        "id": "fixture-spam",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "spam": true,
+      "subject": "Synthetic spam"
+    },
+    {
+      "event_id": "event-fixture-auto",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-auto",
+        "channel": "email",
+        "created_datetime": "2026-09-01T12:00:00Z",
+        "from_agent": false,
+        "headers": {
+          "Auto-Submitted": "auto-replied",
+          "Message-ID": "<fixture-auto@example.test>"
+        },
+        "id": "fixture-auto",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "subject": "Synthetic automatic response"
+    },
+    {
+      "event_id": "event-fixture-echo",
+      "message": {
+        "attachments": [],
+        "body_text": "Synthetic message fixture-echo",
+        "channel": "email",
+        "created_datetime": "2026-09-01T12:00:00Z",
+        "from_agent": true,
+        "headers": {
+          "Message-ID": "<fixture-echo@example.test>"
+        },
+        "id": "fixture-echo",
+        "public": true,
+        "sender": {
+          "email": "customer@example.test",
+          "name": "Test Customer"
+        },
+        "source": {
+          "from": {
+            "address": "customer@example.test"
+          },
+          "to": [
+            {
+              "address": "support@example.test"
+            }
+          ]
+        }
+      },
+      "provider": "simulation",
+      "subject": "Same subject"
+    }
+  ],
+  "mailbox": "support@example.test",
+  "mode": "offline_replay"
+}
