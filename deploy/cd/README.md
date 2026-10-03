@@ -89,8 +89,18 @@ multi-file switch. An active KB maintenance job aborts before source changes;
 active timers are paused and restored. No package downloads or index work occur
 inside the outage. Readiness is scoped to changed services. WhatsApp's connected
 business state is monitored separately and does not roll back unrelated code.
-Inbox readiness requires `/ready` with healthy storage/fresh projection and the
-exact locked Send response; static HTML or the early Send lock alone cannot pass.
+Inbox readiness requires `/ready` with `status: "ready"`, `readOnly: true`, and
+checks `storage: "ok"`, `worker: "ok"`, `ticketData: "fresh"`, `projection: "fresh"`.
+A separate read-only capability request must report `sendReply: false`.
+Static HTML, `/health`, or disabled Send alone cannot pass.
+
+The receiver's stricter `/ready` check also runs after source rollback. Before
+installing it, establish and verify a recoverable source baseline that exposes
+this readiness contract. Otherwise restoring older source can succeed while its
+readiness verification reports incomplete recovery. Keep the reviewed previous
+receiver and source helper available for an explicitly planned bootstrap or
+rollback. Source deployment does not install either privileged file. This local
+implementation does not authorize production installation or a main push.
 
 On failure/INT/TERM, affected services stop, journaled source is restored, and
 previously active services restart and pass bounded readiness. A concurrent code

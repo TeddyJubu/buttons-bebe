@@ -18,31 +18,31 @@ enabled. Related keeper runbooks:
 2. Open `/inbox/`; confirm observed list/thread/rail or an honest empty/incomplete
    history state. A stale/error banner is not an empty mailbox. The latest
    projection may not be installed at the report cutoff; check runtime hashes.
-3. Click Send only to verify the locked explanation. It must say exactly
-   `Activate the send access.` Do not change any lock/bridge environment flags.
-4. For receiving, return to `https://support.buttonsbebe.com:8443/` after the
+3. Confirm the Inbox starts read-only and its reply switch is off. Do not enable
+   a grant or confirm a customer reply as an availability test. AI, Shopify and
+   the Inbox read API remain read-only regardless of the human reply switch.
+4. For the separate receiving application, return to `https://support.buttonsbebe.com:8443/` after the
    existing console login. A 401 before login is expected. Do not test a refund,
    return-processing, send, or unsigned provider webhook to prove availability.
 5. After the monitor/webhook deployment, view `/console/api/ops`. Missing, stale,
    unavailable and attention are distinct failure states; an all-green summary
    proves only its listed checks, not successful provider transactions.
 
-Loopback verification on the reviewed VPS (the first POST exits at the hardcoded
-lock and the second must hit the disabled inbox bridge):
+When separately authorized to verify an installed release, use these loopback
+checks. The capability request reads the API's supported actions:
 
 ```sh
-curl -sS -X POST http://127.0.0.1:8766/console/api/helpdesk \
+curl -fsS http://127.0.0.1:8767/ready
+curl -fsS -X POST http://127.0.0.1:8767/inbox/api/helpdesk \
   -H 'content-type: application/json' \
-  -d '{"tool":"helpdesk.send_reply","arguments":{"ticketId":"deployment-lock-probe","text":"Hi","confirmed":true}}'
-curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
-  http://127.0.0.1:8766/webhook/gorgias
-curl -fsS http://127.0.0.1:8766/ready
+  -d '{"tool":"helpdesk.capabilities","arguments":{}}'
 ```
 
-Expected: exact three-field Send lock JSON, bridge HTTP 503, and healthy `/ready`
-only with usable storage and a fresh projection. Do not substitute the live
-Gorgias receiver URL for the bridge test. Never paste session cookies or full
-service/environment output into tickets or chat.
+Expected: readiness reports `status: "ready"`, `readOnly: true`, and checks
+`storage: "ok"`, `worker: "ok"`, `ticketData: "fresh"`, `projection: "fresh"`.
+Capabilities report `ok: true`, `readOnly: true`, and `sendReply: false`.
+`/health` alone confirms only that the process answers. Never paste session
+cookies or full service/environment output into tickets or chat.
 
 ## If the inbox projection becomes stale
 
@@ -59,14 +59,13 @@ Do not interpret observed history as complete Gorgias history. Its 90-day,
 100-message-per-ticket bounds and lineage withholding are deliberate.
 See [local monitoring](LOCAL-MONITOR.md) for freshness thresholds and limitations.
 
-## If inbox views show unknown status or an empty Assigned to me
+## If ticket status or assignment is missing
 
-That is the correct reading until the Gorgias HTTP Integration body carries the
-ticket state fields and a ticket receives a new message event. Follow
-[the Integration template note](GORGIAS-WEBHOOK-TEMPLATE.md); it covers the
-exact keys to add, the presence check on the stored payload, and the operator
-address the inbox compares against. Do not repair a view by editing the
-projection, re-exporting older events, or pointing the inbox at Gorgias.
+The active Inbox reads ticket state through the read-only Gorgias MCP and offers
+All, Open and Closed views. Check its worker/readiness state and the observed
+Gorgias data; do not invent an assignee, edit a snapshot or add provider writes.
+The [Integration template note](GORGIAS-WEBHOOK-TEMPLATE.md) describes historical
+Inbox1 projection views. Its unit and operator-identity steps do not apply here.
 
 ## Deployment and rollback
 
@@ -86,7 +85,7 @@ old full-root rollback can overwrite accepted data. Do not invoke it.
   Hold its host lock and preserve which services/timers were already active.
 - For projection-aware releases, pause the active timer, refuse an in-flight
   export, refresh a snapshot after canonical schema readiness, and require real
-  inbox `/ready` plus the hardcoded Send lock. A failed export/readiness must
+  inbox `/ready` plus read-only capabilities. A failed export/readiness must
   trigger source recovery, never database reset.
 - On ordinary failure the receiver restores journaled source and verifies prior
   service readiness. After power loss or a hard kill, traps cannot run: identify

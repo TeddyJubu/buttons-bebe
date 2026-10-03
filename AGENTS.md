@@ -9,6 +9,9 @@
 > `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
 > commit or restore from it.
 
+Local source improvements made after that live-system date have not been deployed.
+Repository tests do not verify installed production code or configuration.
+
 For support webapp run/edit tasks, use the project skill at
 skills/buttonsbebe-support-webapp/SKILL.md for the current file map and
 synthetic local preview. This AGENTS.md remains authoritative for safety and
@@ -210,7 +213,10 @@ Gate facts (each exists because something slipped once):
   when `node_modules` is absent) and kb-admin.
 - **Fails on any active `twilio` reference** — escalation is the local
   WhatsApp bridge now; do not reintroduce Twilio.
-- Enforces exactly **48** unique-id scenarios in `testing/scenarios.json`.
+- Runs all console browser tests without skips and all six Inbox browser suites
+  with locked Playwright 1.63.0 and bundled Chromium. CI prepares them; the local
+  gate installs nothing and rejects missing dependencies or browser overrides.
+- Enforces **48** unique core IDs and **10** unique reliability IDs.
 
 Focused runs:
 
@@ -221,8 +227,11 @@ Focused runs:
 ```
 
 Python ≥ 3.12, uv-managed (`uv.lock` in `processor/`, `webhook/`); Node 20 for
-JS services. A clean 48-scenario live-model run is the release-quality gate —
-see `testing/HOW-TO-RUN.md` before any behavior-changing deploy.
+JS services. Model-quality review is separate: complete all 48 core and 10
+reliability cases and grade each result. The combined receipt binds the actual
+source, Hermes and approved KB snapshot; pending, failed or stale evidence cannot
+pass. See `testing/HOW-TO-RUN.md`. These paid/live-model checks were not run during
+this local implementation. Nothing in this work authorizes a production change.
 
 ## 9. Operate on the VPS
 
@@ -293,6 +302,12 @@ platform background in `shopify/`. Index: LanceDB hybrid vector + FTS search.
   names and identifier patterns, promotes distinct `source: learned-auto`
   exemplars to `tickets/`, and rebuilds the KB. PII masking is best-effort;
   generated exemplars remain reviewable and purgeable.
+- Active lesson writing and promotion resolve one `LearningPaths` bundle without
+  importing the legacy feedback credential configuration. Relative overrides
+  anchor to the repository; empty overrides use the default. Promotion rejects a
+  root that differs from its active indexed corpus. Masking recognizes supplied
+  two-letter names such as Bo and Li as whole Unicode words. It remains best-effort:
+  a caller that supplies no customer name cannot obtain known-name coverage.
 - The Notice Board is a locked, immediate override layer and requires no
   reindex. Expired notices are removed by `buttonsbebe-kb-notices-gc.timer`.
 
@@ -345,4 +360,7 @@ as current work.
 - Organ/tissue architecture: Excalidraw at `docs/tissues/organ-tissue.excalidraw`; click-to-enter 3D sim at `docs/tissues/architecture-3d-sim.html` (world in `architecture-world.js`): LEGO-house organs, inside-Inbox list/thread/rail wireframe, info card off by default; mail → helpdesk intake, Shopify look-only; Send is human-only and fail-closed on the isolated preview until send access is activated.
 - This demo’s look-up path is Shopify Admin GraphQL only (`get_customer` / `get_order` / `get_returns` / `list_past_orders`); Redo and KB belong to production Hermes. Gorgias is an optional detachable bridge sidecar (`console-src/helpdesk-agent/bridge/`, `deploy/GORGIAS-BRIDGE-SETUP.md`), not a peer organ; defaults `GORGIAS_BRIDGE_ENABLED=0` / `HELPDESK_OUTBOUND_ENABLED=0`; intake tickets persist in the SQLite single-snapshot store (`HELPDESK_DB_FILE`, production default `/var/lib/buttonsbebe-inbox/inbox.sqlite3`), with legacy `HELPDESK_STORE_FILE` JSON as an explicit fallback.
 - Surge CLI is installed globally on this VPS (`surge` on PATH); publish a folder that contains `index.html`.
-- Production inbox Views need real Gorgias ticket state from allowlisted webhook `raw_payload` fields (status/assignee/snooze/spam/trash) after the HTTP Integration template includes them; never invent those fields or export `assignee: "me"` — map “Assigned to me” via `INBOX_OPERATOR_GORGIAS_EMAIL` on the inbox service.
+- The historical Inbox1 projection captured allowlisted ticket state from webhook
+  `raw_payload`; its Assigned to me operator setting is retired. The active Inbox
+  reads observed state through the read-only Gorgias MCP and offers All, Open and
+  Closed views. Never invent ticket state or an assignee.

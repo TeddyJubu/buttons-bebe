@@ -60,7 +60,11 @@ python3 skills/buttonsbebe-support-webapp/scripts/serve_inbox_preview.py --port 
 Open http://127.0.0.1:8878/inbox/. Follow
 [the project development guide](skills/buttonsbebe-support-webapp/references/development.md)
 for the prepared Python environments and component checks. Run
-`bash tools/verify_release.sh` before a release.
+`bash tools/verify_release.sh` before a release. Prepare the declared browser test
+dependencies first; the gate requires its locked Playwright and bundled Chromium.
+Model-quality review separately covers 48 core and 10 reliability cases with
+source-bound receipts and a human verdict for every case. No such live-model run
+or production change occurred during this local implementation.
 
 A passing push to `main` deploys to production. Source deployment assumes a
 provisioned host and prepared dependencies. Privileged receiver changes need

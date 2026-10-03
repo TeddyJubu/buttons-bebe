@@ -25,7 +25,8 @@ authorized by this document.
 6. Evaluate conflicting current policy and a learned example. Policy must govern
    the answer regardless of score. Check ordinary gaps without HIGH priority,
    sensitive requests with urgency, and no generic fallback replies. Run the
-   documented 48-scenario model-quality gate before considering release complete.
+   documented 48 core and 10 reliability cases and complete their source-bound
+   human-review receipt before considering release complete.
 7. After verification, remove the temporary instruction acceptance of the former
    list response. The repository instructions describe only the new object.
 

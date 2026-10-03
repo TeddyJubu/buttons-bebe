@@ -25,9 +25,10 @@ Do not use an old runtime receipt to restore or start it.
 Materialize **only reviewed differences** into the existing live support
 fragment; never overwrite secrets with redacted source placeholders.
 
-- Inbox uses `handle /inbox/*` plus explicit `route`: authentication executes
-  before stripping `/inbox`, then all active Inbox service routes reach port 8767. This keeps
-  original URI/method/Origin available to auth and preserves `/console/api`.
+- Inbox API uses `handle /inbox/api/*` with authentication before forwarding
+  the unchanged path to port 8767. The separate `/inbox/*` page route authenticates,
+  strips the prefix and serves `/var/www/inbox2/`. This preserves the original
+  URI/method/Origin for authentication and keeps backend source out of the web root.
 - Historical `/qa` and `/qa/*` return404. Files remain on disk for recovery.
 - Existing URI/Referer log redaction remains intact.
 - Webhook/processor units add NoNewPrivileges, PrivateTmp and kernel protection,

@@ -13,6 +13,8 @@ change is installed today.
 - [Source release and recovery](../deploy/cd/README.md) covers journaled source changes on a provisioned host.
 - [Operator runbook](../deploy/PRODUCTION-OPERATOR-RUNBOOK.md) covers reviewed production checks and recovery boundaries.
 - [AI reply reliability](AI-REPLY-RELIABILITY.md) describes generation, review and durable retries.
+- [Local monitoring](../deploy/LOCAL-MONITOR.md) explains process liveness, usable ticket data and worker progress.
+- [Knowledge-search release](../kb/SEARCH-OUTCOME-RELEASE.md) separates local response-shape changes from future installed instructions.
 - [Model-quality evaluation](../testing/HOW-TO-RUN.md) describes a separate live-model run before behavior-changing release.
 
 ## Historical context
