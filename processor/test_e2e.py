@@ -36,6 +36,9 @@ from typing import Any
 
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "webhook" / "src"))
+from bb_webhook.hermes_permissions import CANONICAL_TOOLSETS, canonical_toolsets
+
 # ── Config ───────────────────────────────────────────────
 BASE_URL = "http://127.0.0.1:8000"
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
@@ -54,13 +57,8 @@ RUN_TOKEN = "0123456789abcdef"
 
 # Hermes invocation. Mirrors processor/hermes_runner.build_hermes_command():
 # an explicit read-only toolset allow-list, and no --yolo (DEV-ISSUES #8).
-HERMES_TOOLSETS = os.environ.get(
-    "HERMES_TOOLSETS",
-    "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias",
-)
-HERMES_BASE_CMD = ["hermes"]
-if HERMES_TOOLSETS:
-    HERMES_BASE_CMD += ["-t", HERMES_TOOLSETS]
+HERMES_TOOLSETS = canonical_toolsets(os.environ.get("HERMES_TOOLSETS", CANONICAL_TOOLSETS))
+HERMES_BASE_CMD = ["hermes", "-t", HERMES_TOOLSETS]
 if os.environ.get("HERMES_SKIP_APPROVAL", "").strip().lower() in ("1", "true", "yes"):
     HERMES_BASE_CMD.append("--yolo")
 

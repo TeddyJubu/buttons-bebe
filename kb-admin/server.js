@@ -20,7 +20,17 @@ const NOTICE_LOCK_STALE_MS = 60 * 1000;
 const NOTICE_TEXT_MAX = 1200;
 const PRODUCT_FRESH_HOURS = Number(process.env.KB_PRODUCT_FRESH_HOURS || 96);
 
-let reindex = { running: false, ok: null, at: null };
+let reindex = { running: false, ok: null, at: null, reason: null };
+const REINDEX_TAIL_BYTES = 16 * 1024;
+
+function reindexFailureReason(output) {
+  if (/(^|\n)index rebuild already running\b/i.test(output)) return "Another re-index is already running.";
+  if (/(^|\n)No content found; refusing to replace\b/.test(output)) return "No indexable content was found.";
+  if (/(^|\n)(staged index content mismatch:|could not validate staged index:|embedding count mismatch:)/.test(output)) {
+    return "The staged index failed validation.";
+  }
+  return "Re-indexing failed. Your articles are saved; try re-indexing again.";
+}
 
 function safePath(p) {
   if (!p || typeof p !== "string" || p.includes("..") || !p.endsWith(".md")) return null;
@@ -279,11 +289,27 @@ const server = http.createServer((req, res) => {
   if (req.method === "POST" && p === "/reindex") {
     if (reindex.running) return send(res, 200, { started: false, reindex });
     _healthCache = null; // reindex rewrites the store: the cached pre-reindex scan is stale
-    reindex = { running: true, ok: null, at: new Date().toISOString() };
-    const ch = spawn("/bin/bash", [path.join(KB, "update.sh")], { cwd: KB, stdio: ["ignore", "ignore", "ignore"] });
-    ch.on("close", (code) => { reindex = { running: false, ok: code === 0, at: new Date().toISOString() }; });
-    ch.on("error", () => { reindex = { running: false, ok: false, at: new Date().toISOString() }; });
-    return send(res, 200, { started: true, reindex: { running: true } });
+    const attempt = { running: true, ok: null, at: new Date().toISOString(), reason: null };
+    reindex = attempt;
+    let tail = Buffer.alloc(0), settled = false;
+    const capture = chunk => {
+      if (!settled) tail = Buffer.from(Buffer.concat([tail, chunk]).subarray(-REINDEX_TAIL_BYTES));
+    };
+    const settle = ok => {
+      if (settled) return;
+      settled = true;
+      if (reindex === attempt) reindex = { running: false, ok, at: new Date().toISOString(),
+        reason: ok ? null : reindexFailureReason(tail.toString("utf8")) };
+      tail = Buffer.alloc(0);
+    };
+    try {
+      const ch = spawn("/bin/bash", [path.join(KB, "update.sh")], { cwd: KB, stdio: ["ignore", "pipe", "pipe"] });
+      ch.stdout.on("data", capture);
+      ch.stderr.on("data", capture);
+      ch.on("close", code => settle(code === 0));
+      ch.on("error", () => settle(false));
+    } catch (_) { settle(false); }
+    return send(res, 200, { started: true, reindex });
   }
 
   if (req.method === "GET" && p === "/reindex-status") return send(res, 200, reindex);

@@ -14,6 +14,8 @@ Nothing here executes Hermes. build_hermes_command() is a pure function.
 from __future__ import annotations
 
 import json
+import itertools
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -58,6 +60,28 @@ def _settings(**overrides):
 
 
 class CommandShapeTests(unittest.TestCase):
+    def test_live_diagnostic_rejects_invalid_policy_before_any_operation(self):
+        diagnostic = PROCESSOR_DIR / 'test_e2e.py'
+        for tools in ('', 'buttonsbebe_kb', DEFAULT_TOOLSETS + ',terminal'):
+            result = subprocess.run([sys.executable, '-c',
+                f"import runpy; runpy.run_path({str(diagnostic)!r}, run_name='offline_permission_probe')"],
+                env={'HERMES_TOOLSETS': tools, 'PYTHONDONTWRITEBYTECODE': '1'},
+                capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('exactly the three approved read-only toolsets', result.stderr)
+            self.assertEqual(result.stdout, '')
+
+    def test_diagnostic_defaults_and_reordering_use_canonical_tools(self):
+        diagnostic = PROCESSOR_DIR / 'test_e2e.py'
+        for tools in (None, 'buttonsbebe_gorgias,buttonsbebe_redo,buttonsbebe_kb'):
+            environment = {'PYTHONDONTWRITEBYTECODE': '1'}
+            if tools is not None:
+                environment['HERMES_TOOLSETS'] = tools
+            result = subprocess.run([sys.executable, '-c',
+                f"import json,runpy; n=runpy.run_path({str(diagnostic)!r}, run_name='offline_permission_probe'); print(json.dumps(n['HERMES_BASE_CMD']))"],
+                env=environment, capture_output=True, text=True, timeout=10, check=True)
+            self.assertEqual(json.loads(result.stdout), ['hermes', '-t', DEFAULT_TOOLSETS])
+
     def test_default_command_has_no_yolo(self):
         cmd = build_hermes_command("hello", _settings())
         self.assertNotIn("--yolo", cmd)
@@ -76,9 +100,9 @@ class CommandShapeTests(unittest.TestCase):
             self.assertNotIn(dangerous, joined)
 
     def test_toolset_list_is_normalised(self):
-        cmd = build_hermes_command("hi", _settings(hermes_toolsets=
-            " buttonsbebe_kb , buttonsbebe_redo , buttonsbebe_gorgias "))
-        self.assertEqual(cmd[cmd.index("-t") + 1], DEFAULT_TOOLSETS)
+        for names in itertools.permutations(DEFAULT_TOOLSETS.split(',')):
+            cmd = build_hermes_command("hi", _settings(hermes_toolsets=" , ".join(names)))
+            self.assertEqual(cmd[cmd.index("-t") + 1], DEFAULT_TOOLSETS)
 
     def test_invalid_toolsets_fail_closed(self):
         for invalid in ("", "mcp-a,mcp-b", DEFAULT_TOOLSETS + ",shell",
@@ -116,7 +140,7 @@ class DefaultsTests(unittest.TestCase):
     def test_shipped_defaults_are_the_locked_down_ones(self):
         # Read the real Settings defaults, not the test doubles above, so a
         # careless edit to config.py fails here.
-        settings = ProcessorSettings()
+        settings = ProcessorSettings(DEMO_MODE=False)
         self.assertEqual(settings.hermes_toolsets, DEFAULT_TOOLSETS)
         self.assertFalse(settings.hermes_skip_approval)
 
@@ -145,6 +169,14 @@ class RunnerIntegrationTests(unittest.TestCase):
         self.assertEqual(cmd[0], "hermes")
         self.assertNotIn("--yolo", cmd)
         self.assertEqual(cmd[cmd.index("-t") + 1], DEFAULT_TOOLSETS)
+
+    def test_invalid_policy_does_not_launch_a_model(self):
+        with patch.object(runner, "get_settings", return_value=_settings(hermes_toolsets="")), \
+             patch.object(runner, "run_bounded") as run:
+            result = process_ticket_with_hermes(1, "Where is my order?", "Order", "test@example.test", [])
+        self.assertEqual(result['generation_state'], 'failed')
+        self.assertTrue(result['no_draft'])
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

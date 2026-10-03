@@ -88,3 +88,78 @@ test("UI-04: badges have distinct semantic styles, not just an off-colored dot",
   assert.match(source, /\.conn \.stt\.healthy\{[^}]*color:var\(--green\)[^}]*background:var\(--green-s\)/);
   assert.match(source, /\.conn \.stt\.warning\{[^}]*color:var\(--amber\)[^}]*background:var\(--amber-s\)/);
 });
+
+async function unlinkResult(fetch) {
+  const from = source.indexOf("async function unlinkWa(){"), to = source.indexOf("\nfunction localDateTimeValue", from);
+  const observed = { state: "connected", owner: "synthetic-owner" }, timers = [], messages = [];
+  const context = { fetch, WAAPI: "/console/waapi", waMsg: "", waSig: "observed-signature", waData: observed,
+    confirm: () => true, setTimeout: (fn, ms) => timers.push({ fn, ms }), loadNotifications() {},
+    render: () => messages.push(context.waMsg) };
+  vm.runInNewContext(source.slice(from, to), context);
+  await context.unlinkWa();
+  return { message: context.waMsg, signature: context.waSig, observed: context.waData, timers, messages };
+}
+
+test("unlink button accepts only HTTP success and confirmed JSON", async () => {
+  const success = await unlinkResult(async () => ({ ok: true, json: async () => ({ ok: true }) }));
+  assert.equal(success.message, "Unlinked — scan the new QR below to re-link.");
+  assert.equal(success.signature, "");
+  assert.equal(success.timers.length, 1);
+  assert.equal(success.timers[0].ms, 1500);
+  for (const fetch of [async () => ({ ok: false, json: async () => ({ ok: true }) }),
+    async () => ({ ok: true, json: async () => ({ ok: false }) }),
+    async () => ({ ok: true, json: async () => null }),
+    async () => ({ ok: true, json: async () => { throw new Error("malformed JSON"); } }),
+    async () => { throw new Error("network failure"); }]) {
+    const failure = await unlinkResult(fetch);
+    assert.equal(failure.message, "Could not confirm unlinking. WhatsApp may still be linked; try again.");
+    assert.equal(failure.signature, "observed-signature");
+    assert.deepEqual(failure.observed, { state: "connected", owner: "synthetic-owner" });
+    assert.equal(failure.timers.length, 0);
+  }
+});
+
+test("rendered unlink button preserves linked status on failures and refreshes after confirmation", async t => {
+  let chromium;
+  try { ({ chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright")); }
+  catch (error) { if (error.code !== "MODULE_NOT_FOUND") throw error; t.skip("Playwright required"); return; }
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  t.after(() => assert.deepEqual(errors, []));
+  page.on("dialog", dialog => dialog.accept());
+  let response = { status: 503, json: { ok: false } }, observed = { state: "connected", owner: "15550000000@s.whatsapp.net" };
+  await page.route("**/*", route => {
+    const request = route.request(), pathname = new URL(request.url()).pathname;
+    if (pathname === "/console/") return route.fulfill({ contentType: "text/html", body: source });
+    if (pathname === "/console/waapi/logout") {
+      if (response.network) return route.abort();
+      if (response.json?.ok === true && response.status === 200) observed = { state: "qr", owner: null, qr: null };
+      return route.fulfill(response.body ? { status: response.status, body: response.body } : response);
+    }
+    if (pathname === "/console/waapi/status") return route.fulfill({ json: observed });
+    if (pathname === "/console/api/notifications") return route.fulfill({ json: { unread_count: 0, notifications: [] } });
+    if (pathname === "/console/api/tickets") return route.fulfill({ json: [] });
+    if (pathname.startsWith("/console/api/") || pathname === "/console/kbapi/health") return route.fulfill({ json: {} });
+    return route.abort();
+  });
+  await page.goto("http://console.test/console/");
+  await page.locator("[data-tab=notif]").click();
+  await page.locator("#wa-unlink").waitFor();
+  const before = await page.evaluate(() => ({ signature: waSig, data: waData }));
+  for (const outcome of [{ status: 503, json: { ok: false } }, { status: 200, json: { ok: false } },
+    { status: 200, body: "malformed" }, { network: true }]) {
+    response = outcome;
+    await page.locator("#wa-unlink").click();
+    await page.locator(".destact .toast").filter({ hasText: "Could not confirm unlinking. WhatsApp may still be linked; try again." }).waitFor();
+    assert.deepEqual(await page.evaluate(() => ({ signature: waSig, data: waData })), before);
+    assert.equal(await page.locator("#wa-unlink").count(), 1);
+  }
+  response = { status: 200, json: { ok: true } };
+  await page.locator("#wa-unlink").click();
+  await page.locator(".destact .toast").filter({ hasText: "Unlinked — scan the new QR below to re-link." }).waitFor();
+  await page.waitForFunction(() => waData?.state === "qr");
+  assert.equal(await page.locator("#wa-unlink").count(), 0);
+});

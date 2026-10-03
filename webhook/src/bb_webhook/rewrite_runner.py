@@ -8,6 +8,7 @@ import secrets
 import signal
 
 from processor.draft_cleaner import clean_draft
+from .hermes_permissions import CANONICAL_TOOLSETS, canonical_toolsets
 
 try:  # processor/ on sys.path (VPS webhook unit) — shared marker contract (3.2)
     from processor.hermes_runner.prompt import neutralize_draft_tags
@@ -96,7 +97,12 @@ async def _terminate(process, readers):
         await asyncio.gather(*drains, return_exceptions=True)
 
 
-async def run_rewrite(command, env, *, store_name, customer_message, draft, instruction, timeout=150):
+async def run_rewrite(command, env, *, store_name, customer_message, draft, instruction,
+                      toolsets=CANONICAL_TOOLSETS, timeout=150):
+    try:
+        toolsets = canonical_toolsets(toolsets)
+    except ValueError as exc:
+        raise RewriteFailure('rewrite_unavailable') from exc
     try:
         await asyncio.wait_for(_slots.acquire(), timeout=0.1)
     except asyncio.TimeoutError:
@@ -112,7 +118,7 @@ async def run_rewrite(command, env, *, store_name, customer_message, draft, inst
               f'CURRENT DRAFT:\n{neutralize(draft)}\n\n'
               f'OWNER REWRITE INSTRUCTION:\n{neutralize(instruction)}')
     try:
-        process = await asyncio.create_subprocess_exec(*command, '-z', prompt,
+        process = await asyncio.create_subprocess_exec(*command, '-t', toolsets, '-z', prompt,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env=env, start_new_session=True)
         readers = [asyncio.create_task(_read_bounded(process.stdout, 1024 * 1024)),

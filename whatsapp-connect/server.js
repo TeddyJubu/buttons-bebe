@@ -27,6 +27,7 @@ const log = P({ level: process.env.WA_LOG_LEVEL || "info" });
 const SILENT = P({ level: "silent" });
 const { clientAddress, createSendAuth, isAuthorized, validateSecret } = require("./security");
 const { nextStateOnClose, sendWithRetry } = require("./connection");
+const { hermesArguments, childEnvironment } = require("./hermes-permissions");
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -204,22 +205,29 @@ function onReconnectFailed(e) {
 }
 
 function forwardToHermes(text, jid) {
+  const replyToOwner = (err, stdout) => {
+    let reply = (stdout || "").trim();
+    if (!reply) reply = "Sorry — I couldn't process that right now.";
+    if (sock) {
+      sock.sendMessage(jid, { text: reply.slice(0, 4000) })
+        .then((sent) => {
+          if (sent && sent.key && sent.key.id) addBotSentId(sent.key.id);
+        })
+        .catch((e) => log.error({ err: e }, "reply send error"));
+    }
+  };
+  let args;
+  try {
+    args = hermesArguments(text, process.env.HERMES_TOOLSETS);
+  } catch (_) {
+    replyToOwner(null, "");
+    return;
+  }
   execFile(
     HERMES_BIN,
-    ["-z", text],
-    { timeout: 150000, maxBuffer: 4 * 1024 * 1024 },
-    (err, stdout) => {
-      let reply = (stdout || "").trim();
-      if (!reply) reply = "Sorry — I couldn't process that right now.";
-      if (sock) {
-        sock
-          .sendMessage(jid, { text: reply.slice(0, 4000) })
-          .then((sent) => {
-            if (sent && sent.key && sent.key.id) addBotSentId(sent.key.id);
-          })
-          .catch((e) => log.error({ err: e }, "reply send error"));
-      }
-    }
+    args,
+    { timeout: 150000, maxBuffer: 4 * 1024 * 1024, env: childEnvironment(process.env) },
+    replyToOwner
   );
 }
 
@@ -330,14 +338,14 @@ app.post("/wa/test", (req, res) => {
 // Unlink the current WhatsApp so a different account can be linked. Triggers a
 // fresh QR on the next status poll.
 app.post("/wa/logout", async (req, res) => {
+  if (state === "qr" && !ownerJid) return res.json({ ok: true, alreadyUnlinked: true });
+  if (!sock) return res.status(409).json({ ok: false, error: "unlink_unconfirmed" });
   try {
-    if (sock) await sock.logout().catch(() => {});
-    state = "qr";
-    ownerJid = null;
-    qrDataUrl = null;
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: String(e) });
+    await sock.logout();
+    if (state === "qr" && !ownerJid) return res.json({ ok: true });
+    return res.status(409).json({ ok: false, error: "unlink_unconfirmed" });
+  } catch (_) {
+    return res.status(503).json({ ok: false, error: "unlink_unavailable" });
   }
 });
 
@@ -359,7 +367,7 @@ app.listen(PORT, "127.0.0.1", () =>
   log.info("whatsapp-connect listening on 127.0.0.1:%d", PORT)
 );
 
-startSock().catch((e) => log.error({ err: e }, "startSock error"));
+startSock().catch(onReconnectFailed);
 
 const PAGE = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

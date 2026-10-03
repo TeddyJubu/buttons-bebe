@@ -29,6 +29,7 @@ SCRIPT = Path(__file__).resolve().parents[2] / "tools" / "verify_hermes_toolset.
 _GOOD_LIST = "buttonsbebe_kb\nbuttonsbebe_redo\nbuttonsbebe_gorgias\n"
 
 _HERMES_STUB = """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_CALL_LOG"
 if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
     printf '%s' "$FAKE_MCP_LIST"
     exit "${FAKE_MCP_STATUS:-0}"
@@ -51,10 +52,11 @@ class VerifyToolsetScriptTests(unittest.TestCase):
 
     def run_script(self, *, mcp_list: str = _GOOD_LIST, mcp_status: int = 0,
                    smoke_out: str = "KBOK: returns accepted within 7 days.",
-                   smoke_status: int = 0, config: str | None = None,
+                   smoke_status: int = 0, config: str | None = "platform_toolsets:\n  cli: []\n",
                    toolsets: str | None = None,
                    hermes_home: Path | None = None) -> subprocess.CompletedProcess:
-        env = dict(os.environ)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+        env["FAKE_CALL_LOG"] = str(self.tmp / "calls.log")
         env["HERMES_VERIFY_PYTHON"] = sys.executable
         env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
         env["FAKE_MCP_LIST"] = mcp_list
@@ -115,7 +117,7 @@ class VerifyToolsetScriptTests(unittest.TestCase):
     def test_a_misspelled_toolset_is_caught(self):
         proc = self.run_script(toolsets="buttonsbebe_kb,buttonsbebe_reddo")
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("SILENTLY LOSE THE TOOL", proc.stdout)
+        self.assertIn("exactly the three approved", proc.stdout)
 
     def test_a_prefix_lookalike_server_is_not_accepted(self):
         proc = self.run_script(mcp_list="buttonsbebe_kb_old\nbuttonsbebe_redo\n"
@@ -144,19 +146,40 @@ class VerifyToolsetScriptTests(unittest.TestCase):
                                     f"{label} reported OK: {proc.stdout}")
                 self.assertIn("shell/file tools", proc.stdout)
 
-    SAFE = {
-        "empty-list": "platform_toolsets:\n  cli: []\n",
-        "no-cli-key": "platform_toolsets:\n  telegram:\n    - hermes-telegram\n",
-        "harmless-tools": "platform_toolsets:\n  cli:\n    - skills\n    - todo\n",
-        "no-platform-key": "model:\n  default: glm-5.2\n",
-    }
+    def test_only_explicit_empty_cli_permissions_pass(self):
+        for config in ("platform_toolsets:\n  cli: []\n", "agents:\n  default:\n    platform_toolsets:\n      cli: []\n"):
+            proc = self.run_script(config=config)
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+        for config in (None, "model:\n  default: synthetic\n", "platform_toolsets:\n  telegram: []\n",
+                       "platform_toolsets:\n  cli: [skills, todo]\n", "platform_toolsets:\n  cli: null\n"):
+            proc = self.run_script(config=config)
+            self.assertNotEqual(proc.returncode, 0, proc.stdout)
+            self.assertNotIn("KBOK", proc.stdout)
 
-    def test_safe_config_shapes_pass(self):
-        for label, config in self.SAFE.items():
-            with self.subTest(shape=label):
-                proc = self.run_script(config=config)
-                self.assertEqual(proc.returncode, 0,
-                                 f"{label} reported a failure: {proc.stdout}")
+    def test_invalid_settings_fail_before_any_hermes_call(self):
+        for toolsets in ("", "buttonsbebe_kb", "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_redo",
+                         "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias,skills",
+                         "buttonsbebe_kb,buttonsbebe_redo,file", "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias,",
+                         "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias\n,skills",
+                         "buttonsbebe_\nkb,buttonsbebe_redo,buttonsbebe_gorgias"):
+            proc = self.run_script(toolsets=toolsets, mcp_list=_GOOD_LIST + "skills\nfile\n")
+            self.assertNotEqual(proc.returncode, 0, proc.stdout)
+            self.assertFalse((self.tmp / "calls.log").exists())
+
+    def test_unset_and_reordered_settings_launch_canonical_tools(self):
+        for tools in (None, " buttonsbebe_gorgias , buttonsbebe_kb , buttonsbebe_redo ",
+                      "buttonsbebe_gorgias,\nbuttonsbebe_kb,buttonsbebe_redo"):
+            (self.tmp / "calls.log").unlink(missing_ok=True)
+            proc = self.run_script(toolsets=tools)
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+            calls = (self.tmp / "calls.log").read_text().splitlines()
+            self.assertEqual(calls[0], "mcp list")
+            self.assertTrue(calls[1].startswith("-t buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias -z "), calls)
+
+    def test_shipped_example_has_explicit_empty_cli_permissions(self):
+        config = (SCRIPT.parent.parent / "hermes" / "config.example.yaml").read_text()
+        proc = self.run_script(config=config)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
 
     # ── the live step must not run under an unproven lockdown ───────────
     def test_the_live_agent_is_not_launched_after_a_failure(self):

@@ -309,11 +309,17 @@ def run_bulk_export(shop, ver, tok, product_query) -> str:
     errs = resp["data"]["bulkOperationRunQuery"]["userErrors"]
     if errs:
         raise SystemExit(f"bulk start errors: {errs}")
+    operation = resp["data"]["bulkOperationRunQuery"].get("bulkOperation") or {}
+    operation_id = operation.get("id") if isinstance(operation, dict) else None
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        raise SystemExit("bulk export start returned no operation ID")
     print("bulk export started; waiting for it to finish...")
     poll = "{ currentBulkOperation { id status errorCode objectCount url } }"
     for poll_number in range(1, MAX_BULK_POLLS + 1):
         time.sleep(4)
         c = gql(shop, ver, tok, poll)["data"]["currentBulkOperation"]
+        if not isinstance(c, dict) or c.get("id") != operation_id:
+            raise SystemExit("bulk export poll does not match the started operation ID")
         status = c.get("status")
         print(f"  poll={poll_number}/{MAX_BULK_POLLS} status={status} objects={c.get('objectCount')}")
         if status == "COMPLETED":

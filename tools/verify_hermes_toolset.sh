@@ -13,12 +13,11 @@
 #
 #  USAGE:
 #     bash tools/verify_hermes_toolset.sh
-#     HERMES_TOOLSETS="buttonsbebe_kb,buttonsbebe_redo" bash tools/verify_hermes_toolset.sh
 #     SKIP_LIVE=1 bash tools/verify_hermes_toolset.sh   # config checks only
 # =============================================================================
 set -u
 
-TOOLSETS="$(printf '%s' "${HERMES_TOOLSETS:-buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias}" | tr -d '[:space:]')"
+TOOLSETS="$(printf '%s' "${HERMES_TOOLSETS-buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias}" | tr '\r\n' '  ')"
 EXPECTED_SERVERS="buttonsbebe_kb buttonsbebe_redo buttonsbebe_gorgias"
 FAILED=0
 VERIFIER_PYTHON="${HERMES_VERIFY_PYTHON:-${PYTHON:-python3}}"
@@ -30,6 +29,25 @@ note() { printf '  ..   %s\n' "$*"; }
 
 say "Toolsets the processor will pass"
 note "$TOOLSETS"
+IFS=',' read -r -a WANTED <<< "$TOOLSETS"
+SEEN=" "
+if [ "${#WANTED[@]}" -ne 3 ] || [[ "$TOOLSETS" == *, ]]; then
+    bad "HERMES_TOOLSETS must contain exactly the three approved read-only toolsets"
+    exit 1
+fi
+for ts in "${WANTED[@]}"; do
+    ts="$(printf '%s' "$ts" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    case "$ts" in
+        buttonsbebe_kb|buttonsbebe_redo|buttonsbebe_gorgias) ;;
+        *) bad "HERMES_TOOLSETS must contain exactly the three approved read-only toolsets"; exit 1 ;;
+    esac
+    if [[ "$SEEN" == *" $ts "* ]]; then
+        bad "HERMES_TOOLSETS must not contain duplicate toolsets"
+        exit 1
+    fi
+    SEEN="$SEEN$ts "
+done
+TOOLSETS="buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias"
 
 # ── 1. hermes is on PATH ─────────────────────────────────────────────────
 say "1. Hermes CLI"
@@ -60,26 +78,11 @@ for server in $EXPECTED_SERVERS; do
     fi
 done
 
-# ── 3. every toolset we ask for maps to a registered server ──────────────
-say "3. Toolset names match the server keys"
-IFS=',' read -r -a WANTED <<< "$TOOLSETS"
-if [ "${#WANTED[@]}" -eq 0 ]; then
-    bad "HERMES_TOOLSETS is empty — the processor would fall back to whatever config.yaml grants"
-fi
-for ts in "${WANTED[@]}"; do
-    [ -z "$ts" ] && continue
-    if printf '%s' "$MCP_OUT" | grep -Eq "(^|[^A-Za-z0-9_])${ts}([^A-Za-z0-9_]|$)"; then
-        ok "$ts -> registered server key '$ts'"
-    else
-        bad "$ts -> no registered server key '$ts'. THIS WOULD SILENTLY LOSE THE TOOL."
-    fi
-done
-
-# ── 4. terminal / file must not be granted to the CLI platform ───────────
-say "4. Dangerous toolsets are not in scope"
+# ── 3. CLI platform grants must be explicitly empty ─────────────────────
+say "3. CLI platform permissions"
 CFG="${HERMES_CONFIG:-${HOME:-/root}/.hermes/config.yaml}"
 if [ ! -f "$CFG" ]; then
-    note "no config at $CFG — skipping (set HERMES_CONFIG to point at it)"
+    bad "Hermes configuration is missing; installed CLI permissions remain unverified"
 elif ! command -v "$VERIFIER_PYTHON" >/dev/null 2>&1; then
     bad "Selected verifier Python not available — cannot parse $CFG, so this check did not run"
 else
@@ -104,14 +107,13 @@ def walk(node):
     if isinstance(node, dict):
         for key, value in node.items():
             if key == "platform_toolsets" and isinstance(value, dict):
-                for entry in (value.get("cli") or []):
-                    found.append(str(entry).strip())
+                found.append(value.get("cli"))
             walk(value)
     elif isinstance(node, list):
         for item in node:
             walk(item)
 walk(cfg)
-print("\n".join(found))
+print("__EMPTY__" if found and all(entry == [] for entry in found) else "__UNVERIFIED__")
 PY
 )"
     PARSE_STATUS=$?
@@ -124,23 +126,16 @@ PY
         *)
             if [ "$PARSE_STATUS" -ne 0 ]; then
                 bad "config parse failed (status $PARSE_STATUS)"
-            elif [ -z "$CLI_TOOLS" ]; then
+            elif [ "$CLI_TOOLS" = "__EMPTY__" ]; then
                 ok "platform_toolsets.cli grants nothing extra"
             else
-                printf '%s\n' "$CLI_TOOLS" | sed 's/^/     granted: /'
-                if printf '%s\n' "$CLI_TOOLS" | grep -Eqi '^(terminal|file|code_execution|browser|computer_use|shell)$'; then
-                    bad "platform_toolsets.cli still grants shell/file tools. If 'hermes -t'"
-                    bad "MERGES with these rather than replacing them, the lockdown is not"
-                    bad "real. Clear the cli: list in $CFG, or confirm -t replaces it."
-                else
-                    ok "platform_toolsets.cli grants no shell/file tools"
-                fi
+                bad "platform_toolsets.cli must be explicitly empty; extra shell/file tools or unknown grants are unverified"
             fi ;;
     esac
 fi
 
-# ── 5. the live brain loads the same SOUL/skills the repo ships ──────────
-say "5. Hermes home mirror matches the repo"
+# ── 4. the live brain loads the same SOUL/skills the repo ships ──────────
+say "4. Hermes home mirror matches the repo"
 REPO_HERMES="$(cd "$(dirname "$0")/.." && pwd)/hermes"
 LIVE_HERMES="${HERMES_HOME:-${HOME:-/root}/.hermes}"
 # Live-only files the repo mirror never ships: config, credentials, session
@@ -177,8 +172,8 @@ else
     fi
 fi
 
-# ── 6. a real one-shot with the new flags still reaches the KB ───────────
-say "6. Smoke test — one read-only prompt with the new flags"
+# ── 5. a real one-shot with the new flags still reaches the KB ───────────
+say "5. Smoke test — one read-only prompt with the new flags"
 if [ "$FAILED" -ne 0 ]; then
     bad "skipping the live run: a check above failed, so the lockdown is unproven"
     bad "and this step would launch a root agent under it. Fix the above first."

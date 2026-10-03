@@ -13,6 +13,7 @@ from ..console_actions import execute_action, action_status, actor, preflight_re
 from ..gorgias_client import GorgiasClient as _GClient
 from ..learning import ledger as _ledger, record_lesson as _record_lesson
 from ..rewrite_runner import run_rewrite, RewriteFailure
+from ..hermes_permissions import CANONICAL_TOOLSETS, child_environment
 from ..logging_utils import get_logger, log_event
 
 router = APIRouter(prefix="/dashboard/api")
@@ -42,10 +43,7 @@ async def retry_failed_draft(ticket_id: int, request: Request) -> JSONResponse:
 _HERMES_BIN = _os.environ.get("HERMES_BIN", "/usr/local/bin/hermes")
 _HERMES_HOME = _os.environ.get("HERMES_OS_HOME", "/root")
 _HERMES_PROFILE = _os.environ.get("HERMES_PROFILE", "").strip()
-_HERMES_REWRITE_TOOLSETS = _os.environ.get("HERMES_REWRITE_TOOLSETS", "").strip()
-# Empty means: invoke Hermes with no -t flag (model default tools). A bogus
-# name like the old "todo" default would silently drop tools, so only
-# non-empty values are passed through (see action_rewrite below).
+_HERMES_REWRITE_TOOLSETS = _os.environ.get("HERMES_REWRITE_TOOLSETS", CANONICAL_TOOLSETS)
 _HERMES_IGNORE_RULES = _os.environ.get("HERMES_IGNORE_RULES", "").strip().lower() in {
     "1",
     "true",
@@ -244,17 +242,12 @@ async def action_rewrite(ticket_id: int, request: Request) -> JSONResponse:
     if _app_value("_HERMES_IGNORE_RULES", _HERMES_IGNORE_RULES):
         command.append("--ignore-rules")
     toolsets = _app_value("_HERMES_REWRITE_TOOLSETS", _HERMES_REWRITE_TOOLSETS)
-    if toolsets:
-        command.extend(["-t", toolsets])
-    # Model provider credentials may be needed, but shared customer-system
-    # credentials are not passed into this draft-only subprocess.
-    env = {key: value for key, value in _os.environ.items() if key in {
-        "PATH", "LANG", "LC_ALL", "TERM", "OLLAMA_API_KEY", "OPENAI_API_KEY"}}
-    env["HOME"] = _app_value("_HERMES_HOME", _HERMES_HOME)
+    env = child_environment(_os.environ, home=_app_value("_HERMES_HOME", _HERMES_HOME),
+                            path=_os.environ.get("PATH", ""))
     try:
         reply = await run_rewrite(command, env,
             store_name=_app_value("_SUPPORT_STORE_NAME", _SUPPORT_STORE_NAME),
-            customer_message=customer_msg, draft=draft, instruction=instruction)
+            customer_message=customer_msg, draft=draft, instruction=instruction, toolsets=toolsets)
     except RewriteFailure as exc:
         return JSONResponse(status_code=exc.status, content={"error": exc.error})
     except Exception as exc:

@@ -178,8 +178,8 @@ class TestSyncProducts(unittest.TestCase):
                             pass
 
     def test_bulk_polling_has_a_hard_bound(self) -> None:
-        started = {"data": {"bulkOperationRunQuery": {"userErrors": []}}}
-        processing = {"data": {"currentBulkOperation": {"status": "RUNNING", "objectCount": 0}}}
+        started = {"data": {"bulkOperationRunQuery": {"bulkOperation": {"id": "export-1"}, "userErrors": []}}}
+        processing = {"data": {"currentBulkOperation": {"id": "export-1", "status": "RUNNING", "objectCount": 0}}}
         with patch.object(sync_products, "gql", side_effect=[started, processing, processing]) as gql:
             with patch.object(sync_products, "time") as clock:
                 with patch.object(sync_products, "MAX_BULK_POLLS", 2):
@@ -190,8 +190,8 @@ class TestSyncProducts(unittest.TestCase):
 
     def test_product_query_is_escaped_before_graphql_interpolation(self) -> None:
         responses = [
-            {"data": {"bulkOperationRunQuery": {"userErrors": []}}},
-            {"data": {"currentBulkOperation": {"status": "COMPLETED", "url": "https://example.test/export"}}},
+            {"data": {"bulkOperationRunQuery": {"bulkOperation": {"id": "export-1"}, "userErrors": []}}},
+            {"data": {"currentBulkOperation": {"id": "export-1", "status": "COMPLETED", "url": "https://example.test/export"}}},
         ]
         with patch.object(sync_products, "gql", side_effect=responses) as gql:
             with patch.object(sync_products, "time") as clock:
@@ -201,6 +201,20 @@ class TestSyncProducts(unittest.TestCase):
                 )
         self.assertIn('title:\\"red\\"', gql.call_args_list[0].args[3])
         clock.sleep.assert_called_once_with(4)
+
+    def test_bulk_export_rejects_missing_start_and_foreign_poll_ids(self) -> None:
+        started = {"data": {"bulkOperationRunQuery": {"bulkOperation": {"id": "export-1"}, "userErrors": []}}}
+        for missing in (None, "", " ", 17):
+            response = {"data": {"bulkOperationRunQuery": {"bulkOperation": {"id": missing}, "userErrors": []}}}
+            with patch.object(sync_products, "gql", return_value=response) as gql:
+                with self.assertRaisesRegex(SystemExit, "no operation ID"):
+                    sync_products.run_bulk_export("shop.myshopify.com", "2026-04", "synthetic", "status:active")
+                self.assertEqual(gql.call_count, 1)
+        for operation_id in (None, "", "export-foreign"):
+            poll = {"data": {"currentBulkOperation": {"id": operation_id, "status": "COMPLETED", "url": "https://example.test/foreign"}}}
+            with patch.object(sync_products, "gql", side_effect=[started, poll]), patch.object(sync_products, "time"):
+                with self.assertRaisesRegex(SystemExit, "does not match"):
+                    sync_products.run_bulk_export("shop.myshopify.com", "2026-04", "synthetic", "status:active")
 
     def test_gql_blocks_non_bulk_mutations_and_multi_operation_documents(self) -> None:
         blocked_documents = [

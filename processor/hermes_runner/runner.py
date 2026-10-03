@@ -12,6 +12,7 @@ from draft_cleaner import clean_draft, should_draft
 from logging_setup import get_logger, log_event
 from shared.priority import RANK
 from shared.review_policy import final_review_result
+from bb_webhook.hermes_permissions import canonical_toolsets, child_environment
 
 from .process import run_bounded, OutputLimitExceeded
 
@@ -43,12 +44,7 @@ def build_hermes_command(prompt: str, settings: Any) -> list[str]:
     if bool(getattr(settings, "hermes_ignore_rules", False)):
         command.append("--ignore-rules")
 
-    toolsets = str(getattr(settings, "hermes_toolsets", "") or "").strip()
-    wanted = [name.strip() for name in toolsets.split(",")]
-    allowed = {"buttonsbebe_kb", "buttonsbebe_redo", "buttonsbebe_gorgias"}
-    if len(wanted) != 3 or set(wanted) != allowed:
-        raise ValueError("Hermes requires exactly the three approved read-only toolsets")
-    command += ["-t", ",".join(wanted)]
+    command += ["-t", canonical_toolsets(getattr(settings, "hermes_toolsets", ""))]
 
     if getattr(settings, "hermes_skip_approval", False):
         log_event(
@@ -104,10 +100,6 @@ def _no_draft_result(parsed: dict[str, Any], reason: str) -> dict[str, Any]:
 def _run_environment(settings: Any) -> dict[str, str]:
     """Build the Hermes environment without loading credentials in this module."""
 
-    # Model-provider credentials are necessary; commerce, session, webhook,
-    # WhatsApp and Python/loader startup variables must never cross this boundary.
-    allowed = {"LANG", "LC_ALL", "TERM", "OLLAMA_API_KEY", "OPENAI_API_KEY"}
-    environment = {key: value for key, value in os.environ.items() if key in allowed}
     hermes_home = str(getattr(settings, "hermes_home", "/root") or "").strip()
     hermes_path = str(
         getattr(
@@ -117,11 +109,7 @@ def _run_environment(settings: Any) -> dict[str, str]:
         )
         or ""
     ).strip()
-    if hermes_home:
-        environment["HOME"] = hermes_home
-    if hermes_path:
-        environment["PATH"] = hermes_path
-    return environment
+    return child_environment(os.environ, home=hermes_home, path=hermes_path)
 
 
 def process_ticket_with_hermes(

@@ -929,7 +929,7 @@ function pollReindex(version=kbIndexVersion){
   if(s?.running){pollReindex(version);return;}
   kbReindexing=false;kbIndexError=!s?.ok;
   if(s?.ok){if(version===kbIndexVersion)kbNeedsIndex=false;kbMsg=kbNeedsIndex?"Search updated. Newer saved edits still need re-indexing.":"Search updated. Saved articles are ready for the agent.";}
-  else kbMsg=s?"Re-indexing failed. Your articles are saved; try re-indexing again.":"Could not confirm re-index status. Refresh before trying again.";
+  else kbMsg=s?(["Another re-index is already running.","No indexable content was found.","The staged index failed validation."].includes(s.reason)?s.reason:"Re-indexing failed. Your articles are saved; try re-indexing again."):"Could not confirm re-index status. Refresh before trying again.";
   if(tab==="kb")render();
  },3000);
 }
@@ -1069,8 +1069,10 @@ async function testWa(){
 async function unlinkWa(){
  if(!confirm("Unlink this WhatsApp? You'll need to scan a new QR to receive alerts again."))return;
  waMsg="Unlinking…";render();
- try{await fetch(WAAPI+"/logout",{method:"POST"});}catch(e){}
- waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadNotifications,1500);render();
+ try{const r=await fetch(WAAPI+"/logout",{method:"POST"});const data=await r.json();if(!r.ok||data?.ok!==true)throw new Error('Unlink unconfirmed');
+  waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadNotifications,1500);
+ }catch(e){waMsg="Could not confirm unlinking. WhatsApp may still be linked; try again.";}
+ render();
 }
 function localDateTimeValue(date){const p=n=>String(n).padStart(2,"0");return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;}
 function defaultNoticeDeadline(){return localDateTimeValue(new Date(Date.now()+24*60*60*1000));}

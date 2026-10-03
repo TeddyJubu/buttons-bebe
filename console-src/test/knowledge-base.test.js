@@ -11,7 +11,7 @@ async function fixture(t, width = 1440) {
   t.after(() => browser.close());
   const page = await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});
   page.setDefaultTimeout(5000);
-  const state = {writes:[], errors:[], failList:false, failFile:false, failSave:false, failIndex:false, indexOk:true, delayFile:null};
+  const state = {writes:[], errors:[], failList:false, failFile:false, failSave:false, failIndex:false, indexOk:true, indexReason:null, delayFile:null};
   const files = {
     'policies/shipping.md': '---\ntitle: Shipping and delivery\ncategory: policies\n---\n\n## Before you reply\n\nRead the **order details**.\n\n- Check tracking\n- Confirm the address\n\n<img src=x onerror=alert(1)>\n\n[Unsafe](javascript:alert) [Tracking](https://example.com/track)\n\n| Status | Action |\n| --- | --- |\n| Delayed | Review |',
     'faq/sizing.md': '# Finding the right size\n\nA sample answer.',
@@ -32,7 +32,7 @@ async function fixture(t, width = 1440) {
     if(p.endsWith('/save')){const d=req.postDataJSON();if(!state.failSave)files[d.path]=d.content;return route.fulfill({status:state.failSave?500:200,json:{ok:!state.failSave}});}
     if(p.endsWith('/new')){const d=req.postDataJSON(),path=d.folder+'/new-article.md';files[path]=d.content;library.folders.find(g=>g.folder===d.folder).files.push({path,title:d.filename});return route.fulfill({json:{ok:true,path}});}
     if(p.endsWith('/reindex'))return route.fulfill({status:state.failIndex?503:200,json:{started:true}});
-    if(p.endsWith('/reindex-status'))return route.fulfill({json:{running:false,ok:state.indexOk}});
+    if(p.endsWith('/reindex-status'))return route.fulfill({json:{running:false,ok:state.indexOk,reason:state.indexReason}});
     const data={'/console/api/stats':{},'/console/api/tickets':[],'/console/api/learning':{},'/console/api/ops':{status:'missing'},'/console/kbapi/health':{ok:true,folders:{},products:{}},'/console/api/notifications':{unread_count:0,notifications:[]},'/console/waapi/status':{state:'connected'}};
     if(Object.hasOwn(data,p))return route.fulfill({json:data[p]});
     return route.abort();
@@ -136,6 +136,24 @@ test('KB reports list, re-index start and re-index completion failures truthfull
   await page.getByRole('alert').filter({hasText:'Re-indexing failed'}).waitFor();
   state.indexOk=true;await page.locator('#kb-reindex').click();
   await page.getByRole('status').filter({hasText:'Search updated.'}).first().waitFor();
+});
+
+test('KB displays a safe re-index reason and clears it on the next successful attempt',async t=>{
+  const f=await fixture(t);if(!f)return;const {page,state}=f;
+  state.indexOk=false;state.indexReason='The staged index failed validation.';
+  await page.locator('#kb-reindex').click();
+  await page.getByRole('alert').filter({hasText:'The staged index failed validation.'}).waitFor();
+  assert.equal(await page.locator('.kb-feedback').innerText(),'The staged index failed validation.');
+  state.indexOk=true;state.indexReason=null;
+  await page.locator('#kb-reindex').click();
+  assert.doesNotMatch(await page.locator('.kb-feedback').innerText(),/staged index failed/);
+  await page.getByRole('status').filter({hasText:'Search updated.'}).first().waitFor();
+  assert.doesNotMatch(await page.locator('.kb-feedback').innerText(),/staged index failed/);
+  state.indexOk=false;state.indexReason='<img src=x onerror=alert(1)>unsafe';
+  await page.locator('#kb-reindex').click();
+  await page.getByRole('alert').filter({hasText:'Re-indexing failed.'}).waitFor();
+  assert.equal(await page.locator('.kb-feedback img').count(),0);
+  assert.doesNotMatch(await page.locator('.kb-feedback').innerText(),/onerror|unsafe/);
 });
 
 test('KB reading, editing and article creation fit desktop, tablet and mobile widths',async t=>{

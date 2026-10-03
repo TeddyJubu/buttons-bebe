@@ -72,7 +72,6 @@ class ProcessorSettings(BaseSettings):
     # three read-only Buttons Bebe servers and nothing
     # else - in particular NOT the `terminal` or `file` toolsets that
     # ~/.hermes/config.yaml grants the CLI platform by default.
-    # Set to "" to fall back to whatever config.yaml grants (NOT recommended).
     hermes_toolsets: str = Field(
         default="buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias",
         alias="HERMES_TOOLSETS",
