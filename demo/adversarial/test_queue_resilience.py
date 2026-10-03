@@ -33,6 +33,7 @@ from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
 
 with without_root_dotenv():
     from bb_webhook import database  # noqa: E402
+    from bb_webhook.draft_generation import begin_attempt, finish_attempt  # noqa: E402
     import orchestrator  # noqa: E402
 
 
@@ -74,16 +75,10 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
         self._tmp.cleanup()
 
     async def _enqueue(self, message_id: str, ticket_id: int, *, customer: bool = True) -> int:
-        return await database.enqueue_job(
-            tenant_id="cute-things-demo",
-            ticket_id=ticket_id,
-            message_id=message_id,
-            event_type="ticket.message.created",
-            author_type="customer" if customer else "agent",
-            is_customer_message=customer,
-            payload=_payload(message_id, ticket_id),
-            db_path=self.db_path,
-        )
+        event = {**_payload(message_id, ticket_id), "tenant_id": "cute-things-demo",
+                 "event_type": "ticket.message.created", "author_type": "customer" if customer else "agent",
+                 "is_customer_message": customer}
+        return await database.ingest_event(event, json.dumps(event), self.db_path)
 
     async def test_concurrent_enqueue_preserves_every_unique_job(self) -> None:
         started = time.perf_counter()
@@ -127,27 +122,20 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
             if checked == 2:
                 all_checked.set()
             await all_checked.wait()
-            await database.record_event(
-                message_id=message_id,
-                tenant_id="cute-things-demo",
-                ticket_id=7200,
-                event_type="ticket.message.created",
-                author_type="customer",
-                raw_payload=json.dumps(_payload(message_id, 7200)),
-                db_path=self.db_path,
-            )
-            await self._enqueue(message_id, 7200)
+            return await self._enqueue(message_id, 7200)
 
-        await asyncio.gather(delivery(), delivery())
+        received = await asyncio.gather(delivery(), delivery())
+        self.assertEqual(sum(job_id is not None for job_id in received), 1)
 
         self.assertEqual(await _count_rows(self.db_path, "webhook_events"), 1)
+        self.assertEqual(await _count_rows(self.db_path, "parsed_messages"), 1)
         # A duplicate webhook must map to one queue job, even when both
         # deliveries pass the initial idempotency read concurrently.
         self.assertEqual(await _count_rows(
             self.db_path, "job_queue", "message_id = 'duplicate-race'"
         ), 1)
 
-    async def test_stale_recovery_requeues_only_old_processing_jobs(self) -> None:
+    async def test_stale_recovery_requeues_old_and_invalid_claims_but_preserves_fresh_jobs(self) -> None:
         old_id = await self._enqueue("stale-old", 7300)
         fresh_id = await self._enqueue("stale-fresh", 7301)
         malformed_id = await self._enqueue("stale-malformed", 7302)
@@ -172,7 +160,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
                 f"stale recovery raised {type(exc).__name__}: {exc}; "
                 "it must tolerate its own selected rows"
             )
-        self.assertEqual(reclaimed, 1)
+        self.assertEqual(reclaimed, [old_id, malformed_id])
         self.assertEqual((await _row(
             self.db_path, "SELECT status, retry_count FROM job_queue WHERE id = ?", (old_id,)
         )), {"status": "pending", "retry_count": 1})
@@ -181,9 +169,9 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
         )), {"status": "processing", "retry_count": 0})
         self.assertEqual((await _row(
             self.db_path, "SELECT status, retry_count FROM job_queue WHERE id = ?", (malformed_id,)
-        )), {"status": "processing", "retry_count": 0})
+        )), {"status": "pending", "retry_count": 1})
 
-    async def test_retry_exhaustion_leaves_job_failed(self) -> None:
+    async def test_generation_retry_exhaustion_stops_after_two_durable_delays(self) -> None:
         job_id = await self._enqueue("retry-exhaustion", 7400)
         settings = SimpleNamespace(
             db_path_absolute=self.db_path,
@@ -195,21 +183,36 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("synthetic Hermes outage")
 
         with patch.object(orchestrator, "process_customer_message", new=always_fails):
-            for _ in range(4):
-                pending = await database.get_pending_jobs(1, self.db_path)
-                if pending:
-                    await orchestrator._process_one_job(pending[0], True, settings)
+            for index in range(3):
+                job = await database.get_next_pending_job(self.db_path)
+                self.assertIsNotNone(job)
+                await orchestrator._process_one_job(job, True, settings)
+                saved = await database.get_job_result(job_id, self.db_path)
+                self.assertEqual(saved["generation_error"], "runtime_error")
+                self.assertEqual(saved["draft_text"], "")
+                self.assertEqual(saved["attempt_count"], index + 1)
+                if index < 2:
+                    self.assertEqual(saved["generation_state"], "retry_wait")
+                    delay = (datetime.fromisoformat(saved["next_retry_at"]) -
+                             datetime.fromisoformat(saved["processed_at"])).total_seconds()
+                    self.assertEqual(delay, (30, 120)[index])
+                    self.assertIsNone(await database.get_next_pending_job(self.db_path))
+                    with sqlite3.connect(self.db_path) as conn:
+                        conn.execute("UPDATE job_queue SET next_attempt_at=? WHERE id=?",
+                                     ("2000-01-01T00:00:00+00:00", job_id))
                 else:
-                    break
+                    self.assertEqual(saved["generation_state"], "failed")
+                    self.assertIsNone(saved["next_retry_at"])
 
         row = await _row(
             self.db_path,
             "SELECT status, retry_count, error FROM job_queue WHERE id = ?",
             (job_id,),
         )
-        self.assertEqual(row["status"], "failed")
-        self.assertEqual(row["retry_count"], 3)
-        self.assertIn("synthetic Hermes outage", row["error"])
+        self.assertEqual(row["status"], "done")
+        self.assertEqual(row["retry_count"], 0)
+        self.assertIsNone(await database.get_next_pending_job(self.db_path))
+        self.assertEqual(await _count_rows(self.db_path, "draft_generation_attempts"), 3)
 
     async def test_db_lock_contention_eventually_commits_without_loss(self) -> None:
         with sqlite3.connect(self.db_path, timeout=0) as holder:
@@ -237,7 +240,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
             job_timeout=1,
             max_retries=0,
         )
-        job = (await database.get_pending_jobs(1, self.db_path))[0]
+        job = await database.get_next_pending_job(self.db_path)
         await orchestrator._process_one_job(job, True, settings)
 
         row = await _row(
@@ -245,40 +248,97 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
             "SELECT status, error FROM job_queue WHERE id = ?",
             (job_id,),
         )
-        self.assertEqual(row["status"], "failed")
-        self.assertIn("JSONDecodeError", row["error"])
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["error"], "runtime_error")
+        saved = await database.get_job_result(job_id, self.db_path)
+        self.assertEqual(saved["generation_state"], "retry_wait")
+        self.assertEqual(saved["draft_text"], "")
+        self.assertTrue(saved["review_required"])
+        self.assertIsNone(await database.get_next_pending_job(self.db_path))
+
+    async def test_sensitive_generation_failures_keep_priority_and_alert_after_publication(self) -> None:
+        requests = (
+            ("refund", "I need a full refund for this order."),
+            ("dispute", "I am opening a dispute for this payment."),
+            ("defect", "The product has a defect and arrived broken."),
+            ("cancel", "Please cancel my order before it ships."),
+            ("urgent", "This is urgent; please change my shipping address."),
+            ("followup", "Following up on my urgent request; I still have no response."),
+        )
+        settings = SimpleNamespace(db_path_absolute=self.db_path, job_timeout=1, max_retries=3)
+
+        async def unavailable_model(_job):
+            raise RuntimeError("synthetic generation failure")
+
+        for index, (label, text) in enumerate(requests):
+            with self.subTest(request=label):
+                event = {**_payload("sensitive-" + label, 7900 + index),
+                         "message_text": text, "ticket_subject": "Support request",
+                         "tenant_id": "cute-things-demo", "event_type": "ticket.message.created",
+                         "author_type": "customer", "is_customer_message": True}
+                job_id = await database.ingest_event(event, json.dumps(event), self.db_path)
+                job = next(row for row in await database.get_pending_job_window(20, self.db_path)
+                           if row["id"] == job_id)
+                observed = []
+
+                def alert(**_fields):
+                    with sqlite3.connect(self.db_path) as conn:
+                        observed.append(conn.execute(
+                            "SELECT generation_state,draft_text FROM ticket_results WHERE job_id=?",
+                            (job_id,)).fetchone())
+                    return False
+
+                with patch.object(orchestrator, "process_customer_message", new=unavailable_model), \
+                        patch.object(orchestrator, "send_whatsapp", side_effect=alert) as notify:
+                    await orchestrator._process_one_job(job, True, settings)
+                    saved = await database.get_job_result(job_id, self.db_path)
+                    self.assertIn(saved["priority"], {"high", "critical"})
+                    self.assertTrue(saved["notify_owner"])
+                    self.assertEqual(saved["generation_state"], "retry_wait")
+                    self.assertEqual(saved["draft_text"], "")
+                    self.assertEqual(observed, [("retry_wait", "")])
+                    notify.assert_called_once()
+                    self.assertEqual(notify.call_args.kwargs["max_retries"], 0)
+                    await orchestrator._notify_owner_once(job, saved, self.db_path)
+                    notify.assert_called_once()
+                audit = await _row(self.db_path,
+                    "SELECT status FROM owner_alert_attempts WHERE job_id=?", (job_id,))
+                self.assertEqual(audit["status"], "uncertain")
 
     async def test_out_of_order_messages_keep_independent_results(self) -> None:
         old_event = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         new_event = datetime.now(timezone.utc).isoformat()
-        new_id = await database.enqueue_job(
-            "cute-things-demo", 7700, "message-new", "ticket.message.created", "customer", True,
-            _payload("message-new", 7700, event_created_at=new_event), self.db_path,
-        )
-        old_id = await database.enqueue_job(
-            "cute-things-demo", 7700, "message-old", "ticket.message.created", "customer", True,
-            _payload("message-old", 7700, event_created_at=old_event), self.db_path,
-        )
+        async def intake(message_id, created_at):
+            event = {**_payload(message_id, 7700, event_created_at=created_at),
+                     "tenant_id": "cute-things-demo", "event_type": "ticket.message.created",
+                     "author_type": "customer", "is_customer_message": True}
+            return await database.ingest_event(event, json.dumps(event), self.db_path)
 
-        # Complete in the opposite order from arrival and event timestamps.
-        self.assertTrue(await database.claim_job(old_id, self.db_path))
-        await database.record_ticket_result(
-            7700, "message-old", old_id, "normal", "drafted", "old message", False, False, False,
-            "old draft", self.db_path,
-        )
-        await database.complete_job(old_id, db_path=self.db_path)
-        self.assertTrue(await database.claim_job(new_id, self.db_path))
-        await database.record_ticket_result(
-            7700, "message-new", new_id, "high", "sensitive_draft", "new message", True, False, False,
-            "new draft", self.db_path,
-        )
-        await database.complete_job(new_id, db_path=self.db_path)
+        async def publish(job_id, message_id, draft):
+            self.assertTrue(await database.claim_job(job_id, self.db_path))
+            attempt_id = await begin_attempt(job_id, self.db_path)
+            self.assertIsNotNone(attempt_id)
+            state = await finish_attempt({"ticket_id": 7700, "message_id": message_id,
+                "job_id": job_id, "generation_attempt_id": attempt_id, "generation_state": "ready",
+                "priority": "normal", "action": "drafted", "reason": message_id,
+                "notify_owner": False, "draft_text": draft}, self.db_path)
+            self.assertEqual(state, "ready")
+            self.assertTrue(await database.complete_job(job_id, db_path=self.db_path, require_result=True))
 
-        results = await database.get_ticket_results(db_path=self.db_path)
-        by_message = {result["message_id"]: result for result in results}
-        self.assertEqual(set(by_message), {"message-old", "message-new"})
-        self.assertEqual(by_message["message-old"]["draft_text"], "old draft")
-        self.assertEqual(by_message["message-new"]["draft_text"], "new draft")
+        old_id = await intake("message-old", old_event)
+        await publish(old_id, "message-old", "old draft")
+        new_id = await intake("message-new", new_event)
+        await publish(new_id, "message-new", "new draft")
+        self.assertEqual((await database.get_job_result(old_id, self.db_path))["draft_text"], "old draft")
+        self.assertEqual((await database.get_job_result(new_id, self.db_path))["draft_text"], "new draft")
+
+        late_id = await intake("message-late", old_event)
+        self.assertTrue(await database.claim_job(late_id, self.db_path))
+        self.assertIsNone(await begin_attempt(late_id, self.db_path))
+        late = await _row(self.db_path, "SELECT status,error FROM job_queue WHERE id=?", (late_id,))
+        self.assertEqual(late, {"status": "skipped", "error": "new_customer_message_refresh_ticket"})
+        self.assertIsNone(await database.get_job_result(late_id, self.db_path))
+        self.assertEqual((await database.get_job_result(new_id, self.db_path))["draft_text"], "new draft")
 
     def test_singleton_lock_rejects_second_holder_without_touching_production_lock(self) -> None:
         with tempfile.TemporaryDirectory(prefix="processor-lock-") as temp_dir:
@@ -301,18 +361,25 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(orchestrator._acquire_singleton_lock())
                 orchestrator._release_lock()
 
-    def test_result_persistence_failure_is_fail_soft(self) -> None:
+    def test_result_persistence_failure_propagates_without_false_acknowledgement(self) -> None:
         started = time.perf_counter()
-        with patch("urllib.request.urlopen", side_effect=OSError("demo dashboard unavailable")):
-            result = orchestrator._save_result_to_webhook(
-                ticket_id=7800,
-                message_id="persistence-failure",
-                job_id=1,
-                hermes_result={"priority": "high", "action": "sensitive_draft"},
-                draft_text="[SENSITIVE] Demo draft",
-            )
+        with patch.dict(os.environ, {"DEMO_MODE": "0", "DASHBOARD_RESULT_URL":
+                                    "http://127.0.0.1:8000/dashboard/api/results"}), \
+                patch.object(orchestrator, "get_settings", return_value=SimpleNamespace(
+                    processor_result_secret="synthetic-result-secret-0123456789")), \
+                patch("urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = OSError("demo dashboard unavailable")
+            with self.assertRaisesRegex(OSError, "demo dashboard unavailable"):
+                orchestrator._save_result_to_webhook(
+                    ticket_id=7800,
+                    message_id="persistence-failure",
+                    job_id=1,
+                    hermes_result={"priority": "high", "action": "sensitive_draft",
+                                   "generation_attempt_id": 1, "generation_state": "ready"},
+                    draft_text="[SENSITIVE] Demo draft",
+                )
+            self.assertEqual(opener.return_value.open.call_count, 1)
 
-        self.assertIsNone(result)
         self.assertLess(time.perf_counter() - started, 2.0)
 
 

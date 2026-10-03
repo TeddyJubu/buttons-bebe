@@ -192,15 +192,12 @@ class DemoIsolationTests(unittest.TestCase):
 
 
 class OfflineImportGuardTests(unittest.TestCase):
-    """Both dotenv readers stay closed during a first import; no real .env is used."""
-
     SENTINEL = "OFFLINE_IMPORT_GUARD_SENTINEL"
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="offline-import-guard-")
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
-        # A synthetic dotenv file in a throwaway directory; never a repository .env.
         self.env_file = self.root / "synthetic.env"
         self.env_file.write_text(f"{self.SENTINEL}=from-synthetic-dotenv\n", encoding="utf-8")
         self.addCleanup(os.environ.pop, self.SENTINEL, None)
@@ -214,7 +211,6 @@ class OfflineImportGuardTests(unittest.TestCase):
         return SyntheticSettings
 
     def test_both_dotenv_readers_are_effective_without_the_guard(self) -> None:
-        # Control: proves the synthetic file is reachable, so the guard test is not vacuous.
         self.assertEqual(self._settings_class()().sentinel, "from-synthetic-dotenv")
         self.assertTrue(dotenv.load_dotenv(self.env_file))
         self.assertEqual(os.environ[self.SENTINEL], "from-synthetic-dotenv")
@@ -244,11 +240,20 @@ class OfflineImportGuardTests(unittest.TestCase):
         self.assertNotIn(self.SENTINEL, os.environ)
         self.assertEqual(imported.SETTINGS.sentinel, "")
         self.assertEqual(built_inside.sentinel, "")
-        # The guard is scoped: Pydantic's source is restored after the context.
         self.assertEqual(imported.Settings().sentinel, "from-synthetic-dotenv")
 
     def test_processor_settings_built_after_import_have_no_env_file(self) -> None:
         self.assertIsNone(ProcessorSettings.model_config["env_file"])
+
+    def test_guard_restores_both_readers_after_failed_import(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "synthetic import failure"):
+            with without_root_dotenv():
+                self.assertFalse(dotenv.load_dotenv(self.env_file))
+                self.assertEqual(self._settings_class()().sentinel, "")
+                raise RuntimeError("synthetic import failure")
+        self.assertIsNone(ProcessorSettings.model_config["env_file"])
+        self.assertEqual(self._settings_class()().sentinel, "from-synthetic-dotenv")
+        self.assertTrue(dotenv.load_dotenv(self.env_file))
 
 
 if __name__ == "__main__":

@@ -89,7 +89,6 @@ class RecordingGorgias:
 
 
 REAL_EXEC = rewrite_runner.asyncio.create_subprocess_exec
-# A local stand-in for Hermes: answers only inside the run-token tags it was given.
 FAKE_MODEL = ("import re,sys;t=re.search(r'<DRAFT:([a-f0-9]+)>',sys.argv[-1]).group(1);"
               "print(f'<DRAFT:{t}>{sys.argv[1]}</DRAFT:{t}>')")
 
@@ -116,8 +115,6 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         await session_store.register(session_claims(token, secret), self.db_path)
 
         transport = httpx.ASGITransport(app=app_module.app, raise_app_exceptions=False)
-        # The owner reaches the console through the signed session cookie and
-        # the public origin; the processor posts results over direct loopback.
         self.client = httpx.AsyncClient(
             transport=transport, base_url="http://demo.test",
             headers={"Origin": ORIGIN}, cookies={"bb_console_session": token},
@@ -155,11 +152,6 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         error: str | None = None,
         publish: bool = True,
     ) -> None:
-        """Ingest, claim and open one generation attempt, then optionally publish it.
-
-        ``publish=False`` leaves the claimed job with its running attempt so a
-        test can publish through the authenticated ``/results`` route.
-        """
         event = {
             "tenant_id": "cute-things-demo",
             "ticket_id": ticket_id,
@@ -247,7 +239,6 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         return await client.post(path, json=payload)
 
     def _action(self, message_id: str, text: str, **extra: Any) -> dict[str, Any]:
-        """A reviewed human action bound to the seeded source message and stored draft."""
         revision = hashlib.sha256(self.drafts[message_id].encode()).hexdigest()
         return {"operation_id": str(uuid.uuid4()), "source_message_id": message_id, "text": text,
                 "draft_revision": revision, "confirmed": True, **extra}
@@ -310,7 +301,6 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(malformed.status_code, 400)
         self.assertEqual(malformed.json()["error"], "invalid_json")
 
-        # The retired direct-result shape lacks the attempt identity and state.
         job_id, _attempt_id = self.attempts["m-high"]
         legacy = await self._post_result(
             {"ticket_id": 1001, "message_id": "m-high", "job_id": job_id,
@@ -387,19 +377,15 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
                          {"status": "ok", "generation_state": "ready"})
         self.assertTrue(await complete_job(job_id, db_path=self.db_path, require_result=True))
 
-        # A lost acknowledgement replays the identical payload: same answer, no new write.
         replay = await self._post_result(first)
         self.assertEqual((replay.status_code, replay.json()["generation_state"]), (200, "ready"))
-        # A different body for the closed attempt is answered read-only.
         rival = await self._post_result({**first, "draft_text": "Rival overwrite", "priority": "critical"})
         self.assertEqual((rival.status_code, rival.json()["generation_state"]), (200, "ready"))
         row = await self._ticket_row(1006)
         self.assertEqual((row["draft_text"], row["priority"]), ("First reviewed draft", "normal"))
 
-        # A completed job cannot open a second attempt that could replace the draft.
         self.assertIsNone(await begin_attempt(job_id, self.db_path))
 
-        # Attempt identity must match the job, ticket and message it was opened for.
         other_job, other_attempt = self.attempts["m-high"]
         for label, forged, status, error in (
             ("other-attempt", {**first, "generation_attempt_id": other_attempt}, 409, "generation_attempt_mismatch"),

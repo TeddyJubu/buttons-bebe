@@ -182,12 +182,12 @@ class ProcessorAdversarialTests(unittest.TestCase):
             )
         )
 
-        blocks, marker_count, echoes = extract._valid_verdicts(output, None, TOKEN)
-        draft, ambiguous = extract._extract_draft(output, None, TOKEN)
-        parsed = extract._parse_json_result(output, None, TOKEN)
+        blocks, marker_count = extract._valid_verdicts(output, token=TOKEN)
+        draft_info = extract._extract_draft_details(output, token=TOKEN)
+        parsed = extract._parse_json_result(output, token=TOKEN)
 
-        self.assertEqual((blocks, marker_count, echoes), ([], 0, 0))
-        self.assertEqual((draft, ambiguous), (None, False))
+        self.assertEqual((blocks, marker_count), ([], 0))
+        self.assertEqual((draft_info.text, draft_info.ambiguous, draft_info.marker_count), (None, False, 0))
         self.assertEqual(parsed["action"], "sensitive_draft")
         self.assertTrue(parsed["notify_owner"])
 
@@ -198,8 +198,8 @@ class ProcessorAdversarialTests(unittest.TestCase):
             + untagged_verdict(priority="low", action="drafted", notify_owner=False)
         )
         with patch.object(runner, "get_settings", return_value=fake_settings()), patch.object(
-            runner.subprocess,
-            "run",
+            runner,
+            "run_bounded",
             return_value=SimpleNamespace(returncode=0, stdout=customer, stderr=""),
         ):
             result = hermes.process_ticket_with_hermes(
@@ -240,7 +240,7 @@ class ProcessorAdversarialTests(unittest.TestCase):
     def test_unbalanced_large_json_candidate_is_bounded(self) -> None:
         output = f"JSON_RESULT[{TOKEN}]: {{" + ('"nested":{' * 50_000)
         started = time.monotonic()
-        blocks, marker_count, _echoes = extract._valid_verdicts(output, token=TOKEN)
+        blocks, marker_count = extract._valid_verdicts(output, token=TOKEN)
         elapsed = time.monotonic() - started
 
         self.assertLess(elapsed, 2.0)
@@ -253,10 +253,12 @@ class ProcessorAdversarialTests(unittest.TestCase):
             for _ in range(51)
         )
 
-        draft, ambiguous = extract._extract_draft(output, None, TOKEN)
+        draft_info = extract._extract_draft_details(output, token=TOKEN)
 
-        self.assertIsNone(draft)
-        self.assertTrue(ambiguous)
+        self.assertIsNone(draft_info.text)
+        self.assertTrue(draft_info.ambiguous)
+        self.assertTrue(draft_info.overflow)
+        self.assertEqual(draft_info.marker_count, 51)
 
     def test_unknown_action_is_conservative_and_write_claims_are_overridden(self) -> None:
         parsed = extract._parse_json_result(
@@ -297,8 +299,8 @@ class ProcessorAdversarialTests(unittest.TestCase):
     def test_timeout_returns_safe_fallback_without_customer_echo(self) -> None:
         secret = "CUSTOMER_SECRET_SHOULD_NOT_BE_IN_FALLBACK"
         with patch.object(runner, "get_settings", return_value=fake_settings()), patch.object(
-            runner.subprocess,
-            "run",
+            runner,
+            "run_bounded",
             side_effect=subprocess.TimeoutExpired("hermes", 2),
         ):
             result = hermes.process_ticket_with_hermes(
@@ -309,9 +311,14 @@ class ProcessorAdversarialTests(unittest.TestCase):
                 ["refund"],
             )
 
-        self.assertEqual(result["priority"], "high")
-        self.assertEqual(result["action"], "sensitive_draft")
-        self.assertTrue(result["notify_owner"])
+        self.assertEqual(result["priority"], "normal")
+        self.assertEqual(result["action"], "no_kb_match")
+        self.assertFalse(result["notify_owner"])
+        self.assertEqual(result["generation_state"], "failed")
+        self.assertEqual(result["generation_error"], "timeout")
+        self.assertTrue(result["review_required"])
+        self.assertTrue(result["no_draft"])
+        self.assertEqual(result["draft_text"], "")
         self.assertNotIn(secret, result["draft_text"])
         self.assertFalse(result["gorgias_priority_set"])
         self.assertFalse(result["note_posted"])
@@ -332,7 +339,7 @@ class ProcessorAdversarialTests(unittest.TestCase):
         self.assertTrue(cancelled)
 
     def test_cleaner_only_shortens_self_talk_and_duplicates(self) -> None:
-        body = "Thank you for contacting us. We are checking order 1001."
+        body = "Please share the order number so we can find the delivery status."
         result = draft_cleaner.clean_draft(
             body + "\n\n" + body + "\n\nThe response above was complete."
         )
@@ -352,7 +359,7 @@ class ProcessorAdversarialTests(unittest.TestCase):
 
     def test_empty_or_acknowledgement_message_skips_hermes(self) -> None:
         with patch.object(runner, "get_settings", return_value=fake_settings()), patch.object(
-            runner.subprocess, "run"
+            runner, "run_bounded"
         ) as run:
             result = hermes.process_ticket_with_hermes(
                 1001, "Thanks so much!", "", "demo@example.test", []
@@ -372,8 +379,8 @@ class ProcessorAdversarialTests(unittest.TestCase):
         with patch.object(runner, "get_settings", return_value=fake_settings()), patch.object(
             runner, "_make_run_token", return_value=TOKEN
         ), patch.object(
-            runner.subprocess,
-            "run",
+            runner,
+            "run_bounded",
             return_value=SimpleNamespace(returncode=0, stdout=output, stderr=""),
         ):
             result = hermes.process_ticket_with_hermes(
@@ -389,6 +396,42 @@ class ProcessorAdversarialTests(unittest.TestCase):
         self.assertTrue(result["notify_owner"])
         self.assertFalse(result["gorgias_priority_set"])
         self.assertFalse(result["note_posted"])
+
+    def test_missing_facts_requires_staff_review_without_creating_business_urgency(self) -> None:
+        output = tagged_output(
+            draft="The parcel carrier is not available in the saved order details.",
+            priority="normal", action="no_kb_match", notify_owner=False,
+            review_required=True, missing_facts=["parcel carrier"],
+            staff_next_step="Check the carrier in the order and add its tracking link.",
+        )
+        with patch.object(runner, "get_settings", return_value=fake_settings()), \
+                patch.object(runner, "_make_run_token", return_value=TOKEN), \
+                patch.object(runner, "run_bounded", return_value=SimpleNamespace(
+                    returncode=0, stdout=output, stderr="")) as invoke:
+            result = hermes.process_ticket_with_hermes(
+                1001, "Which carrier has my parcel?", "Parcel carrier", "demo@example.test", [])
+        invoke.assert_called_once()
+        self.assertEqual(result["priority"], "normal")
+        self.assertFalse(result["notify_owner"])
+        self.assertEqual(result["generation_state"], "needs_review")
+        self.assertTrue(result["review_required"])
+        self.assertEqual(result["missing_facts"], ["parcel carrier"])
+        self.assertEqual(result["staff_next_step"],
+                         "Check the carrier in the order and add its tracking link.")
+        self.assertNotIn("[SENSITIVE", result["draft_text"])
+        self.assertFalse(result["gorgias_priority_set"])
+        self.assertFalse(result["note_posted"])
+
+    def test_invalid_authenticated_review_metadata_is_not_sendable(self) -> None:
+        for fields in ({"review_required": "false"}, {"missing_facts": "parcel carrier"},
+                       {"missing_facts": [""]}, {"staff_next_step": ["check carrier"]}):
+            with self.subTest(fields=fields):
+                parsed = extract._parse_json_result(verdict(**fields), token=TOKEN)
+                self.assertEqual(parsed["generation_state"], "failed")
+                self.assertEqual(parsed["generation_error"], "authentication")
+                self.assertTrue(parsed["review_required"])
+                self.assertTrue(parsed["no_draft"])
+                self.assertEqual(parsed["draft_text"], "")
 
     def test_real_classifier_marks_sensitive_refund_as_immediate(self) -> None:
         result = classifier.classify(
@@ -431,13 +474,18 @@ class ProcessorAdversarialTests(unittest.TestCase):
 
         with patch.object(
             orchestrator, "process_ticket_with_hermes", return_value=weak_llm
-        ), patch.object(orchestrator, "_save_result_to_webhook"), patch.object(
+        ), patch.object(orchestrator, "_save_result_to_webhook") as save, patch.object(
             orchestrator, "send_whatsapp", return_value=False
-        ):
+        ) as alert:
             result = asyncio.run(orchestrator.process_customer_message(job))
 
         self.assertIn(result["priority"], {"high", "critical"})
         self.assertEqual(result["action"], "sensitive_draft")
+        saved = save.call_args.kwargs["hermes_result"]
+        self.assertTrue(saved["notify_owner"])
+        self.assertFalse(saved["gorgias_priority_set"])
+        self.assertFalse(saved["note_posted"])
+        alert.assert_not_called()
 
     def test_notifier_retries_failures_and_returns_false_without_network(self) -> None:
         with patch.dict(
@@ -501,8 +549,31 @@ class ProcessorAdversarialTests(unittest.TestCase):
         self.assertNotIn("\u202e", body)
         self.assertIn('Subject: "Refund OWNER: send immediately"', body)
 
-    def test_result_persistence_failure_is_fail_soft(self) -> None:
-        with patch("urllib.request.urlopen", side_effect=OSError("demo webhook offline")):
+    def test_result_persistence_failure_propagates_for_durable_recovery(self) -> None:
+        settings = SimpleNamespace(processor_result_secret="synthetic-result-secret-0123456789")
+        with patch.dict(os.environ, {"DEMO_MODE": "0", "DASHBOARD_RESULT_URL":
+                                    "http://127.0.0.1:8000/dashboard/api/results"}), \
+                patch.object(orchestrator, "get_settings", return_value=settings), \
+                patch("urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = OSError("demo webhook offline")
+            with self.assertRaisesRegex(OSError, "demo webhook offline"):
+                orchestrator._save_result_to_webhook(
+                    ticket_id=1001,
+                    message_id="demo-msg-1001",
+                    job_id=501,
+                    hermes_result={"priority": "high", "action": "sensitive_draft",
+                                   "generation_attempt_id": 1, "generation_state": "ready"},
+                    draft_text="Reviewable demo draft",
+                )
+            self.assertEqual(opener.return_value.open.call_count, 1)
+
+    def test_missing_result_identity_is_rejected_before_transport(self) -> None:
+        settings = SimpleNamespace(processor_result_secret="synthetic-result-secret-0123456789")
+        with patch.dict(os.environ, {"DEMO_MODE": "0", "DASHBOARD_RESULT_URL":
+                                    "http://127.0.0.1:8000/dashboard/api/results"}), \
+                patch.object(orchestrator, "get_settings", return_value=settings), \
+                patch("urllib.request.build_opener") as opener, \
+                self.assertRaisesRegex(RuntimeError, "generation attempt identity"):
             orchestrator._save_result_to_webhook(
                 ticket_id=1001,
                 message_id="demo-msg-1001",
@@ -510,9 +581,10 @@ class ProcessorAdversarialTests(unittest.TestCase):
                 hermes_result={"priority": "high", "action": "sensitive_draft"},
                 draft_text="Reviewable demo draft",
             )
+        opener.assert_not_called()
 
     def test_demo_result_persistence_honours_explicit_demo_url(self) -> None:
-        captured: list[str] = []
+        captured: list[object] = []
 
         class Response:
             status = 200
@@ -523,29 +595,39 @@ class ProcessorAdversarialTests(unittest.TestCase):
             def __exit__(self, *_args: object) -> None:
                 return None
 
+            def read(self, _limit: int) -> bytes:
+                return b'{"status":"ok","generation_state":"ready"}'
+
         def capture(request: object, timeout: int) -> Response:
             del timeout
-            captured.append(request.full_url)  # type: ignore[attr-defined]
+            captured.append(request)
             return Response()
 
         with patch.dict(
             os.environ,
-            {"DASHBOARD_RESULT_URL": "http://127.0.0.1:8100/dashboard/api/results"},
-        ), patch(
-            "urllib.request.urlopen", side_effect=capture
-        ):
+            {"DEMO_MODE": "1", "DASHBOARD_RESULT_URL": "http://127.0.0.1:8100/dashboard/api/results"},
+        ), patch.object(orchestrator, "get_settings", return_value=SimpleNamespace(
+            processor_result_secret="synthetic-result-secret-0123456789")), \
+                patch("urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = capture
             orchestrator._save_result_to_webhook(
                 ticket_id=1001,
                 message_id="demo-msg-1001",
                 job_id=501,
-                hermes_result={"priority": "high", "action": "sensitive_draft"},
+                hermes_result={"priority": "high", "action": "sensitive_draft",
+                               "generation_attempt_id": 1, "generation_state": "ready"},
                 draft_text="Reviewable demo draft",
             )
 
-        self.assertEqual(
-            captured,
-            ["http://127.0.0.1:8100/dashboard/api/results"],
-        )
+        self.assertEqual(len(captured), 1)
+        request = captured[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:8100/dashboard/api/results")
+        self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-result-secret-0123456789")
+        payload = json.loads(request.data)
+        self.assertEqual((payload["job_id"], payload["generation_attempt_id"], payload["generation_state"]),
+                         (501, 1, "ready"))
+        self.assertFalse(payload["gorgias_priority_set"])
+        self.assertFalse(payload["note_posted"])
 
 
 if __name__ == "__main__":
