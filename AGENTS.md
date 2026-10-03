@@ -70,21 +70,16 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    Authentication, invalid output and safety rejection require staff review.
    See docs/AI-REPLY-RELIABILITY.md for migrations and release checks.
 5. Jobs, results, alerts, and learning actions are all logged.
-6. The inbox's ticket-detail controls (status, priority, assignee, mark
-   read/unread, rename) are **first-party local state** — writes persist in
-   the operator's browser store only (`bb-inbox-*-v1` keys), visible in our
-   inbox, and never write Gorgias. The observed Gorgias values stay visible
-   beside any local override. Gorgias-side status/priority/assignment changes
-   remain Gorgias writes under (2)/(3): not implemented, and any future
-   exception needs the owner's sign-off plus an audit trail.
-7. The inbox's "New ticket" entry point creates a **local-only ticket**
-   (issue #38's model 1): the ticket lives in the operator's browser store
-   (`bb-inbox-local-tickets-v1`) with the same message shape as agent-side
-   intake, renders in our inbox only, and never writes Gorgias, never
-   notifies any customer. A real Gorgias-side create stays refused under
-   (2)/(3) until the owner names the exact write; a link-out "compose in
-   Gorgias" would be a UI-only change and still needs the owner's call. No
-   customer is notified without a human send under (3).
+6. The active Inbox displays observed status, priority and assignee without
+   edit controls. Rename is unavailable. Opening a ticket saves a browser-only
+   read marker under `bb-inbox-read-v1`; it never marks the ticket read in Gorgias.
+   Any future first-party overrides remain local. A provider-side status,
+   priority, assignment, rename or read-state write requires the owner's explicit
+   authorization and an audit trail.
+7. Ticket creation is unavailable in the active Inbox. The older local-ticket
+   prototype is historical. A future local-only ticket must remain browser-local
+   and notify nobody. Real Gorgias creation requires authorization for that exact
+   write. A customer reply still requires human review and confirmation under (3).
 
 ## 3. Where it runs
 
@@ -139,6 +134,8 @@ Gorgias webhook
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
 | `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). Lock changes deploy manually (`npm ci` runbook: `deploy/DEPENDENCY-READINESS.md`) — CD refuses dependency mutation. |
 | `console-src/index.html` | **THE** console SPA source (includes Notice Board tab); deployed to the web root by CD. |
+| `console-src/inbox2/` | Active `/inbox/` UI, credential-free read API and separate Shopify worker. |
+| `console-src/inbox/` | Required shared projection/Shopify modules and locked dependencies. No retired Inbox UI. |
 | ~~`dashboard/index.html`~~ | Deleted 2026-09-17 (Wave 2) — there is exactly one console surface now. |
 | `deploy/` | Only supported Caddy config (`caddy/Caddyfile.redacted`), CD receive script (`cd/`), systemd units, ENV-consolidation + heartbeat runbooks, tests. |
 | `testing/` | 48-scenario suite (`scenarios.json`), TEST-PLAN, judging rubric, HOW-TO-RUN. |
@@ -151,6 +148,9 @@ Gorgias webhook
 | Port | Service | systemd unit |
 |---|---|---|
 | 8000 | Webhook receiver + console API (uvicorn) | `buttonsbebe-webhook` |
+| 8767 | Active Inbox local read API | `helpdesk-inbox2` |
+| — | Separate Inbox customer enrichment worker | `buttonsbebe-inbox2-shop` |
+| — | AI snapshot export timer | `buttonsbebe-inbox-projection.timer` |
 | 8077 | KB MCP — `search_kb` | `buttonsbebe-kb-mcp` |
 | 8078 | Redo MCP | `buttonsbebe-redo-mcp` |
 | 8079 | Gorgias MCP | `buttonsbebe-gorgias-mcp` |
@@ -161,7 +161,7 @@ Gorgias webhook
 
 Caddy (`deploy/caddy/Caddyfile.redacted` is the only supported source;
 `webhook/Caddyfile` is marked RETIRED): session-protected console at
-`https://srv1766050.hstgr.cloud/console/` (`/console/*`, rewritten internally
+`https://support.buttonsbebe.com/console/` (`/console/*`, rewritten internally
 to `/dashboard/api/*`; `/console/kbapi` → :8087, `/console/waapi` → :8085).
 `/console/login` and `/console/api/auth/*` are the only public console
 bootstrap paths; all console data and mutation routes require the signed
@@ -272,8 +272,8 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. **Stale layout:** root `README.md`
-(describes the retired `gorgias-webhook/` + `teddy/` design).
+`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. Older
+`gorgias-webhook/` and `teddy/` layouts are historical.
 
 ## 11. Knowledge base & learning loop (deep details)
 

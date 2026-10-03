@@ -1,3 +1,5 @@
+> Historical Inbox1 evidence. The service is retired and masked. Do not execute its setup or rollback instructions. Use [active source recovery](cd/README.md) and [Inbox](../console-src/inbox2/README.md).
+
 # Inbox connection isolation
 
 The dedicated inbox reads local SQLite snapshots and files. All outbound integrations are disabled. It does not require outbound TCP or UNIX connections. The `helpdesk-inbox` unit denies the `connect` syscall with EPERM; bind/listen/accept and writes on accepted Caddy sockets remain allowed. Existing localhost address restrictions remain in place.

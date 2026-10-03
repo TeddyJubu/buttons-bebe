@@ -7,7 +7,7 @@ enabled. Related keeper runbooks:
 
 - [Recovery pack](RECOVERY-PACK.md) — explicit encrypted recovery, beyond the scheduled backup
 - [WhatsApp dependency switch](WHATSAPP-DEPENDENCY-SWITCH.md) — manual scoped node_modules replacement
-- [Inbox network isolation](INBOX-NETWORK-ISOLATION.md) — connect-denial evidence and constraints for the dedicated inbox
+- [Active Inbox](../console-src/inbox2/README.md) describes the current services. The [Inbox1 isolation report](INBOX-NETWORK-ISOLATION.md) is historical evidence only.
 - [Hermes MCP 2 field compatibility](HERMES-MCP2-COMPAT.md) — SDK field-name repair, dry-run-by-default
 - [Dependency readiness](DEPENDENCY-READINESS.md) — npm-ci lock deploy procedure for whatsapp-connect
 
