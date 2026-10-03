@@ -7,10 +7,12 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from bb_webhook.database import init_db
 from bb_webhook.db import Database
-from gorgias_reconcile import reconcile_page
+from gorgias_reconcile import reconcile_page, reconcile_loop, SweepPosition
+import gorgias_reconcile
 
 
 WHEN = "2026-09-25T14:39:03+00:00"
@@ -30,10 +32,11 @@ def message(message_id=730082445, *, agent=False, at=WHEN, body="Please help wit
 
 
 class FakeMCP:
-    def __init__(self, tickets, messages):
-        self.tickets = tickets
+    def __init__(self, tickets, messages, *, pages=None):
+        self.pages = pages if pages is not None else {None:(tickets, 'older'), 'older':([], None)}
         self.messages = messages
         self.detail_calls = []
+        self.list_calls = []
 
     async def __aenter__(self):
         return self
@@ -43,11 +46,20 @@ class FakeMCP:
 
     async def call(self, tool, arguments):
         if tool == "list_inbox_tickets":
-            return {"data": self.tickets, "meta": {"next_cursor": "older"}}
+            cursor=arguments.get('cursor')
+            self.list_calls.append(cursor)
+            page=self.pages[cursor]
+            if isinstance(page, BaseException):
+                raise page
+            data, next_cursor=page
+            return {"data":data, "meta":{"next_cursor":next_cursor}}
         assert tool == "get_ticket_messages"
         ticket_id = arguments["ticket_id"]
         self.detail_calls.append(ticket_id)
-        return {"data": self.messages[ticket_id]}
+        data=self.messages.get(ticket_id, [])
+        if isinstance(data, BaseException):
+            raise data
+        return {"data":data}
 
 
 class ReconcileTests(unittest.IsolatedAsyncioTestCase):
@@ -55,13 +67,14 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp.name) / "webhook.db"
         await init_db(self.db_path)
+        self.position=SweepPosition()
         self.now = datetime(2026, 9, 25, 14, 40, tzinfo=timezone.utc).timestamp()
 
     async def asyncTearDown(self):
         self.temp.cleanup()
 
     async def scan(self, client, **kwargs):
-        return await reconcile_page(self.db_path, "buttonsbebe", client_factory=lambda: client,
+        return await reconcile_page(self.db_path, "buttonsbebe", self.position, client_factory=lambda: client,
                                     now=self.now, **kwargs)
 
     def rows(self, sql):
@@ -78,13 +91,13 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source["source"], "gorgias_reconciliation")
         self.assertEqual(self.rows("SELECT message_text FROM parsed_messages"),
                          [("Please help with my order.",)])
-        self.assertEqual(await self.scan(client), ("older", 0))
+        self.assertEqual(await self.scan(client), (None, 0))
         self.assertEqual(client.detail_calls, [284477559])
 
     async def test_agent_replied_ticket_is_not_drafted_or_refetched(self):
         client = FakeMCP([ticket()], {284477559: [message(730082446, agent=True), message()]})
         self.assertEqual(await self.scan(client), ("older", 0))
-        self.assertEqual(await self.scan(client), ("older", 0))
+        self.assertEqual(await self.scan(client), (None, 0))
         self.assertEqual(client.detail_calls, [284477559])
         self.assertEqual(self.rows("SELECT COUNT(*) FROM job_queue"), [(0,)])
 
@@ -107,15 +120,33 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
             await Database(self.db_path).execute("""INSERT INTO parsed_messages
                 (message_id,ticket_id,event_type,author_type,is_customer_message,created_at,received_at)
                 VALUES ('legacy',284477559,'message','customer',1,?,?)""", (local, WHEN))
+            self.position=SweepPosition()
             client=FakeMCP([ticket(received=summary)], {284477559:[message()]})
             self.assertEqual(await self.scan(client), ('older', 0))
             self.assertEqual(client.detail_calls, [])
+
+    async def test_earlier_offset_and_invalid_local_time_do_not_hide_recoverable_message(self):
+        for local in ('2026-09-25T16:00:00+02:00', 'invalid'):
+            await Database(self.db_path).execute('DELETE FROM parsed_messages')
+            await Database(self.db_path).execute('DELETE FROM webhook_events')
+            await Database(self.db_path).execute('DELETE FROM job_queue')
+            await Database(self.db_path).execute('DELETE FROM gorgias_reconcile_seen')
+            await Database(self.db_path).execute("""INSERT INTO parsed_messages
+                (message_id,ticket_id,event_type,author_type,is_customer_message,created_at,received_at)
+                VALUES ('legacy',284477559,'message','customer',1,?,?)""", (local, WHEN))
+            self.position=SweepPosition()
+            client=FakeMCP([ticket()], {284477559:[message()]})
+            self.assertEqual(await self.scan(client), ('older', 1))
+            self.assertEqual(client.detail_calls, [284477559])
+            self.assertEqual(self.rows("SELECT created_at FROM parsed_messages WHERE message_id='legacy'"), [(local,)])
+            self.assertEqual(self.rows('SELECT COUNT(*) FROM job_queue'), [(1,)])
 
     async def test_recovery_normalizes_utc_and_rejects_timezone_free_provider_time(self):
         client=FakeMCP([ticket(received='2026-09-25T16:39:03+02:00')],
             {284477559:[message(at='2026-09-25T16:39:03+02:00')]})
         self.assertEqual(await self.scan(client), ('older', 1))
         self.assertEqual(self.rows('SELECT created_at FROM parsed_messages'), [(WHEN,)])
+        self.position=SweepPosition()
         invalid=FakeMCP([ticket(999, received='2026-09-25T14:39:03')], {})
         self.assertEqual(await self.scan(invalid), ('older', 0))
         self.assertEqual(invalid.detail_calls, [])
@@ -124,6 +155,8 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         later = "2026-09-25T14:40:00+00:00"
         client = FakeMCP([ticket(received=later)], {284477559: [message()]})
         self.assertEqual(await self.scan(client), ("older", 0))
+        self.assertEqual(await self.scan(client), (None, 0))
+        self.assertEqual(client.detail_calls, [284477559])
         self.assertEqual(await self.scan(client), ("older", 0))
         self.assertEqual(client.detail_calls, [284477559, 284477559])
         self.assertEqual(self.rows("SELECT COUNT(*) FROM gorgias_reconcile_seen"), [(0,)])
@@ -145,6 +178,133 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         await Database(self.db_path).execute("UPDATE job_queue SET status='done'")
         self.assertEqual(await self.scan(client, max_active_jobs=1), ("older", 1))
         self.assertEqual(client.detail_calls, [284477559, 284938147])
+
+    async def test_sixth_candidate_gets_turn_after_five_failed_details(self):
+        clients=FakeMCP([ticket(n) for n in range(1, 7)],
+            {n:RuntimeError('Synthetic read failure') for n in range(1, 6)} | {6:[{**message(600), 'ticket_id':6}]})
+        self.assertEqual(await self.scan(clients), (None, 0))
+        self.assertEqual(clients.detail_calls, [1,2,3,4,5])
+        self.assertEqual([t['id'] for t in self.position.batch.remaining], [6])
+        self.assertEqual(await self.scan(clients), ('older', 1))
+        self.assertEqual(clients.list_calls, [None])
+        self.assertEqual(clients.detail_calls, [1,2,3,4,5,6])
+        self.assertEqual(self.rows('SELECT ticket_id,message_id FROM job_queue'), [(6,'600')])
+        self.assertEqual(await self.scan(clients), (None, 0))
+        self.assertEqual(await self.scan(clients), (None, 0))
+        self.assertEqual(await self.scan(clients), ('older', 0))
+        self.assertEqual(clients.detail_calls, [1,2,3,4,5,6,1,2,3,4,5])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM job_queue'), [(1,)])
+
+    async def test_capacity_preserves_unattempted_captured_candidate(self):
+        client=FakeMCP([ticket(1),ticket(2)],
+            {n:[{**message(n*100), 'ticket_id':n}] for n in (1,2)})
+        self.assertEqual(await self.scan(client, max_active_jobs=1), (None, 1))
+        self.assertEqual([t['id'] for t in self.position.batch.remaining], [2])
+        self.assertEqual(await self.scan(client, max_active_jobs=1), (None, 0))
+        self.assertEqual(client.list_calls, [None])
+        self.assertEqual(client.detail_calls, [1])
+        self.assertEqual([t['id'] for t in self.position.batch.remaining], [2])
+        await Database(self.db_path).execute("UPDATE job_queue SET status='done'")
+        self.assertEqual(await self.scan(client, max_active_jobs=1), ('older', 1))
+        self.assertEqual(client.list_calls, [None])
+        self.assertEqual(client.detail_calls, [1,2])
+
+    async def test_changing_page_does_not_expand_or_replace_captured_batch(self):
+        client=FakeMCP([ticket(n) for n in range(1, 103)], {})
+        self.assertEqual(await self.scan(client, max_details=1000), (None, 0))
+        self.assertEqual(len(self.position.batch.remaining), 95)
+        original=self.position.batch.remaining[0]
+        client.pages[None]=([ticket(n, received='2026-09-25T14:40:00Z') for n in range(201, 301)], 'older')
+        for _ in range(19):
+            await self.scan(client)
+        self.assertIsNone(self.position.batch)
+        self.assertEqual(client.list_calls, [None])
+        self.assertEqual(client.detail_calls, list(range(1,101)))
+        self.assertEqual(original['updated_datetime'], WHEN)
+        await self.scan(client)
+        await self.scan(client)
+        self.assertEqual(client.list_calls, [None, 'older', None])
+        self.assertEqual(client.detail_calls[-5:], [201,202,203,204,205])
+        self.assertEqual(len(self.position.batch.remaining), 95)
+
+    async def run_loop_turns(self, client, turns, on_sleep=None):
+        sleeps=0
+        async def stop(_seconds):
+            nonlocal sleeps
+            sleeps+=1
+            if on_sleep:
+                on_sleep(sleeps)
+            if sleeps >= turns:
+                raise asyncio.CancelledError()
+        with patch.object(gorgias_reconcile.asyncio, 'sleep', side_effect=stop), patch.object(gorgias_reconcile.time, 'time', return_value=self.now):
+            with self.assertRaises(asyncio.CancelledError):
+                await reconcile_loop(self.db_path, 'buttonsbebe', client_factory=lambda:client)
+
+    async def test_loop_reaches_page_six_terminal_and_next_sweep_after_head_refresh(self):
+        client=FakeMCP([], {}, pages={None:([ticket(1)],'p2')} | {
+            f'p{n}':([ticket(n)], f'p{n+1}' if n<6 else None) for n in range(2,7)})
+        await self.run_loop_turns(client, 9)
+        self.assertEqual(client.list_calls, [None,'p2','p3','p4','p5',None,'p6',None,'p2'])
+        self.assertEqual(client.detail_calls, [1,2,3,4,5,1,6,1,2])
+
+    async def test_head_refresh_has_five_turns_and_preserves_captured_older_batch(self):
+        client=FakeMCP([], {}, pages={None:([ticket(n) for n in range(1,31)], 'older'), 'older':([], None)})
+        def replace_head(sleeps):
+            if sleeps==5:
+                client.pages[None]=([ticket(n) for n in range(999,1009)], 'older')
+        await self.run_loop_turns(client, 8, replace_head)
+        self.assertEqual(client.list_calls, [None,None,'older'])
+        self.assertEqual(client.detail_calls, list(range(1,26))+list(range(999,1004))+list(range(26,31)))
+
+    async def test_failed_head_refresh_preserves_older_batch(self):
+        client=FakeMCP([], {}, pages={None:([ticket(n) for n in range(1,31)], 'older'), 'older':([], None)})
+        def fail_head(sleeps):
+            if sleeps==5:
+                client.pages[None]=ValueError('Synthetic head read failure')
+        await self.run_loop_turns(client, 8, fail_head)
+        self.assertEqual(client.list_calls, [None,None,'older'])
+        self.assertEqual(client.detail_calls, list(range(1,31)))
+
+    async def test_invalid_traversal_cursor_resets_to_head(self):
+        client=FakeMCP([], {}, pages={None:([], 'expired'), 'expired':ValueError('Invalid synthetic cursor')})
+        await self.run_loop_turns(client, 3)
+        self.assertEqual(client.list_calls, [None,'expired',None])
+        self.assertEqual(client.detail_calls, [])
+
+    async def test_cancelled_detail_propagates_without_seen_or_queue_write(self):
+        client=FakeMCP([ticket()], {284477559:asyncio.CancelledError()})
+        with self.assertRaises(asyncio.CancelledError):
+            await self.scan(client)
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM job_queue'), [(0,)])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM gorgias_reconcile_seen'), [(0,)])
+
+    async def test_restart_after_intake_before_seen_keeps_exactly_one_job(self):
+        client=FakeMCP([ticket()], {284477559:[message()]})
+        with patch.object(gorgias_reconcile, '_mark_seen', side_effect=RuntimeError('Synthetic process exit')):
+            with self.assertRaises(RuntimeError):
+                await self.scan(client)
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM job_queue'), [(1,)])
+        self.position=SweepPosition()
+        self.assertEqual(await self.scan(client), ('older', 0))
+        self.assertEqual(client.detail_calls, [284477559])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM job_queue'), [(1,)])
+
+    async def test_new_ticket_version_is_eligible_in_later_batch(self):
+        client=FakeMCP([ticket()], {284477559:[message(730082446, agent=True)]})
+        self.assertEqual(await self.scan(client), ('older', 0))
+        client.pages[None]=([ticket(received='2026-09-25T14:40:00Z')], 'older')
+        client.messages[284477559]=[message(730082447, at='2026-09-25T14:40:00Z')]
+        self.assertEqual(await self.scan(client), (None, 0))
+        self.assertEqual(await self.scan(client), ('older', 1))
+        self.assertEqual(client.detail_calls, [284477559,284477559])
+        self.assertEqual(self.rows('SELECT message_id FROM job_queue'), [('730082447',)])
+
+    async def test_zero_capacity_does_not_fetch_or_capture_page(self):
+        client=FakeMCP([ticket()], {284477559:[message()]})
+        self.assertEqual(await self.scan(client, max_active_jobs=0), (None, 0))
+        self.assertIsNone(self.position.batch)
+        self.assertEqual(client.list_calls, [])
+        self.assertEqual(client.detail_calls, [])
 
 
 if __name__ == "__main__":
