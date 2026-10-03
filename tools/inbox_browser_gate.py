@@ -8,6 +8,7 @@ The exact process is stopped and reaped on every exit path.
 """
 from __future__ import annotations
 
+from collections import deque
 from contextlib import contextmanager
 import json
 import os
@@ -41,21 +42,29 @@ def free_port() -> int:
 
 def _drain(stream, lines: queue.Queue) -> None:
     for line in stream:
-        lines.put(line.rstrip("\n"))
+        while True:
+            try:
+                lines.put_nowait(line.rstrip("\n")[:4096])
+                break
+            except queue.Full:
+                try:
+                    lines.get_nowait()
+                except queue.Empty:
+                    pass
 
 
 def _wait_until_ready(proc: subprocess.Popen, lines: queue.Queue, port: int, timeout: float) -> None:
     ready = f"Synthetic Inbox preview: http://127.0.0.1:{port}/inbox/"
     deadline = time.monotonic() + timeout
-    output: list[str] = []
+    output = deque(maxlen=5)
     while True:
+        if proc.poll() is not None:
+            raise GateError(f"preview exited ({proc.returncode}) before it was ready: {list(output)}")
+        if time.monotonic() >= deadline:
+            raise GateError("preview did not print its ready line")
         try:
             line = lines.get(timeout=0.1)
         except queue.Empty:
-            if proc.poll() is not None:
-                raise GateError(f"preview exited ({proc.returncode}) before it was ready: {output[-5:]}") from None
-            if time.monotonic() > deadline:
-                raise GateError("preview did not print its ready line") from None
             continue
         output.append(line)
         if line == ready:
@@ -92,7 +101,7 @@ def stop(proc: subprocess.Popen) -> None:
 def preview(command: list[str], port: int, timeout: float = 20):
     """Yield (process, base URL) for a ready, live, healthy spawned preview."""
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    lines: queue.Queue = queue.Queue()
+    lines: queue.Queue = queue.Queue(maxsize=64)
     reader = threading.Thread(target=_drain, args=(proc.stdout, lines), daemon=True)
     reader.start()
     try:

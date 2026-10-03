@@ -1,12 +1,14 @@
 """Preview ownership and cleanup for the Inbox browser gate; no browser needed."""
 import io
+from itertools import count
+import queue
 import socket
 import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import inbox_browser_gate as gate
 
@@ -54,6 +56,24 @@ class InboxBrowserGateTests(unittest.TestCase):
             with self.assertRaisesRegex(gate.GateError, "exited"):
                 with gate.preview(real_preview(port), port, timeout=10):
                     self.fail("an occupied port was accepted")
+
+    def test_continuous_output_cannot_extend_the_ready_deadline(self):
+        proc = Mock()
+        proc.poll.return_value = None
+        lines = Mock()
+        lines.get.side_effect = ["preview log"] * 20 + [AssertionError("deadline bypassed")]
+        clock = count(0, 0.05)
+        with (patch.object(gate.time, "monotonic", side_effect=lambda: next(clock)),
+              patch.object(gate._LOOPBACK, "open") as health):
+            with self.assertRaisesRegex(gate.GateError, "ready line"):
+                gate._wait_until_ready(proc, lines, 12345, 0.2)
+        health.assert_not_called()
+
+    def test_output_tail_keeps_recent_lines_without_blocking_the_reader(self):
+        lines = queue.Queue(maxsize=2)
+        gate._drain(io.StringIO("first\nsecond\nlatest\n"), lines)
+        self.assertEqual([lines.get_nowait(), lines.get_nowait()], ["second", "latest"])
+        self.assertTrue(lines.empty())
 
     def test_ready_line_without_a_live_healthy_process_is_rejected(self):
         exits = self.script("exits.py", """
