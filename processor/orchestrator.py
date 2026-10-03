@@ -183,6 +183,11 @@ def _save_result_to_webhook(
     secret = configured_secret(get_settings())
     if not secret:
         raise RuntimeError("Result persistence credential is not configured")
+    attempt_id = hermes_result.get('generation_attempt_id')
+    if type(job_id) is not int or job_id <= 0 or type(attempt_id) is not int or attempt_id <= 0:
+        raise RuntimeError("Result publication requires job and generation attempt identity")
+    if hermes_result.get('generation_state') not in {'ready', 'needs_review', 'no_reply', 'failed'}:
+        raise RuntimeError("Result publication requires generation state")
     payload = json.dumps({
         "ticket_id": ticket_id,
         "message_id": str(message_id),
@@ -213,7 +218,9 @@ def _save_result_to_webhook(
         if not 200 <= resp.status < 300:
             raise RuntimeError(f"Result persistence HTTP status {resp.status}")
         acknowledgement = json.loads(resp.read(4097))
-        if not isinstance(acknowledgement, dict) or acknowledgement.get("status") != "ok":
+        if (not isinstance(acknowledgement, dict) or acknowledgement.get("status") != "ok"
+                or acknowledgement.get("generation_state") not in {
+                    'ready', 'needs_review', 'no_reply', 'failed', 'retry_wait', 'superseded'}):
             raise RuntimeError("Result persistence acknowledgement missing")
     log_event(logger, "DEBUG", "Result acknowledged by dashboard API", ticket_id=ticket_id)
 

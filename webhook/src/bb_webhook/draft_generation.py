@@ -174,6 +174,11 @@ async def begin_attempt(job_id, db_path=None, *, priority_context=None):
 
 async def finish_attempt(payload, db_path=None):
     """Atomically publish a candidate and schedule a failure's delayed retry."""
+    if any(type(payload.get(key)) is not int or payload[key] <= 0
+           for key in ('generation_attempt_id', 'job_id', 'ticket_id')):
+        raise ActionConflict('generation_identity_required', 400)
+    if payload.get('generation_state') not in {'ready', 'needs_review', 'no_reply', 'failed'}:
+        raise ActionConflict('invalid_generation_state', 400)
     async def transaction(conn):
         attempt = await one(conn, "SELECT * FROM draft_generation_attempts WHERE id=?",
                             (payload["generation_attempt_id"],))
@@ -185,7 +190,7 @@ async def finish_attempt(payload, db_path=None):
         job = await one(conn, "SELECT * FROM job_queue WHERE id=?", (attempt["job_id"],))
         row = await one(conn, "SELECT * FROM ticket_results WHERE ticket_id=? AND message_id=?", identity[1:])
         problem = await conflict(conn, identity[1], identity[2])
-        if job["status"] != "processing" or revision(row.get("draft_text") if row else "") != attempt["expected_revision"]:
+        if not job or job["status"] != "processing" or revision(row.get("draft_text") if row else "") != attempt["expected_revision"]:
             problem = "draft_changed_refresh_ticket"
         if row and result_state(row) not in {"failed", "retry_wait"}:
             problem = "successful_draft_already_exists"
@@ -195,11 +200,9 @@ async def finish_attempt(payload, db_path=None):
             await conn.execute("""UPDATE draft_generation_attempts SET outcome='superseded',
                 error_code=?,finished_at=?,duration_ms=? WHERE id=?""", (problem, ended, duration, attempt["id"]))
             await conn.execute("UPDATE job_queue SET status='skipped',finished_at=?,error=? WHERE id=?",
-                               (ended, problem, job["id"]))
+                               (ended, problem, attempt["job_id"]))
             return "superseded"
-        state = payload.get("generation_state") or ("ready" if payload.get("draft_text") else "needs_review")
-        if state not in {"ready", "needs_review", "no_reply", "failed"}:
-            raise ActionConflict("invalid_generation_state", 400)
+        state = payload["generation_state"]
         if state == "ready" and not str(payload.get("draft_text") or "").strip():
             raise ActionConflict("ready_draft_required", 400)
         retry_at = None

@@ -509,35 +509,6 @@ async def get_parsed_messages(
     return [dict(row) for row in (rows or [])]
 
 
-async def record_ticket_result(
-    ticket_id: int,
-    message_id: str,
-    job_id: int | None,
-    priority: str,
-    action: str,
-    reason: str,
-    notify_owner: bool,
-    gorgias_priority_set: bool,
-    note_posted: bool,
-    draft_text: str | None = None,
-    db_path: Path | None = None,
-) -> None:
-    """Store the first committed result; replay cannot replace a reviewed draft."""
-    db = Database(db_path)
-    now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
-        """INSERT INTO ticket_results
-           (ticket_id, message_id, job_id, priority, action, reason,
-            notify_owner, gorgias_priority_set, note_posted, draft_text, processed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(ticket_id, message_id) DO NOTHING""",
-        (ticket_id, message_id, job_id, priority, action, reason,
-         int(notify_owner), int(gorgias_priority_set), int(note_posted),
-         draft_text, now),
-        operation="record_ticket_result",
-    )
-
-
 async def get_job_result(job_id: int, db_path: Path | None = None) -> dict | None:
     """Return only a durable result matching the claimed job's full identity."""
     rows = await Database(db_path).fetch(

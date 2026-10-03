@@ -12,7 +12,8 @@ class RetryApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await setup_action_case(self)
         await Database(self.path).execute("DELETE FROM ticket_results")
-        self.job = await database.enqueue_job('test',1,'source-1','message','customer',True,{},self.path)
+        self.job = self.job_id
+        await Database(self.path).execute("UPDATE job_queue SET status='pending',generation_cycle_attempts=0,generation_expected_revision=NULL WHERE id=?", (self.job,))
         await database.claim_job(self.job, self.path)
         attempt = await draft_generation.begin_attempt(self.job, self.path)
         await draft_generation.finish_attempt(dict(generation_attempt_id=attempt,
@@ -76,3 +77,28 @@ class RetryApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(projected['generation_state'],'needs_review')
         self.assertEqual(projected['missing_facts'],['Sleeve length'])
         self.assertEqual(projected['staff_next_step'],payload['staff_next_step'])
+
+    async def test_publication_requires_identity_state_and_matching_attempt(self):
+        self.settings.processor_result_secret='synthetic-result-secret-0123456789'
+        await self.client.post(self.url, json=self.body)
+        await database.claim_job(self.job, self.path)
+        attempt=await draft_generation.begin_attempt(self.job, self.path)
+        payload=dict(generation_attempt_id=attempt, job_id=self.job, ticket_id=1,
+            message_id='source-1', priority='normal', action='drafted', draft_text='Grounded answer',
+            generation_state='ready')
+        headers={'Authorization':'Bearer '+self.settings.processor_result_secret}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app_module.app), base_url='http://127.0.0.1') as producer:
+            for missing in ('generation_attempt_id', 'job_id', 'generation_state'):
+                response=await producer.post('/dashboard/api/results', headers=headers,
+                    json={k:v for k,v in payload.items() if k!=missing})
+                self.assertEqual(response.status_code, 400)
+            for field, wrong in (('job_id', self.job+100), ('ticket_id', 2), ('message_id', 'other')):
+                response=await producer.post('/dashboard/api/results', headers=headers, json={**payload, field:wrong})
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json()['error'], 'generation_attempt_mismatch')
+            response=await producer.post('/dashboard/api/results', headers=headers, json=payload)
+            self.assertEqual(response.json(), {'status':'ok', 'generation_state':'ready'})
+            await database.complete_job(self.job, db_path=self.path, require_result=True)
+            replay=await producer.post('/dashboard/api/results', headers=headers, json={**payload, 'draft_text':'Changed replay'})
+            self.assertEqual(replay.json(), response.json())
+        self.assertEqual((await database.get_job_result(self.job, self.path))['draft_text'], 'Grounded answer')

@@ -44,6 +44,20 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
     async def make_due(self):
         await Database(self.path).execute("UPDATE job_queue SET next_attempt_at='2000-01-01' WHERE id=?",(self.job['id'],))
 
+    async def test_pending_job_cannot_begin_or_publish_without_attempt(self):
+        self.assertIsNone(await generation.begin_attempt(self.job['id'], self.path))
+        with self.assertRaises(ActionConflict) as refusal:
+            await generation.finish_attempt(self.result(None, 'ready', None, 'Unclaimed reply'), self.path)
+        self.assertEqual(refusal.exception.error, 'generation_identity_required')
+        self.assertIsNone(await db.get_job_result(self.job['id'], self.path))
+
+    async def test_missing_job_cannot_publish_running_attempt(self):
+        attempt=await self.start()
+        await Database(self.path).execute('DELETE FROM job_queue WHERE id=?', (self.job['id'],))
+        self.assertEqual(await generation.finish_attempt(self.result(attempt, 'ready', None, 'Orphan reply'), self.path), 'superseded')
+        rows=await Database(self.path).fetch('SELECT * FROM ticket_results')
+        self.assertEqual(rows, [])
+
     async def test_two_durable_delayed_retries_then_exhaustion(self):
         for number, delay in ((1,30),(2,120),(3,None)):
             attempt = await self.start()
@@ -138,8 +152,11 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.start())
 
     async def test_legacy_failure_only_is_hidden_and_not_automatically_requeued(self):
-        await db.record_ticket_result(123,'m1',self.job['id'],'high','sensitive_draft',
-            'Hermes invocation failed — defaulting to high for safety',True,False,False,'Old fallback',self.path)
+        await Database(self.path).execute("""INSERT INTO ticket_results
+            (ticket_id,message_id,job_id,priority,action,reason,notify_owner,draft_text,processed_at)
+            VALUES (123,'m1',?,'high','sensitive_draft',
+            'Hermes invocation failed - defaulting to high for safety',1,'Old fallback',?)""",
+            (self.job['id'], '2026-09-26T01:00:01+00:00'))
         await db.claim_job(self.job['id'],self.path)
         await db.complete_job(self.job['id'],db_path=self.path,require_result=True)
         rows=await db.get_dashboard_tickets(db_path=self.path)

@@ -64,7 +64,7 @@ class ResultPayload(BaseModel):
 
     ticket_id: int = Field(gt=0, le=9_223_372_036_854_775_807)
     message_id: str | int = Field(max_length=128)
-    job_id: int | None = Field(default=None, gt=0)
+    job_id: int = Field(gt=0, le=9_223_372_036_854_775_807)
     priority: Literal["critical", "high", "normal", "low"]
     action: Literal["drafted", "sensitive_draft", "escalated", "no_kb_match", "no_draft_needed"]
     reason: str = Field(default="", max_length=2_000)
@@ -72,8 +72,8 @@ class ResultPayload(BaseModel):
     notify_owner: StrictBool = False
     gorgias_priority_set: StrictBool = False
     note_posted: StrictBool = False
-    generation_attempt_id: int | None = Field(default=None, gt=0)
-    generation_state: Literal['ready','needs_review','no_reply','failed'] | None = None
+    generation_attempt_id: int = Field(gt=0, le=9_223_372_036_854_775_807)
+    generation_state: Literal['ready','needs_review','no_reply','failed']
     generation_error: Literal['timeout','process_exit','runtime_error','authentication','invalid_output','safety_rejected'] | None = None
     review_required: StrictBool = False
     staff_next_step: str = Field(default='', max_length=1000)
@@ -81,17 +81,10 @@ class ResultPayload(BaseModel):
 
     @model_validator(mode='after')
     def _coherent_generation(self):
-        if self.generation_attempt_id is None and (
-                self.generation_state is not None or self.generation_error is not None
-                or self.review_required or self.staff_next_step or self.missing_facts):
-            raise ValueError('generation_attempt_required_for_metadata')
-        if self.generation_attempt_id is not None:
-            if not self.job_id or not self.generation_state:
-                raise ValueError('generation_identity_and_state_required')
-            if self.generation_state == 'failed' and not self.generation_error:
-                raise ValueError('failed_generation_error_required')
-            if self.generation_state == 'needs_review' and not self.staff_next_step.strip():
-                raise ValueError('staff_task_required')
+        if self.generation_state == 'failed' and not self.generation_error:
+            raise ValueError('failed_generation_error_required')
+        if self.generation_state == 'needs_review' and not self.staff_next_step.strip():
+            raise ValueError('staff_task_required')
         return self
 
     @field_validator('missing_facts')
@@ -101,13 +94,9 @@ class ResultPayload(BaseModel):
             raise ValueError('invalid_missing_facts')
         return value
 
-    @field_validator("ticket_id", "job_id", mode="before")
+    @field_validator("ticket_id", "job_id", "generation_attempt_id", mode="before")
     @classmethod
     def _reject_non_int_id(cls, value):
-        # Legacy hand validation accepted only type(value) is int
-        # (job_id additionally allows absent/None).
-        if value is None:
-            return None
         if type(value) is not int:
             raise ValueError("not an id")
         return value
@@ -148,7 +137,8 @@ async def record_result_api(request: Request) -> JSONResponse:
     if not isinstance(body, dict):
         return JSONResponse(status_code=400, content={"error": "invalid_json_object"})
 
-    required = {"ticket_id", "message_id", "priority", "action"}
+    required = {"ticket_id", "message_id", "priority", "action", "job_id",
+                "generation_attempt_id", "generation_state"}
     if not required.issubset(body.keys()):
         return JSONResponse(
             status_code=400,
@@ -163,28 +153,13 @@ async def record_result_api(request: Request) -> JSONResponse:
         key = _FIELD_ERRORS.get(field, f"invalid_{field}" if field else "invalid_request")
         return JSONResponse(status_code=400, content={"error": key})
 
-    if payload.generation_attempt_id is not None:
-        from ..draft_generation import finish_attempt
-        from ..send_intents import ActionConflict
-        try:
-            state = await finish_attempt(payload.model_dump(), deps.get_db())
-        except ActionConflict as exc:
-            return JSONResponse(status_code=exc.status, content={'error': exc.error})
-        return JSONResponse(content={'status': 'ok', 'generation_state': state})
-
-    await deps.database_function("record_ticket_result")(
-        ticket_id=payload.ticket_id,
-        message_id=str(payload.message_id),
-        job_id=payload.job_id,
-        priority=payload.priority,
-        action=payload.action,
-        reason=payload.reason,
-        notify_owner=payload.notify_owner,
-        gorgias_priority_set=payload.gorgias_priority_set,
-        note_posted=payload.note_posted,
-        draft_text=payload.draft_text,
-    )
-    return JSONResponse(content={"status": "ok"})
+    from ..draft_generation import finish_attempt
+    from ..send_intents import ActionConflict
+    try:
+        state = await finish_attempt(payload.model_dump(), deps.get_db())
+    except ActionConflict as exc:
+        return JSONResponse(status_code=exc.status, content={'error': exc.error})
+    return JSONResponse(content={'status': 'ok', 'generation_state': state})
 
 
 @router.get("/ops")

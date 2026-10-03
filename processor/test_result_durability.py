@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import orchestrator
 from bb_webhook import database
 from bb_webhook.db import Database
+from bb_webhook.draft_generation import begin_attempt, finish_attempt
 
 
 class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
@@ -27,9 +28,16 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
         self.job = await database.get_next_pending_job(self.path)
         orchestrator._classification_cache.clear()
 
-    async def save(self, *, alert=True, draft="First draft"):
-        await database.record_ticket_result(123, "synthetic", self.job_id, "high", "sensitive_draft",
-                                            "Synthetic reason", alert, False, False, draft, self.path)
+    async def save(self, *, alert=True, draft="First draft", attempt=None):
+        if attempt is None:
+            attempt = getattr(self, 'attempt', None)
+        if attempt is None:
+            self.assertTrue(await database.claim_job(self.job_id, self.path))
+            attempt = self.attempt = await begin_attempt(self.job_id, self.path)
+        return await finish_attempt(dict(ticket_id=123, message_id="synthetic", job_id=self.job_id,
+            generation_attempt_id=attempt, generation_state='ready', priority='high',
+            action='sensitive_draft', reason='Synthetic reason', notify_owner=alert,
+            draft_text=draft), self.path)
 
     async def status(self):
         return dict((await Database(self.path).fetch("SELECT * FROM job_queue WHERE id=?", (self.job_id,)))[0])
@@ -71,7 +79,7 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_result_written_but_response_lost_retry_skips_model_and_alerts_once(self):
         async def response_lost(_job):
-            await self.save()
+            await self.save(attempt=_job['generation_attempt_id'])
             raise TimeoutError("Synthetic acknowledgement lost")
         with patch.object(orchestrator, "process_customer_message", side_effect=response_lost):
             await orchestrator._process_one_job(self.job, True, self.settings)
@@ -97,6 +105,8 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_crash_after_alert_claim_is_visible_uncertain_and_never_resent(self):
         await self.save()
+        await database.fail_job(self.job_id, 'Synthetic response lost', self.path)
+        await database.requeue_failed_job(self.job_id, self.path)
         self.assertTrue(await database.claim_owner_alert(self.job_id, self.path))
         with patch.object(orchestrator, "send_whatsapp") as notify:
             await orchestrator._process_one_job(self.job, True, self.settings)
@@ -238,7 +248,7 @@ class ResultAcknowledgementTests(unittest.TestCase):
         response.__exit__ = Mock(return_value=False)
         with patch("urllib.request.OpenerDirector.open", return_value=response), patch.object(orchestrator,"get_settings",return_value=SimpleNamespace(processor_result_secret="synthetic-result-secret-0123456789")):
             with self.assertRaisesRegex(RuntimeError, "acknowledgement"):
-                orchestrator._save_result_to_webhook(123, "synthetic", 1, {})
+                orchestrator._save_result_to_webhook(123, "synthetic", 1, dict(generation_attempt_id=1, generation_state='ready'))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import httpx
 from bb_webhook import app as app_module, database, db as db_module, session_store
 from bb_webhook.console_auth import build_session_token, session_claims
 from bb_webhook.db import Database
+from bb_webhook.draft_generation import begin_attempt, finish_attempt
 
 
 ATTEMPT_FIELDS = {
@@ -39,11 +40,12 @@ class OwnerAlertFixture:
             customer_email="private-customer@example.invalid",
             message_text="private-message-content", intents=[],
         ), '{"credential":"private-raw-payload"}', self.path)
-        await database.record_ticket_result(
-            ticket_id, message_id, job_id, "high", "sensitive_draft",
-            "Synthetic escalation reason", True, False, False,
-            draft_text="private-draft-content", db_path=self.path,
-        )
+        self.assertTrue(await database.claim_job(job_id, self.path))
+        attempt = await begin_attempt(job_id, self.path)
+        await finish_attempt(dict(ticket_id=ticket_id, message_id=message_id, job_id=job_id,
+            generation_attempt_id=attempt, generation_state='ready', priority='high',
+            action='sensitive_draft', reason='Synthetic escalation reason', notify_owner=True,
+            draft_text='private-draft-content'), self.path)
         await Database(self.path).execute(
             "INSERT INTO owner_alert_attempts VALUES (?, ?, ?, ?)",
             (job_id, status, attempted_at,
@@ -111,9 +113,9 @@ class OwnerAlertDatabaseTests(OwnerAlertFixture, unittest.IsolatedAsyncioTestCas
         # job_id alone is not unique in results; message_id alone can belong to
         # another ticket. Neither unrelated result may multiply or replace a row.
         for ticket, message in ((999, "one"), (123, "unrelated")):
-            await database.record_ticket_result(ticket, message, job, "high", "sensitive_draft",
-                                                "Wrong result", True, False, False,
-                                                db_path=self.path)
+            await Database(self.path).execute("""INSERT INTO ticket_results
+                (ticket_id,message_id,job_id,reason,processed_at) VALUES (?,?,?,'Wrong result',?)""",
+                (ticket, message, job, '2026-09-24T00:00:00+00:00'))
         await Database(self.path).execute(
             "UPDATE parsed_messages SET ticket_id = 999 WHERE message_id = 'one'")
         result = await database.get_owner_alerts(db_path=self.path)
