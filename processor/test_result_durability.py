@@ -117,6 +117,26 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await database.complete_job(self.job_id, db_path=self.path, require_result=True))
         self.assertEqual((await self.status())["status"], "processing")
 
+    async def test_sweep_recovering_final_sensitive_attempt_alerts_owner_once(self):
+        from bb_webhook.draft_generation import begin_attempt
+        self.settings.stale_job_minutes = 10
+        await database.claim_job(self.job_id, self.path)
+        # Two earlier attempts already used; the processor dies during the third.
+        await Database(self.path).execute(
+            "UPDATE job_queue SET generation_cycle_attempts=2 WHERE id=?", (self.job_id,))
+        self.assertIsNotNone(await begin_attempt(self.job_id, self.path, priority_context=dict(
+            priority='critical', notify_owner=True, reason='Chargeback threatened')))
+        await Database(self.path).execute(
+            "UPDATE job_queue SET started_at='2000-01-01' WHERE id=?", (self.job_id,))
+        with patch.object(orchestrator, 'send_whatsapp', return_value=True) as notify:
+            await orchestrator._recover_stale_jobs(self.settings)
+            await orchestrator._recover_stale_jobs(self.settings)
+            notify.assert_called_once()
+        saved = await database.get_job_result(self.job_id, self.path)
+        self.assertEqual(saved['generation_state'], 'failed')
+        self.assertTrue(saved['notify_owner'])
+        self.assertEqual((await self.status())['status'], 'done')
+
     async def test_stale_retry_exhaustion_is_failed_with_operator_visible_reason(self):
         await database.claim_job(self.job_id, self.path)
         await Database(self.path).execute("UPDATE job_queue SET started_at='2000-01-01', retry_count=3")

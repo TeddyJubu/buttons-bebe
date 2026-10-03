@@ -411,6 +411,7 @@ async def requeue_stale_jobs(
     db_path: Path | None = None,
     *,
     max_retries: int = 3,
+    recovered_jobs: list[int] | None = None,
 ) -> int:
     """Reclaim up to 100 abandoned claims per singleton-loop sweep.
 
@@ -420,6 +421,8 @@ async def requeue_stale_jobs(
     Missing/invalid claim timestamps are also abandoned, rather than silently
     remaining processing forever. Exhausted claims become failed with an
     operator-visible reason. The return count includes both retry and failure.
+    Job ids whose interrupted draft attempt was closed are appended to
+    ``recovered_jobs`` so the caller can send any owner alert they now need.
     """
     if max_age_minutes < 0 or max_retries < 0:
         raise ValueError("Recovery age and retry limit must be nonnegative")
@@ -432,7 +435,10 @@ async def requeue_stale_jobs(
         julianday(j.started_at)<julianday(?)) ORDER BY j.id LIMIT 100""", (cutoff,))
     recovered = 0
     for row in abandoned:
-        recovered += int(await recover_attempt(row['id'], db_path))
+        if await recover_attempt(row['id'], db_path):
+            recovered += 1
+            if recovered_jobs is not None:
+                recovered_jobs.append(row['id'])
     affected = await db.execute(
         """UPDATE job_queue
            SET status = CASE WHEN retry_count < ? THEN 'pending' ELSE 'failed' END,

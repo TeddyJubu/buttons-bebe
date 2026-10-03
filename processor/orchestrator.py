@@ -486,9 +486,7 @@ async def run_processor() -> int:
     await init_db(settings.db_path_absolute)
 
     # 3. Recover stale jobs
-    stale_count = await requeue_stale_jobs(
-        settings.stale_job_minutes, settings.db_path_absolute, max_retries=settings.max_retries,
-    )
+    stale_count = await _recover_stale_jobs(settings)
     if stale_count > 0:
         log_event(logger, "INFO", "Resolved abandoned claims; exhausted retries marked failed",
                   count=stale_count,
@@ -522,10 +520,7 @@ async def run_processor() -> int:
     while not _shutdown:
         try:
             if time.monotonic() - last_recovery >= recovery_interval:
-                recovered = await requeue_stale_jobs(
-                    settings.stale_job_minutes, settings.db_path_absolute,
-                    max_retries=settings.max_retries,
-                )
+                recovered = await _recover_stale_jobs(settings)
                 last_recovery = time.monotonic()
                 await set_setting('notification_route_health', json.dumps(check_alert_route()), settings.db_path_absolute)
                 if recovered:
@@ -725,6 +720,26 @@ async def _process_one_job(
             await requeue_failed_job(job_id, settings.db_path_absolute, max_retries=settings.max_retries)
             log_event(logger, "INFO", "Job requeued for retry",
                       job_id=job_id, retry_count=retry_count + 1)
+
+
+async def _recover_stale_jobs(settings: Any) -> int:
+    """Reclaim abandoned claims, then alert for recovered sensitive drafts.
+
+    A crash mid-generation leaves no handler to alert; the sweep closes that
+    attempt, so the alert must follow here or a final failed attempt is silent.
+    """
+    from bb_webhook.db import Database
+    recovered_jobs: list[int] = []
+    count = await requeue_stale_jobs(
+        settings.stale_job_minutes, settings.db_path_absolute,
+        max_retries=settings.max_retries, recovered_jobs=recovered_jobs,
+    )
+    for job_id in recovered_jobs:
+        rows = await Database(settings.db_path_absolute).fetch(
+            'SELECT * FROM job_queue WHERE id=?', (job_id,))
+        if rows:
+            await _notify_recovered_result(dict(rows[0]), settings.db_path_absolute)
+    return count
 
 
 async def _notify_recovered_result(job: dict, db_path: Path) -> None:
