@@ -177,12 +177,27 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
         await self.crash_final_attempt(self.job_id)
         self.assertEqual(await database.requeue_stale_jobs(10, self.path, max_retries=3), [self.job_id])
         # A newer customer message supersedes the job before the deferred alert is sent.
-        await Database(self.path).execute("UPDATE job_queue SET status='skipped' WHERE id=?", (self.job_id,))
+        await Database(self.path).execute(
+            "UPDATE job_queue SET status='skipped', error='new_customer_message_refresh_ticket' WHERE id=?",
+            (self.job_id,))
         settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
         with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
             await orchestrator._recover_stale_jobs(settings)
             await orchestrator._recover_stale_jobs(settings)
             notify.assert_called_once()
+        rows = await Database(self.path).fetch("SELECT COUNT(*) AS n FROM recovery_alerts_pending")
+        self.assertEqual(rows[0]["n"], 0)
+
+    async def test_owed_alert_dropped_when_staff_already_acted(self):
+        await self.crash_final_attempt(self.job_id)
+        await database.requeue_stale_jobs(10, self.path, max_retries=3)
+        await Database(self.path).execute(
+            "UPDATE job_queue SET status='skipped', error='human_action_already_initiated' WHERE id=?",
+            (self.job_id,))
+        settings = SimpleNamespace(db_path_absolute=self.path, stale_job_minutes=10, max_retries=3)
+        with patch.object(orchestrator, "send_whatsapp", return_value=True) as notify:
+            await orchestrator._recover_stale_jobs(settings)
+            notify.assert_not_called()
         rows = await Database(self.path).fetch("SELECT COUNT(*) AS n FROM recovery_alerts_pending")
         self.assertEqual(rows[0]["n"], 0)
 

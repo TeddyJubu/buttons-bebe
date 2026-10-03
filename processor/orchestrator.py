@@ -747,12 +747,14 @@ async def _recover_stale_jobs(settings: Any) -> list[int]:
 async def _notify_recovered_result(job: dict, db_path: Path, *, owed: bool = False) -> None:
     """An unavailable draft must not suppress an urgent request's owner alert.
 
-    ``owed`` alerts were durably recorded at recovery; a later supersession
-    replaces the draft but not the urgent request, so they are still sent.
+    ``owed`` alerts were durably recorded at recovery. A newer customer message
+    replaces the draft but not the urgent request, so they are still sent;
+    any other supersession means staff already acted.
     """
     from bb_webhook.db import Database
     rows = await Database(db_path).fetch('SELECT * FROM job_queue WHERE id=?', (job['id'],))
-    if not rows or (rows[0]['status'] == 'skipped' and not owed):
+    superseded_by_customer = owed and rows and rows[0]['error'] == 'new_customer_message_refresh_ticket'
+    if not rows or (rows[0]['status'] == 'skipped' and not superseded_by_customer):
         return
     saved = await get_job_result(job['id'], db_path)
     if saved and saved.get('notify_owner'):
