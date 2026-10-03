@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from contextlib import closing
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -81,94 +80,50 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(record['error_type'], 'JSONDecodeError')
 
 
-class InboxRuntimeTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.runtime = self.root / 'inbox'; self.runtime.mkdir()
-        (self.runtime / 'old-code').write_text('previous immutable code')
-        self.stage = self.root / 'inbox-stage-test'; self.stage.mkdir()
-        for tree in ('inbox', 'helpdesk-agent/helpdesk'):
-            (self.stage / 'console-src' / tree).mkdir(parents=True)
-        files = {'console-src/inbox/review_server.py':'from fastapi import FastAPI',
-                 'console-src/inbox/static-manifest.json':'[]',
-                 'console-src/inbox/requirements.txt':'fastapi==0.139.0\nuvicorn==0.50.2\n',
-                 'console-src/inbox/requirements.lock':'synthetic locked requirements',
-                 'console-src/helpdesk-agent/helpdesk/send_access.py':'SEND_ACCESS_ENABLED = False\n'}
-        for name, content in files.items(): (self.stage / name).write_text(content)
-        (self.stage / 'venv/bin').mkdir(parents=True)
-        (self.stage / 'venv/bin/python').write_text('synthetic prepared binary')
-        (self.stage / 'prepared.json').write_text(json.dumps({'source_files':{name:inbox_runtime.digest(self.stage/name) for name in files},
-            'requirements':inbox_runtime.digest(self.stage/'console-src/inbox/requirements.lock'),'dependencies':[]}))
-        self.unit = self.root / 'installed.service'; self.unit.write_text('original unit')
-        self.newunit = self.root / 'helpdesk-inbox.service'; self.newunit.write_text('User=bb-inbox\nProtectHome=true\n')
-        self.backups = self.root / 'backups'
-        self.state = self.root / 'state'; self.state.mkdir()
-        (self.state / 'inbox.sqlite3').write_bytes(b'preserve every customer record')
-        self.patches = [patch.object(inbox_runtime, name, value) for name,value in
-                        [('RUNTIME',self.runtime),('UNIT',self.unit),('BACKUPS',self.backups),('STATE',self.state)]]
-        self.patches.extend([patch.object(inbox_runtime,'owned_directory'),patch.object(inbox_runtime,'ensure_identity'),patch.object(inbox_runtime,'require_traversal')])
-        for mock in self.patches: mock.start(); self.addCleanup(mock.stop)
-        self.calls = []
-        def run(*args):
-            self.calls.append(args)
-            return 'active\n' if args[:2] == ('systemctl','show') else ''
-        mock = patch.object(inbox_runtime,'run',side_effect=run);mock.start();self.addCleanup(mock.stop)
+class InboxRuntimeRetirementTests(unittest.TestCase):
+    def test_all_legacy_actions_refuse_before_privilege_or_mutation(self):
+        commands = {
+            'prepare': ['--source', '/synthetic/source', '--stage', '/synthetic/stage'],
+            'apply': ['--stage', '/synthetic/stage', '--unit', '/synthetic/unit',
+                      '--expected-unit-sha256', '0' * 64, '--state-verified'],
+            'rollback': ['--backup', '/synthetic/backup'],
+        }
+        for command, arguments in commands.items():
+            for active in (True, False):
+                with self.subTest(command=command, previous_active=active), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    files = {'unit': 'active' if active else 'masked', 'runtime': 'old source',
+                             'receipt.json': json.dumps({'was_active': active}),
+                             'customer.sqlite3': 'synthetic protected data'}
+                    for name, body in files.items():
+                        (root / name).write_text(body)
+                    with patch.object(sys, 'argv', ['inbox_runtime.py', command, *arguments]), \
+                            patch('os.geteuid') as privilege, patch('builtins.open') as opening, \
+                            patch('subprocess.run') as child, patch.object(Path, 'rename') as rename, \
+                            patch.object(Path, 'write_text') as writing:
+                        with self.assertRaisesRegex(SystemExit, 'Inbox 1 is retired'):
+                            inbox_runtime.main()
+                        for mutation in (privilege, opening, child, rename, writing):
+                            mutation.assert_not_called()
+                    self.assertEqual({path.name: path.read_text() for path in root.iterdir()}, files)
 
-    def test_apply_and_idempotent_rollback_preserve_data_and_other_services(self):
-        with patch.object(inbox_runtime,'probe'):
-            inbox_runtime.apply(self.stage,self.newunit,inbox_runtime.digest(self.unit),True)
-            self.assertTrue((self.runtime/'console-src/inbox/review_server.py').exists())
-            backup = next(self.backups.iterdir())
-            inbox_runtime.rollback(backup)
-            before = len(self.calls)
-            inbox_runtime.rollback(backup)
-            self.assertEqual(len(self.calls), before)
-        self.assertEqual(self.unit.read_text(),'original unit')
-        self.assertTrue((self.runtime/'old-code').exists())
-        self.assertEqual((self.state/'inbox.sqlite3').read_bytes(),b'preserve every customer record')
-        for call in self.calls:
-            if call[:2] in [('systemctl','start'),('systemctl','stop')]:
-                self.assertEqual(call[2],'helpdesk-inbox.service')
+    def test_help_points_to_supported_recovery_without_install_actions(self):
+        import contextlib
+        import io
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['inbox_runtime.py', '--help']), contextlib.redirect_stdout(output):
+            with self.assertRaises(SystemExit) as result:
+                inbox_runtime.main()
+        self.assertEqual(result.exception.code, 0)
+        text = output.getvalue()
+        self.assertIn('deploy/cd/README.md', text)
+        for command in ('prepare', 'apply', 'rollback'):
+            self.assertNotIn(command, text)
 
-    def test_failed_probe_restores_previous_code_and_unit_without_rewinding_data(self):
-        with patch.object(inbox_runtime,'probe',side_effect=[RuntimeError('synthetic locked probe failure'),None]):
-            with self.assertRaises(RuntimeError): inbox_runtime.apply(self.stage,self.newunit,inbox_runtime.digest(self.unit),True)
-        self.assertEqual(self.unit.read_text(),'original unit')
-        self.assertTrue((self.runtime/'old-code').exists())
-        self.assertEqual((self.state/'inbox.sqlite3').read_bytes(),b'preserve every customer record')
-
-    def test_concurrent_unit_change_and_unverified_state_refuse_before_stop(self):
-        for expected,state in [('bad-sha',True),(inbox_runtime.digest(self.unit),False)]:
-            with self.assertRaises(ValueError): inbox_runtime.apply(self.stage,self.newunit,expected,state)
-        self.assertFalse(any(call[:2] == ('systemctl','stop') for call in self.calls))
-
-    def test_modified_prepared_source_is_not_applied(self):
-        (self.stage/'console-src/inbox/review_server.py').write_text('unreviewed')
-        with self.assertRaises(ValueError): inbox_runtime.verify_stage(self.stage)
-        self.assertEqual(self.calls,[])
-
-    def test_prepare_overrides_restrictive_umask_for_runtime_root(self):
-        candidate = self.root / 'inbox-stage-prepared'
-        def preparation_command(*args):
-            if args[1:3] == ('-m','venv'):
-                binary = Path(args[3]) / 'bin/python'
-                binary.parent.mkdir(parents=True)
-                binary.write_text('synthetic prepared interpreter')
-            return ''
-        previous = os.umask(0o077)
-        try:
-            with patch.object(inbox_runtime, 'run', side_effect=preparation_command):
-                inbox_runtime.prepare(self.stage, candidate)
-        finally:
-            os.umask(previous)
-        self.assertEqual(candidate.stat().st_mode & 0o777, 0o755)
-        self.assertTrue((candidate/'console-src/inbox').stat().st_mode & 0o001)
-
-    def test_dependency_drift_refuses_before_service_stop(self):
-        with patch.object(inbox_runtime, 'run', return_value='unexpected-package==1\n'):
-            with self.assertRaises(ValueError): inbox_runtime.verify_stage(self.stage)
-        self.assertFalse(any(call[:2] == ('systemctl','stop') for call in self.calls))
+    def test_unqualified_call_refuses(self):
+        with patch.object(sys, 'argv', ['inbox_runtime.py']):
+            with self.assertRaisesRegex(SystemExit, 'Inbox 1 is retired'):
+                inbox_runtime.main()
 
 
 if __name__ == '__main__': unittest.main()

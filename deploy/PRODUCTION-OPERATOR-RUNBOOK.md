@@ -95,12 +95,15 @@ old full-root rollback can overwrite accepted data. Do not invoke it.
   Never restore the complete application directory or a stale database as a code
   rollback. Do not discard a journal reporting incomplete recovery.
 
-For dedicated inbox runtime installation/recovery use the reviewed
-`tools/ops/inbox_runtime.py` helper with the expected current unit SHA. It validates
-prepared source/dependency receipts and keeps application state outside code.
-Its `rollback --backup PATH` restores source/unit, not customer state. Review
-schema compatibility before choosing a prior runtime. Preserve all original data
-and credentials when investigating a failed installation.
+For active Inbox source recovery, use the journaled CD helper under
+[the source recovery runbook](cd/README.md). The active service is
+`helpdesk-inbox2.service` on port 8767. Preserve its SQLite data and prepared
+dependencies. Source deployment assumes a provisioned host and does not install
+the privileged receiver. Review schema compatibility before recovering source.
+
+The fixed-target `tools/ops/inbox_runtime.py` belongs to retired Inbox 1.
+Every command refuses, including rollback. Keep the old unit masked and preserve
+protected backups. Never restore its source or unit over the active Inbox.
 
 For listener changes use [the containment runbook](LISTENER-CONTAINMENT.md).
 A failed verification keeps the localhost binding; automatically restoring the

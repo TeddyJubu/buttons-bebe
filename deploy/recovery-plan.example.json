@@ -18,7 +18,7 @@
     {"path": "/var/lib/buttonsbebe-deploy/source-manifest.json", "kind": "file"},
     {"path": "/etc/systemd/system/buttonsbebe-webhook.service", "kind": "file"},
     {"path": "/etc/systemd/system/buttonsbebe-processor.service", "kind": "file"},
-    {"path": "/etc/systemd/system/helpdesk-inbox.service", "kind": "file"},
+    {"path": "/etc/systemd/system/helpdesk-inbox2.service", "kind": "file"},
     {"path": "/root/Buttonsbebe Agent/KB/policies", "kind": "tree"},
     {"path": "/root/Buttonsbebe Agent/KB/faq", "kind": "tree"},
     {"path": "/root/Buttonsbebe Agent/KB/intents", "kind": "tree"},

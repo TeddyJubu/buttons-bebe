@@ -20,6 +20,19 @@ import recovery_restore  # noqa: E402
 import recovery_policy  # noqa: E402
 
 
+class RecoveryExampleTests(unittest.TestCase):
+    def test_example_is_accepted_by_current_policy(self):
+        plan = json.loads((ROOT / 'deploy/recovery-plan.example.json').read_text())
+        entries = recovery_policy.plan_entries(plan)
+        self.assertIn('/etc/systemd/system/helpdesk-inbox2.service', [entry['path'] for entry in entries])
+
+    def test_retired_unit_stays_rejected(self):
+        plan = json.loads((ROOT / 'deploy/recovery-plan.example.json').read_text())
+        plan['entries'].append({'path': '/etc/systemd/system/helpdesk-inbox.service', 'kind': 'file'})
+        with self.assertRaisesRegex(ValueError, 'Unapproved'):
+            recovery_policy.plan_entries(plan)
+
+
 class FakePolicy:
     def __call__(self, path, kind):
         if kind == "sqlite":
