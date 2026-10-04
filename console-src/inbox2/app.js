@@ -1,4 +1,5 @@
 import { icons } from './icons.js';
+import {localKeys,stateRecords,readRecords,lastMessage,readState,localTicket,matchesLocal} from './local_state.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${icons[name] || icons.info}</svg>`;
@@ -47,16 +48,16 @@ const plain = value => {
   }
   return text.replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').replace(/\n{4,}/g,'\n\n\n').trim();
 };
-const keys = {read:'bb-inbox-read-v1',drafts:'bb-inbox2-composer-v1',dismiss:'bb-inbox2-dismissed-v1',rewrites:'bb-inbox2-rewrites-v1'};
-const memory = new Map();
-function stored(key, fallback) {if(memory.has(key))return memory.get(key);try {const raw = localStorage.getItem(key);return raw ? JSON.parse(raw) : (memory.get(key) ?? fallback);} catch {return memory.get(key) ?? fallback;}}
-function persist(key, value) {memory.set(key,value);try {localStorage.setItem(key,JSON.stringify(value));memory.delete(key);return true;} catch {toast('Browser storage is unavailable. Changes will last for this session only.');return false;}}
-function objectStore(key) {const v=stored(key,{});return v && typeof v==='object'&&!Array.isArray(v)?v:{};}
+const keys = {state:'bb-inbox-ticket-state-v1',local:'bb-inbox-local-tickets-v1',read:'bb-inbox-read-v1',drafts:'bb-inbox2-composer-v1',dismiss:'bb-inbox2-dismissed-v1',rewrites:'bb-inbox2-rewrites-v1'};
+const memory = new Map(),failedStorageKeys=new Set();let storageAvailable=true;
+function stored(key,fallback) {if(memory.has(key))return memory.get(key);try{const raw=localStorage.getItem(key),value=raw?JSON.parse(raw):fallback;memory.set(key,value);return value;}catch{return fallback;}}
+function persist(key, value) {memory.set(key,value);try {localStorage.setItem(key,JSON.stringify(value));failedStorageKeys.delete(key);storageAvailable=!failedStorageKeys.size;return true;} catch {failedStorageKeys.add(key);storageAvailable=false;toast('Browser storage is unavailable. Changes will last for this session only.');return false;}}
+function objectStore(key) {if((key===keys.drafts||key==='bb-inbox-send-actions-v1')&&!failedStorageKeys.has(key))memory.delete(key);const v=stored(key,{});return v && typeof v==='object'&&!Array.isArray(v)?v:{};}
 function arrayStore(key) {const v=stored(key,[]);return Array.isArray(v)?v:[];}
 let toastTimer;
 function toast(message) {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6000);}
 let params = new URLSearchParams(location.search);
-const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['all','open','closed'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',ticketRequest:0,listRequest:0,olderRequest:0};
+const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['assigned','unassigned','all','open','snoozed','closed','trash','spam'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',operator:'',filters:{priority:'',assignee:'',tag:'',channel:''},selected:new Set(),categoryAvailability:{},ticketRequest:0,listRequest:0,olderRequest:0};
 $('#search').value=state.query;
 // Manual send authority lives only in this page's memory. Never persist a grant.
 const sendAccess={token:'',expiresAt:0,busy:false,timer:null};
@@ -84,9 +85,9 @@ function renderSendAccess(){
   toggle.innerHTML=`<span class="access-label">Gorgias · ${enabled?'Read & write':'Read only'}</span><span class="access-switch" aria-hidden="true"><span></span></span>`;
   $('#window-label').textContent=`Gorgias · ${enabled?'Read & write':'Read only'}`;
   const send=$('[data-action="review-send"]'),copy=$('[data-action="copy-reply"]'),note=$('#send-mode-note'),status=$('#reply-delivery');
-  if(send){send.hidden=!enabled;send.disabled=sendState.busy||sendState.preparing||unresolved(sendAction());send.textContent=sendState.busy?'Sending…':sendState.preparing?'Preparing…':'Send reply';}
+  if(send){send.hidden=!enabled||Boolean(state.ticket?.localOnly);send.disabled=sendState.busy||sendState.preparing||unresolved(sendAction());send.textContent=sendState.busy?'Sending…':sendState.preparing?'Preparing…':'Send reply';}
   if(copy)copy.classList.toggle('primary',!enabled);
-  if(note)note.textContent=enabled?'Replies enabled for this page · Review and confirm each send.':'Read only · Switch on Gorgias replies above to send from here.';
+  if(note)note.textContent=state.ticket?.localOnly?'Local ticket · Customer sending is unavailable.':enabled?'Replies enabled for this page · Review and confirm each send.':'Read only · Switch on Gorgias replies above to send from here.';
   if(status){const action=sendAction();status.innerHTML=action?`${esc(action.status==='sent'?'Reply sent via Gorgias.':action.status==='not_attempted'?'Reply not sent. Your draft is saved.':action.status==='failed'?'Gorgias reports delivery failed. Inspect it in Gorgias.':action.status==='pending'?'Gorgias accepted the reply; delivery is pending.':'Delivery is unconfirmed. Check status before sending again.')} ${unresolved(action)?'<button class="button" data-action="check-send-status">Check status</button>':''}`:'';status.hidden=!action;}
   const editor=$('#reply');if(editor)editor.disabled=sendState.busy;
 }
@@ -107,7 +108,7 @@ async function toggleSendAccess(){
   finally{sendAccess.busy=false;renderSendAccess();}
 }
 async function reviewSend(){
-  if(!canSend()||sendState.busy||sendState.preparing||unresolved(sendAction()))return;
+  if(state.ticket?.localOnly||!canSend()||sendState.busy||sendState.preparing||unresolved(sendAction()))return;
   const ticket=state.ticket,editor=$('#reply'),value=editor?.value||'',text=value.trim();
   if(!text){toast('Write a reply or use the suggested draft first.');return;}
   const source=[...(ticket?.messages||[])].reverse().find(m=>m.fromAgent===false);
@@ -157,7 +158,7 @@ async function confirmSend(){
   }finally{sendState.busy=false;renderSendAccess();}
 }
 async function checkSendStatus(){
-  const id=state.id,action=sendAction(id);if(!action?.operationId||!/^gorgias:[1-9][0-9]{0,17}$/.test(id))return;
+  const id=state.id,action=sendAction(id);if(state.ticket?.localOnly||!action?.operationId||!/^gorgias:[1-9][0-9]{0,17}$/.test(id))return;
   const button=$('[data-action="check-send-status"]');if(button)button.disabled=true;
   try{const result=await consoleRequest(`/ticket/${id.slice(8)}/actions/${encodeURIComponent(action.operationId)}`);if(!applyDelivery(id,action.operationId,result))toast('Delivery status is unavailable. Keep this draft and check Gorgias before trying another send.');}
   catch(error){if(!error.body?.delivery_status||!applyDelivery(id,action.operationId,error.body))toast('Delivery status is unavailable. Keep this draft and check Gorgias before trying another send.');}
@@ -175,25 +176,38 @@ async function api(tool, args={}) {
   if (result.source && result.source!=='gorgias_api') throw new Error('Live ticket data is unavailable.');
   return result;
 }
+function localRows() {return arrayStore(keys.local).filter(t=>t?.localOnly&&/^local:[\w-]+$/.test(t.id));}
+function localValue(ticket,field) {return stateRecords(stored(keys.state,{}))[ticket.id]?.[field]?.value ?? '';}
 function observed(ticket, field) {
   if(field==='priority') return ticket.gorgiasPriority || '';
+  if(field==='snooze') return ticket.snoozeUntil || ticket.snoozedUntil || '';
   if(field==='assignee') return ticket.assigneeEmail || (typeof ticket.assignee==='string'?ticket.assignee:ticket.assignee?.email || ticket.assignee?.name) || '';
   return ticket[field] || '';
 }
-function filtered() {return state.rows;}
+function effective(ticket, field) {return localValue(ticket,field)||observed(ticket,field);}
+function matchingLocalRows(){return (state.oldest?localRows().slice().reverse():localRows()).filter(t=>matchesLocal(t,state.view,{...state.filters,query:state.query},effective,state.operator));}
+function allRows() {return [...matchingLocalRows().slice(state.page*state.size,(state.page+1)*state.size),...state.rows];}
+function filtered() {return allRows().filter(t=>!t.localOnly&&!stateRecords(stored(keys.state,{}))[t.id]||matchesLocal(t,state.view,{...state.filters,query:t.localOnly?state.query:''},effective,state.operator));}
+function markRead(ticket,read=true) {const records=readRecords(stored(keys.read,{}));records[ticket.id]={read,message:lastMessage(ticket),activity:ticket.lastMessageAt||ticket.messages?.at(-1)?.at||ticket.updatedAt,at:Date.now()};persist(keys.read,{version:1,records});}
+function clearSelection(){state.selected.clear();}
+function updateSelection(){const visible=new Set(filtered().map(t=>t.id));for(const id of state.selected)if(!visible.has(id))state.selected.delete(id);$('#selection-count').textContent=`${state.selected.size} selected on this page`;$('#select-page').checked=visible.size>0&&state.selected.size===visible.size;$('#select-page').indeterminate=state.selected.size>0&&state.selected.size<visible.size;$('[data-action="bulk-apply"]').disabled=!state.selected.size;}
 function syncUrl(push=false) {
   const p=new URLSearchParams();if(state.id)p.set('ticket',state.id);if(state.view!=='all')p.set('view',state.view);if(state.query)p.set('q',state.query);
   const url='/inbox/'+(p.size?'?'+p.toString():'');
   if(location.pathname+location.search!==url) history[push?'pushState':'replaceState']({},'',url);
 }
-function rowTitle(t) {return t.subject || 'No subject';}
+function rowTitle(t) {const selected=state.ticket;return ticketTitle(selected?.id===t.id&&String(selected.fromEmail||'').toLowerCase()===String(t.fromEmail||'').toLowerCase()?selected:t);}
 function age(value) {const days=Math.max(0,Math.floor((Date.now()-new Date(value))/86400000));return Number.isFinite(days)?days===0?'Today':`${days}d`:'';}
 function listRender() {
   const rows=filtered();
   const offset=state.page*state.size,page=rows;
-  $('#ticket-list').innerHTML=page.map(t=>`<button class="ticket-row" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(plain(t.snippet)||'No message preview')}</div>${t.localOnly||observed(t,'status')==='closed'?`<div class="row-state">${t.localOnly?'Local ticket':`Closed${t.draftAction==='auto_close'?' · Auto-close':''}`}</div>`:''}</button>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
-  const count=state.loading&&!rows.length?'Loading tickets…':rows.length?`${offset+1}–${Math.min(offset+rows.length,state.total)} of ${state.total.toLocaleString()}`:'0 tickets';
-  $('#count').textContent=count;
+  $('#ticket-list').innerHTML=page.map(t=>`<div class="ticket-row-wrap"><input type="checkbox" class="row-select" data-select-ticket="${esc(t.id)}" aria-label="Select ${esc(rowTitle(t))}" ${state.selected.has(t.id)?'checked':''}><button class="ticket-row ${readState(t,readRecords(stored(keys.read,{})))?'is-read':'is-unread'}" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(t.snippet)||'No message preview'}</div><div class="row-state">${t.localOnly?'Local ticket · ':''}${readState(t,readRecords(stored(keys.read,{})))?'Read':'Unread'}${effective(t,'status')==='closed'?' · Closed':''}${localValue(t,'snooze')?' · Snoozed locally':''}</div></button></div>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
+  updateSelection();
+  $('#local-scope').hidden=!localRows().length&&!Object.keys(stateRecords(stored(keys.state,{}))).length;
+  for(const button of document.querySelectorAll('[data-view]')) {const available=button.dataset.view==='assigned'&&!state.operator?false:state.categoryAvailability[button.dataset.view];button.disabled=available===false||available?.available===false;button.title=button.disabled?(button.dataset.view==='assigned'&&!state.operator?'Assigned to me is unavailable because the operator email is not configured.':available?.reason||'Gorgias has not supplied the fields needed for this view.'):`Show ${button.textContent.trim()} tickets`;}
+  const providerShown=rows.filter(t=>!t.localOnly).length,localShown=rows.filter(t=>t.localOnly).length;
+  const count=state.loading&&!rows.length?'Loading tickets…':`Page ${state.page+1} · ${providerShown} of ${state.rows.length} loaded Gorgias shown · ${state.total.toLocaleString()} total`;
+  $('#count').textContent=`${count}${localRows().length?' · '+localShown+' local shown of '+matchingLocalRows().length+' matching in browser':''}`;
   $('[data-action="page-prev"]').disabled=state.page===0;
   $('[data-action="page-next"]').disabled=!state.hasNext;
   for(const button of document.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===state.view));
@@ -204,22 +218,22 @@ function listRender() {
   $('#sync-status').textContent=state.projection?.stale?'Gorgias refresh is delayed. Showing the last successful sync.':state.projection&&!state.projection.complete?'Importing ticket history. Search and counts will expand as tickets arrive.':'Refreshes automatically every 30 seconds.';
   if(state.ticket) updateTicketNavigation();
 }
-function updateTicketNavigation(){const index=state.rows.findIndex(t=>t.id===state.id);const prev=$('[data-action="ticket-prev"]'),next=$('[data-action="ticket-next"]');if(prev)prev.disabled=index<0||index===0&&state.page===0;if(next)next.disabled=index<0||index===state.rows.length-1&&!state.hasNext;}
+function updateTicketNavigation(){const rows=filtered();const index=rows.findIndex(t=>t.id===state.id);const prev=$('[data-action="ticket-prev"]'),next=$('[data-action="ticket-next"]');if(prev)prev.disabled=index<0||index===0&&state.page===0;if(next)next.disabled=index<0||index===rows.length-1&&!state.hasNext;}
 async function loadList(background=false){
   if(background&&state.loading)return;
   const request=++state.listRequest;state.loading=true;state.error='';if(!background)listRender();
   try{
-    const result=await api('list_tickets',{view:state.view,query:state.query,oldest:state.oldest,limit:state.size,offset:state.page*state.size});
+    const result=await api('list_tickets',{view:state.view,query:state.query,...state.filters,oldest:state.oldest,limit:state.size,offset:state.page*state.size});
     if(request!==state.listRequest)return;
-    state.rows=result.tickets;state.total=result.total;state.hasNext=result.nextOffset!=null;state.projection=result.projection;state.loading=false;
-    if(state.page>0&&!state.rows.length){state.page=Math.max(0,Math.ceil(state.total/state.size)-1);return loadList();}
+    state.rows=result.tickets;state.categoryAvailability=result.categoryAvailability||{};if(result.operatorEmail)state.operator=result.operatorEmail;state.total=result.total;state.hasNext=result.nextOffset!=null||matchingLocalRows().length>(state.page+1)*state.size;state.projection=result.projection;state.loading=false;
+    if(state.page>0&&!state.rows.length&&!allRows().length){state.page=Math.max(0,Math.ceil(Math.max(state.total,matchingLocalRows().length)/state.size)-1);return loadList();}
     listRender();
-    if(!state.id){const first=state.rows[0];if(first)selectTicket(first.id,false);else $('#conversation').innerHTML='<div class="empty-state">'+(state.projection?.complete?'No tickets in this view.':'Connecting to Gorgias. Tickets will appear as they sync.')+'</div>';}
+    if(!state.id){const first=filtered()[0];if(first)selectTicket(first.id,false);else $('#conversation').innerHTML='<div class="empty-state">'+(state.projection?.complete?'No tickets in this view.':'Connecting to Gorgias. Tickets will appear as they sync.')+'</div>';}
   }catch(error){if(request!==state.listRequest)return;state.loading=false;state.error=error.message;listRender();if(error.auth)showAuth();else if(!background)toast(error.message);}
 }
 let refreshingTicket=false;
 async function refreshTicket(){
-  if(!state.ticket||refreshingTicket)return;
+  if(state.ticket?.localOnly||!state.ticket||refreshingTicket)return;
   const id=state.id,request=state.ticketRequest;refreshingTicket=true;
   try{
     const result=await api('get_ticket',{ticketId:id});if(id!==state.id||request!==state.ticketRequest)return;
@@ -230,13 +244,13 @@ async function refreshTicket(){
       fresh.historyIncomplete=Boolean(fresh.messagesNextCursor);
     }
     const focusedAction=document.activeElement?.dataset?.action;
-    state.ticket=fresh;renderTicket();renderRail();
+    state.ticket=fresh;const row=state.rows.find(t=>t.id===id);if(row){row.lastMessageAt=fresh.lastMessageAt||fresh.messages?.at(-1)?.at||fresh.updatedAt;row.lastMessageId=lastMessage(fresh);}renderTicket();renderRail();listRender();
     if(focusedAction)document.querySelector(`[data-action="${focusedAction}"]`)?.focus({preventScroll:true});
   }catch(error){if(id!==state.id||request!==state.ticketRequest)return;if(error.auth)showAuth();else if(error.gone){state.ticket=null;$('#conversation').innerHTML='<div class="empty-state">This ticket is no longer available in Gorgias.</div>';$('#customer-rail').innerHTML='';}else{const status=$('#live-ticket-sync');if(status)status.textContent='Refresh delayed · Showing the last successful read';}}
   finally{refreshingTicket=false;}
 }
 async function loadOlder(){
-  const cursor=state.ticket?.messagesNextCursor;if(!cursor)return;
+  const cursor=state.ticket?.messagesNextCursor;if(state.ticket?.localOnly||!cursor)return;
   const request={sequence:++state.olderRequest,ticketId:state.id,ticketRequest:state.ticketRequest,cursor};
   const button=$('[data-action="older-messages"]');if(button)button.disabled=true;
   try{const result=await api('get_messages',{ticketId:request.ticketId,cursor});
@@ -263,7 +277,7 @@ function draftStatusHtml(t){
 }
 async function retryDraft(){
   const t=state.ticket;
-  if(!t||t.syncStale||t.draftSuperseded||t.draftGenerationState!=='failed'||!t.draftRevision||draftRetries.get(t.id)?.pending)return;
+  if(!t||t.localOnly||t.syncStale||t.draftSuperseded||t.draftGenerationState!=='failed'||!t.draftRevision||draftRetries.get(t.id)?.pending)return;
   const context={id:t.id,source:t.draftSourceMessageId,revision:t.draftRevision,processedAt:t.draftProcessedAt};
   const prior=draftRetries.get(t.id);
   const operation=prior?.source===context.source&&prior?.revision===context.revision?prior.operation:crypto.randomUUID();
@@ -345,9 +359,11 @@ async function selectTicket(id,push=true,focus=false) {
   $('#conversation').innerHTML='<div class="empty-state">Loading conversation…</div>';
   $('#customer-rail').innerHTML='<div class="rail-heading">Customer details</div><div class="empty-state">Loading customer details…</div>';
   try {
-    const result=await api('get_ticket',{ticketId:id});
+    const local=localRows().find(t=>t.id===id);
+    if(id.startsWith('local:')&&!local)throw new Error('This local ticket is unavailable in this browser.');
+    const result=local?{ticket:local}:await api('get_ticket',{ticketId:id});
     if(request!==state.ticketRequest)return;
-    state.ticket=result.ticket;const read=new Set(arrayStore(keys.read));read.add(id);persist(keys.read,[...read]);
+    state.ticket=result.ticket;markRead(state.ticket);
     renderTicket();renderRail();listRender();
     document.title=`${ticketTitle(state.ticket)} · Buttons Bebe Support`;
     if(focus)$('#conversation').focus({preventScroll:true});
@@ -357,16 +373,21 @@ async function selectTicket(id,push=true,focus=false) {
     if(error.auth)showAuth();else $('#conversation').innerHTML=`<div class="empty-state is-error"><h2>Couldn’t load this ticket</h2><p>${esc(error.message)}</p><button class="button" data-action="back">Back to tickets</button> <button class="button primary" data-action="retry-ticket">Try again</button></div>`;
   }
 }
-function ticketTitle(t) {return t.shopifyRail?.order?.name?`Order ${t.shopifyRail.order.name.replace(/^#/,'')}`:t.subject||'No subject';}
-function control(t,field,iconName,prefix='') {
-  const value=observed(t,field),text=field==='status'?(label(value)||'Status unavailable'):`${prefix}: ${value?field==='assignee'?value:label(value):'not set'}`;
-  return `<div class="control readonly-control ${field==='status'?'status-control '+statusTone(value):field==='priority'?statusTone(value):''}" title="Read-only value from Gorgias"><span>${field==='status'?'<span class="status-dot"></span>':icon(iconName)}</span><span>${esc(text)}</span></div>`;
+function ticketTitle(t) {const edited=localValue(t,'title');if(edited)return edited;const order=t.shopifyRail?.order;return order?.name||order?.number?`Order ${String(order.name||order.number).replace(/^#/,'')}`:'New Ticket';}
+function options(values,selected) {return values.map(([v,text])=>`<option value="${esc(v)}"${v===selected?' selected':''}>${esc(text)}</option>`).join('');}
+function control(t,field,values,iconName,prefix='') {
+  const value=effective(t,field);
+  return `<label class="control ${field==='status'?'status-control '+statusTone(value):field==='priority'?statusTone(value):''}">${icon(iconName)}<span class="sr-only">${esc(prefix)} in this browser</span><select data-field="${field}" aria-label="${esc(prefix)} in this browser">${options([['','Observed · '+(observed(t,field)||'not set')],...values],localValue(t,field))}</select></label>`;
 }
 function htmlElement(markup) {return document.createRange().createContextualFragment(markup).firstElementChild;}
 function renderTicket() {
   const t=state.ticket;if(!t)return;
+  const contentScroll=$('#ticket-content')?.scrollTop||0;
+  const expandedDraft=$('.draft-card')?.classList.contains('draft-expanded');const actionsOpen=$('.ticket-actions-menu')?.open;
   const expandedQuotes=new Set([...document.querySelectorAll('.quoted-email[open]')].map(el=>el.dataset.messageId));
-  const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div><div class="ticket-actions">${control(t,'status','','Status')}${control(t,'priority','flag','Priority')}${control(t,'assignee','user','Assignee')}<button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div><p class="live-ticket-sync" id="live-ticket-sync">${t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
+  const people=[...new Set([state.operator,...allRows().map(x=>observed(x,'assignee')),localValue(t,'assignee')].filter(Boolean))];
+  const overrides=['title','status','priority','assignee','snooze'].filter(f=>localValue(t,f)).map(f=>`${label(f)}: ${localValue(t,f)} (observed: ${observed(t,f)||'unknown'})`);
+  const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><button class="title-edit" data-action="rename" aria-label="Rename ticket in this browser">Rename locally</button><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div><details class="ticket-actions-menu"><summary aria-label="Ticket actions, local to this browser" title="Ticket actions saved only in this browser">${icon('more')} Ticket actions</summary><p class="small muted">These changes stay in this browser. Gorgias is unchanged.</p><div class="ticket-actions">${control(t,'status',[['open','Open · local'],['closed','Closed · local']],'','Status')}${control(t,'priority',[['low','Low · local'],['normal','Normal · local'],['high','High · local'],['critical','Critical · local']],'flag','Priority')}${control(t,'assignee',[['unassigned','Unassigned · local'],...people.filter(x=>x!=='unassigned').map(x=>[x,x+' · local'])],'user','Assignee')}<button class="button" data-action="toggle-read">${readState(t,readRecords(stored(keys.read,{})))?'Mark unread':'Mark read'}</button><label class="snooze-control">Snooze locally<input type="datetime-local" data-field="snooze" value="${esc(localValue(t,'snooze')?localValue(t,'snooze').slice(0,16):'')}"></label><button class="button" data-action="reset-local">Reset local changes</button><button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div></details>${overrides.length?`<div class="local-observed">Browser changes · ${esc(overrides.join(' · '))}</div>`:''}<p class="live-ticket-sync" id="live-ticket-sync">${t.localOnly?'Local ticket · Saved only in this browser':t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
   const content=`<section id="ticket-content" role="tabpanel" aria-labelledby="${state.tab==='conversation'?'conversation-tab':'details-tab'}">${state.tab==='conversation'?conversationHtml(t):detailsHtml(t)}</section>`;
   const conversation=$('#conversation'),sameTicket=conversation.dataset.ticketId===t.id&&Boolean($('.reply-area',conversation)?.isConnected);
   if(sameTicket){
@@ -377,103 +398,17 @@ function renderTicket() {
   }else{
     conversation.innerHTML=header+content+replyHtml(t);
     conversation.dataset.ticketId=t.id;
-    const editor=$('#reply');if(editor){editor.value=objectStore(keys.drafts)[t.id]?.body || '';sizeReplyEditor(editor);if(editor.value)$('#saved-note').textContent='Saved in this browser';}
+    const editor=$('#reply');if(editor){editor.value=objectStore(keys.drafts)[t.id]?.body??'';sizeReplyEditor(editor);if(editor.value)$('#saved-note').textContent=storageAvailable?'Saved in this browser':'Kept for this session only';}
   }
   for(const detail of document.querySelectorAll('.quoted-email'))if(expandedQuotes.has(detail.dataset.messageId))detail.open=true;
   updateTicketNavigation();
   syncRailAccessibility();
-  renderSendAccess();
+  if($('#ticket-content'))$('#ticket-content').scrollTop=contentScroll;
+  if(expandedDraft){$('.draft-card')?.classList.add('draft-expanded');const expand=$('[data-action="expand-draft"]');if(expand){expand.textContent='Show less';expand.setAttribute('aria-expanded','true');}}if(actionsOpen)$('.ticket-actions-menu').open=true;
+  document.title=`${ticketTitle(t)} · Buttons Bebe Support`;
+  installTooltips();renderSendAccess();
 }
-// Presentation only: original Gorgias bodies are never changed.
-function decodeMessageEntities(value) {
-  const decoder=document.createElement('textarea');
-  let text=value;
-  for(let pass=0;pass<2;pass++)text=text.replace(/&(?:#\d{1,7}|#x[\da-f]{1,6}|[a-z][a-z\d]{1,31});/gi,entity=>{decoder.innerHTML=entity;return decoder.value;});
-  return text;
-}
-function tidyMessageText(value) {
-  return value.replace(/\r\n?/g,'\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b\ufeff\u00ad\u2060\u202a-\u202e\u2066-\u2069]/g,'')
-    .replace(/\u00a0/g,' ').replace(/[\t ]+$/gm,'').replace(/\n[\t ]*\n(?:[\t ]*\n)+/g,'\n\n').trim();
-}
-function messageText(value) {
-  let text=String(value||'');
-  // Match known HTML tags only; a plain-text <email@example.com> is not HTML.
-  if(/<\/?(?:html|body|div|p|br|table|tr|td|blockquote|span|a|ul|ol|li|b|strong|em|i|pre|img|font|style|script)\b[^>]*>/i.test(text)) {
-    const doc=new DOMParser().parseFromString(text,'text/html');
-    doc.querySelectorAll('script,style,head,meta,link,iframe,object,template,[hidden]').forEach(el=>el.remove());
-    doc.querySelectorAll('a[href]').forEach(a=>{
-      const href=webUrl(a.getAttribute('href')),caption=a.textContent.trim();
-      if(href&&caption&&!caption.includes(href)&&!/^https?:/i.test(caption))a.append(` (${href})`);
-    });
-    doc.querySelectorAll('br').forEach(el=>el.replaceWith('\n'));
-    doc.querySelectorAll('p,div,section,article,pre,tr,ul,ol').forEach(el=>{el.prepend('\n');el.append('\n');});
-    doc.querySelectorAll('li').forEach(el=>{el.prepend('\n• ');el.append('\n');});
-    doc.querySelectorAll('td,th').forEach(el=>el.append(' '));
-    // Email clients mark older history with these containers.
-    const selector='blockquote,.gmail_quote,.yahoo_quoted';
-    for(const el of doc.querySelectorAll(selector))if(!el.parentElement?.closest(selector)) {
-      const quoted=el.textContent.trim().split('\n').map(line=>'> '+line).join('\n');
-      el.replaceWith('\n'+quoted+'\n');
-    }
-    text=doc.body.textContent||'';
-  }
-  return tidyMessageText(decodeMessageEntities(text));
-}
-const unquoteLine=line=>line.replace(/^(?:[\t ]*>[\t ]?)+/,'');
-function replyHeaderEnd(lines,start) {
-  const first=unquoteLine(lines[start]).trim();
-  if(!/^(?:On\s|Am\s|Le\s|El\s|Em\s|Op\s|Il\s|בתאריך\s)/i.test(first))return -1;
-  let header='';
-  for(let end=start;end<Math.min(lines.length,start+8);end++) {
-    header+=' '+unquoteLine(lines[end]).trim();
-    if(header.length>1200)break;
-    if(/(?:wrote|schrieb|a écrit|escribió|escreveu|schreef|ha scritto|כתב(?:ה)?)\s*:\s*$/i.test(header))return end;
-  }
-  return -1;
-}
-function metadataHeaderEnd(lines,start) {
-  if(!/^\s*(?:From|Sent|Date|To|Cc|Subject):\s*\S/i.test(unquoteLine(lines[start])))return -1;
-  let fields=0,end=start;const names=new Set();
-  for(let i=start;i<Math.min(lines.length,start+12);i++) {
-    const line=unquoteLine(lines[i]);
-    if(/^\s*(?:From|Sent|Date|To|Cc|Subject):/i.test(line)){fields++;end=i;names.add(line.trim().split(':')[0].toLowerCase());}
-    else if(!line.trim())continue;
-    else if(/^\s+\S/.test(line)&&fields){end=i;}
-    else break;
-  }
-  return fields>=2&&names.has('from')&&(names.has('sent')||names.has('date')||fields>=3&&names.has('subject'))?end:-1;
-}
-function cleanQuotedText(lines) {
-  const output=[];
-  for(let i=0;i<lines.length;i++) {
-    let end=replyHeaderEnd(lines,i);
-    if(end<0)end=metadataHeaderEnd(lines,i);
-    if(end>=i){i=end;continue;}
-    const line=unquoteLine(lines[i]);
-    if(/^\s*(?:[-_]{3,}\s*(?:(?:Original|Forwarded) message\s*[-_]*)?|Begin forwarded message:)\s*$/i.test(line))continue;
-    output.push(line);
-  }
-  return tidyMessageText(output.join('\n'));
-}
-function cleanMessage(value) {
-  const body=messageText(value),lines=body.split('\n');
-  let start=-1,headerEnd=-1;
-  for(let i=0;i<lines.length;i++) {
-    const end=replyHeaderEnd(lines,i),metadata=metadataHeaderEnd(lines,i);
-    const separator=/^\s*(?:[-_]{3,}\s*(?:Original|Forwarded) message\s*[-_]*|Begin forwarded message:)\s*$/i.test(unquoteLine(lines[i]));
-    if(end>=i||metadata>=i||separator||/^\s*>(?:[\t >]|$)/.test(lines[i])){start=i;headerEnd=Math.max(end,metadata,separator?i:-1);break;}
-  }
-  if(start<0)return {main:body,quoted:''};
-  const main=lines.slice(0,start),tail=lines.slice(start),quoted=[];
-  const hasQuotePrefixes=tail.some(line=>/^\s*>/.test(line));
-  if(!hasQuotePrefixes)return {main:tidyMessageText(main.join('\n')),quoted:cleanQuotedText(tail)};
-  // Preserve inline/bottom-posted answers outside the quoted lines.
-  for(let i=start;i<lines.length;i++) {
-    if(i<=headerEnd||/^\s*>/.test(lines[i]))quoted.push(lines[i]);
-    else main.push(lines[i]);
-  }
-  return {main:tidyMessageText(main.join('\n')),quoted:cleanQuotedText(quoted)};
-}
+function displayMessage(m){const n=m.normalized||m;const full=n.display_text??n.displayText??m.body??'',current=n.current_text??n.currentText;return {main:String(current&&current!==full?current:full),quoted:current&&current!==full?String(full):'',original:n.original_content??m.originalText??m.originalHtml??'',originalField:n.original_field||'',history:n.history_available,truncated:Boolean(n.source_truncated||m.truncated)};}
 function messageBodyHtml(text) {
   // Keep working links without printing long tracking/query strings as prose.
   let result='',last=0;
@@ -490,23 +425,24 @@ function messageBodyHtml(text) {
 }
 
 function messageHtml(m,t) {
-  const {main,quoted}=cleanMessage(m.body);
+  const {main,quoted,original,originalField,history,truncated}=displayMessage(m);
   const name=(m.fromName&&m.fromName!==m.fromEmail?m.fromName:'')||(m.fromAgent?'Support':t.customerName)||m.fromName||'Unknown sender',email=m.fromEmail||(!m.fromAgent?t.fromEmail:'');
-  return `<article class="message" data-message-id="${esc(m.id)}"><div class="message-heading"><span class="avatar">${esc(initials(name))}</span><div class="message-person"><strong>${esc(name)}${m.internal?' · Internal note':''}</strong>${email?`<span>${esc(email)}</span>`:''}</div><time datetime="${esc(m.at||'')}">${esc(date(m.at))}</time></div>${main?`<div class="message-body" dir="auto">${messageBodyHtml(main)}</div>`:quoted?'<p class="message-note">No new message text.</p>':'<p class="message-note">Message text is unavailable.</p>'}${quoted?`<details class="quoted-email" data-message-id="${esc(m.id)}"><summary>${icon('right')} Earlier email</summary><div class="message-body" dir="auto">${messageBodyHtml(quoted)}</div></details>`:''}${m.truncated?'<p class="message-note">Only part of this message is available.</p>':''}</article>`;
+  return `<article class="message" data-message-id="${esc(m.id)}"><div class="message-heading"><span class="avatar">${esc(initials(name))}</span><div class="message-person"><strong>${esc(name)}${m.internal?' · Internal note':''}</strong>${email?`<span>${esc(email)}</span>`:''}</div><time datetime="${esc(m.at||'')}">${esc(date(m.at))}</time></div>${main?`<div class="message-body" dir="auto">${messageBodyHtml(main)}</div>`:quoted?'<p class="message-note">No new message text.</p>':'<p class="message-note">Message text is unavailable.</p>'}${quoted?`<details class="quoted-email" data-message-id="${esc(m.id)}"><summary>${icon('right')} Full email history</summary><div class="message-body" dir="auto">${messageBodyHtml(quoted)}</div></details>`:''}${original?`<details class="original-evidence"><summary>Original message evidence${originalField?' · '+esc(originalField):''}</summary><pre dir="auto">${esc(original)}</pre></details>`:'<p class="message-note">Original message evidence was not retained.</p>'}${history===false?'<p class="message-note">Full email history was not retained. Showing the available text.</p>':''}${truncated?'<p class="message-note">Only part of this message is available.</p>':''}${attachmentsHtml(m.attachments)}</article>`;
 }
+function attachmentsHtml(attachments){return (Array.isArray(attachments)?attachments:[]).slice(0,20).map(a=>{const url=webUrl(a.url||a.download_url||a.public_url);if(!url)return '';const name=String(a.name||a.filename||'Attachment'),image=/^image\/(?:jpeg|png|gif|webp|avif)$/.test(String(a.content_type||a.contentType||a.mime_type||''));return `<details class="message-attachment"><summary>${icon(image?'image':'link')}${esc(name)}</summary>${image?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(url)}" alt="${esc(name)}" loading="lazy" referrerpolicy="no-referrer"></a>`:`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open attachment ${icon('external')}</a>`}</details>`;}).join('');}
 function conversationHtml(t) {
   return `<div class="message-area">${t.localOnly?`<div class="info-banner">${icon('info')} Local ticket · Saved in this browser. No customer has been contacted.</div>`:t.historyIncomplete?`<div class="info-banner">${icon('info')} Showing recent messages. Use “Load earlier messages” to read more.</div>`:''}${t.projection?.stale?`<div class="info-banner">${icon('info')} Ticket history is awaiting refresh. Last updated ${esc(date(t.projection.generatedAt))}.</div>`:''}${t.messagesNextCursor?'<button class="button older-messages" data-action="older-messages">Load earlier messages</button>':''}${t.messages?.length?t.messages.map(m=>messageHtml(m,t)).join(''):'<div class="empty-state">No messages returned by Gorgias.</div>'}</div>`;
 }
 function detailsHtml(t) {
-  const fields=[['Ticket ID',t.id],['Subject',t.subject||'No subject'],['Customer',t.customerName||'Unknown'],['Email',t.fromEmail||'Not observed'],['Channel',label(t.channel)||'Not observed'],['Gorgias status',label(t.status)||'Not observed'],['Gorgias priority',label(t.gorgiasPriority)||'Not observed'],['Gorgias assignee',observed(t,'assignee')||'Not observed'],['Draft priority',label(t.priority)||'Not available'],['Last activity',date(t.updatedAt)],['Messages loaded',t.observedMessageCount??t.messages?.length??0],['Tags',(t.tags||[]).join(', ')||'None observed'],['Draft source',t.draftSourceMessageId||'Not available']];
+  const fields=[['Ticket ID',t.id],['Original subject',t.subject||'Not observed'],['Subject',t.subject||'No subject'],['Customer',t.customerName||'Unknown'],['Email',t.fromEmail||'Not observed'],['Channel',label(t.channel)||'Not observed'],['Gorgias status',label(t.status)||'Not observed'],['Gorgias priority',label(t.gorgiasPriority)||'Not observed'],['Gorgias assignee',observed(t,'assignee')||'Not observed'],['Draft priority',label(t.priority)||'Not available'],['Last activity',date(t.updatedAt)],['Messages loaded',t.observedMessageCount??t.messages?.length??0],['Tags',(t.tags||[]).join(', ')||'None observed'],['Draft source',t.draftSourceMessageId||'Not available']];
   return `<div class="message-area"><dl class="ticket-fields">${fields.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>`;
 }
 function replyContextHtml(t) {
   const retry=draftRetries.get(t.id);
   if(retry&&(t.draftGenerationState!=='failed'||retry.source!==t.draftSourceMessageId||retry.processedAt!==t.draftProcessedAt))draftRetries.delete(t.id);
   const sensitive=t.draftAction==='sensitive_draft'||/^\[SENSITIVE/i.test(t.readonlyDraft||'');
-  const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div><div class="draft-body" dir="auto">${esc(currentDraft(t))}</div>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft" ${draftNeedsStaff(t)?'disabled title="Complete the missing answer in the reply below"':''}>${icon('check')} Use draft</button><button class="button draft-edit" data-action="edit-draft" aria-label="Edit suggested reply with AI" aria-haspopup="dialog" aria-controls="draft-rewrite" title="${t.draftSourceMessageId&&!t.syncStale?'Edit suggested reply with AI':'Refresh this ticket before editing the suggestion'}" ${!t.draftSourceMessageId||t.syncStale?'disabled':''}>${icon('edit')}</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
-  return draftStatusHtml(t)+draft;
+  const draft=draftAvailable(t)?`<section class="draft-card" aria-label="Suggested reply"><div class="draft-heading">${icon('draft')}<h3>Suggested reply</h3><span class="badge amber">${icon('shield')}${sensitive?'Review required':'Review before sending'}</span></div>${sensitive?'<p class="compact-review">Review required before sending</p>':''}<div class="draft-body" dir="auto">${esc(currentDraft(t))}</div><button class="draft-expand" data-action="expand-draft" aria-expanded="false">Expand suggestion</button>${t.draftReason?`<div class="draft-warning">${icon('info')}<span>${esc(t.draftReason)}</span></div>`:''}<div class="draft-actions"><button class="button primary" data-action="use-draft" ${draftNeedsStaff(t)?'disabled title="Complete the missing answer in the reply below"':''}>${icon('check')} Use draft</button><button class="button draft-edit" data-action="edit-draft" aria-label="Edit suggested reply with AI" aria-haspopup="dialog" aria-controls="draft-rewrite" title="${t.draftSourceMessageId&&!t.syncStale?'Edit suggested reply with AI':'Refresh this ticket before editing the suggestion'}" ${!t.draftSourceMessageId||t.syncStale?'disabled':''}>${icon('edit')}</button><button class="button" data-action="dismiss-draft">Dismiss</button>${t.draftSourceMessageId?`<span class="draft-source" title="${esc(date(t.draftProcessedAt))}">Source: ${esc(t.draftSourceMessageId)}</span>`:''}</div></section>`:t.draftSuperseded?`<div class="info-banner">${icon('info')} The conversation has newer messages. The previous suggestion is out of date.</div>`:t.readonlyDraft?'<p class="small muted">Suggestion dismissed. <button data-action="restore-draft">Restore suggestion</button></p>':'<p class="small muted">No suggested reply is available for this ticket yet.</p>';
+  return `${draftStatusHtml(t)}${draft}`;
 }
 function replyHtml(t) {
   return `<section class="reply-area"><div class="reply-context">${replyContextHtml(t)}</div><div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
@@ -525,6 +461,7 @@ function railCompletenessHtml(rail) {
 }
 function renderRail() {
   const t=state.ticket;if(!t)return;
+  if(t.localOnly){$('#customer-rail').innerHTML='<div class="rail-heading">Local ticket</div><p class="rail-section">This private browser ticket has no provider customer lookup.</p>';syncRailAccessibility();return;}
   const r=t.shopifyRail||{},c=r.customer,o=r.order;
   const identity=t.customerContext?.status==='observed'&&!t.customerContext?.conflict?t.customerContext.identity||{}:{};
   const name=c?.displayName||identity.name||t.customerName||'Unknown customer';
@@ -532,6 +469,7 @@ function renderRail() {
   let html=`<div class="rail-heading">Customer details<button data-action="rail-close" aria-label="Close customer details">${icon('panel')}</button></div><section class="rail-section"><div class="customer-top"><span class="avatar">${esc(initials(name))}</span><div><div class="customer-name">${esc(name)}</div><div class="customer-email">${esc(email)}</div></div></div>${c?`<dl class="customer-stats"><div><dt>Orders</dt><dd>${esc(c.numberOfOrders??'Unknown')}</dd></div><div><dt>Total spent</dt><dd>${esc(money(c.amountSpent))}</dd></div></dl>${c.createdAt?`<p class="customer-since">Customer since ${esc(date(c.createdAt,false))}</p>`:''}${c.tags?.length?`<p class="customer-tags">${icon('bag')}<span>${esc(c.tags.join(' · '))}</span></p>`:''}`:`<p class="small muted">${esc(t.customerContext?.conflict?'Conflicting customer details need review.':r.status==='missing'?'No matching Shopify customer was found.':r.status==='loading'?'Loading Shopify customer details…':r.status==='unavailable'?'A consistent customer email is needed to look up Shopify details.':r.status==='error'?'Shopify details could not be loaded. Please retry.':'Shopify details are not available yet.')}</p>`}</section>`;
   if(r.status==='loading'||r.refreshing)html+=`<div class="customer-load-status" role="status">${icon('refresh')}<span>${r.refreshing?'Refreshing Shopify details…':'Loading orders, returns, and customer history…'}</span></div>`;
   if(r.status==='error'||r.refreshError)html+=`<div class="customer-load-status customer-load-error" role="status"><span>Shopify lookup is temporarily unavailable. ${r.customer||r.order?'Showing the last saved details.':''}</span><button class="button" data-action="retry-customer">${icon('refresh')} Retry customer details</button></div>`;
+  html+=redoHtml(t.redoDetails);
   if(c||o||r.returns)html+=railCompletenessHtml(r);
   if(r.returns)html+=returnsHtml(r.returns,o);
   if(o)html+=orderHtml(o);
@@ -550,11 +488,50 @@ function renderRail() {
   if(focusedAction)rail.querySelector(`[data-action="${focusedAction}"]`)?.focus({preventScroll:true});
   if(focusedSummary)[...rail.querySelectorAll('summary')].find(el=>el.textContent===focusedSummary)?.focus({preventScroll:true});
   syncRailAccessibility();
-  scheduleCustomerDetails();
+  updateTitle();scheduleCustomerDetails();
+}
+const redoFields=[['id','Return ID'],['status','Status'],['type','Type'],['created_at','Created'],['updated_at','Updated'],['order_name','Matched order'],['complete_with_no_action','Completed without action'],['refund_amount','Refund amount'],['store_credit_amount','Store credit'],['tracking_number','Tracking number'],['tracking_url','Tracking link']];
+const redoNestedFields=[['id','ID'],['status','Status'],['type','Type'],['amount','Amount'],['refund','Refund'],['storeCredit','Store credit'],['trackingNumber','Tracking number'],['trackingUrl','Tracking link'],['itemCount','Item count'],['createdAt','Created'],['updatedAt','Updated'],['quantity','Quantity'],['name','Name'],['currency','Currency'],['currencyCode','Currency code'],['carrier','Carrier']];
+const redoStructures=[['totals','Totals'],['refunds','Refunds'],['compensation_methods','Compensation methods'],['gift_cards','Gift cards'],['exchange','Exchange'],['items','Items'],['shipments','Shipments'],['tracking','Tracking']];
+function redoValue(value,key,depth=0){
+  if(value==null)return 'Not reported by Redo';
+  if(typeof value==='string'){
+    if(['tracking_url','trackingUrl'].includes(key)){const href=webUrl(value.slice(0,200));return href?`<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Open tracking ${icon('external')}</a>`:'A usable tracking link was not reported';}
+    return esc(value.slice(0,200))||'Not reported by Redo';
+  }
+  if(typeof value==='boolean')return value?'Yes':'No';
+  if(typeof value==='number')return Number.isFinite(value)?esc(value):'Not reported by Redo';
+  if(depth>=3)return 'Further detail is outside the retained read limit';
+  if(Array.isArray(value))return value.length?`<ol>${value.slice(0,10).map(v=>`<li>${redoValue(v,key,depth+1)}</li>`).join('')}</ol>`:'No entries in the retained observation';
+  if(typeof value==='object'){
+    const fields=redoNestedFields.filter(([field])=>Object.hasOwn(value,field));
+    return fields.length?`<dl class="ticket-fields">${fields.map(([field,title])=>`<dt>${title}</dt><dd>${redoValue(value[field],field,depth+1)}</dd>`).join('')}</dl>`:'No reviewed fields were retained';
+  }
+  return 'Not reported by Redo';
+}
+function redoReturnHtml(r){
+  return `<section class="redo-return"><dl class="ticket-fields">${redoFields.map(([key,title])=>`<dt>${title}</dt><dd>${redoValue(r[key],key)}</dd>`).join('')}</dl>${redoStructures.map(([key,title])=>`<details class="redo-structure" data-redo-field="${key}"><summary>${title} ${icon('right')}</summary>${Object.hasOwn(r,key)?`<div>${redoValue(r[key],key)}</div>`:'<p class="small muted">Not reported by Redo.</p>'}${Array.isArray(r.structuredFieldsUnavailable)&&r.structuredFieldsUnavailable.includes(key)?'<p class="small muted">This field had no usable reviewed detail in the retained read.</p>':''}</details>`).join('')}<p class="small muted">Retained Redo details are limited to 10 entries per list, 3 nested levels, and 200 characters per value.</p></section>`;
+}
+function redoHtml(details) {
+  const d=details||{status:'unavailable'},stateText={pending:'Waiting for a Redo read for the verified Shopify orders.',empty:'No matching Redo return was observed.',unavailable:'Redo details are unavailable for this verified identity.',partial:'Partial Redo observation. Some results are missing or could not be matched. Verified matches remain below.',stale:'The last Redo observation is shown. Its refresh is delayed.',observed:'Redo returns matched to verified Shopify orders.'};
+  const orderDigits=value=>String(value||'').trim().replace(/^#/,'');
+  const incomplete=(Array.isArray(d.incomplete)?d.incomplete:[]).slice(0,3).map(orderDigits).filter(name=>/^\d{4,10}$/.test(name));
+  let html=`<details class="rail-section redo-section"><summary>Redo returns ${icon('right')}</summary><p class="redo-state">${esc(stateText[d.status]||stateText.unavailable)}</p>${incomplete.length?`<p class="small muted">Incomplete orders · ${esc(incomplete.join(', '))}</p>`:''}${d.fetchedAt?`<p class="small muted">Redo observation · ${esc(date(d.fetchedAt))}</p>`:''}`;
+  if(['observed','empty','stale','partial'].includes(d.status))for(const [name,order] of Object.entries(d.orders||{}).slice(0,3)) {
+    const digits=orderDigits(name);if(!/^\d{4,10}$/.test(digits)||!order||!['observed','empty'].includes(order.status))continue;
+    const sourceReturns=(Array.isArray(order.returns)?order.returns:[]).slice(0,10);
+    const returns=sourceReturns.filter(r=>r&&typeof r==='object'&&!Array.isArray(r)&&(r.order_name==null||orderDigits(r.order_name)===digits));
+    html+=`<div class="return-row"><strong>Order ${esc(name)}</strong>${order.observedAt?`<p class="small muted">Observed ${esc(date(order.observedAt))}</p>`:''}${order.refreshFailed?'<p class="small muted">Refresh delayed. Showing the previous observation for this order.</p>':''}${returns.map(redoReturnHtml).join('')}`;
+    if(!returns.length)html+=order.status==='empty'?'<p>No matching return in this observation.</p>':'<p>No matched return detail is available in this retained observation.</p>';
+    if(order.truncated)html+='<p class="small muted">Showing the first 10 matching returns.</p>';
+    if(order.rejected||returns.length!==sourceReturns.length)html+='<p class="small muted">Some records lacked a matching order identity and were withheld.</p>';
+    html+='</div>';
+  }
+  return html+'</details>';
 }
 function returnsHtml(returns,order) {
   const nodes=returns.returns?.nodes||[],open=nodes.filter(x=>x.status==='OPEN').length;
-  return `<details class="rail-section"${nodes.length?' open':''}><summary>Returns <span class="badge ${open?'amber':'neutral'}">${open?`${open} open`:`${nodes.length} on file`}</span>${icon('right')}</summary>${nodes.map(n=>`<div class="return-row"><div class="return-title"><span>${esc(n.name||`Order ${order?.name||''}`)}</span><span class="badge ${n.status==='OPEN'?'amber':'neutral'}">${esc(label(n.status)||'Unknown')}</span></div>${n.createdAt?`<p>${esc(date(n.createdAt))}</p>`:''}${n.items?.length?n.items.map(i=>`<p>${esc(i.title||'Returned item')}${i.quantity!=null?` · Qty ${esc(i.quantity)}`:''}${i.reason?` · ${esc(i.reason)}`:''}${i.note?` · ${esc(i.note)}`:''}</p>`).join(''):'<p>Return on file. Item details unavailable.</p>'}${n.itemsTruncated===true?'<p class="small completeness-warning">More returned items exist in Shopify. This snapshot shows the first 25.</p>':''}</div>`).join('')||'<p class="small muted">No returns in this snapshot.</p>'}</details>`;
+  return `<details class="rail-section"${nodes.length?' open':''}><summary>Shopify returns <span class="badge ${open?'amber':'neutral'}">${open?`${open} open`:`${nodes.length} on file`}</span>${icon('right')}</summary>${nodes.map(n=>`<div class="return-row"><div class="return-title"><span>${esc(n.name||`Order ${order?.name||''}`)}</span><span class="badge ${n.status==='OPEN'?'amber':'neutral'}">${esc(label(n.status)||'Unknown')}</span></div>${n.createdAt?`<p>${esc(date(n.createdAt))}</p>`:''}${n.items?.length?n.items.map(i=>`<p>${esc(i.title||'Returned item')}${i.quantity!=null?` · Qty ${esc(i.quantity)}`:''}${i.reason?` · ${esc(i.reason)}`:''}${i.note?` · ${esc(i.note)}`:''}</p>`).join(''):'<p>Return on file. Item details unavailable.</p>'}${n.itemsTruncated===true?'<p class="small completeness-warning">More returned items exist in Shopify. This snapshot shows the first 25.</p>':''}</div>`).join('')||'<p class="small muted">No returns in this snapshot.</p>'}</details>`;
 }
 function orderHtml(o) {
   const shipments=(o.fulfillments?.nodes||o.fulfillments||[]).map(f=>`<div class="shipment ${statusTone(f.displayStatus)}"><div class="shipment-title">${icon('box')}${esc(label(f.displayStatus)||'Shipment observed')}</div>${(f.trackingInfo||[]).map(tr=>`<div class="shipment-carrier"><span>${esc(tr.company||'Carrier unavailable')}</span>${webUrl(tr.url)?`<a href="${esc(webUrl(tr.url))}" target="_blank" rel="noopener noreferrer">Track ${icon('external')}</a>`:''}</div><div class="tracking-number">${esc(tr.number||'Tracking number unavailable')}</div>`).join('')||'<div class="small muted">Tracking details unavailable</div>'}${f.estimatedDeliveryAt?`<p class="small">Expected ${esc(date(f.estimatedDeliveryAt,false))}</p>`:''}</div>`).join('');
@@ -569,8 +546,9 @@ function captureDraftRevision(id,value) {
   return drafts[id];
 }
 function saveReply(value) {if(state.ticket)captureDraftRevision(state.id,value);}
-function sizeReplyEditor(editor) {editor.style.height='auto';editor.style.height=`${editor.scrollHeight}px`;}
+function sizeReplyEditor(editor) {editor.style.height='auto';editor.style.height=`${Math.min(editor.scrollHeight,Math.max(64,innerHeight*0.18))}px`;}
 async function copyText(value,message) {try {await navigator.clipboard.writeText(value);toast(message);}catch {toast('Copy is unavailable in this browser. Select the text and copy it manually.');}}
+function setField(field,value) {if(!state.ticket)return;if(field==='snooze'&&value){const d=new Date(value);if(!Number.isFinite(+d)||+d<=Date.now()){toast('Choose a future snooze time.');return;}value=d.toISOString();}const records=stateRecords(stored(keys.state,{}));records[state.id]={...(records[state.id]||{}),[field]:value?{value,by:state.operator||'operator',at:Date.now()}:null};persist(keys.state,{version:1,records});renderTicket();listRender();toast(storageAvailable?'Saved in this browser. Observed Gorgias values are unchanged.':'Browser storage is unavailable. Changes last for this session only.');}
 // Refresh only the context rail while a background lookup runs; never touch the editor.
 let customerDetailsTimer;
 let customerDetailsRequest=0;
@@ -580,13 +558,14 @@ function scheduleCustomerDetails() {
   clearTimeout(customerDetailsTimer);
   if(customerDetailsTicket!==state.id){customerDetailsTicket=state.id;customerDetailsAttempts=0;}
   const rail=state.ticket?.shopifyRail;
-  if(rail?.status==='loading'||rail?.refreshing) {
+  if(rail?.status==='loading'||rail?.refreshing||state.ticket?.redoDetails?.status==='pending') {
     customerDetailsTimer=setTimeout(()=>refreshCustomerDetails(),customerDetailsAttempts<15?2000:10000);
   } else if(rail?.refreshError) {
     customerDetailsTimer=setTimeout(()=>refreshCustomerDetails(),Math.max(30000,Math.min(300000,(Number(rail.retryAt||0)*1000)-Date.now())));
   }
 }
 async function refreshCustomerDetails(manual=false) {
+  if(state.ticket?.localOnly)return;
   if(!state.ticket||document.hidden){scheduleCustomerDetails();return;}
   clearTimeout(customerDetailsTimer);
   const id=state.id,ticketRequest=state.ticketRequest,request=++customerDetailsRequest;
@@ -594,9 +573,9 @@ async function refreshCustomerDetails(manual=false) {
   try {
     const result=await api('get_ticket',{ticketId:id});
     if(state.id!==id||state.ticketRequest!==ticketRequest||!state.ticket||request!==customerDetailsRequest)return;
-    state.ticket.shopifyRail=result.ticket.shopifyRail;
+    state.ticket.shopifyRail=result.ticket.shopifyRail;state.ticket.redoDetails=result.ticket.redoDetails;
     customerDetailsAttempts++;
-    renderRail();
+    renderRail();updateTitle();
     if(manual&&result.ticket.shopifyRail?.refreshError)toast('Shopify is temporarily unavailable. The lookup will retry shortly.');
   } catch(error) {
     if(state.id!==id||state.ticketRequest!==ticketRequest||!state.ticket||request!==customerDetailsRequest)return;
@@ -634,24 +613,30 @@ new MutationObserver(syncRailAccessibility).observe($('#workspace'), {attributes
 // Account for wrapped navigation under text enlargement, not only viewport width.
 new ResizeObserver(([entry]) => document.documentElement.style.setProperty('--header-height', `${entry.target.getBoundingClientRect().height}px`)).observe($('.app-header'));
 let searchTimer;
-$('#search').addEventListener('input',event=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.query=event.target.value;state.page=0;syncUrl();loadList();},250);});
-document.addEventListener('input',event=>{if(event.target.id==='reply'){sizeReplyEditor(event.target);saveReply(event.target.value);$('#saved-note').textContent='Saved in this browser';}});
+$('#search').addEventListener('input',event=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.query=event.target.value;state.page=0;clearSelection();syncUrl();loadList();},250);});
+document.addEventListener('input',event=>{if(event.target.id==='reply'){sizeReplyEditor(event.target);saveReply(event.target.value);$('#saved-note').textContent=storageAvailable?'Saved in this browser':'Kept for this session only';}});
 window.addEventListener('resize',()=>{const editor=$('#reply');if(editor)sizeReplyEditor(editor);});
+document.addEventListener('change',event=>{
+  if(event.target.dataset.field)setField(event.target.dataset.field,event.target.value);
+  if(event.target.dataset.filter){state.filters[event.target.dataset.filter]=event.target.value.trim();state.page=0;clearSelection();loadList();}
+  if(event.target.dataset.selectTicket){const id=event.target.dataset.selectTicket;if(event.target.checked)state.selected.add(id);else state.selected.delete(id);updateSelection();}
+  if(event.target.id==='select-page'){state.selected=event.target.checked?new Set(filtered().map(t=>t.id)):new Set();listRender();}
+});
 document.addEventListener('click',async event=>{
   const ticketButton=event.target.closest('[data-ticket]');if(ticketButton){await selectTicket(ticketButton.dataset.ticket,true,true);return;}
-  const view=event.target.closest('[data-view]');if(view){state.view=view.dataset.view;state.page=0;syncUrl();loadList();return;}
+  const view=event.target.closest('[data-view]');if(view){state.view=view.dataset.view;state.page=0;clearSelection();syncUrl();loadList();return;}
   const tab=event.target.closest('[data-tab]');if(tab){state.tab=tab.dataset.tab;renderTicket();$(`[data-tab="${state.tab}"]`)?.focus({preventScroll:true});return;}
   const action=event.target.closest('[data-action]')?.dataset.action;if(!action)return;
   if(action==='refresh'){loadList(true);refreshTicket();return;}
   if(action==='retry-customer'){refreshCustomerDetails(true);return;}
   if(action==='older-messages'){loadOlder();return;}
   if(action==='retry-ticket'){selectTicket(state.id,false);return;}
-  if(action==='sort'){state.oldest=!state.oldest;state.page=0;loadList();return;}
-  if(action==='page-prev'||action==='page-next'){state.page=Math.max(0,state.page+(action==='page-next'?1:-1));await loadList();$('#ticket-list').scrollTop=0;return;}
+  if(action==='sort'){state.oldest=!state.oldest;state.page=0;clearSelection();loadList();return;}
+  if(action==='page-prev'||action==='page-next'){clearSelection();state.page=Math.max(0,state.page+(action==='page-next'?1:-1));await loadList();$('#ticket-list').scrollTop=0;return;}
   if(action==='ticket-prev'||action==='ticket-next'){
-    const index=state.rows.findIndex(t=>t.id===state.id),direction=action==='ticket-next'?1:-1;
-    let next=state.rows[index+direction];
-    if(!next&&index>=0&&(direction>0?state.hasNext:state.page>0)){state.page+=direction;await loadList();next=direction>0?state.rows[0]:state.rows.at(-1);}
+    const rows=filtered(),index=rows.findIndex(t=>t.id===state.id),direction=action==='ticket-next'?1:-1;
+    let next=rows[index+direction];
+    if(!next&&index>=0&&(direction>0?state.hasNext:state.page>0)){state.page+=direction;await loadList();clearSelection();next=direction>0?filtered()[0]:filtered().at(-1);}
     if(next)selectTicket(next.id,true,true);return;
   }
   if(action==='back'){$('#workspace').classList.remove('ticket-open','rail-open');$('#search').focus();return;}
@@ -667,9 +652,16 @@ document.addEventListener('click',async event=>{
   if(action==='edit-draft'){openRewrite();return;}
   if(action==='cancel-rewrite'){closeRewrite();return;}
   if(action==='retry-draft'){await retryDraft();return;}
-  if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)&&!draftNeedsStaff(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent='Saved in this browser';editor.focus();return;}
+  if(action==='use-draft'&&state.ticket&&draftAvailable(state.ticket)&&!draftNeedsStaff(state.ticket)){const editor=$('#reply'),body=currentDraft(state.ticket);if(editor.value.trim()&&editor.value!==body){editor.value=editor.value.trimEnd()+'\n\n'+body;toast('Suggestion added below your existing reply.');}else editor.value=body;sizeReplyEditor(editor);saveReply(editor.value);$('#saved-note').textContent=storageAvailable?'Saved in this browser':'Kept for this session only';editor.focus();return;}
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
-  if(action==='new'){toast('This inbox reads Gorgias tickets. Create new tickets in Gorgias.');return;}
+  if(action==='new'){$('#local-new-form').reset();$('#local-new-error').textContent='';$('#local-new').showModal();$('#local-new input').focus();return;}
+  if(action==='cancel-new'){$('#local-new').close();return;}
+  if(action==='list-collapse'||action==='list-expand'){$('#workspace').classList.toggle('list-collapsed',action==='list-collapse');$('.ticket-sidebar').inert=action==='list-collapse';$('.list-reopen button')?.focus({preventScroll:true});return;}
+  if(action==='toggle-read'){markRead(state.ticket,!readState(state.ticket,readRecords(stored(keys.read,{}))));renderTicket();listRender();return;}
+  if(action==='reset-local'){const records=stateRecords(stored(keys.state,{}));delete records[state.id];persist(keys.state,{version:1,records});const reads=readRecords(stored(keys.read,{}));delete reads[state.id];persist(keys.read,{version:1,records:reads});renderTicket();listRender();return;}
+  if(action==='rename'){const title=prompt('Ticket title in this browser',ticketTitle(state.ticket));if(title!==null)setField('title',title.trim().slice(0,200));return;}
+  if(action==='expand-draft'){$('.draft-card')?.classList.toggle('draft-expanded');const expanded=$('.draft-card')?.classList.contains('draft-expanded');event.target.closest('button').textContent=expanded?'Show less':'Expand suggestion';event.target.closest('button').setAttribute('aria-expanded',String(expanded));return;}
+  if(action==='bulk-apply'){applyBulk();return;}
     if(action==='sign-out'){resetSendAccess();try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}
 });
 document.addEventListener('keydown', event => {
@@ -689,9 +681,20 @@ document.addEventListener('keydown', event => {
     renderTicket(); $(`[data-tab="${state.tab}"]`).focus();
   }
 });
-window.addEventListener('popstate',()=>{params=new URLSearchParams(location.search);state.query=params.get('q')||'';state.view=['all','open','closed'].includes(params.get('view'))?params.get('view'):'all';$('#search').value=state.query;const id=params.get('ticket');if(id)selectTicket(id,false);else{state.id='';state.ticket=null;$('#workspace').classList.remove('ticket-open');const first=filtered()[0];if(first)selectTicket(first.id,false);}state.page=0;loadList();});
+window.addEventListener('popstate',()=>{params=new URLSearchParams(location.search);state.query=params.get('q')||'';state.view=['assigned','unassigned','all','open','snoozed','closed','trash','spam'].includes(params.get('view'))?params.get('view'):'all';$('#search').value=state.query;const id=params.get('ticket');if(id)selectTicket(id,false);else{state.id='';state.ticket=null;$('#workspace').classList.remove('ticket-open');const first=filtered()[0];if(first)selectTicket(first.id,false);}state.page=0;clearSelection();loadList();});
 
+function updateTitle(){if(!state.ticket)return;$('.ticket-title')?.replaceChildren(document.createTextNode(ticketTitle(state.ticket)));document.title=`${ticketTitle(state.ticket)} · Buttons Bebe Support`;const row=state.rows.find(t=>t.id===state.id);if(row&&state.ticket.shopifyRail?.order){row.shopifyRail={order:state.ticket.shopifyRail.order};listRender();}}
+function applyBulk(){const action=$('#bulk-action').value;if(!action)return;const rows=filtered().filter(t=>state.selected.has(t.id));const records=stateRecords(stored(keys.state,{})),reads=readRecords(stored(keys.read,{}));const at=Date.now();for(const t of rows){if(action==='read'||action==='unread')reads[t.id]={read:action==='read',message:lastMessage(t),activity:t.lastMessageAt||t.messages?.at(-1)?.at||t.updatedAt,at};else if(action==='reset'){delete records[t.id];delete reads[t.id];}else{let [field,value]=action.split(':');if(value==='me'){if(!state.operator){toast('Operator email is unavailable. Choose an assignee on the ticket.');return;}value=state.operator;}if(value==='tomorrow')value=new Date(at+86400000).toISOString();records[t.id]={...(records[t.id]||{}),[field]:{value,at,by:state.operator||'operator'}};}}persist(keys.state,{version:1,records});persist(keys.read,{version:1,records:reads});clearSelection();renderTicket();listRender();toast(storageAvailable?`Updated ${rows.length} tickets in this browser. Gorgias is unchanged.`:'Browser storage is unavailable. Updates last for this session only.');}
+$('#local-new-form').addEventListener('submit',event=>{event.preventDefault();try{const input=Object.fromEntries(new FormData(event.target));const ticket=localTicket(input,crypto.randomUUID());persist(keys.local,[ticket,...localRows()]);state.view='all';state.query='';state.filters={priority:'',assignee:'',tag:'',channel:''};$('#search').value='';for(const input of document.querySelectorAll('[data-filter]'))input.value='';state.page=0;clearSelection();$('#local-new').close();selectTicket(ticket.id,true,true);loadList();}catch(error){$('#local-new-error').textContent=error.message;}});
+let tooltipTarget=null;
+const tooltip=document.createElement('div');tooltip.id='inbox-tooltip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;document.body.append(tooltip);
+function hideTooltip(){if(tooltipTarget)tooltipTarget.removeAttribute('aria-describedby');tooltipTarget=null;tooltip.hidden=true;}
+function showTooltip(el){if(!el||el.disabled)return;hideTooltip();tooltipTarget=el;tooltip.textContent=el.dataset.tooltip||el.getAttribute('aria-label')||el.title;el.setAttribute('aria-describedby',tooltip.id);tooltip.hidden=false;const r=el.getBoundingClientRect();tooltip.style.left=`${Math.max(8,Math.min(innerWidth-tooltip.offsetWidth-8,r.left))}px`;tooltip.style.top=`${r.bottom+tooltip.offsetHeight+8<innerHeight?r.bottom+6:Math.max(6,r.top-tooltip.offsetHeight-6)}px`;}
+function installTooltips(){for(const el of document.querySelectorAll('button[data-action],.icon-button,[data-action="rail-close"],.access-pill')){el.dataset.tooltip=el.getAttribute('aria-label')||el.title||el.textContent.trim();}}
+document.addEventListener('mouseover',event=>{const el=event.target.closest('[data-tooltip]');if(el)showTooltip(el);});document.addEventListener('mouseout',event=>{if(event.target.closest('[data-tooltip]'))hideTooltip();});document.addEventListener('focusin',event=>{const el=event.target.closest('[data-tooltip]');if(el)showTooltip(el);});document.addEventListener('focusout',hideTooltip);document.addEventListener('keydown',event=>{if(event.key==='Escape')hideTooltip();});installTooltips();
+window.addEventListener('storage',event=>{if(event.key)memory.delete(event.key);else memory.clear();listRender();if(state.ticket)renderTicket();});
 renderSendAccess();
+api('capabilities').then(result=>{state.operator=result.operatorEmail||'';listRender();}).catch(()=>{});
 if(state.id)selectTicket(state.id,false);
 loadList();
 

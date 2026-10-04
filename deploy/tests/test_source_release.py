@@ -64,11 +64,38 @@ class SourceRecoveryTests(unittest.TestCase):
             key = 'inbox2web/' + name
             self.assertIn(key, manifest)
             self.assertEqual(release.target_path(key, self.live, self.web, self.root/'runtime'), self.web.parent/'inbox2'/name)
-        for name in ('live_api.py', 'customer_details.py', 'shop_worker.py'):
+        self.assertIn('inbox2web/local_state.js', manifest)
+        self.assertEqual(
+            release.target_path('inbox2web/local_state.js', self.live, self.web),
+            self.web.parent / 'inbox2' / 'local_state.js',
+        )
+        for name in ('live_api.py', 'customer_details.py', 'shop_worker.py',
+                     'redo_details.py', 'redo_worker.py'):
             self.assertIn('inbox2/' + name, manifest)
             self.assertNotIn('inbox2web/' + name, manifest)
-        self.assertFalse(any('helpdesk-inbox' in item['services'] for item in manifest.values()))
+        self.assertEqual(
+            release.target_path('inbox2/redo_worker.py', self.live, self.web),
+            self.root / 'inbox2' / 'redo_worker.py',
+        )
+        self.assertEqual(
+            manifest['inbox2/redo_worker.py']['services'],
+            ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop', 'buttonsbebe-inbox2-redo'],
+        )
+        services = {service for item in manifest.values() for service in item['services']}
+        self.assertNotIn('helpdesk-inbox', services)
         self.assertEqual(manifest['inbox/console-src/inbox/projection.py']['services'], ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop'])
+        intake_key = 'shared/intake/message_content.py'
+        self.assertIn(intake_key, manifest)
+        self.assertEqual(manifest[intake_key]['component'], 'intake')
+        self.assertEqual(
+            release.target_path(intake_key, self.live, self.web),
+            self.root / 'shared' / 'intake' / 'message_content.py',
+        )
+        self.assertEqual(
+            manifest[intake_key]['services'],
+            ['buttonsbebe-webhook', 'buttonsbebe-processor',
+             'buttonsbebe-gorgias-mcp', 'helpdesk-inbox2'],
+        )
 
     def test_missing_runtime_hashlock_fails_before_source_mutation(self):
         for component in ('tools', 'kb'):
@@ -87,6 +114,7 @@ class SourceRecoveryTests(unittest.TestCase):
             self.write(self.staged / path, 'never replace runtime')
         journal = self.prepare()
         expected = {
+            'shared/intake/message_content.py',
             'inbox/console-src/inbox/projection.py',
             'inbox/console-src/inbox/export_projection.py',
             'inbox/console-src/inbox/shop_rail.py',
@@ -115,7 +143,22 @@ class SourceRecoveryTests(unittest.TestCase):
         self.assertIn('app/kb-admin/server.js', manifest)
         self.assertNotIn('app/kb-admin/package.json', manifest)
         self.assertIn('app/processor/hermes_runner/process.py', manifest)
+        self.assertIn('shared/intake/message_content.py', manifest)
         self.assertIn('inbox/console-src/inbox/export_projection.py', manifest)
+
+    def test_rollback_of_intake_code_preserves_runtime_database(self):
+        database = self.live / 'webhook/data/webhook.db'
+        self.write(database, 'tickets before release')
+        journal = self.prepare()
+        intake_key = 'shared/intake/message_content.py'
+        self.assertIn(intake_key, journal['files'])
+
+        release.apply(self.journal)
+        self.write(database, 'tickets accepted after intake code switch')
+        release.apply(self.journal, rollback=True)
+
+        self.assertEqual(database.read_text(), 'tickets accepted after intake code switch')
+        self.assertFalse((self.root / 'shared/intake/message_content.py').exists())
 
     def test_partial_apply_recovers_and_repeated_rollback_is_safe(self):
         journal = self.prepare()

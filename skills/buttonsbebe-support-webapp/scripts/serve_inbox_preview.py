@@ -14,6 +14,7 @@ ASSETS = {
     "index.html": "text/html; charset=utf-8",
     "app.js": "text/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
+    "local_state.js": "text/javascript; charset=utf-8",
     "icons.js": "text/javascript; charset=utf-8",
     "lucide-LICENSE.txt": "text/plain; charset=utf-8",
 }

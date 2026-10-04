@@ -23,7 +23,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import StrictInt
 from _common import _clean, load_env
-from gorgias_content import curate_messages, curate_ticket
+from gorgias_content import curate_messages, curate_ticket, curate_summaries
 
 HOST = os.environ.get("GORGIAS_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GORGIAS_MCP_PORT", "8079"))
@@ -128,9 +128,9 @@ def list_inbox_tickets(limit: StrictInt = 100, cursor: str | None = None) -> dic
         return {"error": "Gorgias ticket list unavailable"}
     fields = ("id", "subject", "status", "priority", "channel", "customer", "assignee_user",
               "assignee_team", "created_datetime", "updated_datetime", "last_message_datetime",
-              "last_received_message_datetime", "excerpt", "tags", "spam", "trashed_datetime")
-    return {"data": [{key: ticket.get(key) for key in fields} for ticket in result["data"]],
-            "meta": {"next_cursor": (result.get("meta") or {}).get("next_cursor")}}
+              "last_received_message_datetime", "excerpt", "tags", "spam", "trashed_datetime", "snooze_datetime")
+    return curate_summaries({"data": [{key: ticket[key] for key in fields if key in ticket} for ticket in result["data"]],
+            "meta": {"next_cursor": (result.get("meta") or {}).get("next_cursor")}})
 
 
 if __name__ == "__main__":

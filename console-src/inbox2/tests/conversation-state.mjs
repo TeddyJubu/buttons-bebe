@@ -18,7 +18,7 @@ try {
     recent:'2026-09-03T10:00:00Z',
     new:'2026-09-04T10:00:00Z',
   };
-  const message=(id,body,time)=>({id,body,at:time,fromAgent:false,fromName:'Example customer'});
+  const message=(id,body,time)=>({id,body,display_text:body,current_text:body,original_content:body,original_field:'body_text',history_available:true,source_truncated:false,at:time,fromAgent:false,fromName:'Example customer'});
   const baseTicket={id:'gorgias:123',subject:'Conversation state',customerName:'Example customer',fromEmail:'customer@example.com',channel:'email',status:'open',
     updatedAt:at.recent,syncedAt:at.recent,readonlyDraft:'A current suggested reply.',draftSourceMessageId:'m4',draftProcessedAt:at.recent,
     messages:[message('m3','Current m3',at.equal),message('m4','Current m4',at.recent)],messagesNextCursor:'cursor-1',historyIncomplete:true,shopifyRail:{status:'missing'}};
@@ -154,8 +154,8 @@ try {
   });
   await cdp.send('Input.imeSetComposition',{text:'あ',selectionStart:1,selectionEnd:1});
   await page.waitForFunction(()=>window.__imeEvents.some(([name])=>name==='start'));
-  current123={...structuredClone(freshTicket),subject:'Refreshed during composition'};
-  await refresh();await page.locator('.ticket-title').filter({hasText:'Refreshed during composition'}).waitFor();
+  current123={...structuredClone(freshTicket),subject:'Refreshed during composition',messages:[...freshTicket.messages,message('ime-refresh','Refreshed during composition',at.new)]};
+  await refresh();await page.locator('.message[data-message-id="ime-refresh"]').waitFor();
   assert.deepEqual(await editor.evaluate(element=>({
     same:element===window.__stableEditor,
     connected:element.isConnected,

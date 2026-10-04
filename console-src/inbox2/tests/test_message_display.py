@@ -1,48 +1,30 @@
 from pathlib import Path
 import sys
 import unittest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from tools.gorgias_content import curate_message
 import live_api
 
-
 class MessageDisplayTests(unittest.TestCase):
-    def test_soft_wrapped_incoming_message_reads_as_one_sentence(self):
-        raw = ("Hi, I realized that I don't need the item from  Order 12345  . Is\n"
-               "there a way to drop it off locally? I'm visiting tomorrow and it's\n"
-               "easier than mailing the parcel back.")
-        result = live_api.message({
-            'id': 1, 'preferred_content': raw,
-            'preferred_content_field': 'stripped_text',
-            'sender': {'name': 'Example Customer'},
-        })
-        self.assertEqual(
-            result['body'],
-            "Hi, I realized that I don't need the item from Order 12345. Is "
-            "there a way to drop it off locally? I'm visiting tomorrow and it's "
-            "easier than mailing the parcel back.",
-        )
-
-    def test_greeting_paragraphs_and_lists_keep_their_breaks(self):
-        raw = "Hi team,\nPlease review this request.\n\n- Keep this item\n- Return that one"
-        self.assertEqual(
-            live_api.display_content({
-                'preferred_content': raw,
-                'preferred_content_field': 'stripped_text',
-            }),
-            raw,
-        )
-
-    def test_html_content_is_left_for_the_browser_parser(self):
-        raw = "<div>Hello<br>World</div>"
-        self.assertEqual(
-            live_api.display_content({
-                'preferred_content': raw,
-                'preferred_content_field': 'stripped_html',
-            }),
-            raw,
-        )
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_intake_owns_cleaning_and_history(self):
+        source={'id':1,'stripped_text':'Where is order #12345?',
+                'body_html':'<head><title>Hidden title</title></head><p style="display:none">Preheader</p><p>Where is order #12345?</p><blockquote>Earlier email</blockquote>'}
+        curated=curate_message(source)
+        result=live_api.message(curated)
+        self.assertEqual(result['body'],'Where is order #12345?\n\n> Earlier email')
+        self.assertEqual(result['current_text'],'Where is order #12345?')
+        self.assertEqual(result['original_content'],source['body_html'])
+        self.assertEqual(result['id'],'1')
+        self.assertTrue(result['history_available'])
+    def test_greeting_paragraphs_and_lists_keep_breaks(self):
+        raw='Hi team,\nPlease review this request.\n\n- Keep this item\n- Return that one'
+        self.assertEqual(live_api.message(curate_message({'stripped_text':raw}))['body'],raw)
+    def test_missing_history_is_explicit_not_reconstructed(self):
+        result=live_api.message(curate_message({'stripped_html':'<div>Hello<br>World</div>','body_url':'https://archive.invalid/body'}))
+        self.assertEqual(result['body'],'Hello\nWorld')
+        self.assertFalse(result['history_available']);self.assertTrue(result['source_truncated'])
+    def test_attachment_metadata_and_original_fields_survive(self):
+        source={'body_text':'See the image.','attachments':[{'url':'https://example.test/image.png','name':'image.png','content_type':'image/png','secret':'never export'}]}
+        result=live_api.message(curate_message(source))
+        self.assertEqual(result['attachments'],[{'url':'https://example.test/image.png','name':'image.png','content_type':'image/png'}])

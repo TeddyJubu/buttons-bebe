@@ -14,11 +14,59 @@ import sqlite3
 import tempfile
 import time
 from projection import connect, VERSION, DEFAULT_PATH
+import sys as _sys
+def _load_intake():
+    try:
+        from intake.message_content import CLEANUP_VERSION, CONTRACT_KEYS, intake_from_message
+        return CLEANUP_VERSION, CONTRACT_KEYS, intake_from_message
+    except ImportError:
+        root = Path(__file__).resolve().parents[2]
+        if str(root) not in _sys.path:
+            _sys.path.insert(0, str(root))
+        from intake.message_content import CLEANUP_VERSION, CONTRACT_KEYS, intake_from_message
+        return CLEANUP_VERSION, CONTRACT_KEYS, intake_from_message
+CLEANUP_VERSION, CONTRACT_KEYS, intake_from_message = _load_intake()
 
 
 def text(value):
     value=value if isinstance(value,str) else ''
     return value[:20000],len(value)>20000
+
+
+def present_intake(normalized):
+    """Bound contract text the same way message bodies are bounded."""
+    presented={key:normalized[key] for key in CONTRACT_KEYS}
+    current_cut=False
+    any_cut=False
+    for key in ('display_text','current_text','original_content'):
+        value,cut=text(presented[key])
+        presented[key]=value
+        any_cut=any_cut or cut
+        if key=='current_text':current_cut=cut
+    if any_cut:presented['source_truncated']=True
+    return presented,current_cut
+
+
+def intake_for_record(record):
+    normalized=record.get('intake_normalized')
+    if isinstance(normalized,dict):
+        return present_intake(normalized)
+    # No retained raw message. The stored column is already the AI text, and
+    # the export bound is measured on that column.
+    stored=record.get('message_text') if isinstance(record.get('message_text'),str) else ''
+    body,cut=text(stored)
+    presented={
+        'display_text':body,
+        'current_text':body,
+        'display_source':None,
+        'current_source':None,
+        'original_content':'',
+        'original_field':None,
+        'history_available':False,
+        'source_truncated':cut,
+        'cleanup_version':CLEANUP_VERSION,
+    }
+    return presented,cut
 
 
 # Gorgias HTTP Integration templates render every value as a string: booleans
@@ -180,6 +228,9 @@ def extract(source, now):
                         data=payload.get('data')
                         message=data.get('message') if isinstance(data,dict) else None
                     if not isinstance(message,dict):continue
+                    # A saved intake-1 contract already decided history. Do not
+                    # rebuild it from preferred_content or a stripped source.
+                    record['intake_normalized']=intake_from_message(message)
                     body=message.get('body_text')
                     if isinstance(body,str) and body.strip() and body.strip() != record['message_text']:
                         original=body.strip()
@@ -196,11 +247,14 @@ def build(rows):
     for ticket_id,items in grouped.items():
         latest=items[-1];messages=[];truncated=latest['observed_count']>100
         for r in items:
-            body,cut=text(r['message_text']);truncated|=cut
+            intake,cut=intake_for_record(r)
+            body=intake['current_text']
+            truncated|=cut
             agent=not bool(r['is_customer_message'])
             messages.append({'id':r['message_id'],'from':'agent' if agent else 'customer','fromAgent':agent,
               'fromName':r['author_email'] or ('Observed agent' if agent else 'Customer'),'fromEmail':r['author_email'] or '',
               'body':body,'at':r['created_at'] or r['received_at'],'truncated':cut,'via':'gorgias',
+              **intake,
               **({'originalText':r['original_text'],
                   **({'originalTextTruncated':True} if r.get('original_text_truncated') else {})}
                  if r.get('original_text') else {})})

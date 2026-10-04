@@ -14,7 +14,7 @@ ships both console HTML assets. A successful inventory is persisted under
 `/var/lib/buttonsbebe-deploy/source-manifest.json`.
 
 Inbox is the only ticket interface. Its Python source deploys to
-`/opt/buttonsbebe/inbox2/`; its five public assets deploy to `/var/www/inbox2/`.
+`/opt/buttonsbebe/inbox2/`; its six public assets deploy to `/var/www/inbox2/`.
 These are distinct inventory roots (`inbox2/` and `inbox2web/`), and backend source
 is never placed in the public root. The shared projection/Shopify modules remain
 under `/opt/buttonsbebe/inbox/console-src/inbox/`, with the existing venv at
@@ -23,6 +23,22 @@ under `/opt/buttonsbebe/inbox/console-src/inbox/`, with the existing venv at
 `helpdesk-inbox.service` is masked. Saved `/inbox2/` page links redirect to Inbox
 at `/inbox/`, preserving ticket and view parameters. Internal service and data
 paths retain their established `inbox2` names.
+
+Email normalization is managed source at `/opt/buttonsbebe/shared/intake/`.
+Webhook, processor, Gorgias MCP, Inbox and projection launch environments include
+`/opt/buttonsbebe/shared` while retaining their existing import paths. Deploy
+the consumers and this package together; rollback journals include the package.
+The package adds no runtime dependency.
+
+The separate `buttonsbebe-inbox2-redo` worker uses the existing Inbox Python
+environment and a fixed localhost read-only Redo MCP tool. Install its reviewed
+unit manually. On its first release, enable the unit, then start it after its
+managed source has been installed and the Inbox has created the local request
+queue. Verify it is active before declaring the release complete. Subsequent
+releases preserve its existing active state normally. Its snapshot directory is
+`/var/lib/buttonsbebe-inbox2-redo`; neither that directory nor the request queue
+is managed source or rollback data. Add the new unit and all changed applied
+launch files to the approved fingerprints.
 
 Install the updated receiver and source helper together during this cutover.
 Update applied Caddy and Inbox unit fingerprints and the approved config tree

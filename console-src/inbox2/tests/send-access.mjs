@@ -12,7 +12,7 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(10000);
 const errors=[],calls=[];page.on('pageerror',e=>errors.push(e.message));
 const now=new Date().toISOString();
-const ticket={id:'gorgias:123',subject:'Question about my order',customerName:'Example customer',fromEmail:'customer@example.com',channel:'email',status:'open',updatedAt:now,syncedAt:now,messages:[{id:'456',fromAgent:false,fromName:'Example customer',body:'When will my order arrive?',at:now}],shopifyRail:{status:'missing'}};
+const ticket={id:'gorgias:123',subject:'Question about my order',customerName:'Example customer',fromEmail:'customer@example.com',channel:'email',status:'open',updatedAt:now,syncedAt:now,messages:[{id:'456',fromAgent:false,fromName:'Example customer',display_text:'When will my order arrive?',current_text:'When will my order arrive?',original_content:'When will my order arrive?',original_field:'body_text',history_available:true,body:'When will my order arrive?',at:now}],shopifyRail:{status:'missing'}};
 const context={inboxTicketId:ticket.id,ticketId:'123',sourceMessageId:'456',recipient:'customer@example.com',channel:'email',sourceMessageText:'When will my order arrive?',draftRevision:'a'.repeat(64),contextId:'b'.repeat(64),unresolvedActions:[]};
 let accessFailure=false,sendMode='sent',statusMode='sent',reviewDelay=null,statusDelay=null,statusOperation='',expirySeconds=1800;
 await page.route('**/inbox/api/helpdesk',route=>{

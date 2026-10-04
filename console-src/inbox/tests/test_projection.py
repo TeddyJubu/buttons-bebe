@@ -262,6 +262,52 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(by_id['m3']['body'],'Deep words')
         self.assertEqual(by_id['m3']['originalText'],'Deep words\nSent from my iPhone')
 
+    def test_projection_publishes_intake_contract_without_the_raw_event(self):
+        html = ('<div style="display:none">Preview</div>'
+                '<p>Where is order #10322954?</p><blockquote>Earlier note</blockquote>')
+        raw = {'event': 'ticket-message-created', 'ticket': {'id': 1}, 'message': {
+            'id': 'm1', 'body_html': html,
+            'stripped_text': 'Where is order #10322954?\nSent from my iPhone',
+            'body_url': 'http://127.0.0.1/private',
+            'headers': {'Authorization': 'secret'},
+        }}
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE parsed_messages SET message_text='stale clutter https://fonts.gstatic.com/s/a.woff2' WHERE message_id='m1'")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)', (1, 'm1', json.dumps(raw)))
+            db.execute("INSERT INTO parsed_messages VALUES(1,'m9','customer','qa@example.com','qa@example.com','Excerpt','email',NULL,NULL,NULL,NULL,0,0,0,'2099-01-05','2099-01-05',1,'Only the current line')")
+            db.execute('INSERT INTO webhook_events VALUES(?,?,?)', (1, 'm9', json.dumps({
+                'message': {'id': 'm9', 'stripped_text': 'Only the current line', 'body_url': 'http://127.0.0.1/archive'},
+            })))
+        export(self.source, self.dest, now=self.now)
+        ticket = query('helpdesk.get_ticket', {'ticketId': 'gorgias:1'}, self.dest)['ticket']
+        by_id = {m['id']: m for m in ticket['messages']}
+        message = by_id['m1']
+        self.assertEqual(message['id'], 'm1')
+        self.assertEqual(message['body'], 'Where is order #10322954?')
+        self.assertEqual(message['display_text'], 'Where is order #10322954?\n\n> Earlier note')
+        self.assertEqual(message['current_text'], 'Where is order #10322954?')
+        self.assertEqual(message['display_source'], 'body_html')
+        self.assertEqual(message['current_source'], 'stripped_text')
+        self.assertEqual(message['original_content'], html)
+        self.assertEqual(message['original_field'], 'body_html')
+        self.assertTrue(message['history_available'])
+        self.assertFalse(message['source_truncated'])
+        self.assertEqual(message['cleanup_version'], 'intake-1')
+        self.assertNotIn('Preview', message['display_text'])
+        self.assertNotIn('fonts.gstatic.com', message['body'])
+        self.assertNotIn('headers', message)
+        self.assertNotIn('body_url', message)
+        self.assertNotIn('Authorization', json.dumps(message))
+        missing = by_id['m9']
+        self.assertEqual(missing['id'], 'm9')
+        self.assertEqual(missing['display_text'], 'Only the current line')
+        self.assertEqual(missing['current_text'], 'Only the current line')
+        self.assertFalse(missing['history_available'])
+        self.assertTrue(missing['source_truncated'])
+        self.assertNotIn('127.0.0.1', missing['display_text'])
+        self.assertNotIn('127.0.0.1', missing['original_content'])
+        self.assertEqual(ticket['snippet'], 'Only the current line')
+
     def test_original_text_over_20k_is_flagged_truncated(self):
         # cubic: a body longer than the 20k export bound must say so, not
         # shrink silently.
@@ -414,5 +460,58 @@ class ProjectionTests(unittest.TestCase):
         # No observed createdAt exists in the exporter; the panel must not
         # invent one — updatedAt is the only timestamp it can show.
         self.assertNotIn('createdAt',ticket)
+
+    def test_saved_contract_keeps_history_and_preferred_is_not_a_body(self):
+        saved = {
+            'display_text': 'Please help with my order.\n\nEarlier note about the hat.',
+            'current_text': 'Please help with my order.',
+            'display_source': 'body_text', 'current_source': 'stripped_text',
+            'original_content': 'Please help with my order.\nEarlier note about the hat.',
+            'original_field': 'body_text', 'history_available': True,
+            'source_truncated': True, 'cleanup_version': 'intake-1',
+        }
+        curated = {'id': 'm-contract', 'stripped_text': 'Please help with my order.',
+                   'preferred_content': 'NOT A RAW BODY', 'preferred_content_field': 'body_text', **saved}
+        stale = {'id': 'm-stale', 'stripped_text': 'Real question',
+                 'preferred_content': 'NOT A RAW BODY', 'preferred_content_field': 'body_text',
+                 'display_text': 'FAKE HISTORY', 'current_text': 'FAKE CURRENT',
+                 'display_source': 'body_text', 'current_source': 'stripped_text',
+                 'original_content': 'FAKE RAW', 'original_field': 'body_text',
+                 'history_available': True, 'source_truncated': False, 'cleanup_version': 'stale'}
+        bare = {'id': 'm-bare', 'stripped_text': 'Only the current line',
+                'preferred_content': 'NOT A RAW BODY', 'preferred_content_field': 'body_text'}
+        with sqlite3.connect(self.source) as db:
+            for mid, at, payload in (
+                ('m-contract', '2099-01-06', {'ticket': {'id': 1}, 'message': curated}),
+                ('m-stale', '2099-01-07', {'message': stale}),
+                ('m-bare', '2099-01-08', {'message': bare}),
+            ):
+                db.execute("INSERT INTO parsed_messages VALUES(1,?,'customer','qa@example.com','qa@example.com','S','email',NULL,NULL,NULL,NULL,0,0,0,?,?,1,'COLUMN TEXT')", (mid, at, at))
+                db.execute('INSERT INTO webhook_events VALUES(?,?,?)', (1, mid, json.dumps(payload)))
+        export(self.source, self.dest, now=self.now)
+        by_id = {m['id']: m for m in query('helpdesk.get_ticket', {'ticketId': 'gorgias:1'}, self.dest)['ticket']['messages']}
+        contract = by_id['m-contract']
+        self.assertEqual(contract['id'], 'm-contract')
+        self.assertEqual(contract['body'], 'Please help with my order.')
+        self.assertEqual(contract['current_text'], 'Please help with my order.')
+        self.assertIn('Earlier note about the hat.', contract['display_text'])
+        self.assertEqual(contract['original_content'], saved['original_content'])
+        self.assertTrue(contract['history_available'])
+        self.assertTrue(contract['source_truncated'])
+        self.assertNotIn('originalText', contract)
+        self.assertNotIn('NOT A RAW BODY', json.dumps(contract))
+        stale_message = by_id['m-stale']
+        self.assertEqual(stale_message['body'], 'Real question')
+        self.assertEqual(stale_message['display_text'], 'Real question')
+        self.assertEqual(stale_message['original_content'], 'Real question')
+        self.assertFalse(stale_message['history_available'])
+        self.assertNotIn('FAKE', json.dumps(stale_message))
+        self.assertNotIn('NOT A RAW BODY', json.dumps(stale_message))
+        bare_message = by_id['m-bare']
+        self.assertEqual(bare_message['display_text'], 'Only the current line')
+        self.assertEqual(bare_message['current_text'], 'Only the current line')
+        self.assertFalse(bare_message['history_available'])
+        self.assertNotIn('NOT A RAW BODY', json.dumps(bare_message))
+        self.assertNotIn('originalText', bare_message)
 
 if __name__=='__main__':unittest.main()

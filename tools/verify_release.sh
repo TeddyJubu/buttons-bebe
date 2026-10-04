@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Offline release gate for the live Buttons Bebe source tree.
 #
-# This script deliberately does not install dependencies, start services, call
-# external APIs, or mutate a VPS. CI installs the declared manifests first;
-# local callers should point PYTHON/PROCESSOR_PYTHON at an already prepared env.
+# This script does not install dependencies, start application services, call
+# external APIs, or mutate a VPS. It owns only a temporary loopback synthetic
+# preview for browser tests. CI installs declared manifests first; local callers
+# should point PYTHON/PROCESSOR_PYTHON at already prepared environments.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,6 +13,7 @@ PROCESSOR_PYTHON="${PROCESSOR_PYTHON:-$PYTHON}"
 WEBHOOK_PYTHON="${WEBHOOK_PYTHON:-$PYTHON}"
 INBOX_PYTHON="${INBOX_PYTHON:-$WEBHOOK_PYTHON}"
 QA_PYTHON="${QA_PYTHON:-$PROCESSOR_PYTHON}"
+TOOLS_PYTHON="${TOOLS_PYTHON:-$PYTHON}"
 
 fail() {
   echo "release gate failed: $*" >&2
@@ -32,8 +34,9 @@ PROCESSOR_PYTHON="$(absolute_interpreter "$PROCESSOR_PYTHON")"
 WEBHOOK_PYTHON="$(absolute_interpreter "$WEBHOOK_PYTHON")"
 INBOX_PYTHON="$(absolute_interpreter "$INBOX_PYTHON")"
 QA_PYTHON="$(absolute_interpreter "$QA_PYTHON")"
+TOOLS_PYTHON="$(absolute_interpreter "$TOOLS_PYTHON")"
 HERMES_VERIFY_PYTHON="$(absolute_interpreter "${HERMES_VERIFY_PYTHON:-$PYTHON}")"
-export PYTHON PROCESSOR_PYTHON WEBHOOK_PYTHON INBOX_PYTHON QA_PYTHON HERMES_VERIFY_PYTHON
+export PYTHON PROCESSOR_PYTHON WEBHOOK_PYTHON INBOX_PYTHON QA_PYTHON TOOLS_PYTHON HERMES_VERIFY_PYTHON
 
 cd "$ROOT_DIR"
 
@@ -98,7 +101,7 @@ from pathlib import Path
 import ast
 import json
 
-roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("console-src/inbox"), Path("console-src/inbox2"), Path("console-src/helpdesk-agent"), Path("shopify")]
+roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("intake"), Path("console-src/inbox"), Path("console-src/inbox2"), Path("console-src/helpdesk-agent"), Path("shopify")]
 
 # Installed dependencies are not ours to syntax-check, and checking them made
 # the gate's verdict depend on which interpreter happened to run it: a local
@@ -156,6 +159,13 @@ if package.get("name") != lock.get("name") or package.get("version") != lock.get
     raise SystemExit("WhatsApp package.json and package-lock.json metadata differ")
 if package.get("dependencies") != lock.get("packages", {}).get("", {}).get("dependencies"):
     raise SystemExit("WhatsApp dependency lock does not match package.json")
+
+console_package = json.loads(Path("console-src/package.json").read_text(encoding="utf-8"))
+console_lock = json.loads(Path("console-src/package-lock.json").read_text(encoding="utf-8"))
+if console_package.get("name") != console_lock.get("name") or console_package.get("version") != console_lock.get("version"):
+    raise SystemExit("Console test package.json and package-lock.json metadata differ")
+if console_package.get("devDependencies") != console_lock.get("packages", {}).get("", {}).get("devDependencies"):
+    raise SystemExit("Console browser test dependency lock does not match package.json")
 PY
 
 # Tracked AND untracked. `git ls-files '*.sh'` alone skipped a new script
@@ -195,6 +205,7 @@ esac
 "$QA_PYTHON" -m unittest discover -s testing -p 'test_*.py' -v
 "$PYTHON" -c 'import lancedb'
 "$PYTHON" -m unittest discover -s testing -p 'test_qa_mcp_server_contract.py' -v
+"$PYTHON" -m unittest intake.test_message_content -v
 "$PYTHON" -m unittest discover -s kb/tests -v
 "$PYTHON" -m unittest discover -s deploy/tests -v
 "$PYTHON" -m unittest discover -s tools -p 'test_*.py' -v
@@ -257,7 +268,7 @@ node --test --test-reporter=spec --test-reporter-destination=stdout \
   --test-reporter=tap --test-reporter-destination="$gate_tmp/console.tap" console-src/test/*.test.js
 grep -qx '# skipped 0' "$gate_tmp/console.tap" && grep -qx '# todo 0' "$gate_tmp/console.tap" || \
   fail "console tests skipped work; every browser check must run"
-"$PYTHON" tools/inbox_browser_gate.py
+"$QA_PYTHON" testing/run_inbox_browser_tests.py
 node --check kb-admin/server.js
 node --test kb-admin/test/*.test.js
 

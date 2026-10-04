@@ -11,7 +11,7 @@ ExecStart=/bin/bash -c 'exec "/root/Buttonsbebe Agent/processor/.venv/bin/python
 Restart=always
 RestartSec=5
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment="PYTHONPATH=/root/Buttonsbebe Agent/processor:/root/Buttonsbebe Agent/webhook/src"
+Environment="PYTHONPATH=/opt/buttonsbebe/shared:/root/Buttonsbebe Agent/processor:/root/Buttonsbebe Agent/webhook/src"
 
 StandardOutput=journal
 StandardError=journal

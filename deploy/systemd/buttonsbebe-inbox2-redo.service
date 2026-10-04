@@ -1,16 +1,15 @@
 [Unit]
-Description=Buttons Bebe Inbox read-only Gorgias sync
-After=network.target buttonsbebe-gorgias-mcp.service
-Wants=buttonsbebe-gorgias-mcp.service
+Description=Read-only Redo details for opened support tickets
+After=network.target helpdesk-inbox2.service buttonsbebe-redo-mcp.service
+Wants=helpdesk-inbox2.service buttonsbebe-redo-mcp.service
 
 [Service]
-Environment=PYTHONPATH=/opt/buttonsbebe/shared
 Type=simple
 User=bb-inbox
 Group=bb-inbox
 WorkingDirectory=/opt/buttonsbebe/inbox2
-ExecStart=/opt/buttonsbebe/inbox/venv/bin/python /opt/buttonsbebe/inbox2/live_api.py
-StateDirectory=buttonsbebe-inbox2
+ExecStart=/opt/buttonsbebe/inbox/venv/bin/python /opt/buttonsbebe/inbox2/redo_worker.py
+StateDirectory=buttonsbebe-inbox2-redo
 StateDirectoryMode=0700
 UMask=0077
 Environment=PYTHONUNBUFFERED=1
@@ -20,6 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadOnlyPaths=/var/lib/buttonsbebe-inbox2
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -30,11 +30,10 @@ CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 IPAddressDeny=any
 IPAddressAllow=localhost
-MemoryHigh=256M
-MemoryMax=512M
-TasksMax=64
+MemoryMax=128M
+TasksMax=16
 Restart=on-failure
-RestartSec=3
+RestartSec=5
 TimeoutStopSec=30
 
 [Install]

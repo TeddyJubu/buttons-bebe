@@ -13,6 +13,7 @@ SUITES = {"core": ("testing/scenarios.json", 48), "reliability": ("testing/relia
 VERDICTS = ("PASS", "NEEDS_WORK", "FAIL", "pending")
 RECEIPT_SCHEMA = 3
 SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
+    "intake": ("intake/__init__.py", "intake/message_content.py"),
     "processor": (
         "processor/**/*.py", "processor/**/*.yaml", "processor/**/*.json", "processor/*.sh",
         "processor/pyproject.toml", "processor/uv.lock",
@@ -40,6 +41,7 @@ SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
     ),
 }
 REQUIRED = ("processor/hermes_runner/prompt.py", "processor/draft_cleaner.py", "processor/orchestrator.py",
+            "intake/message_content.py",
             "webhook/src/bb_webhook/app.py", "kb/scripts/search_kb.py",
             "testing/scenarios.json", "testing/reliability-scenarios.json")
 SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS = frozenset({"__pycache__", ".git", ".venv", "venv", "node_modules", "site-packages",

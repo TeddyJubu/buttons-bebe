@@ -3,7 +3,7 @@ import ast
 from pathlib import Path
 import unittest
 from unittest.mock import Mock
-from tools.gorgias_content import curate_messages, curate_ticket
+from tools.gorgias_content import curate_messages, curate_ticket, curate_summaries
 
 SOURCE = Path(__file__).with_name('gorgias_mcp.py')
 
@@ -15,7 +15,7 @@ def functions():
             node.decorator_list = []
             selected.append(node)
     get = Mock(return_value={'data': [], 'meta': {'next_cursor': 'next-page'}})
-    scope = {'StrictInt': int, '_get': get, 'curate_messages': curate_messages, 'curate_ticket': curate_ticket}
+    scope = {'StrictInt': int, '_get': get, 'curate_messages': curate_messages, 'curate_ticket': curate_ticket, 'curate_summaries':curate_summaries}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(SOURCE), 'exec'), scope)
     return scope, get
 
@@ -43,6 +43,16 @@ class GorgiasReadContractTests(unittest.TestCase):
         self.assertEqual(result['data'][0]['id'], 123)
         self.assertNotIn('body_html', result['data'][0])
         self.assertEqual(result['meta']['next_cursor'], 'next')
+
+    def test_summary_cleanup_preserves_excerpt_evidence_and_snooze(self):
+        scope,get=functions()
+        raw='<p style="display:none">Hidden</p><p>Customer asks about order #12345</p>'
+        get.return_value={'data':[{'id':123,'excerpt':raw,'snooze_datetime':'2099-01-01T00:00:00Z'}]}
+        result=scope['list_inbox_tickets']()['data'][0]
+        self.assertEqual(result['excerpt'],'Customer asks about order #12345')
+        self.assertEqual(result['original_content'],raw)
+        self.assertEqual(result['snooze_datetime'],'2099-01-01T00:00:00Z')
+        self.assertNotIn('spam',result)
 
     def test_invalid_inbox_cursor_never_reaches_provider(self):
         scope, get = functions()

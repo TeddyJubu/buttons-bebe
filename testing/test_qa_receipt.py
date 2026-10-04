@@ -31,6 +31,7 @@ class ReceiptTests(unittest.TestCase):
             {group: 19000 + i for i, group in enumerate(GROUPS)})))
         self.model_runtime = model_runtime_identity(self.profile, self.interpreter)
         for name, text in {"processor/hermes_runner/prompt.py": "PROMPT = 1\n", "processor/draft_cleaner.py": "",
+                           "intake/message_content.py": "CLEANUP_VERSION = 'fixture'\n",
                            "processor/orchestrator.py": "", "webhook/src/bb_webhook/app.py": "",
                            "kb/scripts/search_kb.py": "", "testing/qa_harness.py": "", "testing/test_qa_harness.py": "",
                            "kb/policies/returns.md": "Returns within 30 days.\n"}.items():
@@ -79,7 +80,7 @@ class ReceiptTests(unittest.TestCase):
                            "processor/.venv/lib/site.py": "", "kb/learned/lesson-1.md": "unapproved"}.items():
             self.write(name, text)
         self.assertEqual(source_fingerprint(self.repo)["sha256"], first["sha256"])
-        for name in ("processor/orchestrator.py", "webhook/src/bb_webhook/message_times.py",
+        for name in ("intake/message_content.py", "processor/orchestrator.py", "webhook/src/bb_webhook/message_times.py",
                      "console-src/inbox2/app.js", "kb/scripts/search_kb.py", "kb/policies/returns.md",
                      "tools/gorgias_mcp.py", "tools/redo_mcp.py", "tools/gorgias_content.py", "tools/_common.py",
                      "feedback/pii.py", "feedback/learning_paths.py"):
