@@ -29,13 +29,11 @@ _DEFAULT_KB_ROOT = default_kb_root(
     _AGENT_ROOT,
     uppercase_only=(_AGENT_ROOT / "KB").is_dir() and not (_AGENT_ROOT / "kb").is_dir(),
 )
-PATHS = resolve_learning_paths(
-    None,
-    environ=os.environ,
-    repo_root=_AGENT_ROOT,
-    default_root=_DEFAULT_KB_ROOT,
-    corpus_root=_DEFAULT_KB_ROOT,
-)
+def _learning_paths():
+    demo = os.environ.get("DEMO_MODE", "").strip().casefold() in {"1", "true", "yes", "on", "y", "t"}
+    corpus = _AGENT_ROOT / "demo" / "data" / "kb" if demo else _DEFAULT_KB_ROOT
+    return resolve_learning_paths(None, environ=os.environ, repo_root=_AGENT_ROOT,
+                                  default_root=corpus, corpus_root=corpus)
 
 
 def _now() -> str:
@@ -56,15 +54,15 @@ def _write_staged_content(handle, content):
     os.fsync(handle.fileno())
 
 
-def _write_unique_lesson(ticket_id: object, content: str, operation_id="") -> tuple[pathlib.Path, bool]:
+def _write_unique_lesson(ticket_id: object, content: str, operation_id="", *, paths) -> tuple[pathlib.Path, bool]:
     """Publish a complete private packet atomically without replacing a prior one."""
-    descriptor, temporary = tempfile.mkstemp(prefix=".capture-", dir=PATHS.learned_dir)
+    descriptor, temporary = tempfile.mkstemp(prefix=".capture-", dir=paths.learned_dir)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             _write_staged_content(handle, content)
         for _attempt in range(20):
             token = secrets.token_hex(6)
-            out = PATHS.learned_dir / (f"lesson-action-{operation_id}.md" if operation_id else f"lesson-{ticket_id}-{_now()}-{token}.md")
+            out = paths.learned_dir / (f"lesson-action-{operation_id}.md" if operation_id else f"lesson-{ticket_id}-{_now()}-{token}.md")
             try:
                 os.link(temporary, out)
             except FileExistsError:
@@ -73,24 +71,25 @@ def _write_unique_lesson(ticket_id: object, content: str, operation_id="") -> tu
                         raise ValueError("conflicting action lesson")
                     with out.open("rb") as existing:
                         os.fsync(existing.fileno())
-                    _sync_directory(PATHS.learned_dir)
+                    _sync_directory(paths.learned_dir)
                     return out, False
                 continue
-            _sync_directory(PATHS.learned_dir)
+            _sync_directory(paths.learned_dir)
             return out, True
         raise FileExistsError("could not allocate a unique lesson filename")
     finally:
         pathlib.Path(temporary).unlink(missing_ok=True)
 
 
-def _bump_ledger(kind: str, edited: bool) -> None:
+def _bump_ledger(kind: str, edited: bool, *, paths=None) -> None:
     """Count one ledger write. Dedupe lives in _write_unique_lesson + the
     learning_recorded DB flag, not here (the old unbounded _operations list
     was a weaker second copy)."""
     temp_path: pathlib.Path | None = None
     try:
-        PATHS.learned_dir.mkdir(parents=True, exist_ok=True)
-        ledger_path = PATHS.ledger_path
+        paths = paths if paths is not None else _learning_paths()
+        paths.learned_dir.mkdir(parents=True, exist_ok=True)
+        ledger_path = paths.ledger_path
         lock_path = ledger_path.with_suffix(ledger_path.suffix + ".lock")
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         with os.fdopen(lock_fd, "r+") as lock_file:
@@ -120,7 +119,7 @@ def _bump_ledger(kind: str, edited: bool) -> None:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, ledger_path)
-            _sync_directory(PATHS.learned_dir)
+            _sync_directory(paths.learned_dir)
             temp_path = None
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     except Exception as exc:
@@ -137,7 +136,8 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
     """Write a raw lesson packet to learned/. kind = sent | note | rewrite."""
     try:
         import yaml
-        PATHS.learned_dir.mkdir(parents=True, exist_ok=True)
+        paths = _learning_paths()
+        paths.learned_dir.mkdir(parents=True, exist_ok=True)
         if operation_id and str(uuid.UUID(operation_id)) != operation_id:
             raise ValueError("invalid action id")
         approved = (kind == "sent" and learning_approved is True and delivery_status == "sent"
@@ -173,11 +173,11 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
         content = ("---\n"
                    + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True)
                    + "---\n\n" + body)
-        _path, created = _write_unique_lesson(ticket_id, content, operation_id)
+        _path, created = _write_unique_lesson(ticket_id, content, operation_id, paths=paths)
         if created:
             # Retry with the same operation_id finds the identical packet and
             # skips the bump — the file layer is the dedupe now.
-            _bump_ledger(kind, edited)
+            _bump_ledger(kind, edited, paths=paths)
         return True
     except Exception as exc:
         logging.getLogger(__name__).error("Learning lesson capture failed: %s", type(exc).__name__)
@@ -186,8 +186,9 @@ def record_lesson(kind, ticket_id, customer_message, ai_draft, final_text,
 
 def ledger() -> dict:
     try:
-        if PATHS.ledger_path.exists():
-            return {key: value for key, value in json.loads(PATHS.ledger_path.read_text() or "{}").items() if key != "_operations"}
+        paths = _learning_paths()
+        if paths.ledger_path.exists():
+            return {key: value for key, value in json.loads(paths.ledger_path.read_text() or "{}").items() if key != "_operations"}
     except Exception:
         pass
     return {}

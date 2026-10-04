@@ -44,7 +44,7 @@ class LearningPromotionTests(unittest.TestCase):
 
         self.config_patches = [
             patch.object(auto_promote_learned, "PATHS", self.paths),
-            patch.object(learning, "PATHS", self.paths),
+            patch.object(learning, "_learning_paths", return_value=self.paths),
         ]
         for item in self.config_patches:
             item.start()
@@ -361,7 +361,25 @@ class LearningPathResolverTests(unittest.TestCase):
     def test_writer_promoter_and_indexer_share_one_corpus_root(self) -> None:
         indexer_root = Path(auto_promote_learned.__file__).resolve().parents[1]
         self.assertEqual(auto_promote_learned.PATHS.kb_root, indexer_root)
-        self.assertEqual(learning.PATHS.kb_root, indexer_root)
+        self.assertEqual(learning._learning_paths().kb_root, indexer_root)
+
+    def test_mismatched_learning_setting_does_not_block_import_or_write_elsewhere(self) -> None:
+        with patch.dict(learning.os.environ, {"FEEDBACK_KB_ROOT": "wrong-corpus", "DEMO_MODE": "0"}, clear=True):
+            source = Path(learning.__file__)
+            spec = importlib.util.spec_from_file_location("learning_invalid_setting", source)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            with patch.object(Path, "mkdir") as mkdir, self.assertLogs(module.__name__, level="ERROR"):
+                self.assertFalse(module.record_lesson("note", 123, "Synthetic ask", "Draft", "Note"))
+            mkdir.assert_not_called()
+            self.assertEqual(module.ledger(), {})
+
+    def test_demo_writer_accepts_only_its_approved_corpus(self) -> None:
+        with patch.dict(learning.os.environ, {"DEMO_MODE": "1", "FEEDBACK_KB_ROOT": "./demo/data/kb"}, clear=True):
+            self.assertEqual(learning._learning_paths().kb_root, REPO_ROOT / "demo" / "data" / "kb")
+            with patch.dict(learning.os.environ, {"FEEDBACK_KB_ROOT": "kb"}):
+                with self.assertRaisesRegex(ValueError, "active KB corpus"):
+                    learning._learning_paths()
 
     def test_legacy_collector_path_override_still_uses_loaded_setting(self) -> None:
         script = textwrap.dedent(
