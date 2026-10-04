@@ -108,8 +108,10 @@ blocking defects. `--review-only` accepts a complete review that did not pass;
 that means "review complete", not "release passed". The release criterion this
 supports — full 48 plus 10 runs, all PASS, on one source fingerprint — is
 stricter than the current root rule of a clean 48-case run. No such receipt
-exists yet for the current source. `check` has no overlay or manifest paths, so
-it does not re-verify KB snapshot content; that happens during each run. CI
+exists yet for the current source. `check` has no Hermes, overlay or manifest paths,
+so it does not re-verify installed Hermes or KB snapshot content; that happens
+before and after each run. Observed section hashes detect differing served text,
+but do not prove that an index already stale before the run matches approved files. CI
 checks only catalog shape and receipt logic; it never runs a model or records a
 verdict.
 

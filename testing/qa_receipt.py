@@ -26,6 +26,8 @@ SOURCE_GLOBS = (
     "console-src/inbox2/*.py", "console-src/inbox2/*.js", "console-src/inbox2/index.html",
     "kb/scripts/*.py", "kb/run_mcp.sh", "kb/requirements.lock",
     "kb/policies/*.md", "kb/faq/*.md", "kb/intents/*.md",
+    "tools/*mcp*.py", "tools/_common.py", "tools/gorgias_content.py", "tools/run-gorgias.sh", "tools/run-redo.sh",
+    "tools/requirements.lock", "tools/runtime-constraints.txt", "feedback/pii.py", "feedback/learning_paths.py",
     "hermes/SOUL.md", "hermes/skills/buttonsbebe/**/*",
     "testing/qa_*.py", "testing/run_live_tests.py", "testing/requirements-qa.lock",
     "testing/scenarios.json", "testing/reliability-scenarios.json",

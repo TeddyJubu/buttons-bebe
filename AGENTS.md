@@ -228,9 +228,12 @@ Focused runs:
 
 Python ≥ 3.12, uv-managed (`uv.lock` in `processor/`, `webhook/`); Node 20 for
 JS services. Model-quality review is separate: complete all 48 core and 10
-reliability cases and grade each result. The combined receipt binds the actual
-source, Hermes and approved KB snapshot; pending, failed or stale evidence cannot
-pass. See `testing/HOW-TO-RUN.md`. These paid/live-model checks were not run during
+reliability cases and grade each result. Run receipts capture source, Hermes and
+approved KB identities before and after each run. The combined receipt checks
+those recorded bindings and human verdicts against the current source. It does
+not re-inspect the installed Hermes or KB content at check time, or prove that
+the published KB index matches the approved files. Pending, failed or stale
+source evidence cannot pass. See `testing/HOW-TO-RUN.md`. These paid/live-model checks were not run during
 this local implementation. Nothing in this work authorizes a production change.
 
 ## 9. Operate on the VPS

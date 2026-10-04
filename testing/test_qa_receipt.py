@@ -71,7 +71,9 @@ class ReceiptTests(unittest.TestCase):
             self.write(name, text)
         self.assertEqual(source_fingerprint(self.repo)["sha256"], first["sha256"])
         for name in ("processor/orchestrator.py", "webhook/src/bb_webhook/message_times.py",
-                     "console-src/inbox2/app.js", "kb/scripts/search_kb.py", "kb/policies/returns.md"):
+                     "console-src/inbox2/app.js", "kb/scripts/search_kb.py", "kb/policies/returns.md",
+                     "tools/gorgias_mcp.py", "tools/redo_mcp.py", "tools/gorgias_content.py", "tools/_common.py",
+                     "feedback/pii.py", "feedback/learning_paths.py"):
             with self.subTest(name=name):
                 self.write(name, "changed\n")
                 changed = source_fingerprint(self.repo)
