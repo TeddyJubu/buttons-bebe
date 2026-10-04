@@ -5,17 +5,62 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 from qa_safety import filter_policy_results, redact, scenario_fixture, GROUPS, TOOLS, UTILITY_NAMES
 from qa_harness import Harness, atomic_json, endpoint_preflight, isolated_run, minimal_environment, profile_config, prove_hermes_bindings
 
 SCENARIO={"id":"QA-TEST","subject":"Shipping question","message":"When does order #10312 ship?","email":"qa@example.com","intent":"shipping","cat":"low"}
+
+
+def free_loopback_port(excluded=()):
+    for _ in range(10):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        if port >= 1024 and port not in excluded:
+            return port
+    raise RuntimeError("Could not allocate a synthetic QA port")
+
+
+def wait_for_loopback(process, port):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise AssertionError("Synthetic MCP process exited before becoming ready")
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return
+        except OSError:
+            time.sleep(0.05)
+    raise AssertionError("Synthetic MCP process did not open its loopback port")
+
+
+def stop_process_group(process):
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=3)
 
 
 class PolicyBoundaryTests(unittest.TestCase):
@@ -263,6 +308,209 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
         finally:
             for child in children:
                 child.terminate();child.wait(timeout=5)
+
+
+class PolicyAuditIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.home = self.root / "private-home"
+        self.home.mkdir()
+        self.env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": str(self.home),
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        self.fixture_path = self.root / "fixture.json"
+        self.audit_path = self.root / "audit.jsonl"
+        self.allowlist_path = self.root / "allowlist.json"
+        self.rows_path = self.root / "synthetic-policy-rows.json"
+        atomic_json(self.fixture_path, scenario_fixture(SCENARIO, 1))
+        atomic_json(self.allowlist_path, ["policies/shipping.md", "faq/secondary.md"])
+        self.proxy_helper = self.root / "synthetic_policy_proxy.py"
+        self.proxy_helper.write_text(
+            """\
+import json
+import sys
+from pathlib import Path
+from mcp.server.fastmcp import FastMCP
+
+rows_path = Path(sys.argv[1])
+proxy = FastMCP('synthetic-policy-proxy', host='127.0.0.1', port=int(sys.argv[2]),
+                log_level='ERROR', stateless_http=True, json_response=True)
+
+@proxy.tool()
+def search_kb(query: str, k: int = 25) -> dict:
+    return json.loads(rows_path.read_text(encoding='utf-8'))
+
+proxy.run(transport='streamable-http')
+""",
+            encoding="utf-8",
+        )
+
+        proxy_port = free_loopback_port()
+        self.proxy = subprocess.Popen(
+            [sys.executable, str(self.proxy_helper), str(self.rows_path), str(proxy_port)],
+            cwd=self.root,
+            env=self.env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.addCleanup(stop_process_group, self.proxy)
+        wait_for_loopback(self.proxy, proxy_port)
+        self.policy_endpoint = f"http://127.0.0.1:{proxy_port}/mcp"
+
+        qa_port = free_loopback_port({proxy_port})
+        self.qa = subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("qa_mcp_server.py")),
+                "--group", "buttonsbebe_kb",
+                "--port", str(qa_port),
+                "--fixture", str(self.fixture_path),
+                "--audit", str(self.audit_path),
+                "--allowlist", str(self.allowlist_path),
+                "--kb-mode", "policies-only",
+                "--policy-endpoint", self.policy_endpoint,
+            ],
+            cwd=self.root,
+            env=self.env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.addCleanup(stop_process_group, self.qa)
+        wait_for_loopback(self.qa, qa_port)
+        self.qa_port = qa_port
+
+    async def _search(self, k=1):
+        async with streamablehttp_client(
+            f"http://127.0.0.1:{self.qa_port}/mcp", timeout=5, sse_read_timeout=10
+        ) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return await session.call_tool(
+                    "search_kb", {"query": "Synthetic shipping policy facts", "k": k}
+                )
+
+    def _returned_envelope(self, result):
+        self.assertFalse(result.isError)
+        if result.structuredContent is not None:
+            value = result.structuredContent
+        else:
+            blocks = [item.text for item in result.content if getattr(item, "type", None) == "text"]
+            self.assertEqual(len(blocks), 1)
+            value = json.loads(blocks[0])
+        if isinstance(value, dict) and set(value) == {"result"}:
+            value = value["result"]
+        self.assertIsInstance(value, dict)
+        return value
+
+    def _projection_audits(self):
+        entries = [json.loads(line) for line in self.audit_path.read_text(encoding="utf-8").splitlines()]
+        return [entry for entry in entries if entry.get("tool") == "kb_projection"]
+
+    def _health_envelope(self, state):
+        notice = {"state": "healthy", "active_count": 0, "codes": [], "operator_action": ""}
+        index = {"state": "healthy", "codes": []}
+        status = "healthy"
+        if state == "degraded":
+            index = {"state": "degraded", "codes": ["keyword_lookup_failed"]}
+            status = "degraded"
+        elif state == "unavailable":
+            notice = {"state": "unavailable", "active_count": None,
+                      "codes": ["notice_read_failed"],
+                      "operator_action": "Inspect the Notice Board. Active owner overrides may still exist."}
+            index = {"state": "unavailable", "codes": ["index_open_failed"]}
+            status = "unavailable"
+        safe_source = (
+            "Shipping facts: contact privacy.person@example.com, call +1 (555) 123-4567, "
+            "or visit 12 Example Street. " + "x" * 10050
+        )
+        return {
+            "status": status,
+            "notice_board": notice,
+            "index": index,
+            "results": [
+                {
+                    "file": "policies/shipping.md", "category": "policies", "status": "confirmed",
+                    "title": "S" * 350, "heading": "H" * 350, "text": safe_source,
+                },
+                {
+                    "file": "faq/secondary.md", "category": "faq", "status": "confirmed",
+                    "title": "Second safe fact", "heading": "K truncation", "text": "K-TRUNCATED SYNTHETIC POLICY SENTINEL",
+                },
+                {
+                    "file": "tickets/private.md", "category": "tickets", "status": "confirmed",
+                    "title": "Synthetic private ticket", "heading": "Customer details",
+                    "text": "PRIVATE SYNTHETIC TICKET SENTINEL",
+                },
+            ],
+        }
+
+    def test_policy_audit_matches_health_envelope_after_filter_redaction_and_limit(self):
+        for state in ("healthy", "degraded", "unavailable"):
+            with self.subTest(state=state):
+                atomic_json(self.rows_path, self._health_envelope(state))
+                result = asyncio.run(self._search(k=1))
+                returned = self._returned_envelope(result)
+                audits = self._projection_audits()
+                audit = audits[-1]
+                self.assertEqual(audit["returned_envelope"], returned)
+                self.assertEqual(audit["returned"], 1)
+                self.assertEqual(audit["filtered"], 1)
+                self.assertEqual(audit["files"], ["policies/shipping.md"])
+                self.assertEqual(returned["status"], state)
+                self.assertEqual(returned["notice_board"], self._health_envelope(state)["notice_board"])
+                self.assertEqual(returned["index"], self._health_envelope(state)["index"])
+                self.assertEqual(len(returned["results"]), 1)
+                snippet = returned["results"][0]
+                self.assertLessEqual(len(snippet["title"]), 300)
+                self.assertLessEqual(len(snippet["heading"]), 300)
+                self.assertEqual(len(snippet["text"]), 10000)
+                self.assertIn("[email removed]", snippet["text"])
+                self.assertIn("[phone or identifier removed]", snippet["text"])
+                self.assertIn("[address removed]", snippet["text"])
+                receipt = json.dumps({"returned": returned, "audit": audit})
+                for marker in (
+                    "privacy.person@example.com", "+1 (555) 123-4567", "12 Example Street",
+                    "PRIVATE SYNTHETIC TICKET SENTINEL", "K-TRUNCATED SYNTHETIC POLICY SENTINEL",
+                ):
+                    self.assertNotIn(marker, receipt)
+                self.assertEqual(stat.S_IMODE(self.audit_path.stat().st_mode) & 0o077, 0)
+
+        atomic_json(self.rows_path, {
+            **self._health_envelope("healthy"),
+            "results": [{
+                "file": "policies/shipping.md", "category": "unknown", "status": "confirmed",
+                "title": "UNKNOWN CATEGORY PRIVATE SENTINEL", "heading": "Unexpected",
+                "text": "UNKNOWN CATEGORY PRIVATE SENTINEL",
+            }],
+        })
+        rejected = asyncio.run(self._search(k=1))
+        self.assertTrue(rejected.isError)
+        audits = self._projection_audits()
+        self.assertEqual(len(audits), 4)
+        self.assertTrue(audits[-1]["fatal"])
+        self.assertNotIn("returned_envelope", audits[-1])
+        audit_text = self.audit_path.read_text(encoding="utf-8")
+        self.assertNotIn("UNKNOWN CATEGORY PRIVATE SENTINEL", audit_text)
+        self.assertNotIn("privacy.person@example.com", audit_text)
+
+    def test_policy_endpoint_rejects_non_loopback_addresses(self):
+        from qa_mcp_server import _validate_policy_endpoint
+
+        for endpoint in (
+            "https://127.0.0.1:8077/mcp",
+            "http://192.0.2.1:8077/mcp",
+            "http://user:password@127.0.0.1:8077/mcp",
+        ):
+            with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
+                _validate_policy_endpoint(endpoint)
+
 
 
 if __name__=="__main__":unittest.main()

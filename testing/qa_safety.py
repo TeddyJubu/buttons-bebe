@@ -188,7 +188,8 @@ def validate_fixture(value):
 
 
 def audit(path: Path, group: str, tool: str, **details):
-    # Only metadata/hashes go to this log, never tool response or credential text.
+    # KB audit entries may include only returned snippets after allowlist
+    # filtering, redaction and text bounds; raw responses and credentials stay out.
     import os
     payload = json.dumps({"group": group, "tool": tool, **details}, separators=(",", ":")) + "\n"
     fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
