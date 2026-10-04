@@ -221,26 +221,55 @@ class WebhookAdversarialTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(response.status_code, (400, 413, 422), response.text)
 
-    async def test_invalid_and_future_timestamps_are_not_accepted(self) -> None:
-        for timestamp in (
-            "not-an-iso-timestamp",
-            _iso_now(timedelta(hours=1)),
+    async def test_future_and_expired_timestamps_are_rejected_without_queueing(self) -> None:
+        for message_id, timestamp, expected_status in (
+            (1201, _iso_now(timedelta(hours=1)), 400),
+            (1203, _iso_now(timedelta(minutes=-11)), 410),
         ):
             with self.subTest(timestamp=timestamp):
                 response = await self.post_payload(
-                    self.payload(message_id=1200 + len(timestamp), created_at=timestamp)
+                    self.payload(message_id=message_id, created_at=timestamp)
                 )
-                self.assertIn(response.status_code, (400, 410, 422), response.text)
+                self.assertEqual(response.status_code, expected_status, response.text)
+                self.assertEqual(await self.db_counts(), (0, 0, 0))
 
-        missing_timestamp = self.payload(message_id=1202)
-        del missing_timestamp["message"]["created_at"]
-        del missing_timestamp["ticket"]["created_at"]
-        response = await self.post_payload(missing_timestamp)
-        self.assertIn(response.status_code, (400, 422), response.text)
+    async def test_unknown_message_timestamps_are_retained_but_block_reply_generation(self) -> None:
+        from bb_webhook.db import Database
+        from bb_webhook.draft_generation import begin_attempt
+        from bb_webhook.message_times import LATEST_CUSTOMER_SQL, freshness_error
+        from bb_webhook.send_intents import ActionConflict, IntentStore
 
-        old = _iso_now(timedelta(minutes=-11))
-        response = await self.post_payload(self.payload(message_id=1203, created_at=old))
-        self.assertEqual(response.status_code, 410, response.text)
+        for message_id, timestamp in ((1211, None), (1212, "not-an-iso-timestamp")):
+            with self.subTest(timestamp=timestamp):
+                payload = self.payload(message_id=message_id,
+                    ticket_overrides={"created_at": _iso_now(timedelta(hours=-3))})
+                if timestamp is None:
+                    del payload["message"]["created_at"]
+                else:
+                    payload["message"]["created_at"] = timestamp
+                response = await self.post_payload(payload)
+                self.assertEqual(response.status_code, 202, response.text)
+                db = Database(self.db_path)
+                parsed = await db.fetch("SELECT created_at FROM parsed_messages WHERE message_id=?", (str(message_id),))
+                self.assertEqual(len(parsed), 1)
+                self.assertIsNone(parsed[0]["created_at"])
+                latest = await db.fetch(LATEST_CUSTOMER_SQL, (9001,))
+                self.assertEqual(freshness_error(latest[0], str(message_id)), "message_chronology_unavailable")
+                with self.assertRaisesRegex(ActionConflict, "message_chronology_unavailable"):
+                    await IntentStore(self.db_path).review_context(ticket_id=9001,
+                        source_message_id=str(message_id), actor_id="synthetic-operator")
+                jobs = await db.fetch("SELECT id FROM job_queue WHERE message_id=?", (str(message_id),))
+                self.assertEqual(len(jobs), 1)
+                job_id = jobs[0]["id"]
+                self.assertTrue(await self.database.claim_job(job_id, self.db_path))
+                self.assertIsNone(await begin_attempt(job_id, self.db_path))
+                saved = await self.database.get_job_result(job_id, self.db_path)
+                self.assertEqual(saved["generation_state"], "needs_review")
+                self.assertEqual(saved["generation_error"], "message_chronology_unavailable")
+                self.assertTrue(saved["review_required"])
+                self.assertEqual(saved["draft_text"], "")
+                self.assertIsNone(saved["generation_attempt_id"])
+                self.assertEqual(await db.fetch("SELECT id FROM draft_generation_attempts WHERE job_id=?", (job_id,)), [])
 
     async def test_oversized_signed_payload_is_bounded(self) -> None:
         oversized_message = "x" * (2 * 1024 * 1024)
