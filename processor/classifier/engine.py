@@ -32,8 +32,9 @@ def classify(
     raw_subject_text = str(payload.get("ticket_subject") or "")
     raw_message_text = str(payload.get("message_text") or "")
     from draft_cleaner import should_draft
-    latest_customer_text = _views._strip_quoted_history(raw_message_text)
-    if not should_draft(latest_customer_text, raw_subject_text).ok:
+    latest_customer_text = _views._unquoted_customer_text(raw_message_text)
+    if ((raw_message_text.strip() and not latest_customer_text)
+            or not should_draft(latest_customer_text, raw_subject_text).ok):
         return {'priority': NORMAL, 'sensitive': False, 'should_notify_owner': False,
                 'reason': 'No new request in the latest acknowledgment', 'matched': [],
                 'should_draft': False, 'source': 'deterministic'}

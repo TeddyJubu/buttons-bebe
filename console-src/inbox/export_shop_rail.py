@@ -339,6 +339,8 @@ def load_cache(path):
 def fresh(entry, now):
     if not entry or (entry.get('payload') or {}).get('payloadVersion') != PAYLOAD_VERSION:
         return False
+    if entry['payload'].get('refreshError'):
+        return now < entry['payload'].get('retryAt', 0)
     age = now - entry['updated_at']
     status = (entry['payload'] or {}).get('status')
     limit = CACHE_HIT_SECONDS if status == 'found' else CACHE_MISS_SECONDS
@@ -469,8 +471,14 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
         except (HTTPError, URLError, TimeoutError, RuntimeError, json.JSONDecodeError):
             # cubic: the fallback a failed refresh writes must still name the
             # store scope — every exported snapshot names the one store.
-            payload = dict((entry or {}).get('payload') or {'payloadVersion': PAYLOAD_VERSION, 'status': 'error', 'email': ticket_keys(ticket)[0], 'keysHash': keys_hash(ticket), 'shop': env.get('SHOPIFY_SHOP') or None})
-            payload['refreshError'] = True
+            old = (entry or {}).get('payload')
+            payload = dict(shop_rail.display_payload(old)) if old else {
+                'status': 'error', 'email': ticket_keys(ticket)[0],
+                'keysHash': keys_hash(ticket), 'shop': env.get('SHOPIFY_SHOP') or None}
+            # The failed attempt gets its own bounded retry clock. The retained
+            # snapshot's observation time and unverified legacy prices stay honest.
+            payload.update(payloadVersion=PAYLOAD_VERSION, refreshError=True,
+                           retryAt=now + CACHE_MISS_SECONDS)
         payloads[ticket_id] = payload
     fd, name = tempfile.mkstemp(prefix='.shop-rail-', suffix='.sqlite3', dir=directory)
     os.close(fd)

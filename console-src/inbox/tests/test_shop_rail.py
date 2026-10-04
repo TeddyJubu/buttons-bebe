@@ -300,6 +300,55 @@ class ShopRailTests(unittest.TestCase):
         self.assertIsNone(returned[1]['items'])
         self.assertEqual(legacy['returns']['returns']['nodes'][0]['items'][0]['price']['currencyCode'], 'USD')
 
+    def test_failed_legacy_refresh_caches_attempt_without_trusting_old_money(self):
+        legacy = {
+            'status': 'found', 'email': TICKET['fromEmail'], 'keysHash': exporter.keys_hash(TICKET),
+            'fetchedAt': '2026-09-01T00:00:00Z', 'fetchedAtEpoch': 1000,
+            'customer': CUSTOMER, 'order': ORDER,
+            'history': [{'id': 'old', 'currentTotalPriceSet': ORDER['currentTotalPriceSet']}],
+            'returns': {'returns': {'nodes': [{'id': 'old-return', 'items': [
+                {'title': 'Old item', 'price': {'amount': '0', 'currencyCode': 'USD'}}]}]}},
+        }
+        calls = []
+        def failed(*args):
+            calls.append(args)
+            raise TimeoutError('synthetic outage')
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / 'rail.sqlite3'
+            with sqlite3.connect(dest) as db:
+                db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+            with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                 patch.object(exporter, 'load_shopify_env', return_value={}):
+                exporter.export('', dest, '', now=23000, graphql_call=failed, mint=lambda _: '')
+                entry = exporter.load_cache(dest)[TICKET['id']]
+                payload = entry['payload']
+                self.assertEqual(payload['payloadVersion'], exporter.PAYLOAD_VERSION)
+                self.assertEqual(entry['updated_at'], 1000)
+                self.assertEqual(payload['fetchedAt'], legacy['fetchedAt'])
+                self.assertEqual(payload['fetchedAtEpoch'], 1000)
+                self.assertEqual(payload['history'][0]['id'], 'old')
+                self.assertIsNone(payload['customer']['amountSpent'])
+                self.assertIsNone(payload['order']['currentTotalPriceSet'])
+                self.assertIsNone(payload['history'][0]['currentTotalPriceSet'])
+                self.assertIsNone(payload['returns']['returns']['nodes'][0]['items'][0]['price'])
+                self.assertTrue(payload['legacyMoneyUnverified'])
+                self.assertTrue(all(value is None for value in payload['partial'].values()))
+                self.assertTrue(attach(dict(TICKET), dest)['shopifyRail']['stale'])
+                retry_at = 23000 + exporter.CACHE_MISS_SECONDS
+                self.assertEqual(payload['retryAt'], retry_at)
+                exporter.export('', dest, '', now=retry_at - 1, graphql_call=failed, mint=lambda _: '')
+                self.assertEqual(len(calls), 1)
+                exporter.export('', dest, '', now=retry_at, graphql_call=failed, mint=lambda _: '')
+                self.assertEqual(len(calls), 2)
+                # A successful refresh replaces the failure and legacy warnings.
+                exporter.export('', dest, '', now=retry_at + exporter.CACHE_MISS_SECONDS,
+                                graphql_call=self.caches()['graphql'], mint=lambda _: '')
+                refreshed = exporter.load_cache(dest)[TICKET['id']]['payload']
+                self.assertNotIn('refreshError', refreshed)
+                self.assertNotIn('legacyMoneyUnverified', refreshed)
+                self.assertEqual(refreshed['customer']['amountSpent'], CUSTOMER['amountSpent'])
+
     def test_upstream_failure_keeps_previous_details_and_marks_refresh_error(self):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / 'rail.sqlite3'

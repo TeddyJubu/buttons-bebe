@@ -1429,9 +1429,57 @@ class QuotedHistoryTests(unittest.TestCase):
                 "chase it. This is ridiculous!!!")
         self.assertGreaterEqual(_RANK[_c(body)["priority"]], _RANK[HIGH])
 
-    def test_an_all_quoted_message_falls_back_to_the_whole_text(self):
+    def test_an_all_quoted_message_has_no_new_request(self):
         body = "> I want a refund, my order arrived damaged"
-        self.assertEqual(_c(body)["priority"], IMMEDIATE)
+        self.assertEqual(_VIEWS._unquoted_customer_text(body), '')
+        got = _c(body)
+        self.assertEqual(got["priority"], NORMAL)
+        self.assertFalse(got["should_draft"])
+        self.assertFalse(got["should_notify_owner"])
+        # Existing structural-signal consumers retain their old fallback.
+        self.assertEqual(_VIEWS._strip_quoted_history(body), body)
+
+    def test_customer_complaints_with_promo_or_policy_words_survive_signoffs(self):
+        requests = [
+            "I used the 20% off code at checkout and the dress arrived damaged.",
+            "I used the 20% off code, but I need a refund for my damaged order.",
+            "Please cancel my order; your email said five working days.",
+        ]
+        for request in requests:
+            for signoff in ('Thanks!', 'Kind regards,\nSarah'):
+                body = request + '\n\n' + signoff
+                with self.subTest(body=body):
+                    self.assertEqual(_VIEWS._unquoted_customer_text(body), body)
+                    got = _c(body, subject='Re: Your order')
+                    self.assertGreaterEqual(_RANK[got['priority']], _RANK[HIGH])
+                    self.assertTrue(got['sensitive'])
+                    self.assertTrue(got['should_draft'])
+                    self.assertTrue(got['should_notify_owner'])
+
+    def test_thanks_with_a_quoted_complaint_has_no_new_request(self):
+        for quoted in (
+            '> My dress arrived damaged and I want a refund.',
+            'On Mon, Jul 20 2026 at 9:14 AM Support wrote:\n'
+            '> My dress arrived damaged and I want a refund.',
+        ):
+            with self.subTest(quoted=quoted):
+                got = _c('Thanks!\n\n' + quoted, subject='Re: Your order')
+                self.assertEqual(got['priority'], NORMAL)
+                self.assertFalse(got['should_draft'])
+                self.assertFalse(got['should_notify_owner'])
+
+    def test_all_quoted_body_does_not_reactivate_an_inherited_request_subject(self):
+        got = _c('> The dress arrived damaged.', subject='Re: Refund request')
+        self.assertEqual(got['priority'], NORMAL)
+        self.assertFalse(got['should_draft'])
+        self.assertFalse(got['should_notify_owner'])
+
+    def test_blank_body_keeps_actionable_subject_only_request(self):
+        got = _c('', subject='Please refund my damaged order')
+        self.assertEqual(got['priority'], IMMEDIATE)
+        self.assertTrue(got['sensitive'])
+        self.assertTrue(got['should_draft'])
+        self.assertTrue(got['should_notify_owner'])
 
 
 class BottomPostedTests(unittest.TestCase):

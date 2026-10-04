@@ -207,8 +207,10 @@ class QualityAlertRuleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(result["should_draft"], current != "Thanks!")
         for old in quoted:
             result = classify({"message_text": "> " + old})
-            self.assertEqual(result["priority"], "high")
-            self.assertTrue(result["sensitive"])
+            self.assertEqual(result["priority"], "normal")
+            self.assertFalse(result["sensitive"])
+            self.assertFalse(result["should_draft"])
+            self.assertFalse(result["should_notify_owner"])
 
     async def test_saved_e07_color_mismatch_is_raised_and_alert_attempt_is_mocked(self):
         message = "The denim I got is way darker than the light denim in your photos."

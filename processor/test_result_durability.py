@@ -81,7 +81,9 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
     async def unknown_source_time(self, text):
         import json
         payload = json.dumps(dict(message_text=text, ticket_id=123, message_id='synthetic'))
-        await Database(self.path).execute("UPDATE parsed_messages SET created_at=NULL,message_text=?", (text,))
+        await Database(self.path).execute(
+            "UPDATE parsed_messages SET created_at=NULL,message_text=? WHERE ticket_id=? AND message_id=?",
+            (text, 123, 'synthetic'))
         await Database(self.path).execute("UPDATE job_queue SET payload=? WHERE id=?", (payload, self.job_id))
         self.job['payload'] = payload
 

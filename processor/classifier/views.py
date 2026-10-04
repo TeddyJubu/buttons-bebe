@@ -110,7 +110,12 @@ def _drop_store_boilerplate(text: str) -> str:
     return result or (text or "")
 
 
-def _strip_quoted_history(message_text: str) -> str:
+def _unquoted_customer_text(message_text: str) -> str:
+    """Keep customer prose without treating policy/promo words as boilerplate.
+
+    An entirely quoted message has no new customer text. Eligibility callers
+    must not fall back to that quoted history.
+    """
     kept: list[str] = []
     seen_content = False
     for line in (message_text or "").splitlines():
@@ -123,7 +128,11 @@ def _strip_quoted_history(message_text: str) -> str:
         kept.append(line)
         if line.strip():
             seen_content = True
-    fresh = _drop_store_boilerplate("\n".join(kept).strip())
+    return "\n".join(kept).strip()
+
+
+def _strip_quoted_history(message_text: str) -> str:
+    fresh = _drop_store_boilerplate(_unquoted_customer_text(message_text))
     return fresh or (message_text or "")
 
 
@@ -179,5 +188,5 @@ __all__ = [
     "_SHOUT_MIN_RATIO", "_SUSTAINED_MIN_CAPS", "_SUSTAINED_MIN_RATIO",
     "_SUSTAINED_MIN_GRAMMAR", "_STORE_BOILERPLATE_RE", "_bound",
     "_fold_smart_quotes", "_normalise_text", "_drop_store_boilerplate",
-    "_strip_quoted_history", "_is_shouting", "_is_exclaiming", "_weak_matches",
+    "_unquoted_customer_text", "_strip_quoted_history", "_is_shouting", "_is_exclaiming", "_weak_matches",
 ]

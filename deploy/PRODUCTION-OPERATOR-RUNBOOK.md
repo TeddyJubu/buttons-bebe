@@ -168,7 +168,7 @@ failure domain; do not count its transport acknowledgment as proof the owner
 received an alert.
 
 The Inbox starts read-only. Owner-authorized human sending uses a temporary
-page-scoped grant, review and a final confirmation under AGENTS.md §2.3. Preserve
+page-scoped grant, review and a final confirmation under AGENTS.md §2, rule 3. Preserve
 provider identity/routing, exact recipient/context binding, duplicate and
 ambiguous-action handling, and audit/recovery controls. The readiness and
 capability checks above do not test or disable this separate human send service.
