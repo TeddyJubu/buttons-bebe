@@ -39,6 +39,21 @@ class TicketViewTests(unittest.TestCase):
         with patch.object(api,'OPERATOR_EMAIL','owner@example.test'):
             self.assertEqual(self.ids(view='assigned'),['gorgias:5'])
         self.assertEqual(self.ids(view='unassigned'),['gorgias:6','gorgias:4','gorgias:1'])
+    def test_observed_snooze_expires_without_changing_the_provider_record(self):
+        deadline=api.epoch('2099-01-01T00:00:00Z')
+        with closing(api.database()) as db:
+            before=db.execute("SELECT payload FROM tickets WHERE id='gorgias:6'").fetchone()[0]
+        for now,expected in [(deadline-1,['gorgias:6']),(deadline,[]),(deadline+1,[])]:
+            with self.subTest(now=now),patch.object(api.time,'time',return_value=now):
+                result=self.read(view='snoozed')
+                self.assertEqual([row['id'] for row in result['tickets']],expected)
+                self.assertEqual(result['total'],len(expected))
+                self.assertIsNone(result['nextOffset'])
+                self.assertTrue(result['categoryAvailability']['snoozed'])
+                self.assertEqual(self.ids(view='open'),['gorgias:6','gorgias:5','gorgias:1'])
+        with closing(api.database()) as db:
+            after=db.execute("SELECT payload FROM tickets WHERE id='gorgias:6'").fetchone()[0]
+        self.assertEqual(after,before)
     def test_exact_filters_counts_and_pagination(self):
         a=self.read(tag='returns',priority='high',channel='email',limit=2)
         self.assertEqual(a['total'],4);self.assertEqual(a['nextOffset'],2)
