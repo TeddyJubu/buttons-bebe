@@ -130,7 +130,13 @@ verdict.
 
 Output directories contain a private model credential copy; never attach, commit,
 or publish the directory wholesale. Share only reviewed results/receipts after
-secret and PII checks. Remove the private HOME once evidence review is complete.
+secret and PII checks. Before removing a private HOME, inspect the production
+Hermes launcher and interpreter paths. A production interpreter can reside in
+a QA tools directory even when the launcher uses the production Hermes profile.
+Preserve any such interpreter subtree until a separate, verified move to a
+durable runtime is complete. Remove only QA-owned credential and evidence files
+whose paths are not production runtime dependencies; never delete the whole
+HOME based on its directory name.
 Historical `results-live.json`, `results-sim.json`, and LIVE-RUN-JUDGMENT.md are
 archived evidence from earlier behavior, not proof of the current release.
 

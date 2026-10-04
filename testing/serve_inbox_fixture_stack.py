@@ -32,6 +32,14 @@ SAFE_ASSET_SUFFIXES = {".css", ".js"}
 SCRUB_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH",
                  "ACCESS", "BEARER", "PRIVATE", "SHOPIFY", "GORGIAS", "REDO",
                  "OPENAI", "WHATSAPP", "CONSOLE", "AWS_", "AZURE_", "GOOGLE_", "GCP_")
+FIXTURE_PROVIDER_OPERATIONS = {
+    "synthetic_gorgias_mcp": frozenset({
+        "list_inbox_tickets", "get_ticket", "get_ticket_messages",
+    }),
+    "synthetic_console_projection": frozenset({"helpdesk.get_ticket"}),
+    "synthetic_shopify_snapshot": frozenset({"read"}),
+    "synthetic_redo_snapshot": frozenset({"read"}),
+}
 
 
 def scrub_provider_environment() -> list[str]:
@@ -171,7 +179,7 @@ def discover_local_assets(assets_dir: Path) -> set[str]:
 
 
 class FixtureProviders:
-    """Fixed Gorgias and console-projection reads backed only by fixture JSON."""
+    """Synthetic provider reads and bounded observations for canonical reads."""
 
     def __init__(self, data: dict[str, Any], live_api: Any, content_adapter: Any) -> None:
         self.data = data
@@ -187,13 +195,26 @@ class FixtureProviders:
         }
         self.calls: deque[dict[str, Any]] = deque(maxlen=500)
         self.call_count = 0
+        self.operation_counts: dict[tuple[str, str], int] = {}
         self.lock = threading.Lock()
 
     def record(self, provider: str, operation: str, arguments: dict[str, Any]) -> None:
+        if operation not in FIXTURE_PROVIDER_OPERATIONS.get(provider, frozenset()):
+            raise RuntimeError("Unexpected synthetic provider operation.")
         with self.lock:
             self.call_count += 1
+            key = (provider, operation)
+            self.operation_counts[key] = self.operation_counts.get(key, 0) + 1
             self.calls.append({"provider": provider, "operation": operation,
                                "arguments": deepcopy(arguments)})
+
+    def diagnostic_snapshot(self) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+        with self.lock:
+            observations = [
+                {"provider": provider, "operation": operation, "count": count}
+                for (provider, operation), count in sorted(self.operation_counts.items())
+            ]
+            return self.call_count, deepcopy(list(self.calls)), observations
 
     def new_mcp(self, worker: Any = None) -> SyntheticMCP:
         return SyntheticMCP(self, worker)
@@ -235,15 +256,6 @@ class FixtureProviders:
         next_offset = offset + len(page)
         cursor = str(next_offset) if next_offset < len(rows) else None
         return self.curate_messages({"data": deepcopy(page), "meta": {"next_cursor": cursor}})
-
-    def projection(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        self.record("synthetic_console_projection", tool, arguments)
-        ticket_id = str(arguments.get("ticketId", ""))
-        raw = self.tickets.get(ticket_id.removeprefix("gorgias:"))
-        draft = deepcopy(self.data.get("drafts", {}).get(ticket_id.removeprefix("gorgias:"), {}))
-        customer = (raw or {}).get("customer") or {}
-        return {"ok": True, "source": "fixture_projection",
-                "ticket": {"fromEmail": customer.get("email", ""), **draft}}
 
     def shopify_snapshot_read(self, ticket_id: str) -> None:
         self.record("synthetic_shopify_snapshot", "read", {"ticketId": ticket_id})
@@ -356,6 +368,16 @@ class FixtureRuntime:
 
         self.providers = FixtureProviders(self.data, live_api, gorgias_content)
         live_api.MCP = self.providers.new_mcp
+        canonical_projection_query = live_api.projection_query
+
+        def observe_canonical_projection(tool: str, arguments: dict[str, Any]) -> Any:
+            result = canonical_projection_query(tool, arguments)
+            if (isinstance(result, dict) and result.get("ok") is True
+                    and result.get("source") == "canonical_projection"):
+                self.providers.record("synthetic_console_projection", tool, arguments)
+            return result
+
+        live_api.projection_query = observe_canonical_projection
 
         attach_shop_rail = live_api.attach_shop_rail
         attach_customer_details = live_api.attach_customer_details
@@ -568,13 +590,17 @@ class FixtureRuntime:
     def diagnostics(self, live_api: Any) -> dict[str, Any]:
         database = self.database_status(live_api)
         providers = self.providers
-        calls = list(providers.calls) if providers else []
+        if providers:
+            call_count, calls, operation_counts = providers.diagnostic_snapshot()
+        else:
+            call_count, calls, operation_counts = 0, [], []
         return {"ok": True, "synthetic": True, "readOnly": True,
                 "fixtureCase": self.case, "selectedTicketId": self.selected_ticket_id,
                 **database,
                 "providerMode": "injected in-process fixtures; no real provider client",
-                "providerCallCount": providers.call_count if providers else 0,
+                "providerCallCount": call_count,
                 "providerCalls": calls,
+                "providerOperationCounts": operation_counts,
                 "blockedNetworkAttempts": list(self.egress_guard.blocked),
                 "consoleRequests": list(self.console_requests),
                 "mutationAttempts": list(self.mutation_attempts)}

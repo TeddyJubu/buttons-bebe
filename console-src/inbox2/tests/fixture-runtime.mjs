@@ -114,7 +114,17 @@ async function run(){
   assert.deepEqual(diagnostics.mutationAttempts,[]);assert.deepEqual(diagnostics.consoleRequests,[]);assert.deepEqual(diagnostics.blockedNetworkAttempts,[]);
   const allowed={synthetic_gorgias_mcp:['list_inbox_tickets','get_ticket','get_ticket_messages'],synthetic_console_projection:['helpdesk.get_ticket'],synthetic_shopify_snapshot:['read'],synthetic_redo_snapshot:['read']};
   for(const call of diagnostics.providerCalls)assert(allowed[call.provider]?.includes(call.operation),`Unexpected provider operation ${JSON.stringify(call)}`);
-  for(const provider of Object.keys(allowed))assert(diagnostics.providerCalls.some(call=>call.provider===provider),`Missing actual adapter observation ${provider}`);
+  const observations=diagnostics.providerOperationCounts;
+  assert(Array.isArray(observations),'Missing cumulative provider operation counts');
+  assert(observations.length<=32,'Cumulative provider operation counts exceeded their fixed bound');
+  for(const observation of observations){
+    assert(allowed[observation.provider]?.includes(observation.operation),`Unexpected cumulative provider operation ${JSON.stringify(observation)}`);
+    assert(Number.isSafeInteger(observation.count)&&observation.count>0,`Invalid cumulative provider operation count ${JSON.stringify(observation)}`);
+  }
+  assert.equal(observations.reduce((sum,observation)=>sum+observation.count,0),diagnostics.providerCallCount,'Cumulative counts must cover the full bounded provider trace');
+  for(const [provider,operations] of Object.entries(allowed))for(const operation of operations)
+    assert(observations.some(observation=>observation.provider===provider&&observation.operation===operation),`Missing cumulative adapter observation ${provider}/${operation}`);
+  assert.equal(diagnostics.stores.canonicalProjection.ready,true,'The observed projection must be the loaded canonical snapshot');
   assert.equal(errors.length,0,errors.join('\n'));
   receipt={synthetic:true,actualAdapters:true,ticketId,port,messages:6,visibility,providerCallCount:diagnostics.providerCallCount,mutationAttempts:0,blockedNetworkAttempts:0,video:'fixture-runtime-review.webm',longStaffInput:'No backend fixture-control endpoint is provided; covered separately by draft-recovery.mjs.',diagnostics};
   fs.writeFileSync(path.join(evidence,'fixture-runtime-receipt.json'),JSON.stringify(receipt,null,2));

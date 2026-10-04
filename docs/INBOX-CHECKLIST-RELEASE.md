@@ -1,8 +1,8 @@
 # Inbox checklist release — 5 October 2026
 
 This release combines P1–P6 from the approved Inbox fix plan. The owner authorized
-implementation, merge and deployment. It does not include the separate draft
-reliability PR #90.
+implementation, merge and deployment. Its integration base includes the separately
+owned reliability PR #90; that release's owner handles its merge and deployment.
 
 | Checklist area | Result | Verification |
 | --- | --- | --- |
