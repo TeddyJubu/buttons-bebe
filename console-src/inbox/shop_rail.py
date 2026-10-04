@@ -16,19 +16,41 @@ def display_payload(payload):
     if payload.get('payloadVersion') == PAYLOAD_VERSION:
         return payload
     payload = copy.deepcopy(payload)
+    def records(value):
+        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else None
+
     customer = payload.get('customer')
     if isinstance(customer, dict):
         customer['amountSpent'] = None
+    else:
+        payload['customer'] = None
     order = payload.get('order')
     if isinstance(order, dict):
         order['currentTotalPriceSet'] = None
-        lines = order.get('lineItems', {}).get('nodes', []) if isinstance(order.get('lineItems'), dict) else []
-        for line in lines:
-            if isinstance(line, dict):
+        connection = order.get('lineItems')
+        if isinstance(connection, dict):
+            connection['nodes'] = records(connection.get('nodes'))
+            for line in connection['nodes'] or []:
                 line['originalUnitPriceSet'] = None
-    for history in payload.get('history') or []:
-        if isinstance(history, dict):
-            history['currentTotalPriceSet'] = None
+        else:
+            order['lineItems'] = None
+    else:
+        payload['order'] = None
+    payload['history'] = records(payload.get('history'))
+    for history in payload['history'] or []:
+        history['currentTotalPriceSet'] = None
+    returns = payload.get('returns')
+    connection = returns.get('returns') if isinstance(returns, dict) else None
+    if isinstance(connection, dict):
+        connection['nodes'] = records(connection.get('nodes'))
+        for returned in connection['nodes'] or []:
+            returned['items'] = records(returned.get('items'))
+            for item in returned['items'] or []:
+                item['price'] = None
+    else:
+        payload['returns'] = None
+    # Older snapshots did not prove list completeness, including filtered rows.
+    payload['partial'] = dict.fromkeys(('orderSearch', 'orderItems', 'returns', 'history'))
     payload['legacyMoneyUnverified'] = True
     return payload
 

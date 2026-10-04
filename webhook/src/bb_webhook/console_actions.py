@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 from fastapi.responses import JSONResponse
 
@@ -43,6 +44,7 @@ async def preflight_refusal(status, error, body):
     payload={'ok':False,'error':error}
     operation_id=body.get('operation_id') if isinstance(body,dict) else None
     if valid_operation(operation_id):
+        operation_id = str(uuid.UUID(operation_id))
         try:
             existing=await IntentStore(deps.get_db()).get(operation_id)
         except Exception:

@@ -27,11 +27,14 @@ const legacy={status:'found',legacyMoneyUnverified:true,
  customer:{displayName:'Example Customer',numberOfOrders:'4',amountSpent:null},
  order:{id:'o',name:'#10312345',currentTotalPriceSet:null,lineItems:{nodes:[{title:'Legacy price',quantity:1,originalUnitPriceSet:null}]}},
  history:[],returns:{returns:{nodes:[]}},refreshing:true,fetchedAt:new Date().toISOString()};
+const withheld={...legacy,order:{...legacy.order,lineItems:{nodes:null}},history:null,
+ returns:{returns:{nodes:[{id:'r',status:'OPEN',items:null}]}},
+ partial:{orderSearch:null,orderItems:null,returns:null,history:null}};
 await page.route('**/inbox/api/helpdesk',async route=>{
  const {tool}=route.request().postDataJSON();
  assert(['helpdesk.get_ticket','helpdesk.list_tickets','helpdesk.capabilities'].includes(tool));
  if(tool==='helpdesk.get_ticket')reads++;
- const rail=mode==='loading'?{status:'loading'}:mode==='found'?found:mode==='legacy'?legacy:mode==='error'?{status:'error',refreshError:true}:mode==='missing'?{status:'missing'}:{status:'unavailable'};
+ const rail=mode==='loading'?{status:'loading'}:mode==='found'?found:mode==='legacy'?legacy:mode==='withheld'?withheld:mode==='error'?{status:'error',refreshError:true}:mode==='missing'?{status:'missing'}:{status:'unavailable'};
  await route.fulfill({json:{ok:true,source:'gorgias_api',...(tool==='helpdesk.get_ticket'?{ticket:{...base,shopifyRail:rail}}:tool==='helpdesk.list_tickets'?{tickets:[base],total:1,nextOffset:null,projection:{complete:true}}:{})}});
 });
 await page.goto(`${baseUrl}/inbox/?ticket=gorgias%3A123`);
@@ -54,6 +57,10 @@ assert((await page.locator('#customer-rail').textContent()).includes('CA$0.00'))
 await page.screenshot({path:path.join(dir,'loaded.png')});
 mode='legacy';await page.reload();
 await page.getByText('Prices from this older snapshot are hidden because their Shopify observation was not recorded.',{exact:true}).waitFor();
+await page.getByText('Shopify did not record whether every bounded list is complete for this snapshot.',{exact:true}).waitFor();
+assert(!(await page.locator('#customer-rail').textContent()).includes('$0.00'));
+mode='withheld';await page.reload();
+await page.getByText('Return on file. Item details unavailable.',{exact:true}).waitFor();
 await page.getByText('Shopify did not record whether every bounded list is complete for this snapshot.',{exact:true}).waitFor();
 assert(!(await page.locator('#customer-rail').textContent()).includes('$0.00'));
 mode='error';await page.reload();await page.locator('[data-action="retry-customer"]').waitFor();

@@ -1,6 +1,6 @@
 """Recover customer draft jobs when Gorgias webhook delivery is interrupted.
 
-Only the two read-only Gorgias MCP tools below are used. Recovered messages go
+Only the three read-only Gorgias MCP tools below are used. Recovered messages go
 through the same durable intake and Hermes queue as signed webhook messages;
 there is no provider write or automatic customer reply.
 """
@@ -102,7 +102,7 @@ class ReadOnlyMCP:
         return result.get("result") or {}
 
     async def call(self, tool: str, arguments: dict) -> dict:
-        if tool not in {"list_inbox_tickets", "get_ticket_messages"}:
+        if tool not in {"list_inbox_tickets", "get_ticket", "get_ticket_messages"}:
             raise ValueError("Non-read Gorgias tool refused")
         result = await self.rpc("tools/call", {"name": tool, "arguments": arguments})
         if result.get("isError"):
@@ -233,6 +233,7 @@ async def reconcile_page(db_path: Path, tenant: str, position: SweepPosition,
     if not slots:
         return position.cursor, 0
     cutoff = int((now if now is not None else time.time()) * 1_000_000) - LOOKBACK_DAYS * 86400 * 1_000_000
+    deferred = position.batch is not None
     async with client_factory() as client:
         if position.batch is None:
             page = await client.call("list_inbox_tickets", {"limit": PAGE_SIZE,
@@ -265,14 +266,33 @@ async def reconcile_page(db_path: Path, tenant: str, position: SweepPosition,
         parsed = {row["ticket_id"]: row["newest"] if not row["chronology_invalid"] else None for row in parsed_rows}
         enqueued = 0
         checked = 0
-        while position.batch.remaining and checked < min(MAX_DETAILS, max_details) and slots > 0:
+        detail_reads = 0
+        detail_limit = min(MAX_DETAILS, max_details)
+        while position.batch.remaining and checked < detail_limit and detail_reads < 2 * detail_limit and slots > 0:
             ticket = position.batch.remaining.popleft()
-            if (not _candidate(ticket, cutoff)
-                    or seen.get(ticket["id"]) == (ticket.get("updated_datetime") or "")
+            if not _candidate(ticket, cutoff):
+                continue
+            if deferred:
+                checked += 1
+                detail_reads += 1
+                try:
+                    current = await client.call("get_ticket", {"ticket_id": ticket["id"]})
+                    if not isinstance(current, dict) or current.get("id") != ticket["id"]:
+                        raise ValueError("Gorgias ticket state unavailable")
+                except Exception as exc:
+                    log_event(logger, "WARNING", "Gorgias deferred ticket state unavailable",
+                              ticket_id=ticket["id"], error=type(exc).__name__)
+                    continue
+                if not _candidate(current, cutoff):
+                    continue
+                ticket = current
+            if (seen.get(ticket["id"]) == (ticket.get("updated_datetime") or "")
                     or (parsed.get(ticket["id"]) is not None
                         and parsed[ticket["id"]] >= utc_microseconds(ticket["last_received_message_datetime"]))):
                 continue
-            checked += 1
+            if not deferred:
+                checked += 1
+            detail_reads += 1
             try:
                 detail = await client.call("get_ticket_messages", {"ticket_id": ticket["id"], "limit": 50})
                 messages = detail.get("data")

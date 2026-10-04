@@ -29,14 +29,15 @@ class TimestampTests(unittest.TestCase):
             self.assertIsNone(normalize_timestamp(invalid))
             self.assertIsNone(utc_microseconds(invalid))
 
-    def test_webhook_intake_uses_shared_utc_normalizer_and_rejects_bad_time(self):
+    def test_webhook_intake_preserves_unknown_message_time_without_ticket_fallback(self):
         for value, expected in (('2026-09-26T12:00:00.000200+02:00', '2026-09-26T10:00:00.000200+00:00'),
                                 (None, None), ('invalid', None), ('2026-09-26T10:00:00', None)):
-            body=json.dumps({'trigger':'ticket-message-created', 'ticket':{'id':1},
+            body=json.dumps({'trigger':'ticket-message-created', 'ticket':{'id':1, 'created_datetime':'2026-09-20T00:00:00Z'},
                 'message':{'id':2, 'from_agent':False, 'created_datetime':value, 'body_text':'A question'}}).encode()
             with patch('bb_webhook.webhook_handler.get_settings', return_value=SimpleNamespace(gorgias_subdomain='test')):
                 parsed=parse_event(body)
-            self.assertEqual(parsed['created_at'] if parsed else None, expected)
+            self.assertIsNotNone(parsed)
+            self.assertEqual(parsed['created_at'], expected)
 
 
 class MessageChronologyTests(unittest.IsolatedAsyncioTestCase):
@@ -76,7 +77,6 @@ class MessageChronologyTests(unittest.IsolatedAsyncioTestCase):
              '2026-09-26T12:00:00Z', '2026-09-26T11:00:00Z'),
             ('2026-09-26T12:00:00+02:00', '2026-09-26T05:00:00-05:00',
              '2026-09-26T12:00:00.000100Z', '2026-09-26T12:00:00.000200Z'),
-            (None, '', '2026-09-26T12:00:00.000100Z', '2026-09-26T12:00:00.000200Z'),
             ('2026-09-26T12:00:00+02:00', '2026-09-26T10:00:00Z',
              '2026-09-26T13:00:00+02:00', '2026-09-26T11:00:00Z'),
         )
@@ -125,7 +125,9 @@ class MessageChronologyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_legacy_source_or_receipt_refuses_selection(self):
         await self.ingest('a', '2026-09-26T10:00:00Z')
-        for source, receipt in (('invalid', '2026-09-26T12:00:00Z'),
+        for source, receipt in ((None, '2026-09-26T12:00:00Z'),
+                                ('', '2026-09-26T12:00:00Z'),
+                                ('invalid', '2026-09-26T12:00:00Z'),
                                 ('2026-09-26T10:00:00', '2026-09-26T12:00:00Z'),
                                 ('2026-09-26T09:00:00Z', 'now')):
             with self.subTest(source=source, receipt=receipt):
@@ -138,3 +140,25 @@ class MessageChronologyTests(unittest.IsolatedAsyncioTestCase):
                 async def transaction(conn):
                     return await draft_generation.conflict(conn, 1, 'a')
                 self.assertEqual(await self.db.transaction(transaction), 'message_chronology_unavailable')
+
+    async def test_unknown_new_message_blocks_stale_publication_and_review(self):
+        job = await self.ingest('a', '2026-09-26T10:00:00Z')
+        self.assertTrue(await database.claim_job(job, self.path))
+        attempt = await draft_generation.begin_attempt(job, self.path)
+        for value in (None, 'invalid', '2026-09-26T11:00:00'):
+            with self.subTest(value=value):
+                await self.db.execute("DELETE FROM parsed_messages WHERE message_id='2'")
+                await self.db.execute("DELETE FROM webhook_events WHERE message_id='2'")
+                body = json.dumps({'trigger':'ticket-message-created',
+                    'ticket':{'id':1, 'created_datetime':'2026-09-20T00:00:00Z'},
+                    'message':{'id':2, 'from_agent':False, 'created_datetime':value, 'body_text':'New question'}}).encode()
+                with patch('bb_webhook.webhook_handler.get_settings', return_value=SimpleNamespace(gorgias_subdomain='test')):
+                    parsed = parse_event(body)
+                self.assertIsNotNone(parsed)
+                self.assertIsNone(parsed['created_at'])
+                await database.ingest_event(parsed, body.decode(), self.path)
+                self.assertEqual(await self.latest(), {'message_id':'2', 'chronology_invalid':1})
+                with self.assertRaisesRegex(ActionConflict, 'message_chronology_unavailable'):
+                    await self.store.review_context(ticket_id=1, source_message_id='a', actor_id='operator')
+        self.assertEqual(await self.publish(job, 'a', attempt), 'superseded')
+        self.assertIsNone(await database.get_job_result(job, self.path))

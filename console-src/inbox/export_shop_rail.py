@@ -382,6 +382,8 @@ def lookup_ticket(env, token, ticket, caches):
                 nodes = connection.get('nodes') or []
                 caches['orders'][name] = next((node for node in nodes if str(node.get('name', '')).lstrip('#') == name), None)
                 page_flags[('order', name)] = _page_flag(connection)
+            flag = page_flags.get(('order', name))
+            order_search = True if order_search is True or flag is True else None if order_search is None or flag is None else False
             node = caches['orders'][name]
             if not node:
                 continue
@@ -390,7 +392,6 @@ def lookup_ticket(env, token, ticket, caches):
             same_owner = customer and owner.get('id') == customer.get('id')
             if same_owner or key in (owner_email, str(node.get('email') or '').casefold()):
                 order = node
-                order_search = page_flags.get(('order', name))
                 break
     customer_id = (customer or {}).get('id')
     history = []

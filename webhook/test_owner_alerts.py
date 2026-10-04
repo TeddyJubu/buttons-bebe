@@ -37,6 +37,7 @@ class OwnerAlertFixture:
         job_id = await database.ingest_event(dict(
             tenant_id="test", ticket_id=ticket_id, message_id=message_id,
             event_type="ticket.message.created", author_type="customer",
+            created_at="2026-09-25T00:00:00+00:00",
             is_customer_message=True, ticket_subject="Synthetic alert subject",
             customer_email="private-customer@example.invalid",
             message_text="private-message-content", intents=[],

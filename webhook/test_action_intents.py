@@ -224,6 +224,29 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn('operation_id',response.json())
             transport.assert_not_called()
 
+    async def test_uppercase_operation_cannot_clear_prior_ambiguous_intent(self):
+        self.operation = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        self.payload['operation_id'] = self.operation
+        await self.reserve()
+        self.assertEqual((await self.store.get(self.operation.upper()))['operation_id'], self.operation)
+        with patch.object(console_router, '_GClient') as transport:
+            response = await self.client.post('/dashboard/api/ticket/1/send',
+                json=self.payload | {'operation_id':self.operation.upper(), 'confirmed':False})
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn('delivery_status', response.json())
+        self.assertNotIn('operation_id', response.json())
+        self.assertEqual((await self.store.get(self.operation))['state'], 'uncertain')
+        transport.assert_not_called()
+
+    async def test_fresh_uppercase_refusal_echoes_verified_canonical_operation(self):
+        operation = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        with patch.object(console_router, '_GClient') as transport:
+            response = await self.client.post('/dashboard/api/ticket/1/send',
+                json=self.payload | {'operation_id':operation.upper(), 'confirmed':False})
+        self.assertEqual(response.json()['operation_id'], operation)
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        transport.assert_not_called()
+
     async def test_preflight_lookup_failure_cannot_identify_a_definite_refusal(self):
         with patch.object(IntentStore,'get',AsyncMock(side_effect=RuntimeError('synthetic lookup failure'))), \
              patch.object(console_router,'_GClient') as transport:

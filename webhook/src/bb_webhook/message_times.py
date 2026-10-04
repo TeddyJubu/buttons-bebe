@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-SOURCE_TIME_SQL = "utc_microseconds(COALESCE(NULLIF(created_at,''),received_at))"
+SOURCE_TIME_SQL = "utc_microseconds(created_at)"
 LATEST_CUSTOMER_SQL = f"""SELECT message_id,
     ({SOURCE_TIME_SQL} IS NULL OR utc_microseconds(received_at) IS NULL) AS chronology_invalid
     FROM parsed_messages WHERE ticket_id=? AND is_customer_message=1

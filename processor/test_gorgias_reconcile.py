@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from bb_webhook.database import init_db
 from bb_webhook.db import Database
@@ -37,6 +37,8 @@ class FakeMCP:
         self.messages = messages
         self.detail_calls = []
         self.list_calls = []
+        self.ticket_calls = []
+        self.tickets = {row['id']:row for page in self.pages.values() if isinstance(page, tuple) for row in page[0]}
 
     async def __aenter__(self):
         return self
@@ -52,7 +54,12 @@ class FakeMCP:
             if isinstance(page, BaseException):
                 raise page
             data, next_cursor=page
+            self.tickets.update({row['id']:row for row in data})
             return {"data":data, "meta":{"next_cursor":next_cursor}}
+        if tool == "get_ticket":
+            ticket_id = arguments["ticket_id"]
+            self.ticket_calls.append(ticket_id)
+            return dict(self.tickets.get(ticket_id, {}))
         assert tool == "get_ticket_messages"
         ticket_id = arguments["ticket_id"]
         self.detail_calls.append(ticket_id)
@@ -77,9 +84,9 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         return await reconcile_page(self.db_path, "buttonsbebe", self.position, client_factory=lambda: client,
                                     now=self.now, **kwargs)
 
-    def rows(self, sql):
+    def rows(self, sql, params=()):
         with sqlite3.connect(self.db_path) as db:
-            return db.execute(sql).fetchall()
+            return db.execute(sql, params).fetchall()
 
     async def test_unanswered_customer_message_is_queued_once_for_hermes(self):
         client = FakeMCP([ticket()], {284477559: [message()]})
@@ -208,6 +215,44 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.scan(client, max_active_jobs=1), ('older', 1))
         self.assertEqual(client.list_calls, [None])
         self.assertEqual(client.detail_calls, [1,2])
+
+    async def test_deferred_ineligible_ticket_is_skipped_while_next_eligible_progresses(self):
+        for index, change in enumerate(({'status':'closed'}, {'spam':True}, {'trashed_datetime':WHEN})):
+            with self.subTest(change=change):
+                await Database(self.db_path).execute("UPDATE job_queue SET status='done'")
+                self.position = SweepPosition()
+                ids = [index * 10 + n for n in (1,2,3)]
+                live = [ticket(n) for n in ids]
+                client = FakeMCP(live, {n:[{**message(n*100), 'ticket_id':n}] for n in ids})
+                self.assertEqual((await self.scan(client, max_active_jobs=1))[1], 1)
+                live[1].update(change)
+                await Database(self.db_path).execute("UPDATE job_queue SET status='done'")
+                self.assertEqual((await self.scan(client, max_active_jobs=1))[1], 1)
+                self.assertEqual(client.detail_calls, [ids[0],ids[2]])
+                self.assertEqual(client.ticket_calls, [ids[1],ids[2]])
+                self.assertEqual(self.rows('SELECT COUNT(*) FROM job_queue WHERE ticket_id=?', (ids[1],)), [(0,)])
+
+    async def test_deferred_state_reads_remain_bounded_and_batch_keeps_progressing(self):
+        live = [ticket(n) for n in range(1,9)]
+        client = FakeMCP(live, {n:[{**message(n*100), 'ticket_id':n}] for n in range(1,9)})
+        self.assertEqual((await self.scan(client, max_details=1, max_active_jobs=1))[1], 1)
+        for row in live[1:6]:
+            row['status'] = 'closed'
+        await Database(self.db_path).execute("UPDATE job_queue SET status='done'")
+        self.assertEqual((await self.scan(client, max_active_jobs=1))[1], 0)
+        self.assertEqual(client.ticket_calls, [2,3,4,5,6])
+        self.assertEqual([row['id'] for row in self.position.batch.remaining], [7,8])
+        self.assertEqual((await self.scan(client, max_active_jobs=1))[1], 1)
+        self.assertEqual(client.detail_calls, [1,7])
+
+    async def test_deferred_ticket_tool_is_read_only_and_other_tools_remain_refused(self):
+        client = gorgias_reconcile.ReadOnlyMCP.__new__(gorgias_reconcile.ReadOnlyMCP)
+        client.rpc = AsyncMock(return_value={'structuredContent':ticket(2)})
+        self.assertEqual((await client.call('get_ticket', {'ticket_id':2}))['id'], 2)
+        client.rpc.assert_awaited_once_with('tools/call', {'name':'get_ticket', 'arguments':{'ticket_id':2}})
+        with self.assertRaisesRegex(ValueError, 'Non-read'):
+            await client.call('send_reply', {'ticket_id':2})
+        self.assertEqual(client.rpc.await_count, 1)
 
     async def test_changing_page_does_not_expand_or_replace_captured_batch(self):
         client=FakeMCP([ticket(n) for n in range(1, 103)], {})

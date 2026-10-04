@@ -308,7 +308,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             author_type: str,          # customer | agent | system
             author_email: str | None,
             channel: str | None,
-            created_at: str,            # ISO 8601 timestamp from the event
+            created_at: str | None,     # message timestamp, unavailable if unknown
             message_text: str | None,
             ticket_subject: str | None,
             ticket_status: str | None,
@@ -407,12 +407,15 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             or _normalize_timestamp(message.get("created_at"))
             or _normalize_timestamp(message.get("received_at"))
         )
-    if not created_at and ticket:
+    if not message and ticket:
         created_at = _normalize_timestamp(ticket.get("created_datetime")) \
             or _normalize_timestamp(ticket.get("created_at"))
     if not created_at:
         log_event(logger, "WARNING", "Webhook timestamp is missing or invalid")
-        return None
+        if not message:
+            return None
+        # Retain the message with unavailable chronology. Dropping it or using
+        # the older ticket time would leave a previous draft eligible to send.
 
     # ── Message text ───────────────────────────────────────
     message_text = None

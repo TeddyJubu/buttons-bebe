@@ -209,7 +209,9 @@ class IntentStore:
 
     async def get(self, operation_id: str) -> dict | None:
         await self.db.execute(_SCHEMA, operation='init_console_actions')
-        rows = await self.db.fetch('SELECT * FROM console_action_intents WHERE operation_id=?', (operation_id,))
+        rows = await self.db.fetch('SELECT * FROM console_action_intents WHERE operation_id=? COLLATE NOCASE', (operation_id,))
+        if len(rows) > 1:
+            raise ActionConflict('operation_id_conflict')
         return dict(rows[0]) if rows else None
 
     async def attach_message(self, operation_id: str, message_id: int):

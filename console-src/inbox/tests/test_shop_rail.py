@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import export_shop_rail as exporter
-from shop_rail import attach
+from shop_rail import attach, display_payload
 
 CUSTOMER = {'id': 'gid://shopify/Customer/1', 'displayName': 'Test Customer',
             'defaultEmailAddress': {'emailAddress': 'qa@example.com'}, 'numberOfOrders': 2,
@@ -166,6 +166,14 @@ class ShopRailTests(unittest.TestCase):
             self.assertIn(capped, exporter.ORDER_BY_NAME)
         self.assertIn('orders(first: 1, query: $query) {\n    pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
         self.assertIn('lineItems(first: 50) { pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
+
+    def test_wrong_owner_or_missing_first_match_still_reports_incomplete_search(self):
+        wrong = {**ORDER, 'email':'other@example.com', 'customer':{'id':'other'}}
+        for order in (wrong, None):
+            with self.subTest(order=order):
+                payload = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order, order_page=True))[0]
+                self.assertIsNone(payload['order'])
+                self.assertTrue(payload['partial']['orderSearch'])
         self.assertIn('returns(first: 5) { pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
         self.assertIn('returnLineItems(first: 25) { pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
         self.assertIn('orders(first: 50, sortKey: CREATED_AT, reverse: true) {\n      pageInfo { hasNextPage }', exporter.PAST_ORDERS)
@@ -262,6 +270,35 @@ class ShopRailTests(unittest.TestCase):
             refreshed = exporter.load_cache(dest)[TICKET['id']]['payload']
             self.assertEqual(refreshed['payloadVersion'], exporter.PAYLOAD_VERSION)
             self.assertEqual(len(self.calls), 3)
+
+    def test_legacy_malformed_collections_withhold_unknown_data_without_attachment_failure(self):
+        for invalid in (7, 'not-a-list', {'unexpected':'object'}, [None, 7]):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temp:
+                legacy = {'status':'found', 'email':TICKET['fromEmail'],
+                    'customer':CUSTOMER, 'order':{**ORDER, 'lineItems':{'nodes':invalid}},
+                    'history':invalid, 'returns':{'returns':{'nodes':invalid}}}
+                dest = Path(temp) / 'rail.sqlite3'
+                with sqlite3.connect(dest) as db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                rail = attach(dict(TICKET), dest)['shopifyRail']
+                self.assertFalse(rail['history'])
+                self.assertFalse(rail['order']['lineItems']['nodes'])
+                self.assertFalse(rail['returns']['returns']['nodes'])
+                self.assertTrue(rail['legacyMoneyUnverified'])
+                self.assertTrue(all(flag is None for flag in rail['partial'].values()))
+                self.assertIsNone(rail['order']['currentTotalPriceSet'])
+
+    def test_legacy_return_prices_are_hidden_and_malformed_items_are_withheld(self):
+        legacy = {'returns':{'returns':{'nodes':[
+            {'id':'retained', 'items':[{'title':'Button', 'price':{'amount':'0.0', 'currencyCode':'USD'}}, None]},
+            {'id':'unknown', 'items':7}]}}}
+        displayed = display_payload(legacy)
+        returned = displayed['returns']['returns']['nodes']
+        self.assertEqual(returned[0]['id'], 'retained')
+        self.assertEqual(returned[0]['items'], [{'title':'Button', 'price':None}])
+        self.assertIsNone(returned[1]['items'])
+        self.assertEqual(legacy['returns']['returns']['nodes'][0]['items'][0]['price']['currencyCode'], 'USD')
 
     def test_upstream_failure_keeps_previous_details_and_marks_refresh_error(self):
         with tempfile.TemporaryDirectory() as temp:

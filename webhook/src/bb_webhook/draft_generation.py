@@ -115,11 +115,7 @@ async def one(conn, sql, params=()):
         return dict(row) if row else None
 
 
-async def conflict(conn, ticket_id, message_id):
-    latest = await one(conn, LATEST_CUSTOMER_SQL, (ticket_id,))
-    problem = freshness_error(latest, message_id)
-    if problem:
-        return problem
+async def human_action_problem(conn, ticket_id, message_id):
     exists = await one(conn, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='console_action_intents'")
     if exists:
         action = await one(conn, """SELECT operation_id FROM console_action_intents
@@ -128,6 +124,62 @@ async def conflict(conn, ticket_id, message_id):
         if action:
             return "human_action_already_initiated"
     return None
+
+
+async def conflict(conn, ticket_id, message_id):
+    latest = await one(conn, LATEST_CUSTOMER_SQL, (ticket_id,))
+    return freshness_error(latest, message_id) or await human_action_problem(conn, ticket_id, message_id)
+
+
+def validated_priority_context(context):
+    context = context if isinstance(context, dict) else {}
+    priority = context.get('priority', 'normal')
+    if not isinstance(priority, str) or priority not in {'low', 'normal', 'high', 'critical'}:
+        priority = 'normal'
+    return dict(priority=priority, notify_owner=context.get('notify_owner') is True,
+                reason=str(context.get('reason') or '')[:500])
+
+
+async def save_chronology_review(conn, job, row, context):
+    """Record a refusal and any owed urgency without inventing a model attempt."""
+    prior_job = row.get('job_id') if row else None
+    if row:
+        prior = validated_priority_context(dict(priority=row.get('priority'),
+            notify_owner=row.get('notify_owner') == 1, reason=row.get('reason')))
+        ranks = {'low':0, 'normal':1, 'high':2, 'critical':3}
+        context = dict(context, priority=max((context['priority'], prior['priority']), key=ranks.get))
+        if prior['priority'] in {'high', 'critical'} and prior['notify_owner']:
+            context['notify_owner'] = True
+            if prior['reason']:
+                context['reason'] = prior['reason']
+        if prior_job != job['id'] and await one(conn, 'SELECT 1 FROM owner_alert_attempts WHERE job_id=?', (prior_job,)):
+            context['notify_owner'] = False  # This same source already has a durable transport attempt.
+    ended = now()
+    sensitive = context['priority'] in {'high', 'critical'}
+    counted = await one(conn, "SELECT count(*) AS n FROM draft_generation_attempts WHERE job_id=?", (job['id'],))
+    reason = 'Message chronology unavailable; verify the source message timing before replying'
+    if context['reason']:
+        reason += '; ' + context['reason']
+    values = dict(ticket_id=job['ticket_id'], message_id=job['message_id'], job_id=job['id'],
+        priority=context['priority'], action='sensitive_draft' if sensitive else 'drafted',
+        reason=reason, notify_owner=int(sensitive and context['notify_owner']),
+        gorgias_priority_set=0, note_posted=0, draft_text='', processed_at=ended,
+        generation_state='needs_review', generation_error='message_chronology_unavailable',
+        attempt_count=counted['n'], next_retry_at=None, review_required=1,
+        staff_next_step='Verify the source message timestamp and current conversation order before replying.',
+        missing_facts=json.dumps(['Verified source message timestamp and conversation order']),
+        generation_attempt_id=None)
+    fields = list(values)
+    if row:
+        await conn.execute('UPDATE ticket_results SET ' + ','.join(f'{field}=?' for field in fields) + ' WHERE id=?',
+                           (*[values[field] for field in fields], row['id']))
+    else:
+        await conn.execute('INSERT INTO ticket_results (' + ','.join(fields) + ') VALUES (' + ','.join('?' for _ in fields) + ')',
+                           tuple(values[field] for field in fields))
+    if values['notify_owner']:
+        await conn.execute('INSERT OR IGNORE INTO recovery_alerts_pending VALUES (?,?)', (job['id'], ended))
+    if prior_job is not None and prior_job != job['id']:
+        await conn.execute('DELETE FROM recovery_alerts_pending WHERE job_id=?', (prior_job,))
 
 
 async def begin_attempt(job_id, db_path=None, *, priority_context=None):
@@ -144,6 +196,12 @@ async def begin_attempt(job_id, db_path=None, *, priority_context=None):
         if job["generation_expected_revision"] and job["generation_expected_revision"] != expected:
             problem = "draft_changed_refresh_ticket"
         if problem:
+            if problem == 'message_chronology_unavailable':
+                human_problem = await human_action_problem(conn, job['ticket_id'], job['message_id'])
+                if human_problem:
+                    problem = human_problem
+                else:
+                    await save_chronology_review(conn, job, row, validated_priority_context(priority_context))
             await conn.execute("UPDATE job_queue SET status='skipped',finished_at=?,error=? WHERE id=?",
                                (now(), problem, job_id))
             return None
@@ -156,12 +214,7 @@ async def begin_attempt(job_id, db_path=None, *, priority_context=None):
             return None  # Transport/restart recovery must not restart a terminal cycle.
         # Preserve the newest request's business urgency across process death.
         # This context is produced locally by the deterministic classifier.
-        context = priority_context or {}
-        priority = context.get('priority', 'normal')
-        if priority not in {'low', 'normal', 'high', 'critical'}:
-            priority = 'normal'
-        seed = dict(priority=priority, notify_owner=bool(context.get('notify_owner')),
-                    reason=str(context.get('reason') or '')[:500])
+        seed = validated_priority_context(priority_context)
         cursor = await conn.execute("""INSERT INTO draft_generation_attempts
             (job_id,ticket_id,message_id,expected_revision,started_at,result_json) VALUES (?,?,?,?,?,?)""",
             (job_id, job["ticket_id"], job["message_id"], expected, now(),

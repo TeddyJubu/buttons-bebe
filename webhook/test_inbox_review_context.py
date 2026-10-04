@@ -42,11 +42,18 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.get(expected_recipient='changed@example.com')).json()['error'],'recipient_changed_refresh_ticket')
     async def test_new_customer_message_invalidates_previous_context(self):
         old=(await self.get()).json()['context']
-        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,received_at) VALUES('newer',1,'created','customer',1,'2026-09-26T01:00:02+00:00')")
+        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,created_at,received_at) VALUES('newer',1,'created','customer',1,'2026-09-26T01:00:01.5+00:00','2026-09-26T01:00:02+00:00')")
         response=await self.get()
         self.assertEqual(response.status_code,409)
         self.assertEqual(response.json()['error'],'new_customer_message_refresh_ticket')
         self.assertFalse(old['sendEnabled'])
+    async def test_unknown_new_message_time_blocks_previous_context(self):
+        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,received_at) VALUES('unknown-time',1,'created','customer',1,'2026-09-26T01:00:02+00:00')")
+        with patch.object(console_router,'_GClient') as transport:
+            response=await self.get()
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.json()['error'],'message_chronology_unavailable')
+        transport.assert_not_called()
     async def test_existing_console_operation_can_be_resumed_without_new_intent(self):
         store=IntentStore(self.path);operation=str(uuid.uuid4())
         await store.reserve(operation_id=operation,actor_id='owner:owner',kind='send',ticket_id=1,
