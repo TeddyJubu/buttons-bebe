@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 from qa_harness import Harness, atomic_json
-from qa_receipt import check_run_integrity, hermes_identity, kb_snapshot, run_receipt, source_fingerprint
+from qa_receipt import check_run_integrity, hermes_identity, kb_snapshot, model_runtime_identity, run_receipt, source_fingerprint
 from qa_safety import scenario_fixture
 
 
@@ -52,6 +52,7 @@ def main():
                         policy_overlay=args.policy_overlay,policy_overlay_sha256=args.policy_overlay_sha256)
         def bindings():
             return {"source":source_fingerprint(),"hermes":hermes_identity(harness.hermes,harness.hermes_source),
+                    "model_runtime":model_runtime_identity(harness.home/".hermes"/"config.yaml",harness.hermes_python),
                     "kb_snapshot":kb_snapshot(args.kb_mode,args.product_manifest,args.product_manifest_sha256,
                                               args.policy_overlay,args.policy_overlay_sha256)}
         before=bindings()

@@ -1,5 +1,7 @@
 """Offline QA boundary tests; model transport is a synthetic executable."""
 import asyncio
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -101,6 +103,37 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertFalse(harness.config["memory"]["memory_enabled"])
         self.model.write_text(json.dumps({"model":{"default":"test","provider":"openai-codex"},"refresh_token":"forbidden"}))
         with self.assertRaises(ValueError):self.harness()
+
+    def test_cli_receipt_reads_actual_profile_again_after_last_scenario(self):
+        import run_live_tests
+        from qa_receipt import check_run_integrity
+        for mutate in (False, True):
+            output = self.root / ("cli-mutated" if mutate else "cli-stable")
+            def capture(harness, scenario, ordinal):
+                if mutate:
+                    profile = harness.home / ".hermes" / "config.yaml"
+                    config = json.loads(profile.read_text())
+                    config["model"]["default"] = "changed-after-model-call"
+                    atomic_json(profile, config)
+                return {"id": scenario["id"], "tool_calls": []}
+            argv = ["run_live_tests.py", "--hermes", sys.executable, "--hermes-python", sys.executable,
+                    "--hermes-source", str(self.source), "--model-config", str(self.model),
+                    "--output", str(output), "--limit", "1", "--timeout", "10"]
+            # Only network/model entry points are replaced. Profile writing,
+            # both identity reads, and receipt integrity use the real code.
+            with patch.object(sys, "argv", argv), patch.object(Harness, "start"), \
+                    patch.object(Harness, "run", new=capture), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                status = run_live_tests.main()
+            self.assertEqual(status, 1 if mutate else 0)
+            run = json.loads((output / "run.json").read_text())
+            self.assertEqual(run["bindings"]["model_runtime"]["model"], {"default": "test", "provider": "custom"})
+            self.assertNotIn("test-only-model-key", json.dumps(run))
+            if mutate:
+                with self.assertRaisesRegex(ValueError, "model/runtime.*changed during"):
+                    check_run_integrity(run)
+            else:
+                check_run_integrity(run)
 
     def test_real_production_runner_prompt_and_extraction_are_used(self):
         executable=self.root/"synthetic-hermes"

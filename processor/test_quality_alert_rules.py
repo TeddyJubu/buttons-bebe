@@ -14,6 +14,19 @@ from classifier import classify
 import orchestrator
 
 
+CARE_QUESTIONS = (
+    "I washed the outfit once. How do I check whether it shrank?",
+    "I washed the outfit once and wondered if it shrank. Is that possible?",
+    "I washed the outfit once and am not sure whether it shrank.",
+    "I washed the outfit once and it might have shrunk. How can I check?",
+    "I washed the outfit once and it maybe shrank. How can I check?",
+    "I washed the outfit once and perhaps it shrank. How can I check?",
+    "My outfit possibly shrank after washing. How can I check?",
+    "I washed the outfit once; how do I check whether it shrank?",
+    "I washed the outfit once? Could it have shrunk?",
+)
+
+
 class QualityAlertRuleTests(unittest.IsolatedAsyncioTestCase):
     async def _replay(self, *, subject: str, message: str, model_result: dict):
         payload = {
@@ -51,6 +64,11 @@ class QualityAlertRuleTests(unittest.IsolatedAsyncioTestCase):
             "I washed the outfit and it shrank, but it hasn’t shrunk further.",
             "Could you help me because my pajamas shrank after washing?",
             "Would you help me because my pajamas shrank after washing?",
+            "I washed the outfit once. It shrank. Can you help?",
+            "I washed the outfit once; it has shrunk. Can you help?",
+            "I washed the pajamas once. They have shrunk. Can you help?",
+            "I washed the outfit once and it shrank. How can I check the care instructions?",
+            "My pajamas shrank after washing, and I wondered if I could return them.",
         )
         for message in reports:
             with self.subTest(message=message):
@@ -61,7 +79,7 @@ class QualityAlertRuleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("reported shrinkage after washing", result["reason"])
 
     def test_washing_questions_and_unreported_or_negated_damage_stay_routine(self):
-        routine_messages = (
+        routine_messages = CARE_QUESTIONS + (
             "Will this outfit shrink when washed?",
             "A friend told me this brand's onesies shrank after washing. Is that true?",
             "The care guide says some shirts shrank after washing. How should I wash mine?",
@@ -85,6 +103,32 @@ class QualityAlertRuleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["priority"], "normal")
                 self.assertFalse(result["sensitive"])
                 self.assertFalse(result["should_notify_owner"])
+
+    async def test_care_questions_remain_routine_without_an_owner_alert(self):
+        model_result = {
+            "priority": "normal",
+            "action": "no_kb_match",
+            "reason": "A care question without a reported defect.",
+            "notify_owner": False,
+            "draft_text": "The product-specific way to check for a size change is not confirmed.",
+            "generation_state": "needs_review",
+            "review_required": True,
+            "missing_facts": ["Product-specific care and measurement guidance"],
+            "staff_next_step": "Verify the exact garment's care and measurement guidance.",
+        }
+        for message in CARE_QUESTIONS:
+            with self.subTest(message=message):
+                _, saved, claim, transport, finish = await self._replay(
+                    subject="Care question", message=message, model_result=model_result
+                )
+                self.assertEqual(saved["priority"], "normal")
+                self.assertEqual(saved["action"], "no_kb_match")
+                self.assertFalse(saved["notify_owner"])
+                self.assertEqual(saved["generation_state"], "needs_review")
+                self.assertEqual(saved["staff_next_step"], model_result["staff_next_step"])
+                self.assertEqual(claim.await_count, 0)
+                self.assertEqual(transport.call_count, 0)
+                self.assertEqual(finish.await_count, 0)
 
     def test_received_material_color_difference_from_photos_is_sensitive(self):
         reports = (

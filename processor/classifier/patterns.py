@@ -43,10 +43,12 @@ _HIGH_SENSITIVE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _POST_WASH_SHRINKAGE_RE = re.compile(
-    r"\b(?:i|we)\s+(?:washed|laundered)\b.{0,60}?\b(?:shrank|shrunk)\b|"
+    r"\b(?:i|we)\s+(?:washed|laundered)\b[^.!?;\n]{0,60}?"
+    # A following sentence must directly report the same item's shrinkage.
+    r"(?:[.;]\s*(?:it|they)\s+(?:(?:has|have)\s+)?)?\b(?:shrank|shrunk)\b|"
     r"\b(?:my|our)\s+(?:outfit|garment|clothes|dress|shirt|top|romper|onesies?|"
     r"bodysuit|sweater|jumper|coat|pants|leggings|pajamas|item|piece)\b"
-    r".{0,60}?\b(?:shrank|shrunk)\b.{0,40}?\b(?:after|following|since|during|from|in|while|when)\s+"
+    r"[^.!?;\n]{0,60}?\b(?:shrank|shrunk)\b[^.!?;\n]{0,40}?\b(?:after|following|since|during|from|in|while|when)\s+"
     r"(?:(?:the\s+)?(?:(?:first|one)\s+)?|(?:i\s+)?|being\s+)"
     r"(?:wash(?:ed|ing)?|launder\w*)\b",
     re.IGNORECASE,
@@ -62,7 +64,7 @@ _SHRINKAGE_CONDITIONAL_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _SHRINKAGE_MODAL_EVENT_RE = re.compile(
-    r"\b(?:will|would|could|may|might)\b[^.!?;,]*\b(?:shrank|shrunk)\b",
+    r"\b(?:will|would|could|may|might|maybe|perhaps|possibly)\b[^.!?;,]*\b(?:shrank|shrunk)\b",
     re.IGNORECASE,
 )
 _RECEIVED_ITEM_COLOR_PHOTO_MISMATCH_RE = re.compile(

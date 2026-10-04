@@ -49,6 +49,9 @@ async def preflight_refusal(status, error, body):
             return JSONResponse(status_code=status,content=payload)
         if existing is not None:
             return JSONResponse(status_code=status,content=payload)
+        # Identify a definite refusal only after proving this operation has no
+        # prior intent. Existing or unreadable intents must remain uncertain.
+        payload['operation_id']=operation_id
     payload['delivery_status']='not_attempted'
     return JSONResponse(status_code=status,content=payload)
 

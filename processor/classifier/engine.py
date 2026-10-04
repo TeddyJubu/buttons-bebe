@@ -158,7 +158,9 @@ def classify(
         )[-1]
         if (
             not _patterns._SHRINKAGE_NONREPORT_RE.search(match.group(0))
-            and not _patterns._SHRINKAGE_CONDITIONAL_CONTEXT_RE.search(clause_prefix)
+            and not _patterns._SHRINKAGE_CONDITIONAL_CONTEXT_RE.search(
+                clause_prefix + match.group(0)
+            )
             and not _patterns._SHRINKAGE_MODAL_EVENT_RE.search(match.group(0))
         ):
             post_wash_shrinkage_match = match

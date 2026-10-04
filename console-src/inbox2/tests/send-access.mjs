@@ -31,8 +31,10 @@ await page.route('**/console/api/**',async route=>{
     assert.equal(request.headers()['x-inbox-send-access'],'test-grant');
     assert.equal(request.postDataJSON().confirmed,true);
     if(sendMode==='abort')return route.abort();
-    if(sendMode==='stale')return route.fulfill({status:409,json:{error:'new_customer_message_refresh_ticket',delivery_status:'not_attempted',operation_id:request.postDataJSON().operation_id}});
-    if(sendMode==='chronology')return route.fulfill({status:409,json:{error:'message_chronology_unavailable',delivery_status:'not_attempted',operation_id:request.postDataJSON().operation_id}});
+    // Match preflight_refusal: echo identity only after ruling out a prior intent.
+    if(sendMode==='stale')return route.fulfill({status:409,json:{ok:false,error:'new_customer_message_refresh_ticket',delivery_status:'not_attempted',operation_id:request.postDataJSON().operation_id}});
+    if(sendMode==='chronology')return route.fulfill({status:409,json:{ok:false,error:'message_chronology_unavailable',delivery_status:'not_attempted',operation_id:request.postDataJSON().operation_id}});
+    if(sendMode==='preflight-uncertain')return route.fulfill({status:503,json:{ok:false,error:'review_context_unavailable'}});
     if(sendMode==='mismatch')return route.fulfill({json:{ok:true,delivery_status:'sent',operation_id:'wrong-operation'}});
     if(sendMode==='error-mismatch')return route.fulfill({status:409,json:{error:'remote_delivery_failed',delivery_status:'failed',operation_id:'wrong-operation'}});
     return route.fulfill({status:sendMode==='sent'?200:202,json:{ok:sendMode==='sent',delivery_status:sendMode,operation_id:request.postDataJSON().operation_id}});
@@ -79,6 +81,11 @@ sendMode='sent';await editor.fill('Reviewed before preparation.');let release;re
 sendMode='mismatch';await editor.fill('Keep after mismatched success.');await send.click();await confirm.click();await page.getByText('Delivery is unconfirmed. Check status before sending again.',{exact:true}).waitFor();assert.equal(await editor.inputValue(),'Keep after mismatched success.');
 await page.evaluate(()=>{const actions=JSON.parse(localStorage.getItem('bb-inbox-send-actions-v1'));delete actions['gorgias:123'];localStorage.setItem('bb-inbox-send-actions-v1',JSON.stringify(actions));});
 await page.reload();await editor.waitFor();await flip();sendMode='error-mismatch';await send.click();await confirm.click();await page.getByText('Delivery is unconfirmed. Check status before sending again.',{exact:true}).waitFor();assert.equal(await editor.inputValue(),'Keep after mismatched success.');
+
+await page.evaluate(()=>localStorage.setItem('bb-inbox-send-actions-v1','{}'));
+await page.reload();await editor.waitFor();await flip();sendMode='preflight-uncertain';await send.click();await confirm.click();await page.getByText('Delivery is unconfirmed. Check status before sending again.',{exact:true}).waitFor();
+assert(await send.isDisabled());assert.equal(await editor.inputValue(),'Keep after mismatched success.');
+assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('bb-inbox-send-actions-v1'))['gorgias:123'].status),'unknown','Unreadable or existing intents must not be treated as definitely refused');
 
 await page.evaluate(()=>{localStorage.setItem('bb-inbox2-composer-v1',JSON.stringify({'gorgias:123':{body:'Legacy draft without revision',at:1}}));localStorage.setItem('bb-inbox-send-actions-v1',JSON.stringify({'gorgias:123':{operationId:'legacy-operation',status:'pending'}}));});
 sendMode='sent';statusMode='sent';await page.reload();await editor.waitFor();await page.getByRole('button',{name:'Check status'}).click();await page.getByText('Reply sent via Gorgias.',{exact:true}).first().waitFor();assert.equal(await editor.inputValue(),'Legacy draft without revision');

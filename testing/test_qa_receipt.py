@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 import qa_receipt
 from qa_receipt import (build_receipt, catalog, check_receipt, judgment_template, kb_snapshot, observed_kb, run_receipt,
-                        source_fingerprint)
+                        source_fingerprint, model_runtime_identity, check_run_integrity)
+from qa_harness import profile_config
+from qa_safety import GROUPS
 
 HERMES = {"executable_sha256": "e" * 64, "source_sha256": "f" * 64, "source_files": 1}
 POLICIES = kb_snapshot("policies-only")
@@ -21,6 +23,13 @@ class ReceiptTests(unittest.TestCase):
         self.repo = Path(self._tmp.name).resolve() / "repo"
         self.out = Path(self._tmp.name).resolve() / "private"
         self.out.mkdir()
+        self.profile = self.out / "config.yaml"
+        self.interpreter = self.out / "python"
+        self.interpreter.write_bytes(b"synthetic interpreter")
+        self.profile.write_text(json.dumps(profile_config(
+            {"default": "test-model", "provider": "custom", "api_key": "synthetic-key"},
+            {group: 19000 + i for i, group in enumerate(GROUPS)})))
+        self.model_runtime = model_runtime_identity(self.profile, self.interpreter)
         for name, text in {"processor/hermes_runner/prompt.py": "PROMPT = 1\n", "processor/draft_cleaner.py": "",
                            "processor/orchestrator.py": "", "webhook/src/bb_webhook/app.py": "",
                            "kb/scripts/search_kb.py": "", "testing/qa_harness.py": "", "testing/test_qa_harness.py": "",
@@ -38,9 +47,10 @@ class ReceiptTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
 
-    def run_file(self, suite, ids=None, after=None, hermes=HERMES, snapshot=POLICIES, kb_calls=()):
+    def run_file(self, suite, ids=None, after=None, hermes=HERMES, snapshot=POLICIES, kb_calls=(), model_runtime=None):
         ids = IDS[suite] if ids is None else ids
-        before = {"source": source_fingerprint(self.repo), "hermes": hermes, "kb_snapshot": snapshot}
+        before = {"source": source_fingerprint(self.repo), "hermes": hermes, "kb_snapshot": snapshot,
+                  "model_runtime": self.model_runtime if model_runtime is None else model_runtime}
         results = [{"id": i, "tool_calls": list(kb_calls) if n == 0 else []} for n, i in enumerate(ids)]
         receipt = run_receipt(suite, ids, results, before, {**before, **(after or {})}, self.repo)
         path = self.out / f"{suite}-run.json"
@@ -98,6 +108,94 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["suites"]["core"]["counts"]["PASS"], 48)
         self.assertEqual(check_receipt(receipt, self.repo), {"review_complete": True, "release_passed": True})
         self.assertNotIn("hermes_output", json.dumps(receipt))
+
+    def test_different_models_providers_endpoints_and_runtime_settings_cannot_combine(self):
+        original = json.loads(self.profile.read_text())
+        for section, key, value in (("model", "default", "different-model"),
+                                    ("model", "provider", "different-provider"),
+                                    ("model", "base_url", "https://models.example.test/v1"),
+                                    ("agent", "max_turns", 29)):
+            with self.subTest(section=section, key=key):
+                config = json.loads(json.dumps(original))
+                config[section][key] = value
+                self.profile.write_text(json.dumps(config))
+                other = model_runtime_identity(self.profile, self.interpreter)
+                with self.assertRaisesRegex(ValueError, "different model/runtime"):
+                    self.build(reliability=self.run_file("reliability", model_runtime=other))
+        self.profile.write_text(json.dumps(original))
+        self.interpreter.write_bytes(b"different interpreter")
+        with self.assertRaisesRegex(ValueError, "different model/runtime"):
+            self.build(reliability=self.run_file("reliability", model_runtime=model_runtime_identity(self.profile, self.interpreter)))
+
+    def test_shard_ports_homes_auth_and_api_keys_do_not_change_identity_or_leak(self):
+        other_home = self.out / "other-shard"
+        other_home.mkdir()
+        profile = other_home / "config.yaml"
+        config = json.loads(self.profile.read_text())
+        config["model"]["api_key"] = "different-synthetic-key"
+        for i, server in enumerate(config["mcp_servers"].values()):
+            server["url"] = f"http://127.0.0.1:{20000+i}/mcp"
+        profile.write_text(json.dumps(config))
+        (other_home / "auth.json").write_text(json.dumps({"access_token": "synthetic-oauth-token"}))
+        identity = model_runtime_identity(profile, self.interpreter)
+        self.assertEqual(identity, self.model_runtime)
+        receipt = self.build(reliability=self.run_file("reliability", model_runtime=identity))
+        self.assertTrue(check_receipt(receipt, self.repo)["release_passed"])
+        for forbidden in ("synthetic-key", "different-synthetic-key", "synthetic-oauth-token", "api_key", "access_token"):
+            self.assertNotIn(forbidden, json.dumps(receipt))
+
+    def test_profile_is_reread_and_mutation_during_run_is_rejected(self):
+        before = model_runtime_identity(self.profile, self.interpreter)
+        config = json.loads(self.profile.read_text())
+        config["model"]["default"] = "changed-on-disk"
+        self.profile.write_text(json.dumps(config))
+        after = model_runtime_identity(self.profile, self.interpreter)
+        self.assertNotEqual(before, after)
+        run = self.run_file("core", model_runtime=before, after={"model_runtime": after})
+        with self.assertRaisesRegex(ValueError, "model/runtime.*changed during"):
+            check_run_integrity(json.loads(run.read_text()))
+
+    def test_legacy_or_missing_model_identity_cannot_be_reviewed_combined_or_checked(self):
+        core, reliability = self.run_file("core"), self.run_file("reliability")
+        core_judgments, rel_judgments = self.judge(core), self.judge(reliability)
+        original = json.loads(core.read_text())
+        for missing in (False, True):
+            run = json.loads(json.dumps(original))
+            if missing:
+                del run["bindings"]["model_runtime"]
+                run["bindings_after_sha256"] = qa_receipt.digest(run["bindings"])
+            else:
+                run["schema"] = 2
+            core.write_text(json.dumps(run))
+            with self.assertRaisesRegex(ValueError, "model/runtime"):
+                judgment_template(core)
+            with self.assertRaisesRegex(ValueError, "model/runtime"):
+                build_receipt(core, core_judgments, reliability, rel_judgments, self.repo)
+        core.write_text(json.dumps(original))
+        for change in ("schema", "model_runtime"):
+            receipt = self.build()
+            if change == "schema":
+                receipt["schema"] = 2
+            else:
+                del receipt["model_runtime"]
+            with self.assertRaisesRegex(ValueError, "model/runtime"):
+                check_receipt(receipt, self.repo)
+
+    def test_profile_rejects_secret_urls_and_unknown_inference_settings_without_echoing(self):
+        config = json.loads(self.profile.read_text())
+        for url in ("https://user:synthetic-password@models.example.test/v1",
+                    "https://models.example.test/v1?api_key=synthetic-url-key",
+                    "https://models.example.test/v1#synthetic-url-secret"):
+            config["model"]["base_url"] = url
+            self.profile.write_text(json.dumps(config))
+            with self.assertRaises(ValueError) as failure:
+                model_runtime_identity(self.profile, self.interpreter)
+            self.assertNotIn("synthetic", str(failure.exception))
+        del config["model"]["base_url"]
+        config["model"]["temperature"] = 0.3
+        self.profile.write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            model_runtime_identity(self.profile, self.interpreter)
 
     def test_pending_verdict_is_neither_review_complete_nor_release(self):
         receipt = self.build(verdicts={"S07": "pending"})

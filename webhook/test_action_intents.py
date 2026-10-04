@@ -4,7 +4,7 @@ import json
 import hashlib
 import unittest
 import uuid
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from bb_webhook import database
 from bb_webhook.routers import console as console_router
@@ -40,6 +40,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'new_customer_message_refresh_ticket')
         self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.assertEqual(response.json()['operation_id'], self.operation)
         self.assertIsNone(await self.store.get(self.operation))
         transport.assert_not_called()
         _, fresh=await self.reserve(kind='note')
@@ -52,6 +53,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'message_chronology_unavailable')
         self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.assertEqual(response.json()['operation_id'], self.operation)
         self.assertIsNone(await self.store.get(self.operation))
         transport.assert_not_called()
         self.assertTrue((await self.reserve(kind='note'))[1])
@@ -181,6 +183,8 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'draft_changed_refresh_ticket')
+        self.assertEqual(response.json()['operation_id'], self.operation)
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
         transport.assert_not_called()
 
     async def test_learning_failure_does_not_hide_send_and_is_recoverable_without_resend(self):
@@ -211,12 +215,30 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(console_router, '_GClient') as transport:
             response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'draft_revision':'0'*64})
             self.assertEqual(response.json()['delivery_status'],'not_attempted')
+            self.assertEqual(response.json()['operation_id'],self.operation)
             self.assertIsNone(await self.store.get(self.operation))
             await self.reserve()
             for change in ({'confirmed':False},{'text':''},{'draft_revision':'0'*64}):
                 response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|change)
                 self.assertNotEqual(response.json().get('delivery_status'),'not_attempted')
+                self.assertNotIn('operation_id',response.json())
             transport.assert_not_called()
+
+    async def test_preflight_lookup_failure_cannot_identify_a_definite_refusal(self):
+        with patch.object(IntentStore,'get',AsyncMock(side_effect=RuntimeError('synthetic lookup failure'))), \
+             patch.object(console_router,'_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'confirmed':False})
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.json(),{'ok':False,'error':'confirmation_required'})
+        transport.assert_not_called()
+
+    async def test_invalid_operation_is_never_echoed_as_a_known_refusal(self):
+        with patch.object(console_router,'_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'operation_id':'invalid'})
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(response.json()['error'],'valid_operation_id_required')
+        self.assertNotIn('operation_id',response.json())
+        transport.assert_not_called()
 
     async def test_unauthenticated_or_wrong_origin_cannot_send(self):
         self.client.cookies.clear()

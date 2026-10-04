@@ -5,11 +5,13 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from urllib.parse import urlsplit, urlunsplit
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SUITES = {"core": ("testing/scenarios.json", 48), "reliability": ("testing/reliability-scenarios.json", 10)}
 VERDICTS = ("PASS", "NEEDS_WORK", "FAIL", "pending")
+RECEIPT_SCHEMA = 3
 SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
     "processor": (
         "processor/**/*.py", "processor/**/*.yaml", "processor/**/*.json", "processor/*.sh",
@@ -91,6 +93,98 @@ def hermes_identity(executable: Path, source: Path) -> dict:
     return {"executable_sha256": sha256_bytes(executable.read_bytes()), "source_sha256": digest(files), "source_files": len(files)}
 
 
+def _safe_url(value: str, *, local: bool = False) -> str:
+    # URLs may carry credentials even when an API key is stored separately.
+    # Refuse those forms without echoing or hashing their secret contents.
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+        if (not isinstance(value, str) or any(c.isspace() for c in value)
+                or parts.username is not None or parts.password is not None
+                or parts.query or parts.fragment or not parts.hostname):
+            raise ValueError
+        if local:
+            if parts.scheme != "http" or parts.hostname != "127.0.0.1" or not port or parts.path != "/mcp":
+                raise ValueError
+            return "http://127.0.0.1/mcp"  # Each isolated shard chooses its own port.
+        if parts.scheme != "https":
+            raise ValueError
+        host = parts.hostname.lower()
+        if ":" in host:
+            host = f"[{host}]"
+        authority = host if port in (None, 443) else f"{host}:{port}"
+        return urlunsplit(("https", authority, parts.path, "", ""))
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError("QA profile URL must be a credential-free endpoint without query or fragment") from None
+
+
+def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
+    """Read the actual isolated profile, never the original config or auth file.
+
+    Only the supported, nonsecret configuration shape enters the identity.
+    Model API keys are ignored before hashing; unknown configuration fails closed.
+    """
+    if profile.is_symlink() or not profile.is_file() or profile.stat().st_size > 16384:
+        raise ValueError("Invalid isolated QA profile")
+    try:
+        config = json.loads(profile.read_bytes())
+        if not isinstance(config, dict) or set(config) != {"model", "agent", "memory", "platform_toolsets", "mcp_servers"}:
+            raise ValueError
+        model = config["model"]
+        if not isinstance(model, dict) or not set(model) <= {"default", "provider", "base_url", "api_key"}:
+            raise ValueError
+        if any(not isinstance(model.get(key), str) or not model[key].strip() for key in ("default", "provider")):
+            raise ValueError
+        safe_model = {key: model[key] for key in ("default", "provider")}
+        if model.get("base_url"):
+            safe_model["base_url"] = _safe_url(model["base_url"])
+        agent = config["agent"]
+        if (not isinstance(agent, dict) or set(agent) != {"max_turns", "verbose", "disabled_toolsets"}
+                or type(agent["max_turns"]) is not int or not 1 <= agent["max_turns"] <= 1000
+                or type(agent["verbose"]) is not bool
+                or not isinstance(agent["disabled_toolsets"], list)
+                or any(not isinstance(name, str) or not name.isidentifier() for name in agent["disabled_toolsets"])):
+            raise ValueError
+        memory = config["memory"]
+        if (not isinstance(memory, dict) or set(memory) != {"memory_enabled", "user_profile_enabled"}
+                or any(type(value) is not bool for value in memory.values())
+                or config["platform_toolsets"] != {"cli": []}):
+            raise ValueError
+        servers = config["mcp_servers"]
+        if not isinstance(servers, dict) or set(servers) != {"buttonsbebe_kb", "buttonsbebe_redo", "buttonsbebe_gorgias"}:
+            raise ValueError
+        safe_servers = {}
+        for name, server in servers.items():
+            if (not isinstance(server, dict) or set(server) != {"url", "enabled", "connect_timeout", "trust", "tools"}
+                    or server["enabled"] is not True or type(server["connect_timeout"]) is not int
+                    or server["trust"] != "untrusted" or not isinstance(server["tools"], dict)
+                    or set(server["tools"]) != {"include", "resources", "prompts"}
+                    or any(type(server["tools"][key]) is not bool for key in ("resources", "prompts"))
+                    or not isinstance(server["tools"]["include"], list)
+                    or any(not isinstance(tool, str) or not tool.isidentifier() for tool in server["tools"]["include"])):
+                raise ValueError
+            safe_servers[name] = {**server, "url": _safe_url(server["url"], local=True),
+                                  "tools": {**server["tools"], "include": sorted(set(server["tools"]["include"]))}}
+        safe = {"model": safe_model, "agent": {**agent, "disabled_toolsets": sorted(set(agent["disabled_toolsets"]))},
+                "memory": memory, "platform_toolsets": {"cli": []}, "mcp_servers": safe_servers,
+                "interpreter_sha256": sha256_bytes(interpreter.read_bytes())}
+        return {**safe, "sha256": digest(safe)}
+    except (KeyError, TypeError, AttributeError, ValueError):
+        raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
+
+
+def _require_model_runtime(bindings: dict) -> None:
+    identity = bindings.get("model_runtime")
+    expected = {"model", "agent", "memory", "platform_toolsets", "mcp_servers", "interpreter_sha256", "sha256"}
+    if (not isinstance(identity, dict) or set(identity) != expected
+            or not isinstance(identity["model"], dict)
+            or not {"default", "provider"} <= set(identity["model"]) <= {"default", "provider", "base_url"}
+            or any(not isinstance(value, str) or not value.strip() for value in identity["model"].values())
+            or not isinstance(identity["interpreter_sha256"], str) or len(identity["interpreter_sha256"]) != 64
+            or identity.get("sha256") != digest({key: value for key, value in identity.items() if key != "sha256"})):
+        raise ValueError("Missing or invalid model/runtime identity; legacy QA evidence must be rerun")
+
+
 def catalog(suite: str, repo: Path = REPO) -> tuple[str, list[str]]:
     name, expected = SUITES[suite]
     raw = (repo / name).read_bytes()
@@ -130,20 +224,26 @@ def _single_content(observed, message: str) -> None:
 def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
     catalog_sha256, all_ids = catalog(suite, repo)
     captured = [result["id"] for result in results]
-    return {"schema": 2, "suite": suite, "catalog_sha256": catalog_sha256, "ids": captured,
+    _require_model_runtime(before)
+    _require_model_runtime(after)
+    return {"schema": RECEIPT_SCHEMA, "suite": suite, "catalog_sha256": catalog_sha256, "ids": captured,
             "complete": captured == all_ids and list(ids) == all_ids,
             "bindings": before, "bindings_after_sha256": digest(after), "kb_observed": observed_kb(results)}
 
 
 def check_run_integrity(run: dict) -> None:
+    if run.get("schema") != RECEIPT_SCHEMA:
+        raise ValueError("Legacy QA run lacks model/runtime evidence; rerun the suites")
+    _require_model_runtime(run["bindings"])
     if digest(run["bindings"]) != run.get("bindings_after_sha256"):
-        raise ValueError(f"{run['suite']}: source, Hermes or approved KB snapshot changed during the run")
+        raise ValueError(f"{run['suite']}: source, Hermes, model/runtime or approved KB snapshot changed during the run")
     _single_content(run["kb_observed"], f"{run['suite']}: KB content changed during the run")
 
 
 def judgment_template(run_path: Path) -> dict:
     run = json.loads(run_path.read_bytes())
-    return {"schema": 2, "suite": run["suite"], "run_sha256": sha256_bytes(run_path.read_bytes()),
+    check_run_integrity(run)
+    return {"schema": RECEIPT_SCHEMA, "suite": run["suite"], "run_sha256": sha256_bytes(run_path.read_bytes()),
             "verdicts": {scenario_id: "pending" for scenario_id in run["ids"]}, "blocking_defects": []}
 
 
@@ -151,8 +251,9 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
     raw = run_path.read_bytes()
     run, judgments = json.loads(raw), json.loads(judgments_path.read_bytes())
     catalog_sha256, all_ids = catalog(suite, repo)
-    if run.get("schema") != 2 or run.get("suite") != suite or judgments.get("suite") != suite:
-        raise ValueError(f"{suite}: run or judgments are not a schema 2 {suite} review")
+    if (run.get("schema") != RECEIPT_SCHEMA or judgments.get("schema") != RECEIPT_SCHEMA
+            or run.get("suite") != suite or judgments.get("suite") != suite):
+        raise ValueError(f"{suite}: schema 3 model/runtime evidence required; rerun legacy suites")
     if not run.get("complete") or run.get("ids") != all_ids:
         raise ValueError(f"{suite}: partial run; every catalog ID must be captured")
     if run.get("catalog_sha256") != catalog_sha256:
@@ -177,12 +278,13 @@ def build_receipt(core_run, core_judgments, reliability_run, reliability_judgmen
     core, core_meta, core_defects = _suite_review("core", core_run, core_judgments, repo)
     reliability, rel_meta, rel_defects = _suite_review("reliability", reliability_run, reliability_judgments, repo)
     bindings = core_meta["bindings"]
-    for name, label in (("source", "source"), ("hermes", "Hermes"), ("kb_snapshot", "approved KB snapshot")):
+    for name, label in (("source", "source"), ("hermes", "Hermes"), ("model_runtime", "model/runtime"),
+                        ("kb_snapshot", "approved KB snapshot")):
         if digest(bindings[name]) != digest(rel_meta["bindings"][name]):
             raise ValueError(f"Core and reliability runs used a different {label}")
     _single_content(sorted({*map(tuple, core_meta["kb_observed"]), *map(tuple, rel_meta["kb_observed"])}),
                     "KB content differs between core and reliability runs")
-    receipt = {"schema": 2, **bindings, "suites": {"core": core, "reliability": reliability},
+    receipt = {"schema": RECEIPT_SCHEMA, **bindings, "suites": {"core": core, "reliability": reliability},
                "blocking_defects": core_defects + rel_defects}
     return {**receipt, **review_state(receipt)}
 
@@ -195,8 +297,9 @@ def review_state(receipt: dict) -> dict:
 
 
 def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> dict:
-    if receipt.get("schema") != 2 or set(receipt.get("suites", {})) != set(SUITES):
-        raise ValueError("Receipt must cover exactly the core and reliability suites")
+    if receipt.get("schema") != RECEIPT_SCHEMA or set(receipt.get("suites", {})) != set(SUITES):
+        raise ValueError("Schema 3 receipt must cover both suites with model/runtime evidence; rerun legacy suites")
+    _require_model_runtime(receipt)
     current = source_fingerprint(repo)
     if receipt["source"]["sha256"] != current["sha256"]:
         raise ValueError("Stale receipt: source content differs from the reviewed run")
