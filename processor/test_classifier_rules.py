@@ -1429,6 +1429,43 @@ class QuotedHistoryTests(unittest.TestCase):
                 "chase it. This is ridiculous!!!")
         self.assertGreaterEqual(_RANK[_c(body)["priority"]], _RANK[HIGH])
 
+    def test_header_like_prefixes_with_actual_customer_prose_survive(self):
+        for body in (
+            'On the 3rd your team wrote: we will refund you. This is ridiculous!!!',
+            'Bob <bob@example.com> wrote: I need a refund for my damaged order.',
+            '-- Original message arrived damaged; please refund my order.',
+            'Begin forwarded message: I need a refund for my damaged order.',
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(_VIEWS._unquoted_customer_text(body), body)
+                got = _c(body)
+                self.assertGreaterEqual(_RANK[got['priority']], _RANK[HIGH])
+                self.assertTrue(got['sensitive'])
+                self.assertTrue(got['should_draft'])
+                self.assertTrue(got['should_notify_owner'])
+
+    def test_standalone_mail_headers_preserve_actual_reply_boundaries(self):
+        for header in (
+            'On Mon, Jul 20 2026 at 9:14 AM Support wrote:',
+            'Support <support@example.com> wrote:',
+            '-------- Original message --------',
+            '-------- Forwarded message --------',
+            'Begin forwarded message:',
+        ):
+            with self.subTest(header=header):
+                self.assertTrue(_VIEWS._QUOTE_HEADER_RE.match(header + '  '))
+                got = _c('Thanks!\n\n' + header + '\n> My order arrived damaged.')
+                self.assertEqual(got['priority'], NORMAL)
+                self.assertFalse(got['should_draft'])
+                self.assertFalse(got['should_notify_owner'])
+                current = 'My order arrived damaged; please refund it.'
+                body = header + '\n> Old message\n\n' + current
+                self.assertEqual(_VIEWS._unquoted_customer_text(body), current)
+                got = _c(body)
+                self.assertTrue(got['sensitive'])
+                self.assertTrue(got['should_draft'])
+                self.assertTrue(got['should_notify_owner'])
+
     def test_an_all_quoted_message_has_no_new_request(self):
         body = "> I want a refund, my order arrived damaged"
         self.assertEqual(_VIEWS._unquoted_customer_text(body), '')

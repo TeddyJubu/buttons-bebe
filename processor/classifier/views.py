@@ -53,10 +53,10 @@ _NEGATIVE_RE = re.compile(
 _QUOTE_LINE_RE = re.compile(r"^\s*(?:>|\|)")
 _QUOTE_HEADER_RE = re.compile(
     r"^\s*(?:"
-    r"on\s.{0,200}\d.{0,160}\swrote:"
-    r"|.{0,120}<[^>@\s]{1,64}@[^>\s]{1,64}>\s+wrote:"
-    r"|-{2,}\s*(?:original message|forwarded message)"
-    r"|begin\s+forwarded\s+message:"
+    r"on\s.{0,200}\d.{0,160}\swrote:\s*$"
+    r"|.{0,120}<[^>@\s]{1,64}@[^>\s]{1,64}>\s+wrote:\s*$"
+    r"|-{2,}\s*(?:original message|forwarded message)[\s-]*$"
+    r"|begin\s+forwarded\s+message:\s*$"
     r"|_{5,}\s*$"
     r"|(?:from|sent|to|subject):\s.{0,200}$"
     r")",

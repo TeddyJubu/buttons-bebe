@@ -475,6 +475,7 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             payload = dict(shop_rail.display_payload(old)) if old else {
                 'status': 'error', 'email': ticket_keys(ticket)[0],
                 'keysHash': keys_hash(ticket), 'shop': env.get('SHOPIFY_SHOP') or None}
+            payload['shop'] = env.get('SHOPIFY_SHOP') or payload.get('shop')
             # The failed attempt gets its own bounded retry clock. The retained
             # snapshot's observation time and unverified legacy prices stay honest.
             payload.update(payloadVersion=PAYLOAD_VERSION, refreshError=True,

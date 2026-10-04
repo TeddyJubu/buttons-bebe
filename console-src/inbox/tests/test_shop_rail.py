@@ -364,6 +364,34 @@ class ShopRailTests(unittest.TestCase):
                 self.assertTrue(entry['payload']['refreshError'])
                 self.assertTrue(attach(dict(TICKET), dest)['shopifyRail']['stale'])
 
+    def test_failed_legacy_refresh_names_current_store_or_retains_known_store(self):
+        current_shop = 'current-synthetic.myshopify.com'
+        old_shop = 'old-synthetic.myshopify.com'
+        for old_value, env, expected in (
+            (None, {'SHOPIFY_SHOP': current_shop}, current_shop),
+            (old_shop, {'SHOPIFY_SHOP': current_shop}, current_shop),
+            (old_shop, {}, old_shop),
+        ):
+            with self.subTest(old_shop=old_value, env=env), tempfile.TemporaryDirectory() as temp:
+                legacy = {'status': 'found', 'email': TICKET['fromEmail'],
+                          'keysHash': exporter.keys_hash(TICKET), 'customer': CUSTOMER}
+                if old_value:
+                    legacy['shop'] = old_value
+                dest = Path(temp) / 'rail.sqlite3'
+                with sqlite3.connect(dest) as db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                def failed(*args):
+                    raise TimeoutError('synthetic outage')
+                with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                     patch.object(exporter, 'load_shopify_env', return_value=env):
+                    exporter.export('', dest, '', now=23000, graphql_call=failed, mint=lambda _: '')
+                payload = exporter.load_cache(dest)[TICKET['id']]['payload']
+                self.assertEqual(payload['shop'], expected)
+                self.assertIsNone(payload['customer']['amountSpent'])
+                self.assertEqual(payload['payloadVersion'], exporter.PAYLOAD_VERSION)
+                self.assertEqual(payload['retryAt'], 23000 + exporter.CACHE_MISS_SECONDS)
+
     def test_bad_or_absent_snapshot_is_nonfatal(self):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / 'rail.sqlite3'
