@@ -19,6 +19,7 @@ from .send_intents import ActionConflict, valid_operation
 TRANSIENT_ERRORS = frozenset({"timeout", "process_exit", "runtime_error"})
 # Skip reason when a newer customer message supersedes a job; owed alerts survive it.
 SUPERSEDED_BY_CUSTOMER = "new_customer_message_refresh_ticket"
+UNANSWERED_SOURCE_ERRORS = frozenset({SUPERSEDED_BY_CUSTOMER, "message_chronology_unavailable"})
 STATES = frozenset({"ready", "needs_review", "no_reply", "failed", "retry_wait", "superseded"})
 RESULT_COLUMNS = {
     "generation_state": "TEXT", "generation_error": "TEXT",

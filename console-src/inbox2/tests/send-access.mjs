@@ -32,6 +32,7 @@ await page.route('**/console/api/**',async route=>{
     assert.equal(request.postDataJSON().confirmed,true);
     if(sendMode==='abort')return route.abort();
     if(sendMode==='stale')return route.fulfill({status:409,json:{error:'new_customer_message_refresh_ticket',delivery_status:'not_attempted',operation_id:request.postDataJSON().operation_id}});
+    if(sendMode==='chronology')return route.fulfill({status:409,json:{error:'message_chronology_unavailable',delivery_status:'not_attempted',operation_id:request.postDataJSON().operation_id}});
     if(sendMode==='mismatch')return route.fulfill({json:{ok:true,delivery_status:'sent',operation_id:'wrong-operation'}});
     if(sendMode==='error-mismatch')return route.fulfill({status:409,json:{error:'remote_delivery_failed',delivery_status:'failed',operation_id:'wrong-operation'}});
     return route.fulfill({status:sendMode==='sent'?200:202,json:{ok:sendMode==='sent',delivery_status:sendMode,operation_id:request.postDataJSON().operation_id}});
@@ -59,6 +60,7 @@ await flip();await page.reload();await editor.waitFor();assert.equal(await toggl
 assert(!(await page.evaluate(()=>JSON.stringify({...localStorage,...sessionStorage}))).includes('test-grant'),'Grant must never be persisted');
 accessFailure=true;await flip();assert.equal(await toggle.getAttribute('aria-checked'),'false');accessFailure=false;
 await flip();sendMode='stale';await send.click();await confirm.click();await page.getByText('Reply not sent. Your draft is saved.').waitFor();
+const chronologyDraft=await editor.inputValue();sendMode='chronology';await send.click();await confirm.click();await page.getByText('Message dates are incomplete. Staff must check this conversation before a reply can be sent.').waitFor();assert.equal(await editor.inputValue(),chronologyDraft);
 assert.equal(await editor.inputValue(),'Keep this draft when toggling off.');assert(!(await send.isDisabled()));
 sendMode='pending';await send.click();await confirm.click();await page.getByRole('button',{name:'Check status'}).waitFor();assert(await send.isDisabled());
 await flip();await page.getByRole('button',{name:'Check status'}).click();await page.getByText('Reply sent via Gorgias.',{exact:true}).first().waitFor();
