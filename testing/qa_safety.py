@@ -14,6 +14,17 @@ TOOLS = {
 UTILITY_NAMES = {"list_resources", "read_resource", "list_prompts", "get_prompt"}
 ALLOWED_CATEGORIES = {"policies", "faq", "intents", "products"}
 FILTERED_CATEGORIES = {"tickets", "learned", "notices", "notice", "shopify"}
+HEALTH_STATES = {"healthy", "degraded", "unavailable"}
+HEALTH_CODES = {
+    "notice_store_invalid", "notice_read_failed",
+    "index_lock_failed", "index_recovery_failed", "index_open_failed",
+    "embedding_failed", "vector_lookup_failed", "keyword_lookup_failed",
+    "index_rows_invalid",
+}
+NOTICE_OPERATOR_ACTIONS = {
+    "",
+    "Inspect the Notice Board. Active owner overrides may still exist.",
+}
 
 
 def redact(text: str) -> str:
@@ -71,6 +82,57 @@ def filter_policy_results(rows, allowed_files: set[str]) -> tuple[list[dict], in
                        "heading": redact(row.get("heading") or "")[:300],
                        "text": redact(row["text"])[:10000]})
     return output, filtered
+
+
+def filter_search_outcome(outcome, allowed_files: set[str]) -> tuple[dict, int]:
+    """Validate production health metadata and project only safe KB passages."""
+    try:
+        if not isinstance(outcome, dict) or set(outcome) != {"status", "notice_board", "index", "results"}:
+            raise ValueError("Unexpected KB search outcome")
+
+        notice = outcome["notice_board"]
+        index = outcome["index"]
+        if not isinstance(notice, dict) or set(notice) != {"state", "codes", "active_count", "operator_action"}:
+            raise ValueError("Unexpected Notice Board health")
+        if not isinstance(index, dict) or set(index) != {"state", "codes"}:
+            raise ValueError("Unexpected index health")
+
+        def validate_health(source, *, is_notice=False):
+            state = source["state"]
+            codes = source["codes"]
+            if state not in HEALTH_STATES or not isinstance(codes, list) or len(codes) > 16:
+                raise ValueError("Unexpected KB health value")
+            if any(not isinstance(code, str) or code not in HEALTH_CODES for code in codes):
+                raise ValueError("Unexpected KB health diagnostic")
+            if len(set(codes)) != len(codes):
+                raise ValueError("Duplicate KB health diagnostic")
+            if is_notice:
+                count = source["active_count"]
+                action = source["operator_action"]
+                if count is not None and (type(count) is not int or not 0 <= count <= 100_000):
+                    raise ValueError("Unexpected Notice Board count")
+                if (state == "unavailable") != (count is None):
+                    raise ValueError("Notice Board count does not match its health")
+                if not isinstance(action, str) or action not in NOTICE_OPERATOR_ACTIONS:
+                    raise ValueError("Unexpected Notice Board action")
+                return {"state": state, "codes": list(codes), "active_count": count,
+                        "operator_action": action}
+            return {"state": state, "codes": list(codes)}
+
+        safe_notice = validate_health(notice, is_notice=True)
+        safe_index = validate_health(index)
+        states = (safe_notice["state"], safe_index["state"])
+        expected_status = "healthy" if states == ("healthy", "healthy") else (
+            "unavailable" if states == ("unavailable", "unavailable") else "degraded"
+        )
+        if outcome["status"] != expected_status:
+            raise ValueError("Search status does not match source health")
+
+        safe_results, filtered = filter_policy_results(outcome["results"], allowed_files)
+        return ({"status": expected_status, "notice_board": safe_notice,
+                 "index": safe_index, "results": safe_results}, filtered)
+    except (KeyError, TypeError) as error:
+        raise ValueError("Unexpected KB search outcome") from error
 
 
 def scenario_fixture(scenario: dict, ordinal: int) -> dict:
