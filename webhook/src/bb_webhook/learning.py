@@ -29,6 +29,8 @@ _DEFAULT_KB_ROOT = default_kb_root(
     _AGENT_ROOT,
     uppercase_only=(_AGENT_ROOT / "KB").is_dir() and not (_AGENT_ROOT / "kb").is_dir(),
 )
+
+
 def _learning_paths():
     demo = os.environ.get("DEMO_MODE", "").strip().casefold() in {"1", "true", "yes", "on", "y", "t"}
     corpus = _AGENT_ROOT / "demo" / "data" / "kb" if demo else _DEFAULT_KB_ROOT

@@ -9,6 +9,10 @@
 > `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
 > commit or restore from it.
 
+This checkout also includes local, unreleased changes from 4 October 2026.
+They have not been pushed or deployed. The code contracts below describe this
+checkout; verify the installed version before treating them as VPS behavior.
+
 Local source improvements made after that live-system date have not been deployed.
 Repository tests do not verify installed production code or configuration.
 
