@@ -54,7 +54,10 @@ def isolated_environment(repo: Path, scratch: Path, preview_url: str = "") -> di
     env["XDG_CONFIG_HOME"] = str(scratch / "config")
     env["XDG_CACHE_HOME"] = str(scratch / "cache")
     env["PLAYWRIGHT_BROWSERS_PATH"] = browser_cache_path()
-    env["INBOX_TEST_PYTHON"] = sys.executable
+    inbox_python = os.environ.get("INBOX_PYTHON", sys.executable)
+    if not Path(inbox_python).is_absolute() and len(Path(inbox_python).parts) > 1:
+        inbox_python = str(repo / inbox_python)
+    env["INBOX_TEST_PYTHON"] = inbox_python
 
     configured_module = os.environ.get("PLAYWRIGHT_MODULE")
     if configured_module:
