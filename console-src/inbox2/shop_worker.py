@@ -21,7 +21,7 @@ if not (INBOX_MODULES / 'projection.py').is_file():
     INBOX_MODULES = Path('/opt/buttonsbebe/inbox/console-src/inbox')
 sys.path.insert(0, str(INBOX_MODULES))
 import export_shop_rail as exporter
-from customer_details import QUEUE, SNAPSHOT, fresh, request_key, request_ticket
+from customer_details import QUEUE, SNAPSHOT, display_payload, fresh, request_key, request_ticket
 
 STOP = threading.Event()
 
@@ -109,7 +109,9 @@ class Worker:
                 # Never put secrets, upstream bodies, or customer data in logs.
                 logging.warning('Shopify details lookup failed (%s)', type(error).__name__)
                 failures = min(old.get('failures', 0) + 1, 5)
-                payload = {**({'payloadVersion': exporter.PAYLOAD_VERSION} if not old else old),
+                # Upgrade retry metadata without trusting legacy money fields.
+                payload = {**(display_payload(old) if old else {}),
+                           'payloadVersion': exporter.PAYLOAD_VERSION,
                            'status': old.get('status', 'error'), 'email': ticket['fromEmail'],
                            'refreshError': True, 'failures': failures, 'retryAt': now + min(30 * 2 ** (failures - 1), 300)}
                 if not self.token:

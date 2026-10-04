@@ -109,6 +109,58 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(refreshed['payloadVersion'], exporter.PAYLOAD_VERSION)
         self.assertEqual(refreshed['customer']['amountSpent'], {'amount': '0.00', 'currencyCode': 'CAD'})
 
+    def test_failed_legacy_refresh_preserves_backoff_across_inbox_polls(self):
+        for offset, version in enumerate((None, 'older-version')):
+            with self.subTest(version=version):
+                start = time.time() + offset * 1000
+                request = details.request_ticket(TICKET)
+                key = details.request_key(request)
+                legacy = {
+                    'status': 'found', 'email': TICKET['fromEmail'], 'requestKey': key,
+                    'fetchedAtEpoch': start - 22000, 'attemptedAt': start - 1,
+                    'refreshError': True, 'failures': 2, 'retryAt': start - 1,
+                    'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+                    'order': {**ORDER, 'currentTotalPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}}},
+                    'history': [copy.deepcopy(ORDER)],
+                }
+                if version is not None:
+                    legacy['payloadVersion'] = version
+                shop_worker.publish({TICKET['id']: {'payload': legacy, 'updated_at': start}}, self.snapshot)
+                self.enqueue(now=start)
+                calls = []
+
+                def unavailable(*args):
+                    calls.append(args)
+                    raise RuntimeError('Shopify unavailable')
+
+                worker = self.worker(graphql=unavailable)
+                self.assertEqual(worker.process(shop_worker.read_requests(self.queue), now=start + 1), 1)
+                failed = details.read_snapshot(TICKET['id'], self.snapshot)
+                self.assertEqual(failed['payloadVersion'], exporter.PAYLOAD_VERSION)
+                self.assertEqual(failed['failures'], 3)
+                self.assertEqual(failed['retryAt'], start + 121)
+                self.assertEqual(failed['attemptedAt'], start + 1)
+                self.assertTrue(failed['refreshError'])
+                self.assertEqual(failed['fetchedAtEpoch'], legacy['fetchedAtEpoch'])
+                self.assertEqual(failed['customer']['id'], CUSTOMER['id'])
+                self.assertEqual(failed['order']['id'], ORDER['id'])
+                self.assertEqual(failed['history'][0]['id'], ORDER['id'])
+                self.assertTrue(failed['legacyMoneyUnverified'])
+                self.assertIsNone(failed['customer']['amountSpent'])
+                self.assertIsNone(failed['order']['currentTotalPriceSet'])
+                self.assertIsNone(failed['history'][0]['currentTotalPriceSet'])
+                for poll in (31, 61, 91):
+                    rail = self.enqueue(now=start + poll)['shopifyRail']
+                    self.assertTrue(rail['refreshError'])
+                    requests = shop_worker.read_requests(self.queue)
+                    self.assertEqual(requests[0][2], start)
+                    self.assertEqual(worker.process(requests, now=start + poll), 0)
+                self.assertEqual(len(calls), 1)
+                self.enqueue(now=failed['retryAt'] + 1)
+                self.assertEqual(worker.process(shop_worker.read_requests(self.queue), now=failed['retryAt'] + 1), 1)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(details.read_snapshot(TICKET['id'], self.snapshot)['failures'], 4)
+
     def test_identity_change_never_reuses_prior_customer(self):
         self.enqueue()
         self.worker().process(shop_worker.read_requests(self.queue))
