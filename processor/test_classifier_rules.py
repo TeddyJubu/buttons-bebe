@@ -265,7 +265,7 @@ _MAIN_IMMEDIATE_FROZEN = (
 )
 
 _MAIN_HIGH_FROZEN = (
-    '\\burgent\\b',
+    '\\burgent(?:ly)?\\b',
     '\\basap\\b',
     '\\brush\\b',
     '\\bexpress\\b',
@@ -351,11 +351,11 @@ class MainsRulesArePreservedTests(unittest.TestCase):
         self.assertEqual(_canonical_value("_MAIN_HIGH_SENSITIVE_PATTERN").pattern,
                          _MAIN_HIGH_SENSITIVE_FROZEN)
 
-    def test_the_high_table_is_mains_verbatim_but_for_the_followup_rule(self):
-        # ONE documented exception. Main's multi-follow-up rule carried a ".*"
-        # - the only super-linear pattern in main's whole table - and it moved
-        # to _FOLLOWUP_PATTERN, which has none. That is only safe if the
-        # replacement is a strict superset; the next test proves it is.
+    def test_the_high_table_preserves_its_urgency_alias_and_followup_rule(self):
+        # The urgent row covers its common adverbial form. Main's multi-follow-up
+        # rule carried a ".*" - the only super-linear pattern in main's table -
+        # and it moved to _FOLLOWUP_PATTERN, which has none. That replacement
+        # must remain a strict superset; the next test proves it is.
         main_high = _canonical_value("_MAIN_HIGH_KEYWORDS")
         missing = [p for p in _MAIN_HIGH_FROZEN if p not in main_high]
         self.assertEqual(missing, [_MAIN_FOLLOWUP_KEYWORD_FROZEN])

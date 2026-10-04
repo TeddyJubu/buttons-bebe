@@ -47,7 +47,8 @@ def classify(
     raw_subject = _views._normalise_text(classification_subject)
     message_text = raw_message.lower()
     ticket_subject = raw_subject.lower()
-    combined_text = f"{ticket_subject} {_views._drop_store_boilerplate(message_text)}"
+    customer_message_text = _views._drop_store_boilerplate(message_text)
+    combined_text = f"{ticket_subject} {customer_message_text}"
 
     raw_intents = payload.get("intents", [])
     intent_names: set[str] = set()
@@ -150,10 +151,44 @@ def classify(
     high_hits = len(high_matches)
     high_intent_hit = bool(intent_names & _data._HIGH_INTENTS)
     followup_match = _matching._search_any(main_views, _patterns._FOLLOWUP_PATTERN)
-    if high_hits > 0 or high_intent_hit or followup_match or exclaiming or shouting:
+    post_wash_shrinkage_match = None
+    for match in _patterns._POST_WASH_SHRINKAGE_RE.finditer(customer_message_text):
+        clause_prefix = re.split(
+            r"[.!?;,]", customer_message_text[:match.start()]
+        )[-1]
+        if (
+            not _patterns._SHRINKAGE_NONREPORT_RE.search(match.group(0))
+            and not _patterns._SHRINKAGE_CONDITIONAL_CONTEXT_RE.search(clause_prefix)
+            and not _patterns._SHRINKAGE_MODAL_EVENT_RE.search(match.group(0))
+        ):
+            post_wash_shrinkage_match = match
+            break
+    received_item_color_match = None
+    for match in _patterns._RECEIVED_ITEM_COLOR_PHOTO_MISMATCH_RE.finditer(
+        customer_message_text
+    ):
+        preceding = customer_message_text[max(0, match.start() - 64):match.start()]
+        same_clause = re.split(r"[.!?;]", preceding)[-1]
+        attached_to_received_item = any(
+            _patterns._COLOR_COMPARISON_ATTACHMENT_RE.fullmatch(
+                same_clause[anchor.end():]
+            )
+            for anchor in _patterns._RECEIVED_ITEM_ANCHOR_RE.finditer(same_clause)
+        )
+        if attached_to_received_item and not _patterns._COLOR_COMPARISON_NONREPORT_RE.search(
+            same_clause
+        ):
+            received_item_color_match = match
+            break
+    if (high_hits > 0 or high_intent_hit or followup_match or exclaiming or shouting
+            or post_wash_shrinkage_match or received_item_color_match):
         high_sensitive = bool(intent_names & _data._HIGH_SENSITIVE_INTENTS) or bool(
             _matching._search_any(main_views, _patterns._MAIN_HIGH_SENSITIVE_PATTERN)
-        ) or bool(_patterns._HIGH_SENSITIVE_PATTERN.search(combined_text))
+        ) or bool(_patterns._HIGH_SENSITIVE_PATTERN.search(combined_text)) or bool(
+            post_wash_shrinkage_match
+        ) or bool(
+            received_item_color_match
+        )
         reason_parts = []
         matched = list(high_matches)
         if high_hits > 0:
@@ -163,6 +198,12 @@ def classify(
         if followup_match:
             reason_parts.append("follow-up pattern detected")
             matched.append(" ".join(followup_match.group(0).split()))
+        if post_wash_shrinkage_match:
+            reason_parts.append("reported shrinkage after washing")
+            matched.append(" ".join(post_wash_shrinkage_match.group(0).split()))
+        if received_item_color_match:
+            reason_parts.append("received item materially differs from listing photos")
+            matched.append(" ".join(received_item_color_match.group(0).split()))
         if exclaiming:
             reason_parts.append("excessive exclamation (!!!)")
             matched.append("!!!")
