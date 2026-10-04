@@ -9,6 +9,7 @@ const base=process.env.INBOX_TEST_URL||'http://127.0.0.1:8878';
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
 const context=await browser.newContext({viewport:{width:1280,height:800},timezoneId:'Asia/Dhaka'});
 const page=await context.newPage();
+await page.clock.setFixedTime(new Date('2026-10-05T12:00:00Z'));
 page.setDefaultTimeout(10000);
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bb-local-controls-'));
 const stamp='2026-10-05T10:00:00Z';
