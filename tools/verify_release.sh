@@ -193,6 +193,8 @@ esac
 # their tests. Keep the requests stub explicit so this gate remains offline.
 "$PYTHON" -c 'import sys,types,unittest; requests=types.ModuleType("requests"); requests.get=lambda *a,**k: None; requests.post=lambda *a,**k: None; sys.modules["requests"]=requests; names=["feedback.tests.test_all","feedback.tests.test_retirement"]; suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(n) for n in names); result=unittest.TextTestRunner(verbosity=1).run(suite); raise SystemExit(not result.wasSuccessful())'
 "$QA_PYTHON" -m unittest discover -s testing -p 'test_*.py' -v
+"$PYTHON" -c 'import lancedb'
+"$PYTHON" -m unittest discover -s testing -p 'test_qa_mcp_server_contract.py' -v
 "$PYTHON" -m unittest discover -s kb/tests -v
 "$PYTHON" -m unittest discover -s deploy/tests -v
 "$PYTHON" -m unittest discover -s tools -p 'test_*.py' -v
