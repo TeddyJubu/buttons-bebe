@@ -3,9 +3,36 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import qa_catalog
 from qa_catalog import snapshot,load_manifest
 
 class CatalogTests(unittest.TestCase):
+    def test_concurrent_replacement_cannot_pin_unvalidated_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            products = root / 'products'
+            products.mkdir()
+            product = products / 'product-shirt.md'
+            approved = b'---\ncategory: products\nstatus: confirmed\nsource: shopify-sync\n---\nApproved shirt\n'
+            product.write_bytes(approved)
+            generator = root / 'sync.py'
+            generator.write_text('reviewed-source')
+            generator_hash = hashlib.sha256(generator.read_bytes()).hexdigest()
+            validate = qa_catalog._validate_product_front_matter
+
+            def replace_after_validation(content):
+                validate(content)
+                product.write_text('Unreviewed replacement without provenance\n')
+
+            output = root / 'manifest.json'
+            with patch.object(qa_catalog, '_validate_product_front_matter', side_effect=replace_after_validation):
+                receipt = snapshot(products, generator, generator_hash, output)
+            self.assertEqual(json.loads(output.read_text())['files']['products/product-shirt.md'],
+                             hashlib.sha256(approved).hexdigest())
+            with self.assertRaisesRegex(ValueError, 'Product content differs'):
+                load_manifest(output, receipt['sha256'])
+
     def test_snapshot_pins_content_without_copying_bodies(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp).resolve();products=root/'products';products.mkdir();generator=root/'sync.py';generator.write_text('reviewed-source')

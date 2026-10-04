@@ -106,7 +106,11 @@ def filter_search_outcome(outcome, allowed_files: set[str]) -> tuple[dict, int]:
                 raise ValueError("Unexpected KB health diagnostic")
             if len(set(codes)) != len(codes):
                 raise ValueError("Duplicate KB health diagnostic")
+            if (state == "healthy") != (not codes):
+                raise ValueError("KB health state does not match its diagnostics")
             if is_notice:
+                if state == "degraded":
+                    raise ValueError("Unexpected degraded Notice Board health")
                 count = source["active_count"]
                 action = source["operator_action"]
                 if count is not None and (type(count) is not int or not 0 <= count <= 100_000):
@@ -115,6 +119,9 @@ def filter_search_outcome(outcome, allowed_files: set[str]) -> tuple[dict, int]:
                     raise ValueError("Notice Board count does not match its health")
                 if not isinstance(action, str) or action not in NOTICE_OPERATOR_ACTIONS:
                     raise ValueError("Unexpected Notice Board action")
+                expected_action = "Inspect the Notice Board. Active owner overrides may still exist." if state == "unavailable" else ""
+                if action != expected_action:
+                    raise ValueError("Notice Board action does not match its health")
                 return {"state": state, "codes": list(codes), "active_count": count,
                         "operator_action": action}
             return {"state": state, "codes": list(codes)}

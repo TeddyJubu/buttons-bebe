@@ -178,6 +178,37 @@ class SearchOutcomeContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             filter_search_outcome(malformed, {POLICY_FILE})
 
+    def test_contradictory_source_health_fails_closed(self):
+        cases = []
+        for source in ('notice_board', 'index'):
+            malformed = search_outcome(status='healthy', notice_state='healthy')
+            malformed[source]['codes'] = ['notice_read_failed' if source == 'notice_board' else 'index_open_failed']
+            cases.append(malformed)
+            malformed = search_outcome(status='unavailable', index_state='unavailable')
+            malformed[source]['codes'] = []
+            cases.append(malformed)
+        malformed = search_outcome(status='degraded', notice_state='degraded')
+        malformed['notice_board']['codes'] = ['notice_read_failed']
+        cases.append(malformed)
+        for malformed in cases:
+            with self.subTest(outcome=malformed), self.assertRaises(ValueError):
+                filter_search_outcome(malformed, {POLICY_FILE})
+
+    def test_notice_warning_must_match_availability(self):
+        cases = [search_outcome(), search_outcome(status='healthy', notice_state='healthy')]
+        cases[0]['notice_board']['operator_action'] = ''
+        cases[1]['notice_board']['operator_action'] = 'Inspect the Notice Board. Active owner overrides may still exist.'
+        for malformed in cases:
+            with self.subTest(outcome=malformed), self.assertRaises(ValueError):
+                filter_search_outcome(malformed, {POLICY_FILE})
+
+    def test_degraded_index_with_failure_diagnostic_remains_valid(self):
+        outcome = search_outcome(status='degraded', notice_state='healthy', index_state='degraded')
+        outcome['index']['codes'] = ['vector_lookup_failed']
+        safe, filtered = filter_search_outcome(outcome, {POLICY_FILE})
+        self.assertEqual(safe, outcome)
+        self.assertEqual(filtered, 0)
+
     @unittest.skipUnless(importlib.util.find_spec("lancedb"), "prepared KB runtime is required for the production MCP contract")
     def test_actual_production_mcp_shape_is_accepted_by_qa_proxy(self):
         production_outcome = search_outcome(results=[

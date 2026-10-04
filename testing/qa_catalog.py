@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -13,8 +14,8 @@ def regular(path):
         raise ValueError('Manifest source must have regular non-symlink boundaries')
 
 
-def _validate_product_front_matter(path: Path) -> None:
-    with path.open() as handle:
+def _validate_product_front_matter(content: bytes) -> None:
+    with io.StringIO(content.decode('utf-8')) as handle:
         if handle.readline().strip() != '---':
             raise ValueError('Missing product provenance')
         header = []
@@ -72,8 +73,9 @@ def snapshot(directory,generator,expected_generator_hash,output):
         name='products/'+path.name
         if not NAME.fullmatch(name):
             raise ValueError('Unexpected file in generated product directory')
-        _validate_product_front_matter(path)
-        product_content_hashes[name] = _product_content_sha256(path)
+        content = path.read_bytes()
+        _validate_product_front_matter(content)
+        product_content_hashes[name] = hashlib.sha256(content).hexdigest()
     if not product_content_hashes:raise ValueError('Empty product catalog')
     raw=(json.dumps({'schema':2,'source':'shopify-sync-products','generator_sha256':generator_sha256,'directory':str(directory.resolve()),
                      'files':product_content_hashes},sort_keys=True,indent=2)+'\n').encode()

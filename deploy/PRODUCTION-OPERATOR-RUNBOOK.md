@@ -41,6 +41,9 @@ curl -fsS -X POST http://127.0.0.1:8767/inbox/api/helpdesk \
 Expected: readiness reports `status: "ready"`, `readOnly: true`, and checks
 `storage: "ok"`, `worker: "ok"`, `ticketData: "fresh"`, `projection: "fresh"`.
 Capabilities report `ok: true`, `readOnly: true`, and `sendReply: false`.
+These describe the Inbox read API. They do not prove that the console's separate,
+owner-authorized human reply service is disabled. No customer reply is needed
+to perform these checks.
 `/health` alone confirms only that the process answers. Never paste session
 cookies or full service/environment output into tickets or chat.
 
@@ -164,10 +167,11 @@ before counting on alert coverage. Even once live it shares the host/bridge
 failure domain; do not count its transport acknowledgment as proof the owner
 received an alert.
 
-Keep the inbox Send lock until a separately reviewed activation decision verifies
-real provider identity/routing, exact recipient/context binding, duplicate and
-ambiguous-action handling, audit/recovery procedures and owner confirmation.
-Passing this runbook's lock test is evidence that sending remains disabled.
+The Inbox starts read-only. Owner-authorized human sending uses a temporary
+page-scoped grant, review and a final confirmation under AGENTS.md §2.3. Preserve
+provider identity/routing, exact recipient/context binding, duplicate and
+ambiguous-action handling, and audit/recovery controls. The readiness and
+capability checks above do not test or disable this separate human send service.
 
 Coordinate the exposed historical webhook credential with the existing Gorgias
 integration before rotation. Coordinate authenticated receiving provider ingress
