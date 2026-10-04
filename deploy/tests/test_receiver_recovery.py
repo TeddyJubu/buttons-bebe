@@ -143,7 +143,7 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
         self.assertEqual(manifest['commit'], self.sha)
         for key, entry in manifest['files'].items():
             prefix, relative = key.split('/', 1)
-            target = {'app': self.live, 'web': self.web, 'inbox': self.root / 'inbox', 'inbox2': self.root / 'inbox2', 'inbox2web': self.web.parent / 'inbox2'}[prefix] / relative
+            target = {'app': self.live, 'web': self.web, 'inbox': self.root / 'inbox', 'inbox2': self.root / 'inbox2', 'inbox2web': self.web.parent / 'inbox2', 'shared': self.root / 'shared'}[prefix] / relative
             self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), entry['sha256'])
             self.assertTrue(target.resolve().is_relative_to(self.root.resolve()))
         self.assertNotIn('app/webhook/data/webhook.db', manifest['files'])
