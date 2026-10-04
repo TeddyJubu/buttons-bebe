@@ -42,20 +42,29 @@ _HIGH_SENSITIVE_PATTERN = re.compile(
     r"showed\s+up|been\s+delivered)|not\s+(?:been\s+)?delivered)\b",
     re.IGNORECASE,
 )
+_CLOTHING_NOUN = (
+    r"outfits?|garments?|clothes|dresses|dress|shirts?|tops?|rompers?|onesies?|"
+    r"bodysuits?|sweaters?|jumpers?|coats?|pants|leggings|pajamas|items?|pieces?|"
+    r"hoodies?|jeans"
+)
 _POST_WASH_SHRINKAGE_RE = re.compile(
-    r"\b(?:i|we)\s+(?:washed|laundered)\b[^.!?;\n]{0,60}?"
+    r"\b(?:i|we)(?:['’]ve|\s+have)?\s+(?:washed|laundered)\s+"
+    r"(?:(?:the|this|that|my|our|a|an|these|those)\s+)?"
+    rf"(?:it|them|{_CLOTHING_NOUN})\b[^.!?;\n]{{0,60}}?"
     # A following sentence must directly report the same item's shrinkage.
     r"(?:[.;]\s*(?:it|they)\s+(?:(?:has|have)\s+)?)?\b(?:shrank|shrunk)\b|"
-    r"\b(?:my|our)\s+(?:outfit|garment|clothes|dress|shirt|top|romper|onesies?|"
-    r"bodysuit|sweater|jumper|coat|pants|leggings|pajamas|item|piece)\b"
+    rf"\b(?:my|our)\s+(?:{_CLOTHING_NOUN})\b"
     r"[^.!?;\n]{0,60}?\b(?:shrank|shrunk)\b[^.!?;\n]{0,40}?\b(?:after|following|since|during|from|in|while|when)\s+"
     r"(?:(?:the\s+)?(?:(?:first|one)\s+)?|(?:i\s+)?|being\s+)"
     r"(?:wash(?:ed|ing)?|launder\w*)\b",
     re.IGNORECASE,
 )
 _SHRINKAGE_NONREPORT_RE = re.compile(
-    r"\b(?:has|have|had|did|was|were|is|are|do|does)\s+(?:not|never)\s+(?:been\s+)?(?:shrank|shrunk)\b|"
-    r"\b(?:has|have|had|did|was|were|is|are|do|does)n[’']t\s+(?:been\s+)?(?:shrank|shrunk)\b|"
+    r"\b(?:has|have|had|did|was|were|is|are|do|does)(?:\s+(?:not|never)|n[’']t)\s+"
+    r"(?:(?:really|actually|noticeably|significantly|further|ever)\s+){0,3}(?:been\s+)?(?:shrank|shrunk)\b|"
+    r"\b(?:do|does|did)(?:\s+not|n[’']t)\s+(?:really\s+)?(?:think|believe)\s+"
+    r"(?:that\s+)?(?:(?:it|they)|(?:my|our)\s+(?:" + _CLOTHING_NOUN + r"))\s+"
+    r"(?:(?:has|have|had)\s+)?(?:shrank|shrunk)\b|"
     r"\b(?:never|not)\b(?:\s+\w+){0,3}\s+\b(?:shrank|shrunk)\b",
     re.IGNORECASE,
 )
@@ -78,14 +87,18 @@ _RECEIVED_ITEM_COLOR_PHOTO_MISMATCH_RE = re.compile(
 _RECEIVED_ITEM_ANCHOR_RE = re.compile(
     r"\b(?:[\w'-]+\s+){1,4}(?:i|we)\s+(?:got|received)\b"
     r"(?!\s+(?:the|this|that|my|our|a|an|these|those|some|it|them)\b)|"
+    r"\b(?:the|this|that|my|our|a|an)\s+[\w'-]+(?:\s+(?:that|which))?\s+"
+    r"(?:arrived|came|was\s+delivered)\b|"
     r"\b(?:i|we)\s+(?:(?:have|just)\s+)?(?:got|received)\s+"
     r"(?:the|this|that|my|our|a|an|these|those|some)\s+[\w'-]+\b|"
     r"\b(?:i|we)\s+(?:(?:have|just)\s+)?(?:got|received)\s+(?:it|them)\b",
     re.IGNORECASE,
 )
 _COLOR_COMPARISON_ATTACHMENT_RE = re.compile(
-    r"[\s,]*(?:(?:and|but|so|though|which)\s+)?"
-    r"(?:(?:it|they)\s+)?"
+    r"[\s,]*(?:[.;]\s*)?(?:(?:and|but|so|though|which)\s+)?"
+    r"(?:(?:however|actually|apparently|honestly|just|definitely|clearly|though)\s*,?\s*)*"
+    r"(?:(?:i|we)\s+(?:think|feel|believe)\s+)?"
+    r"(?:(?:it|they)\s+|(?:the\s+)?(?:colou?r|shade)\s+)?"
     r"(?:(?:however|actually|apparently|just|definitely|clearly|though)\s*,?\s*)*",
     re.IGNORECASE,
 )
