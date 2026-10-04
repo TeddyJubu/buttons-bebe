@@ -1,5 +1,3 @@
-"""Read-only Hermes launch policy without application configuration imports."""
-
 from collections.abc import Mapping
 
 APPROVED_TOOLSETS = ("buttonsbebe_kb", "buttonsbebe_redo", "buttonsbebe_gorgias")

@@ -1,4 +1,3 @@
-"""Receipt validation over a synthetic checkout; no model or git state is used."""
 import hashlib
 import json
 from pathlib import Path

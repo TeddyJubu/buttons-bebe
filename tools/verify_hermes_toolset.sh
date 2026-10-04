@@ -78,7 +78,6 @@ for server in $EXPECTED_SERVERS; do
     fi
 done
 
-# ── 3. CLI platform grants must be explicitly empty ─────────────────────
 say "3. CLI platform permissions"
 CFG="${HERMES_CONFIG:-${HOME:-/root}/.hermes/config.yaml}"
 if [ ! -f "$CFG" ]; then
@@ -134,7 +133,6 @@ PY
     esac
 fi
 
-# ── 4. the live brain loads the same SOUL/skills the repo ships ──────────
 say "4. Hermes home mirror matches the repo"
 REPO_HERMES="$(cd "$(dirname "$0")/.." && pwd)/hermes"
 LIVE_HERMES="${HERMES_HOME:-${HOME:-/root}/.hermes}"
@@ -172,7 +170,6 @@ else
     fi
 fi
 
-# ── 5. a real one-shot with the new flags still reaches the KB ───────────
 say "5. Smoke test — one read-only prompt with the new flags"
 if [ "$FAILED" -ne 0 ]; then
     bad "skipping the live run: a check above failed, so the lockdown is unproven"

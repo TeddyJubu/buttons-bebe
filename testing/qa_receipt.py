@@ -1,9 +1,3 @@
-"""Source-bound run receipts and sanitized human-review receipts for manual QA.
-
-Nothing here runs a model or invents a verdict. A run receipt binds one full
-suite run to working-tree content; a reviewer writes per-ID verdicts; the
-combined receipt certifies only what those verdicts and hashes support.
-"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -16,29 +10,39 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SUITES = {"core": ("testing/scenarios.json", 48), "reliability": ("testing/reliability-scenarios.json", 10)}
 VERDICTS = ("PASS", "NEEDS_WORK", "FAIL", "pending")
-# First-party generation, queue, human-review and KB-search behavior plus the
-# approved policy text, QA adapters and catalogs.
-SOURCE_GLOBS = (
-    "processor/**/*.py", "processor/**/*.yaml", "processor/**/*.json", "processor/*.sh",
-    "processor/pyproject.toml", "processor/uv.lock",
-    "webhook/src/**/*.py", "webhook/main.py", "webhook/run.sh", "webhook/pyproject.toml", "webhook/uv.lock",
-    "console-src/index.html", "console-src/inbox/*.py", "console-src/inbox/requirements.lock",
-    "console-src/inbox2/*.py", "console-src/inbox2/*.js", "console-src/inbox2/index.html",
-    "kb/scripts/*.py", "kb/run_mcp.sh", "kb/requirements.lock",
-    "kb/policies/*.md", "kb/faq/*.md", "kb/intents/*.md",
-    "tools/*mcp*.py", "tools/_common.py", "tools/gorgias_content.py", "tools/run-gorgias.sh", "tools/run-redo.sh",
-    "tools/requirements.lock", "tools/runtime-constraints.txt", "feedback/pii.py", "feedback/learning_paths.py",
-    "hermes/SOUL.md", "hermes/skills/buttonsbebe/**/*",
-    "testing/qa_*.py", "testing/run_live_tests.py", "testing/requirements-qa.lock",
-    "testing/scenarios.json", "testing/reliability-scenarios.json",
-)
+SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
+    "processor": (
+        "processor/**/*.py", "processor/**/*.yaml", "processor/**/*.json", "processor/*.sh",
+        "processor/pyproject.toml", "processor/uv.lock",
+    ),
+    "webhook": (
+        "webhook/src/**/*.py", "webhook/main.py", "webhook/run.sh", "webhook/pyproject.toml", "webhook/uv.lock",
+    ),
+    "console_inbox": (
+        "console-src/index.html", "console-src/inbox/*.py", "console-src/inbox/requirements.lock",
+        "console-src/inbox2/*.py", "console-src/inbox2/*.js", "console-src/inbox2/index.html",
+    ),
+    "knowledge_base": (
+        "kb/scripts/*.py", "kb/run_mcp.sh", "kb/requirements.lock",
+        "kb/policies/*.md", "kb/faq/*.md", "kb/intents/*.md",
+    ),
+    "tools": (
+        "tools/*mcp*.py", "tools/_common.py", "tools/gorgias_content.py", "tools/run-gorgias.sh", "tools/run-redo.sh",
+        "tools/requirements.lock", "tools/runtime-constraints.txt",
+    ),
+    "feedback": ("feedback/pii.py", "feedback/learning_paths.py"),
+    "hermes": ("hermes/SOUL.md", "hermes/skills/buttonsbebe/**/*"),
+    "qa": (
+        "testing/qa_*.py", "testing/run_live_tests.py", "testing/requirements-qa.lock",
+        "testing/scenarios.json", "testing/reliability-scenarios.json",
+    ),
+}
 REQUIRED = ("processor/hermes_runner/prompt.py", "processor/draft_cleaner.py", "processor/orchestrator.py",
             "webhook/src/bb_webhook/app.py", "kb/scripts/search_kb.py",
             "testing/scenarios.json", "testing/reliability-scenarios.json")
-# Tests, runtime state, unapproved lessons, secrets and dependency copies.
-SKIP_PARTS = {"__pycache__", ".git", ".venv", "venv", "node_modules", "site-packages",
-              "tests", "test", "data", "learned", "notices"}
-SKIP_SUFFIXES = (".db", ".sqlite", ".sqlite3", "-wal", "-shm", ".log", ".pyc")
+SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS = frozenset({"__pycache__", ".git", ".venv", "venv", "node_modules", "site-packages",
+                                                      "tests", "test", "data", "learned", "notices"})
+SOURCE_FINGERPRINT_EXCLUDED_SUFFIXES = (".db", ".sqlite", ".sqlite3", "-wal", "-shm", ".log", ".pyc")
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -59,18 +63,20 @@ def _git(repo: Path):
 
 
 def source_fingerprint(repo: Path = REPO) -> dict:
-    """Hash working-tree content, not just the commit label."""
     repo = repo.resolve()
     for name in REQUIRED:
         if not (repo / name).is_file():
             raise ValueError(f"Missing fingerprinted source: {name}")
     files = {}
-    for pattern in SOURCE_GLOBS:
-        for path in repo.glob(pattern):
-            relative = path.relative_to(repo)
-            if (path.is_file() and not SKIP_PARTS & set(relative.parts) and not path.name.endswith(SKIP_SUFFIXES)
-                    and not path.name.startswith(("test_", ".env"))):
-                files[relative.as_posix()] = sha256_bytes(path.read_bytes())
+    for source_patterns in SOURCE_FINGERPRINT_GROUPS.values():
+        for pattern in source_patterns:
+            for path in repo.glob(pattern):
+                relative = path.relative_to(repo)
+                if (path.is_file()
+                        and not SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS.intersection(relative.parts)
+                        and not path.name.endswith(SOURCE_FINGERPRINT_EXCLUDED_SUFFIXES)
+                        and not path.name.startswith(("test_", ".env"))):
+                    files[relative.as_posix()] = sha256_bytes(path.read_bytes())
     head, dirty = _git(repo)
     return {"head": head, "dirty": dirty, "files": dict(sorted(files.items())), "sha256": digest(files)}
 
@@ -78,7 +84,8 @@ def source_fingerprint(repo: Path = REPO) -> dict:
 def hermes_identity(executable: Path, source: Path) -> dict:
     source = source.resolve()
     files = {path.relative_to(source).as_posix(): sha256_bytes(path.read_bytes())
-             for path in sorted(source.rglob("*.py")) if not SKIP_PARTS & set(path.relative_to(source).parts)}
+             for path in sorted(source.rglob("*.py"))
+             if not SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS.intersection(path.relative_to(source).parts)}
     if not files:
         raise ValueError("Hermes source has no Python files")
     return {"executable_sha256": sha256_bytes(executable.read_bytes()), "source_sha256": digest(files), "source_files": len(files)}
@@ -95,11 +102,6 @@ def catalog(suite: str, repo: Path = REPO) -> tuple[str, list[str]]:
 
 def kb_snapshot(kb_mode, product_manifest=None, product_manifest_sha256=None,
                 policy_overlay=None, policy_overlay_sha256=None, repo: Path = REPO) -> dict:
-    """Identity of every approved document the run may serve, re-verified on each call.
-
-    Repository policies are in the source fingerprint; the product manifest
-    pins per-file content and the overlay pins its own bytes.
-    """
     if product_manifest is not None:
         from qa_catalog import load_manifest
         load_manifest(product_manifest, product_manifest_sha256)
@@ -112,7 +114,6 @@ def kb_snapshot(kb_mode, product_manifest=None, product_manifest_sha256=None,
 
 
 def observed_kb(results: list) -> list:
-    """Sorted unique (file, heading, content hash) for every KB section shown to the model."""
     return sorted({(name, heading, value) for result in results for call in result.get("tool_calls", [])
                    if call.get("tool") == "kb_projection"
                    for name, heading, value in zip(call.get("files", []), call.get("headings", []),
@@ -135,7 +136,6 @@ def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
 
 
 def check_run_integrity(run: dict) -> None:
-    """Reject evidence whose source, Hermes or approved KB content moved during the run."""
     if digest(run["bindings"]) != run.get("bindings_after_sha256"):
         raise ValueError(f"{run['suite']}: source, Hermes or approved KB snapshot changed during the run")
     _single_content(run["kb_observed"], f"{run['suite']}: KB content changed during the run")
@@ -174,7 +174,6 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
 
 
 def build_receipt(core_run, core_judgments, reliability_run, reliability_judgments, repo: Path = REPO) -> dict:
-    """Combine both full suites; defect text and model output stay private."""
     core, core_meta, core_defects = _suite_review("core", core_run, core_judgments, repo)
     reliability, rel_meta, rel_defects = _suite_review("reliability", reliability_run, reliability_judgments, repo)
     bindings = core_meta["bindings"]
@@ -196,7 +195,6 @@ def review_state(receipt: dict) -> dict:
 
 
 def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> dict:
-    """Recompute state against the current tree; never trust stored booleans."""
     if receipt.get("schema") != 2 or set(receipt.get("suites", {})) != set(SUITES):
         raise ValueError("Receipt must cover exactly the core and reliability suites")
     current = source_fingerprint(repo)
@@ -219,7 +217,14 @@ def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> 
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Source-bound run receipts and sanitized human-review receipts for manual QA.\n\n"
+            "Nothing here runs a model or invents a verdict. A run receipt binds one full\n"
+            "suite run to working-tree content; a reviewer writes per-ID verdicts; the\n"
+            "combined receipt certifies only what those verdicts and hashes support."
+        )
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     template = commands.add_parser("template", help="Write all-pending judgments for a run")
     template.add_argument("--run", type=Path, required=True)

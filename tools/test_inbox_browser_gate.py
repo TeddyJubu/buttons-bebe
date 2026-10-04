@@ -1,4 +1,3 @@
-"""Preview ownership and cleanup for the Inbox browser gate; no browser needed."""
 import io
 from itertools import count
 import queue
@@ -54,7 +53,7 @@ class InboxBrowserGateTests(unittest.TestCase):
             holder.listen()
             port = holder.getsockname()[1]
             with self.assertRaisesRegex(gate.GateError, "exited"):
-                with gate.preview(real_preview(port), port, timeout=10):
+                with gate.owned_ready_preview(real_preview(port), port, timeout=10):
                     self.fail("an occupied port was accepted")
 
     def test_continuous_output_cannot_extend_the_ready_deadline(self):
@@ -95,7 +94,7 @@ class InboxBrowserGateTests(unittest.TestCase):
         for script, error in ((exits, "exited"), (foreign, "unexpected preview health")):
             port = gate.free_port()
             with self.subTest(script=script.name), self.assertRaisesRegex(gate.GateError, error):
-                with gate.preview([sys.executable, str(script), str(port)], port, timeout=10):
+                with gate.owned_ready_preview([sys.executable, str(script), str(port)], port, timeout=10):
                     self.fail("an unhealthy preview was accepted")
             self.assertTrue(port_is_free(port))
 
@@ -109,7 +108,7 @@ class InboxBrowserGateTests(unittest.TestCase):
         passes, fails = self.script("passes.py", body), self.script("fails.py", body)
         port = gate.free_port()
         with self.assertRaisesRegex(gate.GateError, "browser suites failed: fails.py"):
-            with gate.preview(real_preview(port), port) as (proc, base):
+            with gate.owned_ready_preview(real_preview(port), port) as (proc, base):
                 gate.run_suites(proc, base, [passes, fails], runner=(sys.executable,))
         self.assertIsNotNone(proc.returncode)
         self.assertTrue(port_is_free(port))

@@ -1,4 +1,3 @@
-"""Synthetic local readiness and worker faults. No providers or private data."""
 from contextlib import closing
 from datetime import datetime, timezone
 import json

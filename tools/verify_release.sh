@@ -73,8 +73,6 @@ for required in \
   [[ -f "$required" ]] || fail "missing dependency manifest: $required"
 done
 
-# Browser suites use the locked console Playwright and its bundled Chromium,
-# never a local Chrome or another module. CI installs both; this gate does not.
 unset PLAYWRIGHT_MODULE INBOX_TEST_BROWSER
 node -e '
 const fs = require("fs"), path = require("path"), dir = process.argv[1];
@@ -253,7 +251,6 @@ if [ -d whatsapp-connect/node_modules ]; then
 else
   echo "release gate: whatsapp root tests skipped (no node_modules; CI runs them via npm ci)"
 fi
-# A skipped browser test is a missing check, not a pass.
 node --test --test-reporter=spec --test-reporter-destination=stdout \
   --test-reporter=tap --test-reporter-destination="$gate_tmp/console.tap" console-src/test/*.test.js
 grep -qx '# skipped 0' "$gate_tmp/console.tap" && grep -qx '# todo 0' "$gate_tmp/console.tap" || \
@@ -262,11 +259,16 @@ grep -qx '# skipped 0' "$gate_tmp/console.tap" && grep -qx '# todo 0' "$gate_tmp
 node --check kb-admin/server.js
 node --test kb-admin/test/*.test.js
 
-# Demo safety suites run explicitly, one process each, never the live-service
-# launchers (run_real_hermes_case.py, run_real_stack.sh, run_fake_services.sh).
 "$PYTHON" -m unittest discover -s demo -p 'test_fake_gorgias.py' -v
-for _suite in test_processor_adversarial test_processor_security test_queue_resilience test_demo_isolation \
-              test_console_api test_webhook_adversarial; do
+demo_fixture_suites=(
+  test_processor_adversarial
+  test_processor_security
+  test_queue_resilience
+  test_demo_isolation
+  test_console_api
+  test_webhook_adversarial
+)
+for _suite in "${demo_fixture_suites[@]}"; do
   [[ -f "demo/adversarial/$_suite.py" ]] || fail "missing adversarial suite: demo/adversarial/$_suite.py"
   case "$_suite" in
     test_console_api|test_webhook_adversarial)

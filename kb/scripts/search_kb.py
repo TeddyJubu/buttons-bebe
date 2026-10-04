@@ -1,12 +1,3 @@
-"""search_kb.py -- ask the knowledge base a question.
-
-Usage:   ./search.sh "where is my order"
-
-It runs HYBRID search -- keyword search and meaning search at the same time --
-then blends the two result lists. This catches both exact words (SKUs, order
-numbers, other languages) and paraphrases. Returns independent source health
-and the best passages with relevance, risk, and stored provenance.
-"""
 from __future__ import annotations
 
 import os

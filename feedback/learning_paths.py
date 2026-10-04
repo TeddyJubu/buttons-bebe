@@ -1,4 +1,3 @@
-"""Path-only settings for the approved lesson learning flow."""
 from __future__ import annotations
 
 import os
@@ -11,8 +10,6 @@ FEEDBACK_KB_ROOT_ENV = "FEEDBACK_KB_ROOT"
 
 @dataclass(frozen=True)
 class LearningPaths:
-    """One KB root keeps lesson, exemplar, archive, and ledger paths aligned."""
-
     kb_root: Path
 
     @property
@@ -33,7 +30,6 @@ class LearningPaths:
 
 
 def default_kb_root(repo_root: Path, *, uppercase_only: bool) -> Path:
-    """Choose KB/ for the deployed tree, or kb/ for a local checkout."""
     return Path(repo_root) / ("KB" if uppercase_only else "kb")
 
 
@@ -59,13 +55,6 @@ def resolve_learning_paths(
     default_root: Path,
     corpus_root: Path | None = None,
 ) -> LearningPaths:
-    """Resolve only the KB path without loading files or reading global state.
-
-    A non-empty explicit path wins, then ``FEEDBACK_KB_ROOT``, then the caller's
-    local or deployed default. Relative paths are anchored at ``repo_root``.
-    Empty values are unset. When ``corpus_root`` is supplied, a different path
-    is rejected so learning cannot write somewhere the active indexer skips.
-    """
     requested = _nonempty(explicit_root) or _nonempty(environ.get(FEEDBACK_KB_ROOT_ENV))
     root = _root_path(requested, repo_root) if requested else _root_path(default_root, repo_root)
 

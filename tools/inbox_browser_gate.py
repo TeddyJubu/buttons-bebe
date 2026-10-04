@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Run every required Inbox browser suite against this checkout's own preview.
-
-The synthetic loopback preview is started on a free port. It is accepted only
-after that spawned process prints its ready line and answers /health while
-still alive, so a preview from another checkout can never satisfy the gate.
-The exact process is stopped and reaped on every exit path.
-"""
 from __future__ import annotations
 
 from collections import deque
@@ -98,8 +91,7 @@ def stop(proc: subprocess.Popen) -> None:
 
 
 @contextmanager
-def preview(command: list[str], port: int, timeout: float = 20):
-    """Yield (process, base URL) for a ready, live, healthy spawned preview."""
+def owned_ready_preview(command: list[str], port: int, timeout: float = 20):
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     lines: queue.Queue = queue.Queue(maxsize=64)
     reader = threading.Thread(target=_drain, args=(proc.stdout, lines), daemon=True)
@@ -138,7 +130,7 @@ def main() -> int:
             raise GateError(f"missing required browser suites: {', '.join(missing)}")
         port = free_port()
         command = [sys.executable, str(PREVIEW), "--repo", str(ROOT), "--port", str(port)]
-        with preview(command, port) as (proc, base):
+        with owned_ready_preview(command, port) as (proc, base):
             run_suites(proc, base, [SUITE_DIR / name for name in SUITES])
     except GateError as error:
         print(f"inbox browser gate failed: {error}", file=sys.stderr)

@@ -1,5 +1,3 @@
-"""Configured database path shared by the console action routes."""
-
 from pathlib import Path
 
 from .config import get_settings

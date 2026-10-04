@@ -1,4 +1,3 @@
-"""Aware UTC message chronology, including historical provider offsets."""
 from datetime import datetime, timezone
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)

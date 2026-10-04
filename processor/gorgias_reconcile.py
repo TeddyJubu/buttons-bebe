@@ -132,6 +132,21 @@ def _latest_public(messages: list[dict]) -> dict | None:
                default=None)
 
 
+def _detail_page_is_missing(message: dict | None) -> bool:
+    return message is None
+
+
+def _detail_page_matches_ticket(message: dict, ticket_id: int) -> bool:
+    return message.get("ticket_id") == ticket_id
+
+
+def _detail_page_lags_summary(message: dict, ticket: dict) -> bool:
+    return (
+        utc_microseconds(message.get("created_datetime"))
+        < utc_microseconds(ticket["last_received_message_datetime"])
+    )
+
+
 def _event(ticket: dict, message: dict, tenant: str) -> tuple[dict, str] | None:
     """Build a bounded canonical intake from observed provider data."""
     if message.get("from_agent") is not False or type(message.get("id")) is not int:
@@ -210,7 +225,6 @@ async def reconcile_page(db_path: Path, tenant: str, position: SweepPosition,
                          *, client_factory=ReadOnlyMCP, max_details: int = MAX_DETAILS,
                          max_active_jobs: int = MAX_ACTIVE_JOBS,
                          now: float | None = None) -> tuple[str | None, int]:
-    """Give a captured page at most five detail turns, preserving deferred work."""
     db = Database(db_path)
     active_rows = await db.fetch(
         "SELECT COUNT(*) AS n FROM job_queue WHERE is_customer_message=1 AND status IN ('pending','processing')",
@@ -269,17 +283,17 @@ async def reconcile_page(db_path: Path, tenant: str, position: SweepPosition,
                           ticket_id=ticket["id"], error=type(exc).__name__)
                 continue
             latest = _latest_public(messages)
-            if latest is None:
-                continue  # Incomplete page: retry after Gorgias catches up.
-            if latest.get("ticket_id") != ticket["id"]:
-                continue  # Never attribute another ticket's message to this customer.
+            if _detail_page_is_missing(latest):
+                continue
+            if not _detail_page_matches_ticket(latest, ticket["id"]):
+                continue
             if latest.get("from_agent") is True:
                 await _mark_seen(db, ticket, "agent_replied")
                 continue
             if latest.get("from_agent") is not False:
                 continue
-            if utc_microseconds(latest.get("created_datetime")) < utc_microseconds(ticket["last_received_message_datetime"]):
-                continue  # The ticket summary is ahead of the message page.
+            if _detail_page_lags_summary(latest, ticket):
+                continue
             normalized = _event(ticket, latest, tenant)
             if normalized is None:
                 await _mark_seen(db, ticket, "content_unavailable")

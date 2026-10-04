@@ -1,4 +1,3 @@
-"""Synthetic permission and authenticated rewrite launch checks."""
 import itertools
 import json
 import os

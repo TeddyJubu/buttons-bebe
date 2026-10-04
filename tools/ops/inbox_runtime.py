@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Inbox 1 is retired. Use deploy/cd/README.md for active Inbox source recovery."""
 import argparse
 
 

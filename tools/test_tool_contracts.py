@@ -165,8 +165,6 @@ class DemoReleaseGateTests(unittest.TestCase):
             encoding="utf-8",
         )
         node_path = directory / "node"
-        # `node -e` is the browser-dependency preflight; the gate reads node's
-        # TAP summary to reject skipped browser tests.
         node_path.write_text(
             "#!/bin/sh\n"
             f"[ \"$1\" = -e ] && exit {0 if browser_ready else 1}\n"

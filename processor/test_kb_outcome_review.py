@@ -1,4 +1,3 @@
-"""Synthetic authenticated retrieval gaps through the persisted review contract."""
 import json
 import unittest
 from unittest.mock import patch

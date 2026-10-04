@@ -147,7 +147,6 @@ def active_notices(now: datetime | None = None) -> list[dict]:
 
 
 def active_notice_snapshot(now: datetime | None = None) -> list[dict]:
-    """Read one validated board at one time. Only a missing file is empty."""
     now = now or _now()
     try:
         items = _read_items(strict=True)

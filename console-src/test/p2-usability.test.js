@@ -5,8 +5,7 @@ const { chromium } = require('playwright');
 
 const source = readFileSync(new URL('../index.html', `file://${__filename}`), 'utf8');
 const title = 'Intent 1 — First-time customer asks for help choosing between two sizes for a winter coat';
-// Deliberately unlike the historical draft totals below (80 + 10 + 2 = 92).
-const generationSucceeded = 37;
+const intentionallyMismatchedGenerationSuccessCount = 37;
 
 async function openConsole(t, width = 1340) {
   const browser = await chromium.launch({ headless: true });
@@ -17,7 +16,10 @@ async function openConsole(t, width = 1340) {
     const req = route.request(), path = new URL(req.url()).pathname;
     if (req.method() !== 'GET') { writes.push(path); return route.abort(); }
     const data = {
-      '/console/api/stats': { drafted: 80, sensitive_draft: 10, no_kb_match: 2, generation_succeeded: generationSucceeded, owner_alerts_need_attention: 51 },
+      '/console/api/stats': {
+        drafted: 80, sensitive_draft: 10, no_kb_match: 2,
+        generation_succeeded: intentionallyMismatchedGenerationSuccessCount, owner_alerts_need_attention: 51,
+      },
       '/console/api/tickets': [], '/console/api/learning': {}, '/console/api/ops': { status: 'missing' },
       '/console/kbapi/health': { ok: true, folders: {}, products: {} },
       '/console/waapi/status': { state: 'connected', owner: '15555550100@s.whatsapp.net', notify: { mode: 'linked', number: '' } },
@@ -52,7 +54,7 @@ test('UI-05: completed generations show the recorded success counter, not pendin
   const fixture = await openConsole(t);
   const kpi = fixture.page.locator('.kpi').filter({ hasText: 'AI generations completed' });
   const text = await kpi.innerText();
-  assert.equal((await kpi.locator('.v').innerText()).replace(/\s/g, ''), String(generationSucceeded));
+  assert.equal((await kpi.locator('.v').innerText()).replace(/\s/g, ''), String(intentionallyMismatchedGenerationSuccessCount));
   assert.match(text, /recorded successful attempts/);
   assert.doesNotMatch(text, /ready for review/i);
 });

@@ -1,4 +1,3 @@
-"""Precise UTC chronology on real synthetic SQLite connections."""
 import json
 import tempfile
 import unittest
