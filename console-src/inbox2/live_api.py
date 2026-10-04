@@ -105,6 +105,10 @@ def init_db():
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, updated REAL, payload TEXT, generation TEXT)')
         db.execute('CREATE INDEX IF NOT EXISTS ticket_updated ON tickets(updated DESC,id)')
+        db.execute("CREATE INDEX IF NOT EXISTS ticket_category_updated ON tickets(coalesce(json_extract(payload,'$.trashed'),0),coalesce(json_extract(payload,'$.spam'),0),updated DESC,id)")
+        db.execute("CREATE INDEX IF NOT EXISTS ticket_category_status_updated ON tickets(coalesce(json_extract(payload,'$.trashed'),0),coalesce(json_extract(payload,'$.spam'),0),json_extract(payload,'$.status'),updated DESC,id)")
+        for key in ('spam','trash','snoozed'):
+            db.execute("CREATE INDEX IF NOT EXISTS ticket_available_"+key+" ON tickets(id) WHERE json_extract(payload,'$.categoryAvailability."+key+"')=1")
         db.execute('CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT)')
         db.execute("INSERT OR IGNORE INTO meta VALUES(1, '{}')")
     with closing(customer_details.database()) as db, db:
@@ -443,9 +447,8 @@ def list_tickets(args):
         total=db.execute('SELECT count(*) FROM tickets'+where,params).fetchone()[0]
         rows=db.execute('SELECT payload FROM tickets'+where+' ORDER BY updated '+direction+',id LIMIT ? OFFSET ?',
                         (*params,args['limit'],args['offset'])).fetchall()
+        availability={key:bool(db.execute("SELECT EXISTS(SELECT 1 FROM tickets WHERE json_extract(payload,'$.categoryAvailability."+key+"')=1)").fetchone()[0]) for key in ('spam','trash','snoozed')}
     stamp=meta.get('generatedAt') or meta.get('lastPageAt')
-    with closing(database()) as db:
-        availability={key:bool(db.execute("SELECT count(*) FROM tickets WHERE json_extract(payload,?)=1",('$.categoryAvailability.'+key,)).fetchone()[0]) for key in ('spam','trash','snoozed')}
     return {'ok':True,'source':'gorgias_api','tickets':[json.loads(row[0]) for row in rows],'total':total,
             'operatorEmail':OPERATOR_EMAIL,'categoryAvailability':{**availability,'assigned':bool(OPERATOR_EMAIL)},
             'nextOffset':args['offset']+args['limit'] if args['offset']+args['limit']<total else None,
