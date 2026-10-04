@@ -268,12 +268,14 @@ def sync_once(worker):
 
 def sync_loop(worker):
     delay=30
+    quick_retry_available=True
     try:
         while not worker.stop.is_set():
             try:
                 sync_once(worker)
                 if worker.stop.is_set(): break
                 delay=30
+                quick_retry_available=True
                 worker.update('sleeping')
             except Cancelled:
                 break
@@ -286,7 +288,8 @@ def sync_loop(worker):
                 except Exception:
                     worker.update('writing', metadata_error=True)
                     logging.getLogger('inbox').warning('Sync error metadata could not be stored')
-                delay=min(delay*2,300)
+                delay=5 if quick_retry_available else min(max(delay,30)*2,300)
+                quick_retry_available=False
                 worker.update('backoff')
             worker.stop.wait(delay)
     finally:

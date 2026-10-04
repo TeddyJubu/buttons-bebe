@@ -162,7 +162,7 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
         self.assertIn('start buttonsbebe-inbox-projection.timer', calls)
         self.assertIn('buttonsbebe-inbox-projection.timer', json.loads((self.root / 'active.json').read_text()))
 
-    def projection_fixture(self, fail_export=False, fail_ready=False, readiness=None):
+    def projection_fixture(self, fail_export=False, fail_ready=False, readiness=None, recover_after=None):
         self.write(self.root / 'active.json', json.dumps([
             'buttonsbebe-webhook','helpdesk-inbox2','buttonsbebe-inbox-projection.timer']))
         self.write(self.bin / 'curl', """#!/usr/bin/env python3
@@ -177,9 +177,14 @@ elif url.endswith(':8767/ready'):
  if (root/'live/webhook/app.py').read_text()=='new code':
   if READINESS is not None:payload=READINESS
   if FAIL_READY:payload['status']='degraded';payload['checks']['projection']='stale'
+  if RECOVER_AFTER is not None:
+   elapsed=int((root/'elapsed').read_text()) if (root/'elapsed').exists() else 0
+   with (root/'calls').open('a') as out:out.write('inbox-ready-at '+str(elapsed)+'\\n')
+   if elapsed<RECOVER_AFTER:payload['status']='degraded';payload['checks']['worker']='error'
  print(json.dumps(payload))
  if FAIL_READY and (root/'live/webhook/app.py').read_text()=='new code':sys.exit(22)
-""".replace('FAIL_READY',repr(fail_ready)).replace('READINESS',repr(readiness)))
+""".replace('FAIL_READY',repr(fail_ready)).replace('READINESS',repr(readiness))
+    .replace('RECOVER_AFTER',repr(recover_after)))
         script=(self.bin/'systemctl').read_text()
         script=script.replace("if verb=='start':", """if verb=='start' and name=='buttonsbebe-inbox-projection.service':
  if FAIL_EXPORT and (root/'live/webhook/app.py').read_text()=='new code':sys.exit(1)
@@ -197,6 +202,29 @@ if verb=='start':""".replace('FAIL_EXPORT',repr(fail_export)))
         self.assertLess(calls.index('probe http://127.0.0.1:8000/ready'),calls.index('start buttonsbebe-inbox-projection.service'))
         self.assertLess(calls.index('start buttonsbebe-inbox-projection.service'),calls.index('probe http://127.0.0.1:8767/ready'))
         self.assertLess(calls.index('probe http://127.0.0.1:8767/ready'),calls.index('start buttonsbebe-inbox-projection.timer'))
+
+    def test_first_sync_failure_recovers_within_receiver_wait_without_rollback(self):
+        self.projection_fixture(recover_after=5)
+        receiver=(self.root/'receiver.sh').read_text().replace(
+            'readonly readiness_attempts=1','readonly readiness_attempts=3')
+        self.write(self.root/'receiver.sh',receiver)
+        self.write(self.bin/'sleep','''#!/usr/bin/env python3
+import os,pathlib,sys
+root=pathlib.Path(os.environ['HARNESS_ROOT']);clock=root/'elapsed'
+elapsed=int(clock.read_text()) if clock.exists() else 0
+delay=int(sys.argv[1]);clock.write_text(str(elapsed+delay))
+with (root/'calls').open('a') as out:out.write('wait '+str(delay)+'\\n')
+''')
+        result=self.run_receiver()
+        self.assertEqual(result.returncode,0,result.stderr.decode())
+        self.assertNotIn(b'Prior source restored',result.stderr)
+        calls=(self.root/'calls').read_text().splitlines()
+        self.assertEqual([line for line in calls if line.startswith('inbox-ready-at ')],
+                         ['inbox-ready-at 0','inbox-ready-at 3','inbox-ready-at 6'])
+        self.assertEqual([line for line in calls if line.startswith('wait ')],['wait 3','wait 3'])
+        self.assertEqual((self.live/'webhook/app.py').read_text(),'new code')
+        self.assertEqual(json.loads((self.root/'manifest.json').read_text())['commit'],self.sha)
+        self.assertIn('buttonsbebe-inbox-projection.timer',json.loads((self.root/'active.json').read_text()))
 
     def test_failed_projection_export_rolls_back_source_without_rewinding_data(self):
         self.projection_fixture(fail_export=True)

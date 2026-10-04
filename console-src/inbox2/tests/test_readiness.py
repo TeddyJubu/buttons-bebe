@@ -151,6 +151,30 @@ class ReadinessTests(unittest.TestCase):
         self.worker.phase_since=time.monotonic()-299
         self.assertEqual(self.client.get('/ready').json()['checks']['worker'],'error')
 
+    def test_first_sync_failure_retries_in_five_seconds_and_stays_unready_until_success(self):
+        client=MagicMock();client.__enter__.return_value=client
+        observations=[];reads=[]
+        def read(_tool,_arguments):
+            reads.append(target.assess_readiness()['checks']['worker'])
+            if len(reads)==1:raise target.Unavailable()
+            return {'data':[]}
+        def wait(delay):
+            response=self.client.get('/ready')
+            observations.append((delay,response.status_code,response.json()['checks']['worker']))
+            if delay==30:self.worker.stop.set()
+            return self.worker.stop.is_set()
+        client.call.side_effect=read
+        with patch.object(target,'MCP',return_value=client),\
+             patch.object(self.worker.stop,'wait',side_effect=wait):
+            target.sync_loop(self.worker)
+        self.assertEqual(observations,[(5,503,'error'),(30,200,'ok')])
+        self.assertEqual(reads,['ok','error'])
+        self.assertEqual(client.call.call_count,2)
+        self.assertFalse(self.worker.error)
+        self.assertIsNotNone(self.worker.success_at)
+        with closing(sqlite3.connect(self.live)) as db:
+            self.assertFalse(target.get_meta(db)['error'])
+
 
 class WorkerTests(unittest.TestCase):
     def setUp(self):
@@ -201,6 +225,45 @@ class WorkerTests(unittest.TestCase):
         with closing(target.database()) as db:
             self.assertFalse(target.get_meta(db)['error'])
             self.assertEqual(db.execute('SELECT count(*) FROM tickets').fetchone()[0],1)
+
+    def test_repeated_failures_get_only_one_quick_retry_before_capped_backoff(self):
+        worker=target.Worker();delays=[]
+        with closing(target.database()) as db:before=target.get_meta(db)['lastCompletedAt']
+        def wait(delay):
+            delays.append(delay)
+            self.assertTrue(worker.error)
+            if len(delays)==6:worker.stop.set()
+            return worker.stop.is_set()
+        with patch.object(target,'sync_once',side_effect=target.Unavailable) as sync,\
+             patch.object(worker.stop,'wait',side_effect=wait):
+            target.sync_loop(worker)
+        self.assertEqual(delays,[5,60,120,240,300,300])
+        self.assertEqual(sync.call_count,6)
+        self.assertIsNone(worker.success_at)
+        with closing(target.database()) as db:
+            meta=target.get_meta(db)
+        self.assertTrue(meta['error'])
+        self.assertEqual(meta['lastCompletedAt'],before)
+
+    def test_success_resets_the_quick_retry_for_the_next_failure_streak(self):
+        worker=target.Worker();delays=[];calls=[];original_sync=target.sync_once
+        client=MagicMock();client.__enter__.return_value=client;client.call.return_value={'data':[]}
+        def sync(state):
+            calls.append(state.snapshot())
+            if len(calls)!=3:raise target.Unavailable()
+            original_sync(state)
+        def wait(delay):
+            delays.append(delay)
+            if len(delays)==5:worker.stop.set()
+            return worker.stop.is_set()
+        with patch.object(target,'sync_once',side_effect=sync),patch.object(target,'MCP',return_value=client),\
+             patch.object(worker.stop,'wait',side_effect=wait):
+            target.sync_loop(worker)
+        self.assertEqual(delays,[5,60,30,5,60])
+        self.assertEqual(len(calls),5)
+        self.assertTrue(calls[2]['error'])
+        self.assertFalse(calls[3]['error'])
+        self.assertTrue(calls[4]['error'])
 
     def test_capacity_wait_is_cancelled_without_opening_transport(self):
         capacity=threading.BoundedSemaphore(1);capacity.acquire()

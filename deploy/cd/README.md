@@ -94,6 +94,20 @@ checks `storage: "ok"`, `worker: "ok"`, `ticketData: "fresh"`, `projection: "fre
 A separate read-only capability request must report `sendReply: false`.
 Static HTML, `/health`, or disabled Send alone cannot pass.
 
+Before the first source rollout on a fresh install, plan a separate bootstrap:
+start the read worker and projection exporter, let the first complete ticket
+scan finish, then verify the exact `/ready` record above. A large first scan can
+outlast the receiver's ten checks spaced three seconds apart. The receiver does
+not bootstrap an empty ticket store, and a fresh partial scan never qualifies as
+ready. Do not fabricate completion metadata or relax the check to fit this window.
+For an established installation, verify the same ready record before rollout.
+
+A failed read gets one retry after five seconds. Readiness keeps reporting the
+error until a sync completes. Consecutive failures then wait 60, 120, 240 and at
+most 300 seconds; a successful sync restores the normal 30-second interval and
+allows one quick retry for a later failure streak. A prolonged outage still fails
+the receiver's bounded checks and rolls back source.
+
 The receiver's stricter `/ready` check also runs after source rollback. Before
 installing it, establish and verify a recoverable source baseline that exposes
 this readiness contract. Otherwise restoring older source can succeed while its
