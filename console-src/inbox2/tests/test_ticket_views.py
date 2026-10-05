@@ -54,6 +54,34 @@ class TicketViewTests(unittest.TestCase):
         with closing(api.database()) as db:
             after=db.execute("SELECT payload FROM tickets WHERE id='gorgias:6'").fetchone()[0]
         self.assertEqual(after,before)
+    def test_snoozed_view_excludes_naive_and_date_only_deadlines(self):
+        new_rows = (
+            (7, '2099-01-01'),
+            (8, '2099-01-01T00:00:00'),
+            (9, '2099-01-01T06:00:00+06:00'),
+        )
+        with closing(api.database()) as db,db:
+            for ticket_id, deadline in new_rows:
+                row=api.summary({'id':ticket_id,'status':'open','snooze_datetime':deadline})
+                db.execute('INSERT INTO tickets VALUES(?,?,?,?)',
+                           (row['id'],ticket_id,json.dumps(row),'g'))
+            before={ticket_id:db.execute('SELECT payload FROM tickets WHERE id=?',
+                                         (f'gorgias:{ticket_id}',)).fetchone()[0]
+                    for ticket_id in (6,7,8,9)}
+
+        now=api.source_epoch('2026-10-05T12:00:00Z')
+        with patch.object(api.time,'time',return_value=now):
+            result=self.read(view='snoozed')
+
+        self.assertEqual([row['id'] for row in result['tickets']],['gorgias:9','gorgias:6'])
+        self.assertEqual(result['total'],2)
+        self.assertIsNone(result['nextOffset'])
+        self.assertTrue(result['categoryAvailability']['snoozed'])
+        with closing(api.database()) as db:
+            after={ticket_id:db.execute('SELECT payload FROM tickets WHERE id=?',
+                                        (f'gorgias:{ticket_id}',)).fetchone()[0]
+                   for ticket_id in (6,7,8,9)}
+        self.assertEqual(after,before)
     def test_exact_filters_counts_and_pagination(self):
         a=self.read(tag='returns',priority='high',channel='email',limit=2)
         self.assertEqual(a['total'],4);self.assertEqual(a['nextOffset'],2)

@@ -91,15 +91,14 @@ class Worker:
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def epoch(value):
-    try: return datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
-    except (ValueError, TypeError): return 0
-
-def source_epoch(value):
+    """Provider/source instants require an explicit timezone; unknown is zero."""
     if not isinstance(value,str) or not value.strip(): return 0
     try:
         parsed=datetime.fromisoformat(value.strip())
         return parsed.timestamp() if parsed.tzinfo is not None and parsed.utcoffset() is not None else 0
     except (ValueError,OverflowError,OSError): return 0
+
+source_epoch = epoch  # compatibility name; coverage and freshness share one time domain
 
 def database():
     db = sqlite3.connect(DB, timeout=10)
@@ -216,7 +215,7 @@ def summary(t):
             'fromEmail':customer.get('email') or '', 'status':t.get('status') or '',
             'gorgiasPriority':t.get('priority') or '', 'assignee':user.get('name') or team.get('name') or 'unassigned',
             'assigneeEmail':user.get('email') or '', 'assigneeTeam':team.get('name') or '',
-            'channel':t.get('channel') or '', 'updatedAt':t.get('updated_datetime') or t.get('created_datetime'),
+            'channel':t.get('channel') or '', 'updatedAt':t.get('updated_datetime'),
             'snippet':t.get('display_text') if t.get('cleanup_version') else t.get('excerpt') or '',
             'previewProvenance':{'source':t.get('display_source') or 'excerpt','truncated':bool(t.get('source_truncated',True)),'cleanupVersion':t.get('cleanup_version')}, 'tags':[x.get('name','') if isinstance(x,dict) else str(x) for x in t.get('tags') or []],
             'spam':bool(t.get('spam')), 'trashed':bool(t.get('trashed_datetime')),
@@ -265,7 +264,7 @@ def sync_once(worker):
             if full:meta['pendingFull']={'cursor':next_cursor,'generation':generation,'watermark':newest}
             set_meta(db,meta)
         worker.update('scanning', progress=True)
-        reached_old=not full and rows and all(epoch(x.get('updated_datetime') or x.get('created_datetime'))<watermark-120 for x in rows)
+        reached_old=not full and rows and all(0<epoch(x.get('updated_datetime'))<watermark-120 for x in rows)
         if not next_cursor or reached_old:
             worker.update('writing')
             with closing(database()) as db, db:
@@ -383,12 +382,17 @@ def attach_customer_details(ticket):
     return ticket
 
 def newer_summary(db,ticket):
-    """Stored summary row, and whether it carries newer activity (or same activity, newer metadata) than ticket."""
+    """Stored row, whether cache needs a fetch, and whether this candidate must be held."""
     row=db.execute('SELECT generation,payload FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
     stored=json.loads(row[1]) if row else {}
     if not isinstance(stored,dict): raise ValueError('Invalid cached ticket summary')
     mine,theirs=epoch(ticket.get('lastMessageAt')),epoch(stored.get('lastMessageAt'))
-    return row,theirs>mine,theirs>mine or (theirs==mine and epoch(stored.get('updatedAt'))>epoch(ticket.get('updatedAt')))
+    updated,stored_updated=epoch(ticket.get('updatedAt')),epoch(stored.get('updatedAt'))
+    held=mine<=0 or updated<=0 or theirs>mine or (theirs==mine and stored_updated>updated)
+    # Unverifiable stored times cannot prove a warm cache fresh. A new, fully
+    # verified provider read may repair that summary, subject to message coverage.
+    refetch=held or bool(row and (theirs<=0 or stored_updated<=0))
+    return row,refetch,held
 
 def mark_stale(ticket):
     # Keep messages readable, but block Send/rewrite/retry and Use draft in the existing UI.
@@ -399,7 +403,7 @@ def get_ticket(number):
     with DETAIL_LOCK: cached=DETAIL_CACHE.get(key)
     if cached:
         try:
-            with closing(database()) as db: stale=newer_summary(db,cached[1])[2]
+            with closing(database()) as db: stale=newer_summary(db,cached[1])[1]
         except (sqlite3.Error,ValueError,TypeError):
             # A failed freshness check may serve readable cached data, never an actionable fresh draft.
             return attach_customer_details(mark_stale(cached[1]))
@@ -427,8 +431,9 @@ def get_ticket(number):
                 for field in ('snippet','previewMessageId','previewProvenance'):
                     if field in ticket:saved[field]=ticket[field]
                 cache_summary(db,saved,row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation','')),preserve_preview=not latest)
-        # Known activity the page does not reach, or a newer synced summary, makes this detail explicitly stale.
-        if older or not public_chronology_known or (activity>0 and not covered): return mark_stale(ticket)
+        # Unknown source activity/metadata, uncovered messages, or a newer summary
+        # remain readable but cannot publish a fresh detail or actionable draft.
+        if older or not covered: return mark_stale(ticket)
         with DETAIL_LOCK:
             if len(DETAIL_CACHE)>=128: DETAIL_CACHE.pop(next(iter(DETAIL_CACHE)))
             DETAIL_CACHE[key]=(time.time(),ticket)

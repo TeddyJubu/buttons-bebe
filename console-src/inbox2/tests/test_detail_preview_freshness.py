@@ -100,7 +100,7 @@ class DetailPreviewFreshness(unittest.TestCase):
             with self.subTest(last=last,at=at):
                 out=self.detail(raw(last,'excerpt'),[{**OLD,'created_datetime':at}])
                 self.assertNotIn('previewMessageId',out)
-                self.assertEqual(out['syncStale'],bool(api.epoch(last)))         # unknown activity is not claimed stale
+                self.assertStale(out)                                        # unknown source time stays held
         self.sync(raw(T7,'New activity'))
         self.detail(raw('garbage','junk'),[OLD])                              # undated detail cannot overwrite dated row
         self.assertEqual(self.stored()[0]['snippet'],'New activity')
