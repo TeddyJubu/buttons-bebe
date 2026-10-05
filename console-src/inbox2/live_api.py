@@ -422,9 +422,11 @@ def get_ticket(number):
         activity=source_epoch(raw.get('last_message_datetime'))
         public_chronology_known=all(source_epoch(m['at'])>0 for m in ticket['messages'] if not m['internal'])
         covered=activity>0 and public_chronology_known and max((source_epoch(m['at']) for m in ticket['messages']),default=0)>=activity
-        latest=next((m for m in reversed(ticket['messages']) if not m['internal'] and m.get('body')),None) if covered else None
-        if latest:
-            ticket.update(snippet=latest['body'][:300],previewMessageId=latest['id'],previewProvenance={'source':'message','truncated':len(latest['body'])>300,'cleanupVersion':latest.get('cleanup_version')})
+        latest=next((m for m in reversed(ticket['messages']) if not m['internal']),None) if covered else None
+        if latest is not None:
+            preview_text=latest.get('current_text') if 'current_text' in latest else latest.get('body','')
+            preview_text=preview_text if isinstance(preview_text,str) else ''
+            ticket.update(snippet=preview_text[:300],previewMessageId=latest['id'],previewProvenance={'source':'message','truncated':len(preview_text)>300,'cleanupVersion':latest.get('cleanup_version')})
         with closing(database()) as db, db:
             db.execute('BEGIN IMMEDIATE')  # recheck the row and publish atomically against a concurrent sync
             row,stale,older=newer_summary(db,ticket)
@@ -432,7 +434,7 @@ def get_ticket(number):
                 saved=summary(raw)
                 for field in ('snippet','previewMessageId','previewProvenance'):
                     if field in ticket:saved[field]=ticket[field]
-                cache_summary(db,saved,row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation','')),preserve_preview=not latest)
+                cache_summary(db,saved,row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation','')),preserve_preview=latest is None)
         # Unknown source activity/metadata, uncovered messages, or a newer summary
         # remain readable but cannot publish a fresh detail or actionable draft.
         if older or not covered: return mark_stale(ticket)
