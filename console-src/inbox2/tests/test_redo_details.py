@@ -326,6 +326,73 @@ class RedoTests(unittest.TestCase):
         self.assertEqual(set(w.cache),{'4','5'});self.assertEqual(w.cache,worker.load_cache(self.snapshot))
         with closing(sqlite3.connect(self.snapshot)) as db:self.assertEqual(db.execute('SELECT count(*) FROM redo').fetchone()[0],2)
 
+    def oversized_call(self,order):
+        self.calls.append(order)
+        nested={k:'x'*200 for k in sorted(worker.NESTED_FIELDS)[:9]}
+        response={'returns':[{'id':str(n),'status':'open','order_name':'#'+order,
+            **{k:[nested.copy() for _ in range(5)] for k in worker.STRUCTURED}} for n in range(10)]}
+        self.assertLess(len(json.dumps(response).encode()),worker.MAX_RESPONSE_BYTES)
+        return response
+
+    def test_oversized_ticket_retains_identity_bound_unavailable_backoff(self):
+        orders=('#10312345','#10312346','#10312347');self.attach(orders)
+        w=worker.Worker(self.snapshot,call=self.oversized_call);rows=worker.read_requests(self.queue,1001)
+        with self.assertLogs(level='WARNING') as logs:self.assertEqual(w.process(rows,1001),1)
+        self.assertEqual(logs.output,['WARNING:root:Redo ticket observation exceeds snapshot budget'])
+        self.assertEqual(len(self.calls),3);self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        payload=w.cache['gorgias:1']['payload'];request=rows[0][0]
+        self.assertEqual(payload['requestKey'],details.request_key(request));self.assertEqual(payload['email'],EMAIL)
+        self.assertEqual(set(payload['orders']),{'10312345','10312346','10312347'})
+        self.assertTrue(all(o['status']=='failed' and 'returns' not in o for o in payload['orders'].values()))
+        self.assertEqual((payload['refreshError'],payload['retryAt'],payload['fetchedAtEpoch']),(True,1031,0))
+        self.assertLess(worker.serialized_size('gorgias:1',w.cache['gorgias:1']),1024)
+        self.assertEqual(w.process(rows,1002),0);self.assertEqual(len(self.calls),3)
+        self.assertEqual(self.attach(orders,now=1002)['status'],'unavailable')
+        self.assertEqual(self.attach(orders,email='other@example.com',now=1002)['status'],'pending')
+        self.assertEqual(self.attach(orders,now=1032)['status'],'unavailable')
+        with self.assertLogs(level='WARNING'):self.assertEqual(w.process(worker.read_requests(self.queue,1033),1033),1)
+        self.assertEqual(len(self.calls),6);self.assertEqual(w.cache['gorgias:1']['payload']['retryAt'],1093)
+        self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+
+    def test_oversized_marker_publication_failure_commits_no_fresh_memory(self):
+        orders=('#10312345','#10312346','#10312347');self.response='echo';self.attach(orders);w=self.run_worker()
+        old=copy.deepcopy(w.cache);disk=self.snapshot.read_bytes();self.attach(orders,now=3000)
+        rows=worker.read_requests(self.queue,3001);w.call=self.oversized_call;attempts=[]
+        def publish(cache,path):
+            attempts.append(True)
+            if len(attempts)==1:raise OSError('synthetic marker publication failure')
+            worker.publish(cache,path)
+        w.publish=publish
+        with self.assertLogs(level='WARNING'),self.assertRaises(OSError):w.process(rows,3001)
+        self.assertEqual(w.cache,old);self.assertEqual(self.snapshot.read_bytes(),disk)
+        with self.assertLogs(level='WARNING'):self.assertEqual(w.process(rows,3002),1)
+        self.assertEqual(len(attempts),2);self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        self.assertEqual(self.attach(orders,now=3003)['status'],'unavailable')
+
+    def test_startup_trim_storage_failure_survives_and_retries_persisted_cache(self):
+        for error in (OSError,sqlite3.Error):
+            with self.subTest(error=error):
+                self.snapshot.unlink(missing_ok=True)
+                with closing(sqlite3.connect(self.snapshot)) as db:
+                    db.execute('CREATE TABLE redo(ticket_id TEXT PRIMARY KEY,payload TEXT,updated_at REAL)')
+                    for number in range(6):db.execute('INSERT INTO redo VALUES(?,?,?)',(str(number),json.dumps({'text':'x'*700000}),number))
+                    db.commit()
+                disk=self.snapshot.read_bytes();attempts=[]
+                def publish(cache,path):
+                    attempts.append(True)
+                    if len(attempts)<=2:raise error('synthetic private storage error')
+                    worker.publish(cache,path)
+                with self.assertLogs(level='WARNING') as logs:w=worker.Worker(self.snapshot,call=self.call,publish=publish)
+                self.assertEqual(logs.output,['WARNING:root:Redo snapshot startup trim deferred'])
+                self.assertTrue(w.trim_pending);self.assertEqual(set(w.cache),{'4','5'})
+                old=copy.deepcopy(w.cache);self.assertEqual(self.snapshot.read_bytes(),disk)
+                with self.assertRaises(error):w.process([],1001)
+                self.assertTrue(w.trim_pending);self.assertEqual(w.cache,old);self.assertEqual(self.snapshot.read_bytes(),disk)
+                self.assertEqual(w.process([],1002),0);self.assertFalse(w.trim_pending)
+                self.assertEqual(len(attempts),3);self.assertEqual(self.calls,[])
+                self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+                with closing(sqlite3.connect(self.snapshot)) as db:self.assertEqual(db.execute('SELECT count(*) FROM redo').fetchone()[0],2)
+
     def test_stop_between_orders_discards_incomplete_refresh(self):
         orders=('#10312345','#10312346','#10312347');self.response='echo';self.attach(orders);w=self.run_worker()
         old=copy.deepcopy(w.cache);disk=self.snapshot.read_bytes();self.attach(orders,now=3000);self.calls.clear()

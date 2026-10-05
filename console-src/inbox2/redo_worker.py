@@ -363,10 +363,21 @@ class Worker:
         destination = SNAPSHOT if destination is None else destination
         self.destination, self.call, self.publish = destination, call, publish
         cache,trimmed=_load_cache(destination)
-        if trimmed: self.publish(cache,self.destination)
+        self.trim_pending=trimmed
+        if trimmed:
+            try:
+                self.publish(cache,self.destination)
+                self.trim_pending=False
+            except (sqlite3.Error,OSError):
+                # These bounded entries were already persisted; no new result is claimed.
+                logging.warning('Redo snapshot startup trim deferred')
         self.cache, self.window_at, self.lookups = cache, 0, 0
 
     def process(self, requests, now=None):
+        if self.trim_pending and not STOP.is_set():
+            # main catches transient storage errors and retries without losing this worker.
+            self.publish(self.cache,self.destination)
+            self.trim_pending=False
         now = time.time() if now is None else now
         if now - self.window_at >= 60:
             self.window_at, self.lookups = now, 0
@@ -406,7 +417,17 @@ class Worker:
                                fetchedAt=old.get('fetchedAt'), fetchedAtEpoch=old.get('fetchedAtEpoch', 0))
             else:
                 payload.update(fetchedAt=datetime.fromtimestamp(now, timezone.utc).isoformat(), fetchedAtEpoch=now)
-            working[request['ticketId']] = {'payload': payload, 'updated_at': now}
+            entry={'payload':payload,'updated_at':now}
+            if serialized_size(request['ticketId'],entry)>MAX_CACHE_BYTES:
+                # Retain identity-bound failure/backoff, never a forged empty observation.
+                failures=min(old.get('failures',0)+1,5)
+                payload={'requestKey':key,'email':request['email'],'orders':{
+                    order:{'status':'failed','refreshFailedAt':now} for order in request['orders']},
+                    'attemptedAt':now,'refreshError':True,'failures':failures,
+                    'retryAt':now+min(30*2**(failures-1),300),'fetchedAt':None,'fetchedAtEpoch':0}
+                entry={'payload':payload,'updated_at':now}
+                logging.warning('Redo ticket observation exceeds snapshot budget')
+            working[request['ticketId']] = entry
             working=bounded_cache(working)
             completed += 1
         if completed:
