@@ -591,6 +591,7 @@ class ShopRailTests(unittest.TestCase):
         malformed = {
             'customers_connection_list': {'customers': [{'nodes': []}]},
             'customer_nodes_scalar': {'customers': {'nodes': 7}},
+            'customer_nodes_object': {'customers': {'nodes': {'id': 'invalid'}}},
             'order_node_scalar': {'customers': {'nodes': []}, 'orders': {'nodes': [7]}},
         }
         for name, data in malformed.items():

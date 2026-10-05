@@ -480,7 +480,7 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
                 token = mint_fn(env)
             try:
                 payload, _ = lookup_ticket(env, token, ticket, caches)
-            except (AttributeError, TypeError):
+            except (AttributeError, TypeError, KeyError):
                 # Malformed nested provider data must still publish the filtered
                 # fallback rather than leave rejected old-store data on disk.
                 raise RuntimeError('Shopify response shape invalid') from None
