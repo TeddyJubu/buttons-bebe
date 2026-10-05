@@ -192,10 +192,30 @@ class QualityAlertRuleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(result["sensitive"])
                 self.assertFalse(result["should_notify_owner"])
 
+    def test_defect_floors_keep_customer_reports_with_promo_or_policy_words(self):
+        for report in (
+            'my dress shrank after washing.',
+            'I received the denim and it is way darker than the photos.',
+        ):
+            for prefix in (
+                'I used the 20% off code and ',
+                'The email said five working days, but ',
+            ):
+                for signoff in ('Thanks!', 'Kind regards,\nSarah'):
+                    body = prefix + report + '\n\n' + signoff
+                    with self.subTest(body=body):
+                        result = classify({'ticket_subject': 'Re: Your order', 'message_text': body})
+                        self.assertEqual(result['priority'], 'high')
+                        self.assertTrue(result['sensitive'])
+                        self.assertTrue(result['should_draft'])
+                        self.assertTrue(result['should_notify_owner'])
+
     def test_quoted_defects_do_not_create_fresh_alerts(self):
         quoted = (
             "I washed my outfit and it shrank.",
             "I received the dress and it is much darker than the photos.",
+            "I used the 20% off code and my dress shrank after washing.",
+            "The email said five working days, but I received the denim and it is way darker than the photos.",
         )
         for current in ("Thanks!", "How should I wash this outfit?"):
             for old in quoted:

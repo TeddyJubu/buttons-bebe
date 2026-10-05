@@ -154,7 +154,7 @@ def classify(
     high_intent_hit = bool(intent_names & _data._HIGH_INTENTS)
     followup_match = _matching._search_any(main_views, _patterns._FOLLOWUP_PATTERN)
     post_wash_shrinkage_match = None
-    defect_text = _views._strip_quoted_history(customer_message_text)
+    defect_text = _views._unquoted_customer_text(raw_message)
     for match in _patterns._POST_WASH_SHRINKAGE_RE.finditer(defect_text):
         clause_prefix = re.split(
             r"[.!?;,]", defect_text[:match.start()]
