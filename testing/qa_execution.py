@@ -102,6 +102,9 @@ class ProcReader:
                 os.close(fd)
             raise
 
+    def start_identity(self, pid):
+        return self._state(pid)
+
     def confirm_image(self, pid, image):
         start = self._state(pid)
         try:
@@ -192,6 +195,13 @@ class _Observer:
             raise _Failure("invalid_child_pid")
         self.pid = child.pid
         self.evidence["pid"] = child.pid
+        # Bind start ticks synchronously before returning Popen to the helper.
+        # The helper has not yet reaped this child, so this cannot accidentally
+        # adopt a reused PID on the sampler's first asynchronous read.
+        self.start_time = self.reader.start_identity(child.pid)
+        if type(self.start_time) is not int or self.start_time <= 0:
+            raise _Failure("invalid_pid_identity")
+        self.evidence["pid_start_ticks"] = self.start_time
         self.thread = threading.Thread(target=self._sample,
             name=f"qa-child-image-observer-{child.pid}", daemon=True)
         self.thread.start()
@@ -203,9 +213,6 @@ class _Observer:
                 image = self.reader.open_image(self.pid)
                 owned = True
                 try:
-                    if self.start_time is None:
-                        self.start_time = image.process_start
-                        self.evidence["pid_start_ticks"] = image.process_start
                     if image.process_start != self.start_time:
                         raise _Failure("pid_identity_changed")
                     role, normalized = _path_role(image.path, self.selected, self.home)
@@ -331,8 +338,8 @@ def run_observed(helper, command, *, timeout, env, expected_sha256, private_home
                 "samples": 0, "observed_transitions": [], "effective_observed_image": None,
                 "all_exec_transitions_observed": False, "process_exit_observed": False,
                 "reader_kind": "linux_proc" if reader is None else "injected",
-                "required_effective_role": required_effective_role,
-                "expected_sha256": expected_sha256, "requested_launch_sha256": None}
+                "required_effective_role": None,
+                "expected_sha256": None, "requested_launch_sha256": None}
     if (not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
             or not isinstance(command, (list, tuple)) or not command
             or not all(isinstance(value, str) for value in command)
@@ -345,6 +352,8 @@ def run_observed(helper, command, *, timeout, env, expected_sha256, private_home
     if required_effective_role not in (None, "selected_python", "private_managed_python"):
         evidence["failure"] = "invalid_effective_role"
         raise ExecutionObservationError(evidence)
+    evidence["expected_sha256"] = expected_sha256
+    evidence["required_effective_role"] = required_effective_role
     evidence["requested_launch_sha256"] = command_digest(command)
     selected = Path(selected_python or command[0])
     if not selected.is_absolute() or str(selected) != command[0]:

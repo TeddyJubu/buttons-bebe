@@ -33,6 +33,9 @@ class Reader:
         self.alive = alive
         self.fds = []
 
+    def start_identity(self, pid):
+        return 123
+
     def open_image(self, pid):
         row = next(self.rows, self.last)
         self.last = row
@@ -213,6 +216,19 @@ class ExecutionTests(unittest.TestCase):
         with self.assertRaises(execution.ExecutionObservationError):
             self.run_case(Reader([(self.binary, str(self.binary))]))
 
+    def test_first_async_sample_cannot_adopt_a_reused_pid(self):
+        class ReusedReader(Reader):
+            def open_image(self, pid):
+                image = super().open_image(pid)
+                image.process_start = 999
+                return image
+        reader = ReusedReader([(self.binary, str(self.binary))])
+        with self.assertRaises(execution.ExecutionObservationError) as raised:
+            self.run_case(reader)
+        self.assertEqual(raised.exception.execution_evidence["pid_start_ticks"], 123)
+        self.assertEqual(raised.exception.execution_evidence["failure"], "pid_identity_changed")
+        self.assert_closed(reader)
+
     def test_malformed_pins_bounds_and_role_fail_before_popen(self):
         for options in ({"expected_sha256": None}, {"expected_sha256": 123}, {"timeout": True},
                         {"timeout": float("nan")}, {"max_images": True}, {"max_binary_bytes": 0},
@@ -227,6 +243,16 @@ class ExecutionTests(unittest.TestCase):
                     execution.run_observed(self.helper, [str(self.binary)], **arguments)
                 launch.assert_not_called()
                 self.helper.subprocess = self.original
+
+    def test_malformed_pin_or_role_not_echoed_into_failure_evidence(self):
+        fictional = "fictionalTOKEN-never-record-this-invalid-pin"
+        for changed in ({"expected_sha256": fictional}, {"required_effective_role": fictional}):
+            arguments = dict(timeout=1, env={}, expected_sha256=self.sha, private_home=self.home,
+                reader=Reader([(self.binary, str(self.binary))]))
+            arguments.update(changed)
+            with self.assertRaises(execution.ExecutionObservationError) as raised:
+                execution.run_observed(self.helper, [str(self.binary)], **arguments)
+            self.assertNotIn(fictional, json.dumps(raised.exception.execution_evidence))
 
     def test_real_helper_timeout_cleans_observer_without_replacing_exception(self):
         selected = Path(sys.executable).resolve()
