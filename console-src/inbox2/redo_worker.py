@@ -7,6 +7,9 @@ import urllib.request
 from contextlib import closing
 from datetime import datetime, timezone
 import json
+import http.client
+import math
+import socket
 import logging
 import os
 from pathlib import Path
@@ -31,6 +34,11 @@ NESTED_FIELDS = {'id', 'status', 'type', 'amount', 'refund', 'storeCredit',
                  'quantity', 'name', 'currency', 'currencyCode', 'carrier'}
 MAX_DEPTH, MAX_LIST, MAX_KEYS, MAX_STR = 3, 10, 20, 200
 MAX_RETURNS, MAX_SNAPSHOTS, MAX_LOOKUPS_PER_MINUTE = 10, 2000, 60
+# Leave room under the 128 MiB service limit for decoded responses, Python objects
+# and a staged replacement cache. Bound entire serialized entries, not fields alone.
+MAX_CACHE_BYTES = 2 * 1024 * 1024
+MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_SESSION_SECONDS = 25
 STOP = threading.Event()
 
 
@@ -43,28 +51,99 @@ CAPACITY = threading.BoundedSemaphore(1)
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
+class DeadlineConnection(http.client.HTTPConnection):
+    def __init__(self, owner, *args, **kwargs):
+        self.owner = owner
+        super().__init__(*args, **kwargs)
+
+    def connect(self):
+        super().connect()
+        with self.owner.socket_lock:
+            self.owner.sockets.append(self.sock)
+            expired = self.owner.expired.is_set()
+        if expired:
+            self.owner.abort()
+            raise RedoUnavailable()
+
+
+class DeadlineHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, owner):
+        self.owner = owner
+        super().__init__()
+
+    def http_open(self, request):
+        def connection(*args, **kwargs):
+            kwargs['timeout'] = self.owner.remaining()
+            return DeadlineConnection(self.owner, *args, **kwargs)
+        return self.do_open(connection, request)
+
+
 class MCP:
-    """Bounded JSON-RPC / SSE client to one fixed local MCP address."""
+    """One total deadline for capacity, initialize, notification, read and cleanup.
+
+    Socket shutdown at the deadline also interrupts trickled SSE/header reads;
+    per-socket inactivity timeouts alone cannot bound a complete session.
+    """
+    def __init__(self, timeout=20):
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= MAX_SESSION_SECONDS:
+            raise ValueError('Redo timeout must be positive and at most 25 seconds')
+        self.timeout = timeout
+        self.session, self.sequence = None, 0
+        self.sockets, self.socket_lock = [], threading.Lock()
+        self.expired = threading.Event()
+        self.timer = None
+        self.acquired = False
+
+    def remaining(self):
+        value = self.deadline - time.monotonic()
+        if self.expired.is_set() or value <= 0:
+            raise RedoUnavailable()
+        return value
+
+    def abort(self):
+        self.expired.set()
+        with self.socket_lock:
+            for connection in self.sockets:
+                try: connection.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
+                try: connection.close()
+                except OSError: pass
+
     def __enter__(self):
-        CAPACITY.acquire()
-        self.session = None
-        self.sequence = 0
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        self.deadline = time.monotonic() + self.timeout
+        if not CAPACITY.acquire(timeout=self.remaining()):
+            raise RedoUnavailable()
+        self.acquired = True
         try:
+            self.timer = threading.Timer(self.remaining(), self.abort)
+            self.timer.daemon = True
+            self.timer.start()
+            self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(), DeadlineHTTPHandler(self))
             self.rpc('initialize', {'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'inbox-redo-readonly','version':'1'}})
             self.rpc('notifications/initialized', {}, notification=True)
             return self
         except Exception:
-            CAPACITY.release()
+            self.finish()
             raise
+
+    def finish(self):
+        try:
+            if self.session:
+                # Only the local MCP transport session is deleted.
+                try:
+                    request=urllib.request.Request(MCP_URL, method='DELETE', headers={'Mcp-Session-Id':self.session})
+                    with self.opener.open(request,timeout=self.remaining()): pass
+                except Exception: pass
+        finally:
+            if self.timer: self.timer.cancel()
+            self.abort()
+            if self.acquired:
+                self.acquired = False
+                CAPACITY.release()
+
     def __exit__(self, *args):
-        if self.session:
-            # Deletes a local MCP transport session, never a Gorgias resource.
-            try:
-                request=urllib.request.Request(MCP_URL, method='DELETE', headers={'Mcp-Session-Id':self.session})
-                with self.opener.open(request,timeout=3): pass
-            except Exception: pass
-        CAPACITY.release()
+        self.finish()
+
     def rpc(self, method, params, notification=False):
         self.sequence += 1
         payload={'jsonrpc':'2.0','method':method,'params':params}
@@ -72,42 +151,51 @@ class MCP:
         headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2024-11-05'}
         if self.session: headers['Mcp-Session-Id']=self.session
         request=urllib.request.Request(MCP_URL, data=json.dumps(payload).encode(), headers=headers, method='POST')
-        with self.opener.open(request,timeout=25) as response:
+        with self.opener.open(request,timeout=self.remaining()) as response:
+            self.remaining()
             self.session=response.headers.get('Mcp-Session-Id',self.session)
             if notification: return {}
-            if 'text/event-stream' in response.headers.get('Content-Type',''):
-                chunks=[];size=0;result=None
-                for line in response:
-                    size+=len(line)
-                    if size>1024*1024: raise RedoUnavailable()
-                    if line.startswith(b'data:'): chunks.append(line[5:].strip())
-                    elif not line.strip() and chunks:
-                        event=json.loads(b'\n'.join(chunks));chunks=[]
-                        if event.get('id')==self.sequence: result=event;break
-                if result is None: raise RedoUnavailable()
-            else:
-                raw=response.read(1024*1024+1)
-                if len(raw)>1024*1024: raise RedoUnavailable()
-                result=json.loads(raw)
-        if result.get('error'): raise RedoUnavailable()
+            size, body, lines, result = 0, bytearray(), [], None
+            sse = 'text/event-stream' in response.headers.get('Content-Type','')
+            while True:
+                self.remaining()
+                chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - size))
+                size += len(chunk)
+                if size > MAX_RESPONSE_BYTES: raise RedoUnavailable()
+                if not chunk: break
+                body.extend(chunk)
+                if sse:
+                    while b'\n' in body:
+                        line, _, rest = body.partition(b'\n'); body = bytearray(rest)
+                        if line.startswith(b'data:'): lines.append(line[5:].strip())
+                        elif not line.strip() and lines:
+                            event=json.loads(b'\n'.join(lines));lines=[]
+                            if isinstance(event,dict) and event.get('id')==self.sequence:
+                                result=event;break
+                    if result is not None: break
+            self.remaining()
+            if not sse: result=json.loads(body)
+        if not isinstance(result,dict) or result.get('jsonrpc')!='2.0' or result.get('id')!=self.sequence or result.get('error'):
+            raise RedoUnavailable()
         return result.get('result',{})
+
     def call(self, tool, args):
         if tool not in {TOOL}: raise RedoUnavailable()
         result=self.rpc('tools/call', {'name':tool,'arguments':args})
-        if result.get('isError'): raise RedoUnavailable()
+        if not isinstance(result,dict) or result.get('isError'): raise RedoUnavailable()
         data=result.get('structuredContent')
         if not isinstance(data,dict):
             data=next((json.loads(c['text']) for c in result.get('content',[]) if c.get('type')=='text'),None)
-        if not isinstance(data,dict): raise RedoUnavailable()
-        if data.get('error'):
-            if '404' in str(data['error']) or '410' in str(data['error']): raise RedoUnavailable()
-            raise RedoUnavailable()
+        if not isinstance(data,dict) or data.get('error'): raise RedoUnavailable()
         return data
 
 
 def call_mcp(order_name, timeout=20):
-    with MCP() as client:
-        return client.call(TOOL, {'order_name': order_name})
+    try:
+        with MCP(timeout=timeout) as client:
+            return client.call(TOOL, {'order_name': order_name})
+    except (OSError, ValueError, http.client.HTTPException) as error:
+        raise RedoUnavailable() from error
 
 
 def order_digits(value):
@@ -136,6 +224,12 @@ def bounded(value, depth=0):
     return None
 
 
+def _has_observed_value(value):
+    if isinstance(value, dict): return any(_has_observed_value(v) for v in value.values())
+    if isinstance(value, list): return any(_has_observed_value(v) for v in value)
+    return value is not None
+
+
 def summarize(order, data, now):
     """Keep only allowlisted Redo fields for returns that name this exact order."""
     if not isinstance(data, dict) or 'error' in data or not isinstance(data.get('returns'), list):
@@ -147,7 +241,8 @@ def summarize(order, data, now):
             continue
         kept = {k: bounded(item[k]) for k in FIELDS if isinstance(item.get(k), (str, int, float, bool))}
         kept.update({k: bounded(item[k]) for k in STRUCTURED if isinstance(item.get(k), (dict, list))})
-        kept['structuredFieldsUnavailable'] = [k for k in STRUCTURED if k in item and not kept.get(k)]
+        kept['structuredFieldsUnavailable'] = [k for k in STRUCTURED if k in item and
+            (k not in kept or (bool(item[k]) and not _has_observed_value(kept[k])))]
         kept['missing'] = [k for k in FIELDS + STRUCTURED if k not in kept]
         returns.append(kept)
     # Only rejected returns means Redo answered about other identities: not a clean empty.
@@ -175,64 +270,122 @@ def read_requests(path=None, now=None):
     return result
 
 
-def publish(cache, destination=None):
-    """Atomically replace the bounded snapshot (readers see old or new, never partial).
+def serialized_size(ticket_id, entry):
+    return len(json.dumps({'ticketId':ticket_id, **entry},ensure_ascii=False,separators=(',',':')).encode())
 
-    Never creates the parent: systemd StateDirectory owns it and its mode, so a
-    missing directory raises OSError instead of a world-default mkdir.
+
+def bounded_cache(cache):
+    """Newest whole entries fit both the count and aggregate UTF-8 byte budget."""
+    retained, size = {}, 0
+    for ticket_id, entry in sorted(cache.items(), key=lambda item:(item[1]['updated_at'], item[0]), reverse=True):
+        entry_size=serialized_size(ticket_id,entry)
+        if len(retained)>=MAX_SNAPSHOTS: break
+        if size+entry_size>MAX_CACHE_BYTES: continue
+        retained[ticket_id]=entry;size+=entry_size
+    return retained
+
+
+def _fsync_directory(directory):
+    fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+
+
+def publish(cache, destination=None):
+    """Atomic old/new publication, retaining the prior inode until directory fsync.
+
+    A publication failure restores the prior snapshot and does not create its
+    parent. Runtime ownership/modes remain provided by systemd StateDirectory.
     """
     destination = Path(SNAPSHOT if destination is None else destination)
     fd, name = tempfile.mkstemp(prefix='.redo-', suffix='.sqlite3', dir=destination.parent)
-    os.close(fd)
-    temporary = Path(name)
+    os.close(fd);temporary=Path(name)
+    backup=None;replaced=False;recovery_failed=False
     try:
         with closing(sqlite3.connect(temporary)) as db:
             db.execute('CREATE TABLE redo(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
-            for ticket_id, entry in sorted(cache.items(), key=lambda kv: kv[1]['updated_at'], reverse=True)[:MAX_SNAPSHOTS]:
-                db.execute('INSERT INTO redo VALUES(?,?,?)', (ticket_id, json.dumps(entry['payload']), entry['updated_at']))
+            for ticket_id,entry in bounded_cache(cache).items():
+                db.execute('INSERT INTO redo VALUES(?,?,?)',(ticket_id,json.dumps(entry['payload'],ensure_ascii=False,separators=(',',':')),entry['updated_at']))
             db.commit()
-        os.chmod(temporary, 0o640)
-        with temporary.open('rb') as handle:
-            os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        os.chmod(temporary,0o640)
+        with temporary.open('rb') as handle: os.fsync(handle.fileno())
+        if destination.exists():
+            fd,name=tempfile.mkstemp(prefix='.redo-before-',suffix='.sqlite3',dir=destination.parent)
+            os.close(fd);backup=Path(name);backup.unlink()
+            os.link(destination,backup,follow_symlinks=False)
+        os.replace(temporary,destination);replaced=True
+        _fsync_directory(destination.parent)
+    except Exception:
+        if replaced:
+            try:
+                if backup is not None: os.replace(backup,destination);backup=None
+                else: destination.unlink(missing_ok=True)
+                _fsync_directory(destination.parent)
+            except Exception:
+                recovery_failed=True  # Retain the prior protected inode for recovery.
+                raise
+        raise
     finally:
         temporary.unlink(missing_ok=True)
+        if backup is not None and not recovery_failed:
+            try: backup.unlink(missing_ok=True)
+            except OSError:
+                # The new snapshot is already durable; retain the old inode for cleanup.
+                logging.warning('Redo snapshot backup cleanup deferred')
+
+
+def _load_cache(path):
+    cache,size={},0
+    try:
+        with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=1)) as db:
+            total=db.execute('SELECT count(*) FROM redo').fetchone()[0]
+            rows=db.execute('SELECT ticket_id,payload,updated_at FROM redo WHERE length(CAST(payload AS BLOB))<=? ORDER BY updated_at DESC,ticket_id DESC LIMIT ?', (MAX_CACHE_BYTES,MAX_SNAPSHOTS))
+            for ticket_id,payload,updated_at in rows:
+                if len(payload.encode())>MAX_CACHE_BYTES: continue
+                value=json.loads(payload)
+                if not isinstance(value,dict): continue
+                entry={'payload':value,'updated_at':updated_at}
+                entry_size=serialized_size(ticket_id,entry)
+                if size+entry_size>MAX_CACHE_BYTES: continue
+                cache[ticket_id]=entry;size+=entry_size
+        return cache, len(cache)!=total
+    except (sqlite3.Error,OSError,ValueError):
+        return {},False
 
 
 def load_cache(path=None):
-    path = SNAPSHOT if path is None else path
-    try:
-        with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
-            rows = db.execute('SELECT ticket_id,payload,updated_at FROM redo').fetchall()
-        return {t: {'payload': json.loads(p), 'updated_at': u} for t, p, u in rows}
-    except (sqlite3.Error, OSError, ValueError):
-        return {}
+    return _load_cache(SNAPSHOT if path is None else path)[0]
 
 
 class Worker:
     def __init__(self, destination=None, call=call_mcp, publish=publish):
         destination = SNAPSHOT if destination is None else destination
         self.destination, self.call, self.publish = destination, call, publish
-        self.cache, self.window_at, self.lookups = load_cache(destination), 0, 0
+        cache,trimmed=_load_cache(destination)
+        if trimmed: self.publish(cache,self.destination)
+        self.cache, self.window_at, self.lookups = cache, 0, 0
 
     def process(self, requests, now=None):
         now = time.time() if now is None else now
         if now - self.window_at >= 60:
             self.window_at, self.lookups = now, 0
         completed = 0
+        working=dict(self.cache)
         for request, key, requested_at in requests:
             # Reserve the whole request so one ticket never exceeds the window.
             if STOP.is_set() or self.lookups + len(request['orders']) > MAX_LOOKUPS_PER_MINUTE:
                 break
-            old = self.cache.get(request['ticketId'], {}).get('payload', {})
+            old = working.get(request['ticketId'], {}).get('payload', {})
             if fresh(old, key, now):
                 continue
             if old.get('requestKey') != key:
                 old = {}  # never carry results across identities
             elif requested_at <= old.get('attemptedAt', 0):
                 continue
-            orders, failed = dict(old.get('orders', {})), False
+            orders, failed, interrupted = dict(old.get('orders', {})), False, False
             for order in request['orders']:
+                if STOP.is_set():
+                    interrupted=True;break
                 self.lookups += 1
                 try:
                     orders[order] = summarize(order, self.call(order), now)
@@ -244,6 +397,7 @@ class Worker:
                     orders[order] = ({**previous, 'refreshFailed': True, 'refreshFailedAt': now}
                                      if previous and previous.get('status') in ('observed', 'empty')
                                      else {'status': 'failed', 'refreshFailedAt': now})
+            if interrupted: break  # Keep prior observations; skipped orders cannot become fresh.
             payload = {'requestKey': key, 'email': request['email'], 'orders': orders, 'attemptedAt': now}
             if failed:
                 failures = min(old.get('failures', 0) + 1, 5)
@@ -251,13 +405,12 @@ class Worker:
                                fetchedAt=old.get('fetchedAt'), fetchedAtEpoch=old.get('fetchedAtEpoch', 0))
             else:
                 payload.update(fetchedAt=datetime.fromtimestamp(now, timezone.utc).isoformat(), fetchedAtEpoch=now)
-            self.cache[request['ticketId']] = {'payload': payload, 'updated_at': now}
+            working[request['ticketId']] = {'payload': payload, 'updated_at': now}
+            working=bounded_cache(working)
             completed += 1
         if completed:
-            self.publish(self.cache, self.destination)
-            # Bounded history: drop entries the snapshot no longer holds.
-            keep = sorted(self.cache.items(), key=lambda kv: kv[1]['updated_at'], reverse=True)[:MAX_SNAPSHOTS]
-            self.cache = dict(keep)
+            self.publish(working, self.destination)
+            self.cache=working
         return completed
 
 

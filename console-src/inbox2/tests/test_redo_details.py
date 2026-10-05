@@ -1,6 +1,11 @@
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import copy
+import json
+import os
+import stat
+from unittest.mock import patch
 import tempfile
 import unittest
 import sys
@@ -15,6 +20,7 @@ RETURN = {'id': 'r1', 'status': 'open', 'order_name': '#10312345', 'created_at':
 
 class RedoTests(unittest.TestCase):
     def setUp(self):
+        worker.STOP.clear();self.addCleanup(worker.STOP.clear)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.queue = Path(temp.name) / 'queue.sqlite3'
@@ -153,10 +159,13 @@ class RedoTests(unittest.TestCase):
     def test_failure_without_snapshot_is_unavailable_not_empty(self):
         self.response = ConnectionError('down')
         self.attach()
-        self.run_worker()
+        w=self.run_worker()
         self.assertEqual(self.attach(now=1002)['status'], 'unavailable')
+        self.assertEqual(len(self.calls),1)
         self.response = {'error': 'Redo API 500'}
-        self.run_worker(now=2000)
+        self.attach(now=1999)  # New request after backoff, not the old attempted timestamp.
+        self.run_worker(w,now=2000)
+        self.assertEqual(len(self.calls),2)
         self.assertEqual(self.attach(now=2001)['status'], 'unavailable')
 
     def test_failure_with_snapshot_is_stale_with_timestamp(self):
@@ -197,6 +206,132 @@ class RedoTests(unittest.TestCase):
         self.assertIn('def get_returns_for_order(order_name: str)', source)
         for field in worker.FIELDS + worker.STRUCTURED:
             self.assertIn(f'"{field}"', source)
+
+
+    def test_publish_failure_preserves_memory_disk_and_same_request_retries(self):
+        self.attach();w=self.run_worker();old=copy.deepcopy(w.cache);disk=self.snapshot.read_bytes()
+        self.response={'returns':[{**RETURN,'id':'updated'}]}
+        self.attach(now=3000);rows=worker.read_requests(self.queue,3001);attempts=[]
+        def flaky(cache,destination):
+            attempts.append(True)
+            if len(attempts)==1:raise OSError('synthetic publication failure')
+            worker.publish(cache,destination)
+        w.publish=flaky
+        with self.assertRaises(OSError):w.process(rows,3001)
+        self.assertEqual(w.cache,old);self.assertEqual(self.snapshot.read_bytes(),disk)
+        self.assertEqual(w.process(rows,3002),1);self.assertEqual(len(attempts),2)
+        self.assertEqual(len(self.calls),3)
+        self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        self.assertEqual(self.attach(now=3003)['orders']['10312345']['returns'][0]['id'],'updated')
+
+    def test_directory_fsync_failure_restores_prior_snapshot_and_memory(self):
+        self.attach();w=self.run_worker();old=copy.deepcopy(w.cache);disk=self.snapshot.read_bytes()
+        self.attach(now=3000);rows=worker.read_requests(self.queue,3001);original=worker._fsync_directory;attempts=[]
+        prior_inode=self.snapshot.stat().st_ino
+        def failure(directory):
+            attempts.append(True)
+            if len(attempts)==1:
+                self.assertNotEqual(self.snapshot.stat().st_ino,prior_inode)
+                raise OSError('synthetic directory fsync failure after replacement')
+            original(directory)
+        with patch.object(worker,'_fsync_directory',side_effect=failure):
+            with self.assertRaises(OSError):w.process(rows,3001)
+        self.assertEqual(w.cache,old);self.assertEqual(self.snapshot.read_bytes(),disk)
+        self.assertEqual(len(attempts),2);self.assertEqual(self.snapshot.stat().st_ino,prior_inode)
+        self.assertEqual(w.process(rows,3002),1);self.assertEqual(len(self.calls),3)
+
+    def test_durable_publish_backup_cleanup_failure_keeps_memory_and_disk_coherent(self):
+        self.attach();w=self.run_worker();self.response={'returns':[{**RETURN,'id':'updated'}]}
+        self.attach(now=3000);rows=worker.read_requests(self.queue,3001);original=Path.unlink;unlinks=[]
+        def unlink(path,*args,**kwargs):
+            if path.name.startswith('.redo-before-'):
+                unlinks.append(path)
+                if len(unlinks)==2:raise OSError('synthetic cleanup failure after durable publication')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'unlink',unlink),self.assertLogs(level='WARNING') as logs:
+            self.assertEqual(w.process(rows,3001),1)
+        self.assertEqual(len(unlinks),2);self.assertTrue(unlinks[-1].exists())
+        self.assertEqual(logs.output,['WARNING:root:Redo snapshot backup cleanup deferred'])
+        self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        self.assertEqual(self.attach(now=3002)['orders']['10312345']['returns'][0]['id'],'updated')
+        self.assertEqual(w.process(rows,3002),0);self.assertEqual(len(self.calls),2)
+
+    def test_restart_sql_byte_guard_excludes_unicode_row_before_python_loading(self):
+        oversized=json.dumps({'text':'é'*(worker.MAX_CACHE_BYTES//2)},ensure_ascii=False)
+        self.assertLess(len(oversized),worker.MAX_CACHE_BYTES)
+        self.assertGreater(len(oversized.encode()),worker.MAX_CACHE_BYTES)
+        with closing(sqlite3.connect(self.snapshot)) as db:
+            db.execute('CREATE TABLE redo(ticket_id TEXT PRIMARY KEY,payload TEXT,updated_at REAL)')
+            db.execute('INSERT INTO redo VALUES(?,?,?)',('too-big-unicode',oversized,10))
+            db.execute('INSERT INTO redo VALUES(?,?,?)',('valid',json.dumps({'status':'observed'}),1));db.commit()
+        original=sqlite3.connect;queries=[];loaded=[]
+        def connect(*args,**kwargs):
+            db=original(*args,**kwargs);db.set_trace_callback(queries.append)
+            def row_factory(cursor,row):
+                if len(row)==3:
+                    self.assertNotEqual(row[0],'too-big-unicode')
+                    loaded.append(row[0])
+                return row
+            db.row_factory=row_factory;return db
+        with patch.object(worker.sqlite3,'connect',side_effect=connect):cache,trimmed=worker._load_cache(self.snapshot)
+        self.assertEqual(set(cache),{'valid'});self.assertTrue(trimmed);self.assertEqual(loaded,['valid'])
+        self.assertTrue(any('length(CAST(payload AS BLOB))' in query for query in queries))
+
+    def test_snapshot_fsyncs_file_and_parent_after_replace(self):
+        seen=[];original=worker.os.fsync
+        def record(fd):seen.append(os.fstat(fd).st_mode);original(fd)
+        with patch.object(worker.os,'fsync',side_effect=record):worker.publish({},self.snapshot)
+        self.assertTrue(any(stat.S_ISREG(mode) for mode in seen))
+        self.assertTrue(any(stat.S_ISDIR(mode) for mode in seen))
+
+    def test_cache_budget_keeps_newest_whole_entries_in_memory_and_disk(self):
+        self.response='echo';w=worker.Worker(self.snapshot,call=self.call)
+        with patch.object(worker,'MAX_CACHE_BYTES',2400),patch.object(worker,'MAX_SNAPSHOTS',3):
+            for number in range(8):
+                self.attach(ticket_id=f'gorgias:{number+1}',now=1000+number)
+                rows=[row for row in worker.read_requests(self.queue,1001+number) if row[0]['ticketId']==f'gorgias:{number+1}']
+                self.assertEqual(w.process(rows,1001+number),1)
+            disk=worker.load_cache(self.snapshot)
+            self.assertEqual(w.cache,disk);self.assertEqual(set(w.cache),{'gorgias:6','gorgias:7','gorgias:8'})
+            self.assertLessEqual(sum(worker.serialized_size(k,v) for k,v in w.cache.items()),2400)
+        cache={f'gorgias:{n}':{'payload':{'text':'x'*700000},'updated_at':n} for n in range(5)}
+        retained=worker.bounded_cache(cache)
+        self.assertEqual(set(retained),{'gorgias:3','gorgias:4'})
+        self.assertLessEqual(sum(worker.serialized_size(k,v) for k,v in retained.items()),worker.MAX_CACHE_BYTES)
+
+    def test_restart_trims_legacy_rows_before_loading_oversized_payload(self):
+        with closing(sqlite3.connect(self.snapshot)) as db:
+            db.execute('CREATE TABLE redo(ticket_id TEXT PRIMARY KEY,payload TEXT,updated_at REAL)')
+            for number in range(6):db.execute('INSERT INTO redo VALUES(?,?,?)',(str(number),json.dumps({'text':'x'*700000}),number))
+            db.execute('INSERT INTO redo VALUES(?,?,?)',('too-big',json.dumps({'text':'x'*(worker.MAX_CACHE_BYTES+1)}),100))
+            db.commit()
+        sizes=[];original=worker.json.loads
+        def loaded(payload):sizes.append(len(payload.encode()));return original(payload)
+        with patch.object(worker.json,'loads',side_effect=loaded):w=worker.Worker(self.snapshot,call=self.call)
+        self.assertTrue(sizes);self.assertLessEqual(max(sizes),worker.MAX_CACHE_BYTES)
+        self.assertEqual(set(w.cache),{'4','5'});self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        with closing(sqlite3.connect(self.snapshot)) as db:self.assertEqual(db.execute('SELECT count(*) FROM redo').fetchone()[0],2)
+
+    def test_stop_between_orders_discards_incomplete_refresh(self):
+        orders=('#10312345','#10312346','#10312347');self.response='echo';self.attach(orders);w=self.run_worker()
+        old=copy.deepcopy(w.cache);disk=self.snapshot.read_bytes();self.attach(orders,now=3000);self.calls.clear()
+        original=self.call
+        def stopped(order):
+            result=original(order);worker.STOP.set();return result
+        w.call=stopped
+        self.assertEqual(w.process(worker.read_requests(self.queue,3001),3001),0)
+        self.assertEqual(self.calls,['10312345']);self.assertEqual(w.cache,old);self.assertEqual(self.snapshot.read_bytes(),disk)
+        worker.STOP.clear();w.call=original
+        self.assertEqual(w.process(worker.read_requests(self.queue,3002),3002),1)
+        self.assertEqual(self.calls,['10312345','10312345','10312346','10312347'])
+
+    def test_empty_observed_structures_are_not_unavailable_but_filtered_nonempty_are(self):
+        empty=worker.summarize('10312345',{'returns':[{**RETURN,'refunds':[],'totals':{}}]},1000)['returns'][0]
+        self.assertEqual(empty['structuredFieldsUnavailable'],[])
+        filtered=worker.summarize('10312345',{'returns':[{**RETURN,'refunds':[{'private':'hidden'}],'totals':{'unknown':'hidden'}}]},1000)['returns'][0]
+        self.assertEqual(set(filtered['structuredFieldsUnavailable']),{'refunds','totals'})
+        unsupported=worker.summarize('10312345',{'returns':[{**RETURN,'refunds':'unsupported'}]},1000)['returns'][0]
+        self.assertIn('refunds',unsupported['structuredFieldsUnavailable'])
 
 if __name__ == '__main__':
     unittest.main()
