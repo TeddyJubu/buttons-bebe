@@ -67,7 +67,9 @@ try {
   await page.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:709');
   assert.deepEqual(await visibleIds(),['gorgias:709','gorgias:710','gorgias:711','gorgias:712','gorgias:713','gorgias:714','gorgias:715','gorgias:716','gorgias:717']);
   await page.locator('[data-view="open"]').click();
-  await started;
+  let startTimer;
+  try {await Promise.race([started,new Promise((_,reject)=>{startTimer=setTimeout(()=>reject(new Error('Expected open-view list_tickets request did not start within 10 seconds.')),10000);})]);}
+  finally {clearTimeout(startTimer);}
   await page.locator('[data-view="closed"]').click();
   await page.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:999');
   releaseOpen();

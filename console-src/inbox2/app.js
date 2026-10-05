@@ -1,5 +1,5 @@
 import { icons } from './icons.js';
-import {localKeys,stateRecords,readRecords,lastMessage,readState,localTicket,matchesLocal} from './local_state.js';
+import {stateRecords,readRecords,lastMessage,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows} from './local_state.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${icons[name] || icons.info}</svg>`;
@@ -191,10 +191,17 @@ function observed(ticket, field) {
   return ticket[field] || '';
 }
 function effective(ticket, field) {return localValue(ticket,field)||observed(ticket,field);}
-function matchingLocalRows(){return (state.oldest?localRows().slice().reverse():localRows()).filter(t=>matchesLocal(t,state.view,{...state.filters,query:state.query},effective,state.operator));}
-function allRows() {return [...matchingLocalRows().slice(state.page*state.size,(state.page+1)*state.size),...state.rows];}
-function filtered() {return allRows().filter(t=>!t.localOnly&&!stateRecords(stored(keys.state,{}))[t.id]||matchesLocal(t,state.view,{...state.filters,query:t.localOnly?state.query:''},effective,state.operator));}
-function markRead(ticket,read=true) {const records=readRecords(stored(keys.read,{}));records[ticket.id]={read,message:lastMessage(ticket),activity:ticket.lastMessageAt||ticket.messages?.at(-1)?.at||ticket.updatedAt,at:Date.now()};persist(keys.read,{version:1,records});}
+function organizationRows(){return [...localRows(),...observedRows(stateRecords(stored(keys.state,{})))];}
+function matchingLocalRows(){return organizationRows().sort((a,b)=>state.oldest?String(a.updatedAt).localeCompare(String(b.updatedAt)):String(b.updatedAt).localeCompare(String(a.updatedAt))).filter(t=>matchesLocal(t,state.view,{...state.filters,query:state.query},effective,state.operator));}
+function providerRows(){const edited=new Set(observedRows(stateRecords(stored(keys.state,{}))).map(t=>t.id));return state.rows.filter(t=>!edited.has(t.id));}
+function allRows(){return [...matchingLocalRows().slice(state.page*state.size,(state.page+1)*state.size),...providerRows()];}
+function filtered(){return allRows();}
+function updateObserved(tickets){
+  const records=stateRecords(stored(keys.state,{}));let changed=false;
+  for(const ticket of tickets)if(records[ticket.id]?.observed){rememberObserved(records,ticket);changed=true;}
+  if(changed)persist(keys.state,{version:1,records});
+}
+function markRead(ticket,read=true){const records=readRecords(stored(keys.read,{}));records[ticket.id]=readMarker(ticket,read);persist(keys.read,{version:1,records});}
 function clearSelection(){state.selected.clear();}
 function updateSelection(){const visible=new Set(filtered().map(t=>t.id));for(const id of state.selected)if(!visible.has(id))state.selected.delete(id);$('#selection-count').textContent=`${state.selected.size} selected on this page`;$('#select-page').checked=visible.size>0&&state.selected.size===visible.size;$('#select-page').indeterminate=state.selected.size>0&&state.selected.size<visible.size;$('[data-action="bulk-apply"]').disabled=!state.selected.size;}
 function syncUrl(push=false) {
@@ -207,13 +214,13 @@ function age(value) {const days=Math.max(0,Math.floor((Date.now()-new Date(value
 function listRender() {
   const rows=filtered();
   const offset=state.page*state.size,page=rows;
-  $('#ticket-list').innerHTML=page.map(t=>`<div class="ticket-row-wrap"><input type="checkbox" class="row-select" data-select-ticket="${esc(t.id)}" aria-label="Select ${esc(rowTitle(t))}" ${state.selected.has(t.id)?'checked':''}><button class="ticket-row ${readState(t,readRecords(stored(keys.read,{})))?'is-read':'is-unread'}" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(t.snippet)||'No message preview'}</div><div class="row-state">${t.localOnly?'Local ticket · ':''}${readState(t,readRecords(stored(keys.read,{})))?'Read':'Unread'}${effective(t,'status')==='closed'?' · Closed':''}${localValue(t,'snooze')?' · Snoozed locally':''}</div></button></div>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
+  $('#ticket-list').innerHTML=page.map(t=>`<div class="ticket-row-wrap"><input type="checkbox" class="row-select" data-select-ticket="${esc(t.id)}" aria-label="Select ${esc(rowTitle(t))}" ${state.selected.has(t.id)?'checked':''}><button class="ticket-row ${readState(t,readRecords(stored(keys.read,{})))?'is-read':'is-unread'}" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(t.snippet)||'No message preview'}</div><div class="row-state">${t.localOnly?'Local ticket · ':t.browserOverride?`Browser changes · ${storageAvailable?'Last saved read':'Session observation'} · `:''}${readState(t,readRecords(stored(keys.read,{})))?'Read':'Unread'}${effective(t,'status')==='closed'?' · Closed':''}${localValue(t,'snooze')?' · Snoozed locally':''}</div></button></div>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
   updateSelection();
   $('#local-scope').hidden=!localRows().length&&!Object.keys(stateRecords(stored(keys.state,{}))).length;
   for(const button of document.querySelectorAll('[data-view]')) {const available=button.dataset.view==='assigned'&&!state.operator?false:state.categoryAvailability[button.dataset.view];button.disabled=available===false||available?.available===false;button.title=button.disabled?(button.dataset.view==='assigned'&&!state.operator?'Assigned to me is unavailable because the operator email is not configured.':available?.reason||'Gorgias has not supplied the fields needed for this view.'):`Show ${button.textContent.trim()} tickets`;}
-  const providerShown=rows.filter(t=>!t.localOnly).length,localShown=rows.filter(t=>t.localOnly).length;
+  const providerShown=rows.filter(t=>!t.localOnly&&!t.browserOverride).length,localShown=rows.filter(t=>t.localOnly||t.browserOverride).length;
   const count=state.loading&&!rows.length?'Loading tickets…':`Page ${state.page+1} · ${providerShown} of ${state.rows.length} loaded Gorgias shown · ${state.total.toLocaleString()} total`;
-  $('#count').textContent=`${count}${localRows().length?' · '+localShown+' local shown of '+matchingLocalRows().length+' matching in browser':''}`;
+  $('#count').textContent=`${count}${organizationRows().length?' · '+localShown+' browser rows shown of '+matchingLocalRows().length+' matching':''}`;
   $('[data-action="page-prev"]').disabled=state.page===0;
   $('[data-action="page-next"]').disabled=!state.hasNext;
   for(const button of document.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===state.view));
@@ -231,7 +238,7 @@ async function loadList(background=false){
   try{
     const result=await api('list_tickets',{view:state.view,query:state.query,...state.filters,oldest:state.oldest,limit:state.size,offset:state.page*state.size});
     if(request!==state.listRequest)return;
-    state.rows=result.tickets;state.categoryAvailability=result.categoryAvailability||{};if(result.operatorEmail)state.operator=result.operatorEmail;state.total=result.total;state.hasNext=result.nextOffset!=null||matchingLocalRows().length>(state.page+1)*state.size;state.projection=result.projection;state.loading=false;
+    state.rows=result.tickets;updateObserved(state.rows);state.categoryAvailability=result.categoryAvailability||{};if(result.operatorEmail)state.operator=result.operatorEmail;state.total=result.total;state.hasNext=result.nextOffset!=null||matchingLocalRows().length>(state.page+1)*state.size;state.projection=result.projection;state.loading=false;
     if(state.page>0&&!state.rows.length&&!allRows().length){state.page=Math.max(0,Math.ceil(Math.max(state.total,matchingLocalRows().length)/state.size)-1);return loadList();}
     listRender();
     if(!state.id){const first=filtered()[0];if(first)selectTicket(first.id,false);else $('#conversation').innerHTML='<div class="empty-state">'+(state.projection?.complete?'No tickets in this view.':'Connecting to Gorgias. Tickets will appear as they sync.')+'</div>';}
@@ -250,7 +257,7 @@ async function refreshTicket(){
       fresh.historyIncomplete=Boolean(fresh.messagesNextCursor);
     }
     const focusedAction=document.activeElement?.dataset?.action;
-    state.ticket=fresh;const row=state.rows.find(t=>t.id===id);if(row){row.lastMessageAt=fresh.lastMessageAt||fresh.messages?.at(-1)?.at||fresh.updatedAt;row.lastMessageId=lastMessage(fresh);}renderTicket();renderRail();listRender();
+    state.ticket=fresh;updateObserved([fresh]);const row=state.rows.find(t=>t.id===id);if(row){row.lastMessageAt=fresh.lastMessageAt||fresh.messages?.at(-1)?.at||fresh.updatedAt;row.lastMessageId=lastMessage(fresh);}renderTicket();renderRail();listRender();
     if(focusedAction)document.querySelector(`[data-action="${focusedAction}"]`)?.focus({preventScroll:true});
   }catch(error){if(id!==state.id||request!==state.ticketRequest)return;if(error.auth)showAuth();else if(error.gone){state.ticket=null;$('#conversation').innerHTML='<div class="empty-state">This ticket is no longer available in Gorgias.</div>';$('#customer-rail').innerHTML='';}else{const status=$('#live-ticket-sync');if(status)status.textContent='Refresh delayed · Showing the last successful read';}}
   finally{refreshingTicket=false;}
@@ -369,7 +376,7 @@ async function selectTicket(id,push=true,focus=false) {
     if(id.startsWith('local:')&&!local)throw new Error('This local ticket is unavailable in this browser.');
     const result=local?{ticket:local}:await api('get_ticket',{ticketId:id});
     if(request!==state.ticketRequest)return;
-    state.ticket=result.ticket;markRead(state.ticket);
+    state.ticket=result.ticket;updateObserved([state.ticket]);markRead(state.ticket);
     renderTicket();renderRail();listRender();
     document.title=`${ticketTitle(state.ticket)} · Buttons Bebe Support`;
     if(focus)$('#conversation').focus({preventScroll:true});
@@ -379,7 +386,7 @@ async function selectTicket(id,push=true,focus=false) {
     if(error.auth)showAuth();else $('#conversation').innerHTML=`<div class="empty-state is-error"><h2>Couldn’t load this ticket</h2><p>${esc(error.message)}</p><button class="button" data-action="back">Back to tickets</button> <button class="button primary" data-action="retry-ticket">Try again</button></div>`;
   }
 }
-function ticketTitle(t) {const edited=localValue(t,'title');if(edited)return edited;const order=t.shopifyRail?.order;return order?.name||order?.number?`Order ${String(order.name||order.number).replace(/^#/,'')}`:'New Ticket';}
+function ticketTitle(t) {const edited=localValue(t,'title');if(edited)return edited;const order=t.shopifyRail?.order;const name=order?.name||order?.number||t.orderName;return name?`Order ${String(name).replace(/^#/,'')}`:'New Ticket';}
 function options(values,selected) {return values.map(([v,text])=>`<option value="${esc(v)}"${v===selected?' selected':''}>${esc(text)}</option>`).join('');}
 function control(t,field,values,iconName,prefix='') {
   const value=effective(t,field);
@@ -393,7 +400,7 @@ function renderTicket() {
   const expandedQuotes=new Set([...document.querySelectorAll('.quoted-email[open]')].map(el=>el.dataset.messageId));
   const people=[...new Set([state.operator,...allRows().map(x=>observed(x,'assignee')),localValue(t,'assignee')].filter(Boolean))];
   const overrides=['title','status','priority','assignee','snooze'].filter(f=>localValue(t,f)).map(f=>`${label(f)}: ${localValue(t,f)} (observed: ${observed(t,f)||'unknown'})`);
-  const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><button class="title-edit" data-action="rename" aria-label="Rename ticket in this browser">Rename locally</button><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div><details class="ticket-actions-menu"><summary aria-label="Ticket actions, local to this browser" title="Ticket actions saved only in this browser">${icon('more')} Ticket actions</summary><p class="small muted">These changes stay in this browser. Gorgias is unchanged.</p><div class="ticket-actions">${control(t,'status',[['open','Open · local'],['closed','Closed · local']],'','Status')}${control(t,'priority',[['low','Low · local'],['normal','Normal · local'],['high','High · local'],['critical','Critical · local']],'flag','Priority')}${control(t,'assignee',[['unassigned','Unassigned · local'],...people.filter(x=>x!=='unassigned').map(x=>[x,x+' · local'])],'user','Assignee')}<button class="button" data-action="toggle-read">${readState(t,readRecords(stored(keys.read,{})))?'Mark unread':'Mark read'}</button><label class="snooze-control">Snooze locally<input type="datetime-local" data-field="snooze" value="${esc(toLocalDateTimeInput(localValue(t,'snooze')))}"></label><button class="button" data-action="reset-local">Reset local changes</button><button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div></details>${overrides.length?`<div class="local-observed">Browser changes · ${esc(overrides.join(' · '))}</div>`:''}<p class="live-ticket-sync" id="live-ticket-sync">${t.localOnly?'Local ticket · Saved only in this browser':t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
+  const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><button class="title-edit" data-action="rename" aria-label="Rename ticket in this browser">Rename locally</button><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div><details class="ticket-actions-menu"><summary aria-label="Ticket actions, local to this browser" title="Ticket actions saved only in this browser">${icon('more')} Ticket actions</summary><p class="small muted">These changes stay in this browser. Gorgias is unchanged.</p><div class="ticket-actions">${control(t,'status',[['open','Open · local'],['closed','Closed · local']],'','Status')}${control(t,'priority',[['low','Low · local'],['normal','Normal · local'],['high','High · local'],['critical','Critical · local']],'flag','Priority')}${control(t,'assignee',[['unassigned','Unassigned · local'],...people.filter(x=>x!=='unassigned').map(x=>[x,x+' · local'])],'user','Assignee')}<button class="button" data-action="toggle-read">${readState(t,readRecords(stored(keys.read,{})))?'Mark unread':'Mark read'}</button><label class="snooze-control">Snooze locally<input type="datetime-local" data-field="snooze" value="${esc(toLocalDateTimeInput(localValue(t,'snooze')))}"></label><button class="button" data-action="reset-local">Reset local changes</button><button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div></details>${overrides.length?`<div class="local-observed">Browser changes · ${esc(overrides.join(' · '))}</div>`:''}<p class="live-ticket-sync" id="live-ticket-sync">${t.localOnly?(storageAvailable?'Local ticket · Saved only in this browser':'Local ticket · Kept for this session only'):t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
   const content=`<section id="ticket-content" role="tabpanel" aria-labelledby="${state.tab==='conversation'?'conversation-tab':'details-tab'}">${state.tab==='conversation'?conversationHtml(t):detailsHtml(t)}</section>`;
   const conversation=$('#conversation'),sameTicket=conversation.dataset.ticketId===t.id&&Boolean($('.reply-area',conversation)?.isConnected);
   if(sameTicket){
@@ -554,7 +561,14 @@ function captureDraftRevision(id,value) {
 function saveReply(value) {if(state.ticket)captureDraftRevision(state.id,value);}
 function sizeReplyEditor(editor) {editor.style.height='auto';editor.style.height=`${Math.min(editor.scrollHeight,Math.max(64,innerHeight*0.18))}px`;}
 async function copyText(value,message) {try {await navigator.clipboard.writeText(value);toast(message);}catch {toast('Copy is unavailable in this browser. Select the text and copy it manually.');}}
-function setField(field,value) {if(!state.ticket)return;if(field==='snooze'&&value){const d=new Date(value);if(!Number.isFinite(+d)||+d<=Date.now()){toast('Choose a future snooze time.');return;}value=d.toISOString();}const records=stateRecords(stored(keys.state,{}));records[state.id]={...(records[state.id]||{}),[field]:value?{value,by:state.operator||'operator',at:Date.now()}:null};persist(keys.state,{version:1,records});renderTicket();listRender();toast(storageAvailable?'Saved in this browser. Observed Gorgias values are unchanged.':'Browser storage is unavailable. Changes last for this session only.');}
+function setField(field,value){
+  if(!state.ticket)return;
+  if(field==='snooze'&&value){const d=new Date(value);if(!Number.isFinite(+d)||+d<=Date.now()){toast('Choose a future snooze time.');return;}value=d.toISOString();}
+  const records=stateRecords(stored(keys.state,{}));
+  records[state.id]={...(records[state.id]||{}),[field]:value?{value,by:state.operator||'operator',at:Date.now()}:null};
+  rememberObserved(records,state.ticket);
+  persist(keys.state,{version:1,records});renderTicket();listRender();toast(storageAvailable?'Saved in this browser. Observed Gorgias values are unchanged.':'Browser storage is unavailable. Changes last for this session only.');
+}
 // Refresh only the context rail while a background lookup runs; never touch the editor.
 let customerDetailsTimer;
 let customerDetailsRequest=0;
@@ -579,7 +593,7 @@ async function refreshCustomerDetails(manual=false) {
   try {
     const result=await api('get_ticket',{ticketId:id});
     if(state.id!==id||state.ticketRequest!==ticketRequest||!state.ticket||request!==customerDetailsRequest)return;
-    state.ticket.shopifyRail=result.ticket.shopifyRail;state.ticket.redoDetails=result.ticket.redoDetails;
+    state.ticket.shopifyRail=result.ticket.shopifyRail;state.ticket.redoDetails=result.ticket.redoDetails;updateObserved([state.ticket]);
     customerDetailsAttempts++;
     renderRail();updateTitle();
     if(manual&&result.ticket.shopifyRail?.refreshError)toast('Shopify is temporarily unavailable. The lookup will retry shortly.');
@@ -618,6 +632,15 @@ drawerQuery.addEventListener('change', () => {
 new MutationObserver(syncRailAccessibility).observe($('#workspace'), {attributes:true, attributeFilter:['class']});
 // Account for wrapped navigation under text enlargement, not only viewport width.
 new ResizeObserver(([entry]) => document.documentElement.style.setProperty('--header-height', `${entry.target.getBoundingClientRect().height}px`)).observe($('.app-header'));
+const phoneQuery=matchMedia('(max-width:650px)');
+function setListCollapsed(collapsed){
+  const sidebar=$('.ticket-sidebar'),hadFocus=sidebar.contains(document.activeElement);
+  $('#workspace').classList.toggle('list-collapsed',collapsed);sidebar.inert=collapsed&&!phoneQuery.matches;
+  $('[data-action="list-collapse"]').setAttribute('aria-expanded',String(!collapsed));
+  if(collapsed&&!phoneQuery.matches)$('.list-reopen button')?.focus({preventScroll:true});
+  else if(!collapsed||hadFocus)$('#search').focus({preventScroll:true});
+}
+phoneQuery.addEventListener('change',()=>{if(phoneQuery.matches)setListCollapsed(false);});
 let searchTimer;
 $('#search').addEventListener('input',event=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.query=event.target.value;state.page=0;clearSelection();syncUrl();loadList();},250);});
 document.addEventListener('input',event=>{if(event.target.id==='reply'){sizeReplyEditor(event.target);saveReply(event.target.value);$('#saved-note').textContent=storageAvailable?'Saved in this browser':'Kept for this session only';}});
@@ -662,7 +685,7 @@ document.addEventListener('click',async event=>{
   if(action==='dismiss-draft'||action==='restore-draft'){const dismissed=objectStore(keys.dismiss);if(action==='dismiss-draft')dismissed[state.id]=draftId(state.ticket);else delete dismissed[state.id];persist(keys.dismiss,dismissed);renderTicket();return;}
   if(action==='new'){$('#local-new-form').reset();$('#local-new-error').textContent='';$('#local-new').showModal();$('#local-new input').focus();return;}
   if(action==='cancel-new'){$('#local-new').close();return;}
-  if(action==='list-collapse'||action==='list-expand'){$('#workspace').classList.toggle('list-collapsed',action==='list-collapse');$('.ticket-sidebar').inert=action==='list-collapse';$('.list-reopen button')?.focus({preventScroll:true});return;}
+  if(action==='list-collapse'||action==='list-expand'){setListCollapsed(action==='list-collapse');return;}
   if(action==='toggle-read'){markRead(state.ticket,!readState(state.ticket,readRecords(stored(keys.read,{}))));renderTicket();listRender();return;}
   if(action==='reset-local'){const records=stateRecords(stored(keys.state,{}));delete records[state.id];persist(keys.state,{version:1,records});const reads=readRecords(stored(keys.read,{}));delete reads[state.id];persist(keys.read,{version:1,records:reads});renderTicket();listRender();return;}
   if(action==='rename'){const title=prompt('Ticket title in this browser',ticketTitle(state.ticket));if(title!==null)setField('title',title.trim().slice(0,200));return;}
@@ -690,7 +713,24 @@ document.addEventListener('keydown', event => {
 window.addEventListener('popstate',()=>{params=new URLSearchParams(location.search);state.query=params.get('q')||'';state.view=['assigned','unassigned','all','open','snoozed','closed','trash','spam'].includes(params.get('view'))?params.get('view'):'all';$('#search').value=state.query;const id=params.get('ticket');if(id)selectTicket(id,false);else{state.id='';state.ticket=null;$('#workspace').classList.remove('ticket-open');const first=filtered()[0];if(first)selectTicket(first.id,false);}state.page=0;clearSelection();loadList();});
 
 function updateTitle(){if(!state.ticket)return;$('.ticket-title')?.replaceChildren(document.createTextNode(ticketTitle(state.ticket)));document.title=`${ticketTitle(state.ticket)} · Buttons Bebe Support`;const row=state.rows.find(t=>t.id===state.id);if(row&&state.ticket.shopifyRail?.order){row.shopifyRail={order:state.ticket.shopifyRail.order};listRender();}}
-function applyBulk(){const action=$('#bulk-action').value;if(!action)return;const rows=filtered().filter(t=>state.selected.has(t.id));const records=stateRecords(stored(keys.state,{})),reads=readRecords(stored(keys.read,{}));const at=Date.now();for(const t of rows){if(action==='read'||action==='unread')reads[t.id]={read:action==='read',message:lastMessage(t),activity:t.lastMessageAt||t.messages?.at(-1)?.at||t.updatedAt,at};else if(action==='reset'){delete records[t.id];delete reads[t.id];}else{let [field,value]=action.split(':');if(value==='me'){if(!state.operator){toast('Operator email is unavailable. Choose an assignee on the ticket.');return;}value=state.operator;}if(value==='tomorrow')value=new Date(at+86400000).toISOString();records[t.id]={...(records[t.id]||{}),[field]:{value,at,by:state.operator||'operator'}};}}persist(keys.state,{version:1,records});persist(keys.read,{version:1,records:reads});clearSelection();renderTicket();listRender();toast(storageAvailable?`Updated ${rows.length} tickets in this browser. Gorgias is unchanged.`:'Browser storage is unavailable. Updates last for this session only.');}
+function applyBulk(){
+  const action=$('#bulk-action').value;if(!action)return;
+  const rows=filtered().filter(t=>state.selected.has(t.id));
+  const records=stateRecords(stored(keys.state,{})),reads=readRecords(stored(keys.read,{})),at=Date.now();
+  for(const row of rows){
+    const t=state.ticket?.id===row.id?state.ticket:row;
+    if(action==='read'||action==='unread')reads[t.id]=readMarker(t,action==='read',at);
+    else if(action==='reset'){delete records[t.id];delete reads[t.id];}
+    else{
+      let [field,value]=action.split(':');
+      if(value==='me'){if(!state.operator){toast('Operator email is unavailable. Choose an assignee on the ticket.');return;}value=state.operator;}
+      if(value==='tomorrow')value=new Date(at+86400000).toISOString();
+      records[t.id]={...(records[t.id]||{}),[field]:{value,at,by:state.operator||'operator'}};
+      rememberObserved(records,t,at);
+    }
+  }
+  persist(keys.state,{version:1,records});persist(keys.read,{version:1,records:reads});clearSelection();renderTicket();listRender();toast(storageAvailable?`Updated ${rows.length} tickets in this browser. Gorgias is unchanged.`:'Browser storage is unavailable. Updates last for this session only.');
+}
 $('#local-new-form').addEventListener('submit',event=>{event.preventDefault();try{const input=Object.fromEntries(new FormData(event.target));const ticket=localTicket(input,crypto.randomUUID());persist(keys.local,[ticket,...localRows()]);state.view='all';state.query='';state.filters={priority:'',assignee:'',tag:'',channel:''};$('#search').value='';for(const input of document.querySelectorAll('[data-filter]'))input.value='';state.page=0;clearSelection();$('#local-new').close();selectTicket(ticket.id,true,true);loadList();}catch(error){$('#local-new-error').textContent=error.message;}});
 let tooltipTarget=null;
 const tooltip=document.createElement('div');tooltip.id='inbox-tooltip';tooltip.setAttribute('role','tooltip');tooltip.hidden=true;document.body.append(tooltip);
@@ -700,7 +740,7 @@ function installTooltips(){for(const el of document.querySelectorAll('button[dat
 document.addEventListener('mouseover',event=>{const el=event.target.closest('[data-tooltip]');if(el)showTooltip(el);});document.addEventListener('mouseout',event=>{if(event.target.closest('[data-tooltip]'))hideTooltip();});document.addEventListener('focusin',event=>{const el=event.target.closest('[data-tooltip]');if(el)showTooltip(el);});document.addEventListener('focusout',hideTooltip);document.addEventListener('keydown',event=>{if(event.key==='Escape')hideTooltip();});installTooltips();
 window.addEventListener('storage',event=>{if(event.key)memory.delete(event.key);else memory.clear();listRender();if(state.ticket)renderTicket();});
 renderSendAccess();
-api('capabilities').then(result=>{state.operator=result.operatorEmail||'';listRender();}).catch(()=>{});
+api('capabilities').then(result=>{if(Object.hasOwn(result,'operatorEmail'))state.operator=result.operatorEmail||'';listRender();}).catch(()=>{});
 if(state.id)selectTicket(state.id,false);
 loadList();
 

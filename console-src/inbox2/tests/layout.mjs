@@ -88,7 +88,13 @@ assert.equal(await page.locator('.button').first().evaluate(el=>getComputedStyle
 // Equivalent layout viewport to a 1280px window at 200% browser zoom.
 await page.setViewportSize({width:640,height:450});
 assert(await page.locator('.mobile-back').isVisible());
-assert(await page.locator('#ticket-content').evaluate(el=>getComputedStyle(el).overflowY==='auto'));
+t.messages.push(...Array.from({length:25},(_,i)=>({...t.messages[0],id:`long-${i}`,body:`Long fictional history paragraph ${i}. `.repeat(50),display_text:`Long fictional history paragraph ${i}. `.repeat(50),current_text:`Long fictional history paragraph ${i}. `.repeat(50)})));
+await page.reload();
+await page.locator('.ticket-title').waitFor();
+await page.waitForFunction(()=>document.querySelectorAll('.message').length===26);
+assert(await page.locator('#ticket-content').evaluate(el=>el.scrollHeight>el.clientHeight));
+assert(await page.locator('#ticket-content').evaluate(el=>{el.scrollTop=0;el.scrollTop=150;return el.scrollTop>0;}));
+for(const control of ['#reply','[data-action="copy-reply"]'])assert(await page.locator(control).evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;}));
 mode='error';await page.reload();await page.locator('.is-error').waitFor();
 assert(await page.locator('[data-action="retry-ticket"]').isVisible());
 mode='auth';await page.reload();await page.getByRole('heading',{name:'Sign in to continue'}).waitFor();

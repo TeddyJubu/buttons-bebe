@@ -18,9 +18,18 @@ object](https://developers.gorgias.com/reference/the-ticket-object) and
 [ticket-list contract](https://developers.gorgias.com/reference/list-tickets).
 Missing category fields are unavailable, rather than invented. Assigned to me
 requires `INBOX_OPERATOR_GORGIAS_EMAIL`; missing operator identity is disclosed.
-Trash summaries are bounded to 1,000 cached rows. Browser overrides filter the
-loaded provider page; the interface distinguishes shown rows from provider
-totals. Browser state does not synchronize across devices.
+Trash summaries are bounded to 1,000 cached rows. Browser organization has its own paged rows: private tickets and up to 2,000
+allowlisted saved summaries for edited provider tickets. Local status, priority,
+assignment and snooze can place those saved observations into another browser
+view without scanning provider history. Latest observed responses refresh saved
+summaries; opening a provider ticket always reads the real API before any draft
+or human action can be used. Saved observations are labelled and are not current
+provider claims. Provider pagination and observed totals remain separate; edited
+IDs are omitted from the provider page to avoid duplicate rows. Only disposable
+saved summaries are evicted at the bound; local edits/private tickets remain.
+Unavailable browser storage is disclosed and keeps changes for the session only.
+Assigned to me remains intentionally unavailable until the owner supplies an
+operator email. Browser state does not synchronize across devices.
 
 Original source data can already be missing or truncated. Old retained records
 are derived on read without replaying jobs, changing drafts, sending alerts or
