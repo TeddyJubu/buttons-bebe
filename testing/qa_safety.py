@@ -30,7 +30,16 @@ NOTICE_OPERATOR_ACTIONS = {
 def redact(text: str) -> str:
     """Best-effort masking of supported PII and credential shapes, not a secret detector."""
     text = re.sub(r"(https?://)[^/\s]+@", r"\1[userinfo-removed]@", text, flags=re.I)
-    text = re.sub(r"\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+", r"\1 [credential removed]", text, flags=re.I)
+    text = re.sub(r"\b(authorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic))\s+[A-Za-z0-9._~+/=-]+",
+                  r"\1 [credential removed]", text, flags=re.I)
+    # Outside an Authorization value, ordinary "bearer receives ..." is prose.
+    # Mask only a token-like signal here; lowercase words need explicit context.
+    def mask_standalone_bearer(match):
+        token = match.group(2)
+        if any(c.isupper() or c.isdigit() or c in "_~+/=" for c in token):
+            return match.group(1) + " [credential removed]"
+        return match.group(0)
+    text = re.sub(r"\b((?i:Bearer))\s+([A-Za-z0-9._~+/=-]{8,})", mask_standalone_bearer, text)
     text = re.sub(
         r"\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|client[_-]?secret)"
         r"\b[\"']?\s*[:=]\s*(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;]+)",

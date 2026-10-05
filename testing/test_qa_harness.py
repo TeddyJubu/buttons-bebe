@@ -96,6 +96,13 @@ class PolicyBoundaryTests(unittest.TestCase):
             self.assertNotIn(marker, content)
         self.assertIn('localhost/policy', content)
 
+    def test_credential_masking_preserves_basic_policy_prose(self):
+        for text in ('Basic shipping options and basic return conditions apply to the bearer of a gift card.',
+                     'The bearer presents the gift card at checkout.',
+                     'The bearer receives a store credit after review.'):
+            with self.subTest(text=text):
+                self.assertEqual(redact(text), text)
+
     def test_profile_is_exact_and_environment_does_not_inherit_credentials(self):
         profile=profile_config({"default":"test-model","provider":"custom"},{g:19000+i for i,g in enumerate(GROUPS)})
         self.assertEqual(set(profile["mcp_servers"]),set(GROUPS))
