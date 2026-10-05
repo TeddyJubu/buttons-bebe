@@ -60,6 +60,31 @@ for(const incoming of [
 assert.deepEqual(enrichMessageEvidence({...deficient,lastMessageId:'m-old'},accepted),{...deficient,lastMessageId:'m-old'},'a differing known ID cannot be replaced when previous activity ordering is unknown');
 assert.deepEqual(enrichMessageEvidence({...deficient,id:'local:uuid'},accepted),{...deficient,id:'local:uuid'});
 assert.deepEqual(enrichMessageEvidence(newer,{...newer,lastMessageAt:'2026-10-05T05:00:00Z',lastMessageId:'m4'}),{...newer,lastMessageAt:'2026-10-05T05:00:00Z',lastMessageId:'m4'},'fully nonregressing genuine new activity may advance');
+const idAbsent={...deficient,updatedAt:'2026-10-05T02:00:00Z',lastMessageAt:'2026-10-05T02:00:00Z',messages:[{id:'',at:'2026-10-05T02:00:00Z'}]};
+const oldMessage={id:'m1',at:'2026-10-05T00:00:00Z',body:'Keep the old message content',attachments:[{name:'Keep attachment'}]};
+for(const aliases of [
+  {lastMessageId:'m1'}, {latestMessageId:'m1'}, {messages:[oldMessage]},
+  {lastMessageId:'m1',latestMessageId:'m1',messages:[{id:'history',body:'Keep earlier content'},oldMessage]},
+]){
+  const prior={...deficient,lastMessageAt:'2026-10-05T00:00:00Z',...aliases},snapshot=structuredClone(prior),mark={[prior.id]:readMarker(prior)};
+  const advanced=enrichMessageEvidence(prior,idAbsent);
+  assert.equal(advanced.lastMessageAt,'2026-10-05T02:00:00Z');
+  assert.equal(readState(advanced,mark),false,'newer actual activity without an ID cannot retain any stale message identity alias');
+  const expected={...prior,lastMessageAt:idAbsent.lastMessageAt};delete expected.lastMessageId;delete expected.latestMessageId;
+  if(expected.messages)expected.messages=[...expected.messages.slice(0,-1),{...expected.messages.at(-1),id:''}];
+  assert.deepEqual(advanced,expected,'only stale identity aliases and actual activity change; message content and metadata remain intact');
+  assert.deepEqual(prior,snapshot,'clearing fallback identity does not mutate the original message or row');
+  const unchanged=enrichMessageEvidence(prior,{...idAbsent,lastMessageAt:prior.lastMessageAt,messages:[{id:'',at:prior.lastMessageAt}]});
+  assert.deepEqual(unchanged,prior,'unchanged time without incoming ID preserves known identity');assert.equal(readState(unchanged,mark),true);
+  for(const rejected of [
+    {...idAbsent,updatedAt:'2026-10-05T00:00:00Z'}, {...idAbsent,updatedAt:''},
+    {...idAbsent,lastMessageAt:'2026-10-04T00:00:00Z'},
+    {...idAbsent,lastMessageAt:'2026-10-05T02:00:00'}, {...idAbsent,lastMessageAt:'not-a-time'},
+  ])assert.deepEqual(enrichMessageEvidence(prior,rejected),prior,'rejected independent clock observations retain all old identity evidence');
+}
+const unknownPrior={...deficient,lastMessageId:'m1'};
+assert.equal(enrichMessageEvidence(unknownPrior,idAbsent).lastMessageId,'m1','unknown previous activity is not license to invalidate a held identity');
+assert.equal(readState(enrichMessageEvidence(unknownPrior,idAbsent),{[unknownPrior.id]:readMarker(unknownPrior)}),true,'unknown-order retained identity remains an explicit existing read-policy limit');
 const filtered={...ticket,customerName:'Foo Bar',assignee:'Owner@Example.invalid',channel:'Email',tags:['Returns']};
 assert(matchesLocal(filtered,'assigned',{},effective,'owner@example.invalid'));
 assert(matchesLocal(filtered,'all',{assignee:'owner@example.invalid',tag:'returns',channel:'email',query:'  FOO   BAR  '},effective,''));

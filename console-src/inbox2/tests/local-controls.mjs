@@ -218,9 +218,22 @@ async function checkOpenedMessageEvidence(){
     await p.locator(`[data-ticket="${other.id}"]`).click();await p.locator('[data-message-id="z1"]').waitFor();await pending.finish();
     assert.equal(await p.locator('[data-message-id="z1"]').count(),1,'delayed selection cannot change the newly selected ticket');
     assert.equal(await button.getAttribute('class'),'ticket-row is-unread');assert.deepEqual(await marker(),savedMarker,'discarded selection must not write an old read marker');
+    await p.evaluate(()=>localStorage.removeItem('bb-inbox-ticket-state-v1'));
+    row={...original,lastMessageAt:messageAt,lastMessageId:'m1'};
+    detail={...original,messages:[{id:'m1',at:messageAt,body:'Actual observed message',fromAgent:false}]};
+    await p.goto(`${base}/inbox/?ticket=${encodeURIComponent(id)}`);await p.locator('.ticket-title').waitFor();
+    assert.equal(await button.getAttribute('class'),'ticket-row is-read');const missingIdMarker=await marker();
+    detail={...original,lastMessageAt:messageAt,messages:[{id:'',at:messageAt,body:'Same message with absent identity',fromAgent:false}]};
+    await refresh();assert.equal(await button.getAttribute('class'),'ticket-row is-read','unchanged actual activity with absent incoming ID preserves known read identity');
+    assert.deepEqual(await marker(),missingIdMarker);
+    detail={...detail,updatedAt:'2026-10-05T02:00:00Z',lastMessageAt:'2026-10-05T02:00:00Z',messages:[{id:'',at:'2026-10-05T02:00:00Z',body:'A newer actual message without ID',fromAgent:false}]};
+    await refresh();assert.equal(await button.getAttribute('class'),'ticket-row is-unread','strictly newer actual activity without ID must clear stale read identity');
+    await p.locator('.ticket-actions-menu summary').click();
+    assert.equal(await p.locator('[data-action="toggle-read"]').textContent(),'Mark read');assert.deepEqual(await marker(),missingIdMarker);
+    await p.screenshot({path:path.join(dir,'newer-missing-identity-unread.png')});
     assert.deepEqual(writes,[]);assert.deepEqual(pageErrors,[]);
-    fs.writeFileSync(path.join(dir,'opened-message-evidence.json'),JSON.stringify({scope:'Rendered Chromium with isolated browser storage and synthetic intercepted read responses only',cases:['immediate-open missing time and identity','unchanged deficient list','metadata-only same message','genuine new message','stale detail','delayed detail/newer list','saved newer observation','delayed refresh after selection change','delayed selection response'],calls,consoleWrites:writes,pageErrors},null,2));
-    console.log(`Passed rendered opened-message evidence, nine focused cases and zero mutations. Evidence ${dir}`);
+    fs.writeFileSync(path.join(dir,'opened-message-evidence.json'),JSON.stringify({scope:'Rendered Chromium with isolated browser storage and synthetic intercepted read responses only',cases:['immediate-open missing time and identity','unchanged deficient list','unchanged activity missing identity','newer activity missing identity','metadata-only same message','genuine new message','stale detail','delayed detail/newer list','saved newer observation','delayed refresh after selection change','delayed selection response'],calls,consoleWrites:writes,pageErrors},null,2));
+    console.log(`Passed rendered opened-message evidence, eleven focused cases and zero mutations. Evidence ${dir}`);
   }finally{await probe.close();}
 }
 await checkOpenedMessageEvidence();

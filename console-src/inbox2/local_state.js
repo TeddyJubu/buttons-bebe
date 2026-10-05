@@ -53,7 +53,12 @@ export function enrichMessageEvidence(row,detail) {
   const message=knownId(detail),previousMessage=knownId(row);
   if(previousMessage&&message&&previousMessage!==message&&!(Number.isFinite(previousTime)&&Number.isFinite(incomingTime)&&incomingTime>previousTime))return row;
   if(!Number.isFinite(incomingTime)&&!message)return row;
-  return {...row,...(Number.isFinite(incomingTime)?{lastMessageAt:activity}:{}),...(message?{lastMessageId:message}:{})};
+  const enriched={...row,...(Number.isFinite(incomingTime)?{lastMessageAt:activity}:{}),...(message?{lastMessageId:message}:{})};
+  if(!message&&Number.isFinite(previousTime)&&Number.isFinite(incomingTime)&&incomingTime>previousTime){
+    delete enriched.lastMessageId;delete enriched.latestMessageId;
+    if(row.messages?.length)enriched.messages=[...row.messages.slice(0,-1),{...row.messages.at(-1),id:''}];
+  }
+  return enriched;
 }
 export function observedSummary(ticket, savedAt=Date.now(), prior=null) {
   if(!providerId.test(ticket?.id||'')||ticket.localOnly)return null;
