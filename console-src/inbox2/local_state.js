@@ -13,6 +13,9 @@ export function lastMessage(ticket) {
 export function messageActivity(ticket) {
   return ticket.lastMessageAt || ticket.messages?.at(-1)?.at || ticket.updatedAt || '';
 }
+function observedMessageTime(ticket) {
+  return ticket.lastMessageAt || ticket.messages?.at(-1)?.at || '';
+}
 export function readMarker(ticket, read=true, at=Date.now()) {
   const knownMessage=ticket.lastMessageId || ticket.latestMessageId || ticket.messages?.at(-1)?.id;
   return {read,kind:knownMessage?'message':'activity',message:knownMessage?String(knownMessage):'',activity:messageActivity(ticket),at};
@@ -24,7 +27,7 @@ export function readState(ticket, records) {
   // Keep the recorded watermark kind when a summary later becomes a detail.
   const kind=marker.kind || (/^\d{4}-\d{2}-\d{2}T/.test(marker.message||'')?'activity':'message');
   if(kind==='activity'||!knownMessage)return Boolean(activity&&marker.activity===activity);
-  return marker.message===String(knownMessage) && (!marker.activity||!activity||marker.activity===activity);
+  return marker.message===String(knownMessage);
 }
 export const MAX_OBSERVED_SUMMARIES=2000;
 const providerId=/^gorgias:[1-9][0-9]{0,17}$/;
@@ -46,7 +49,7 @@ export function observedSummary(ticket, savedAt=Date.now(), prior=null) {
   summary.assignee=text(typeof ticket.assignee==='string'?ticket.assignee:ticket.assignee?.email||ticket.assignee?.name,254);
   summary.spam=ticket.spam===true;summary.trashed=ticket.trashed===true;
   summary.tags=(Array.isArray(ticket.tags)?ticket.tags:[]).slice(0,20).map(tag=>text(typeof tag==='string'?tag:tag?.name,200)).filter(Boolean);
-  summary.lastMessageAt=text(messageActivity(ticket),40);
+  summary.lastMessageAt=text(observedMessageTime(ticket),40);
   const known=ticket.lastMessageId||ticket.latestMessageId||ticket.messages?.at(-1)?.id;
   const knownId=typeof known==='string'||Number.isSafeInteger(known)&&known>0?String(known):'';
   summary.lastMessageId=text(knownId,100) || (prior?.lastMessageAt===summary.lastMessageAt?text(prior.lastMessageId,100):'');

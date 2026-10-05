@@ -32,6 +32,10 @@ const detailRead={'gorgias:2':readMarker({...summary,messages:[{id:'m-summary'}]
 assert(readState(summary,detailRead));
 assert.equal(readState({...summary,messages:[{id:'new'}]},detailRead),false);
 assert.equal(readState(summary,{'gorgias:2':readMarker(summary,false)}),false);
+const numericMessage={id:'gorgias:5',lastMessageId:123456,updatedAt:'2026-10-05T01:00:00Z'};
+const numericRead={'gorgias:5':readMarker(numericMessage)};
+assert(readState({...numericMessage,updatedAt:'2026-10-05T02:00:00Z'},numericRead),'mutable metadata does not unread an unchanged known message');
+assert.equal(readState({...numericMessage,lastMessageId:123457},numericRead),false,'a newer numeric message identity invalidates read');
 const filtered={...ticket,customerName:'Foo Bar',assignee:'Owner@Example.invalid',channel:'Email',tags:['Returns']};
 assert(matchesLocal(filtered,'assigned',{},effective,'owner@example.invalid'));
 assert(matchesLocal(filtered,'all',{assignee:'owner@example.invalid',tag:'returns',channel:'email',query:'  FOO   BAR  '},effective,''));
@@ -55,6 +59,11 @@ rememberObserved(ordered,{id:'gorgias:3',status:'closed',updatedAt:'2026-10-06T0
 ordered['gorgias:3'].observed.lastMessageAt='';
 rememberObserved(ordered,{id:'gorgias:3',status:'open',updatedAt:'2026-10-05T00:00:00Z',lastMessageAt:'2026-10-05T00:00:00Z'},2);
 assert.equal(ordered['gorgias:3'].observed.status,'closed','known metadata time is protected even without a prior activity time');
+assert.equal(ordered['gorgias:3'].observed.lastMessageAt,'','metadata timestamp must not fabricate message activity');
+rememberObserved(ordered,{id:'gorgias:6',status:'closed',lastMessageAt:'2026-10-05T00:00:00Z',updatedAt:'2026-10-05T01:00:00Z'},2);
+rememberObserved(ordered,{id:'gorgias:6',status:'open',updatedAt:'2026-10-05T02:00:00Z'},3);
+assert.equal(ordered['gorgias:6'].observed.status,'closed','newer metadata with missing actual message time cannot replace known activity');
+assert.equal(ordered['gorgias:6'].observed.lastMessageAt,'2026-10-05T00:00:00Z');
 const current={id:'gorgias:4',status:'closed',lastMessageAt:'2026-10-06T00:00:00Z',updatedAt:'2026-10-06T01:00:00Z',lastMessageId:123456};
 rememberObserved(ordered,current,3);
 assert.equal(ordered['gorgias:4'].observed.lastMessageId,'123456','numeric provider message IDs remain exact strings');
