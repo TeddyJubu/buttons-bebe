@@ -16,7 +16,8 @@ STATUS=Path('/var/lib/buttonsbebe/ops-status.json')
 BACKUP=Path('/var/lib/buttonsbebe/backup-status.json')
 SERVICES=('buttonsbebe-webhook','buttonsbebe-processor','buttonsbebe-kb-mcp',
           'buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect',
-          'buttonsbebe-kb-admin','helpdesk-inbox2','buttonsbebe-inbox2-shop')
+          'buttonsbebe-kb-admin','helpdesk-inbox2','buttonsbebe-inbox2-shop',
+          'buttonsbebe-inbox2-redo')
 TIMERS=('buttonsbebe-backup','buttonsbebe-inbox-projection','buttonsbebe-heartbeat')
 PORTS={'kb_socket':8077,'redo_socket':8078,'gorgias_socket':8079,'whatsapp_socket':8085,'kb_admin_socket':8087}
 

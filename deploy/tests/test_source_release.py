@@ -152,13 +152,16 @@ class SourceRecoveryTests(unittest.TestCase):
         journal = self.prepare()
         intake_key = 'shared/intake/message_content.py'
         self.assertIn(intake_key, journal['files'])
+        expected_intake = (self.staged / journal['files'][intake_key]['source']).read_bytes()
+        installed_intake = release.target_path(intake_key, self.live, self.web)
 
         release.apply(self.journal)
+        self.assertEqual(installed_intake.read_bytes(), expected_intake)
         self.write(database, 'tickets accepted after intake code switch')
         release.apply(self.journal, rollback=True)
 
         self.assertEqual(database.read_text(), 'tickets accepted after intake code switch')
-        self.assertFalse((self.root / 'shared/intake/message_content.py').exists())
+        self.assertFalse(installed_intake.exists())
 
     def test_partial_apply_recovers_and_repeated_rollback_is_safe(self):
         journal = self.prepare()
