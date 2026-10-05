@@ -90,6 +90,13 @@ integer configuration migration version when startup adds it. JSON and YAML with
 the same settings have the same identity; a version or supported setting change
 changes the fingerprint. Unknown fields and unsafe YAML tags remain refused.
 The YAML reader is pinned in the QA-only dependency lock and changes no production environment.
+Startup preflight performs no model request. Its supported configuration-version migration
+is recorded before the first case, after checking the requested model, endpoint and all
+safety settings are unchanged. That version remains bound through the final profile read.
+Both profile reading and receipt consumption require memory and user profiles off, the
+exact native-disabled policy, empty CLI toolsets, and exactly the three untrusted, enabled
+loopback MCP groups with their fixed read-only tool allowlists. Recomputing a digest cannot
+make wider permissions acceptable.
 
 Each run writes `run.json`: suite, catalog hash, captured IDs, whether the run
 was complete, and the bindings it ran against. Bindings are working-tree content
@@ -118,6 +125,16 @@ reliability runs with different source, Hermes, model/runtime, Hermes instructio
 judgments for a different run. The two suites may observe different sections.
 The combined receipt keeps recorded nonsecret identities, hashes, IDs and verdicts; defect text and model
 output stay private.
+Every captured case also requires Linux evidence from the actual child launched by the
+unchanged production process helper: PID/start identity, sampled executable path and inode,
+approved binary hashes before and after cleanup, and matching child/helper exit codes with
+the child confirmed reaped. The final sampled image must be the private managed Python,
+not merely the initially selected interpreter. Open executable file descriptors preserve
+the image for the post-cleanup hash after the child disappears. Private HOME paths are
+normalized in shareable receipts. Sampling does not prove every brief execution transition;
+the receipt explicitly records this limit. Injected-reader tests and separate startup
+probes cannot supply release evidence for a paid case. Missing evidence stops receipt
+creation, combination or checking; older schema 4 captures without it must be rerun.
 
 Hermes runs like the production processor: without `--ignore-rules` and without
 `HERMES_IGNORE_RULES`, so it loads its home instructions. The private QA home gets exactly
@@ -145,7 +162,9 @@ that working directory and the nearest ancestor containing `.git`, or from the w
 directory alone when no ancestor has one. Any such file in that range fails the run.
 Receipts cross-check these hashes against the source fingerprint.
 
-`--hermes-python` is the exact interpreter that runs the model. The harness asks the pinned
+`--hermes-python` selects the initial interpreter. Hermes bootstrap may restart the same
+child into private managed Python; each case must prove that effective executable separately.
+The harness asks the pinned
 `--hermes-source` for its own production launcher (`hermes_cli._launchers.runtime_command`)
 bound to that interpreter, in its production `home=None` form. The private home comes
 only from `HERMES_HOME` in the environment, so every shard gets the same launch command
@@ -158,6 +177,11 @@ allow-list; inheriting `TERMINAL_CWD`, `HERMES_IGNORE_RULES`, `HERMES_BUNDLED_SK
 `PYTHONPATH` or any variable outside that list stops the run.
 The launch command's hash is recorded in the Hermes identity. Shell wrappers and console
 scripts are never executed.
+Do not start private QA against writable shared Hermes source. Startup can regenerate
+its source-tree launcher with the private interpreter path, affecting production. A reviewed
+filesystem confinement proof must precede startup or model requests; private HOME alone
+does not isolate these source-tree writes. Preserve every interpreter subtree referenced by
+a live launcher until a separately coordinated repair and verification are complete.
 
 New runs, judgments and combined receipts use schema 4. Older evidence cannot be
 upgraded: schema 3 runs used `--ignore-rules` and never gave the model the reviewed

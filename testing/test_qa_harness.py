@@ -1,6 +1,7 @@
 """Offline QA boundary tests; model transport is a synthetic executable."""
 import asyncio
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -251,20 +252,24 @@ class RuntimeBoundaryTests(unittest.TestCase):
                     "--hermes-source", str(self.source), "--model-config", str(self.model),
                     "--output", str(output), "--limit", "1", "--timeout", "10"]
             # Only network/model entry points are replaced. Profile writing,
-            # both identity reads, and receipt integrity use the real code.
+            # both identity reads and binding integrity use the real code.
+            # Synthetic calls cannot supply real Linux child evidence.
             with patch.object(sys, "argv", argv), patch.object(Harness, "start"), \
                     patch.object(Harness, "run", new=capture), \
+                    patch("qa_receipt._execution_identity", return_value={}), \
+                    patch("qa_receipt._require_execution_rows"), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 status = run_live_tests.main()
             self.assertEqual(status, 1 if mutate else 0)
             run = json.loads((output / "run.json").read_text())
             self.assertEqual(run["bindings"]["model_runtime"]["model"], {"default": "test", "provider": "custom"})
             self.assertNotIn("test-only-model-key", json.dumps(run))
-            if mutate:
-                with self.assertRaisesRegex(ValueError, "model/runtime.*changed during"):
+            with patch("qa_receipt._require_execution_rows"):
+                if mutate:
+                    with self.assertRaisesRegex(ValueError, "model/runtime.*changed during"):
+                        check_run_integrity(run)
+                else:
                     check_run_integrity(run)
-            else:
-                check_run_integrity(run)
 
     def test_real_production_runner_prompt_and_extraction_are_used(self):
         interpreter=self.root/"chosen/bin/python3"
@@ -301,24 +306,29 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
             (self.source/"hermes_cli/main.py").write_text(
                 f"REPO={repo!r}\nMUTATE={mutate}\nCHOSEN={str(interpreter)!r}\nSOURCE={str(self.source.resolve())!r}\n"+body)
             harness=self.harness(interpreter)
+            def fixture_observed(helper, command, **kwargs):
+                outcome = helper.run_bounded(command, timeout=kwargs["timeout"], env=kwargs["env"], cwd=kwargs["cwd"])
+                return outcome, {"status": "verified_sampled", "reader_kind": "injected", "pid": 1}
             try:
-                if mutate:
-                    # The runner turns the refusal into its fallback result.
-                    with patch("qa_harness.isolated_run",wraps=isolated_run) as spy:
+                with patch("qa_harness.APPROVED_INTERPRETER_SHA256", hashlib.sha256(interpreter.read_bytes()).hexdigest()):
+                    if mutate:
+                        # The runner turns the refusal into its fallback result.
+                        with patch("qa_harness.run_observed",side_effect=fixture_observed) as spy:
+                            result=harness.run(SCENARIO,1)
+                        self.assertEqual(spy.call_count,1)
+                        self.assertFalse(result["authenticated_verdict"])
+                        # Child ran cleanly, but the post-run instruction check refused its output.
+                        self.assertTrue(result["model_called"])
+                        self.assertIsNone(result["process_returncode"])
+                        continue
+                    with patch("qa_harness.run_observed",side_effect=fixture_observed) as spy:
                         result=harness.run(SCENARIO,1)
                     self.assertEqual(spy.call_count,1)
-                    self.assertFalse(result["authenticated_verdict"])
-                    # Child ran cleanly, but the post-run instruction check refused its output.
+                    self.assertEqual(spy.call_args.args[1][:3],[str(interpreter),'-I','-c'])
+                    self.assertEqual(result["execution"]["observation"]["reader_kind"], "injected")
+                    self.assertTrue(result["authenticated_verdict"],result)
                     self.assertTrue(result["model_called"])
-                    self.assertIsNone(result["process_returncode"])
-                    continue
-                with patch("qa_harness.isolated_run",wraps=isolated_run) as spy:
-                    result=harness.run(SCENARIO,1)
-                self.assertEqual(spy.call_count,1)
-                self.assertEqual(spy.call_args.args[0][:3],[str(interpreter),'-I','-c'])
-                self.assertTrue(result["authenticated_verdict"],result)
-                self.assertTrue(result["model_called"])
-                self.assertIn("Thanks for reaching out",result["result"]["draft_text"])
+                    self.assertIn("Thanks for reaching out",result["result"]["draft_text"])
             finally:
                 harness.close()
                 import shutil;shutil.rmtree(harness.output)
@@ -340,26 +350,34 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
         self.assertEqual(self.harness().launch[:3],[sys.executable,"-I","-c"])
 
     def test_launcher_accepts_home_prefix_in_source_but_rejects_baked_home(self):
-        home = self.root / 'private/qa/home'
+        home = (self.root / 'private/qa/home').resolve()
         home.mkdir(parents=True)
         source = Path(str(home) + '-hermes')
         source.mkdir()
         env = minimal_environment(home)
-        bootstrap = ("import os, sys, runpy; "
-            "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
-            "os.environ.pop('VIRTUAL_ENV', None); "
-            f"sys.path.insert(0, {str(source)!r}); " + qa_harness.DEFAULT_HOME +
-            "import hermes_bootstrap; runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)")
-        def response(text):
-            return subprocess.CompletedProcess([], 0, 'QA_LAUNCH=' + json.dumps(
-                [sys.executable, '-I', '-c', text]), '')
-        with patch('qa_harness.isolated_run', return_value=response(bootstrap)):
-            self.assertEqual(qa_harness.resolve_launch(Path(sys.executable), source, env, home)[3], bootstrap)
-        variants = [bootstrap + f"; os.environ['HERMES_HOME'] = {str(home)!r}",
-                    bootstrap.replace(qa_harness.DEFAULT_HOME,
-                        f"os.environ['HERMES_HOME'] = {str(home)!r}; ")]
-        for text in variants:
-            with self.subTest(text=text), patch('qa_harness.isolated_run', return_value=response(text)):
+        package = source / 'hermes_cli'
+        package.mkdir()
+        (package / '__init__.py').write_text('')
+        launcher = package / '_launchers.py'
+        launcher.write_text(LAUNCHERS)
+        # Execute the literal launcher fixture through the real isolated probe;
+        # its output is not assembled from resolve_launch's expected bootstrap.
+        launch = qa_harness.resolve_launch(Path(sys.executable), source, env, home)
+        self.assertEqual(launch[:3], [sys.executable, '-I', '-c'])
+        self.assertIn(str(source), launch[3])
+        variants = {
+            'literal home': LAUNCHERS.replace(
+                'def runtime_command(', 'def _runtime_command(') +
+                f'\ndef runtime_command(repo_root, **kwargs):\n'
+                f'    return _runtime_command(repo_root, home=Path({str(home)!r}), **kwargs)\n',
+            'trailing override': LAUNCHERS.replace(
+                '    return [str(python)',
+                f"    bootstrap += {('; os.environ[\"HERMES_HOME\"] = ' + repr(str(home)))!r}\n"
+                '    return [str(python)'),
+        }
+        for label, text in variants.items():
+            with self.subTest(label=label):
+                launcher.write_text(text)
                 with self.assertRaisesRegex(ValueError, 'runtime_command launcher contract'):
                     qa_harness.resolve_launch(Path(sys.executable), source, env, home)
 

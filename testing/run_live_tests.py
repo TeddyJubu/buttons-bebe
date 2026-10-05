@@ -11,6 +11,29 @@ from qa_receipt import check_run_integrity, hermes_identity, instruction_identit
 from qa_safety import scenario_fixture
 
 
+def baseline_after_preflight(harness, bindings, first_fixture):
+    """Permit the pinned startup's version migration, never a settings change.
+
+    Preflight performs no model call. Record the normalized actual profile as
+    the paid-run baseline, while checking it still has the requested semantics.
+    The migration version remains part of that baseline and final comparison.
+    """
+    def settings(identity):
+        return {key: value for key, value in identity.items()
+                if key not in {"sha256", "_config_version"}}
+    requested = bindings()
+    if settings(requested["model_runtime"]) != settings(harness.requested_model_runtime):
+        raise ValueError("Requested QA profile changed during setup; no model calls permitted")
+    harness.start(first_fixture)
+    normalized = bindings()
+    for name in requested.keys() | normalized.keys():
+        if name != "model_runtime" and requested.get(name) != normalized.get(name):
+            raise ValueError("QA binding changed during preflight; no model calls permitted")
+    if settings(requested["model_runtime"]) != settings(normalized["model_runtime"]):
+        raise ValueError("Requested QA profile changed during preflight; no model calls permitted")
+    return normalized
+
+
 def main():
     os.umask(0o077)
     parser=argparse.ArgumentParser(description=__doc__)
@@ -55,10 +78,11 @@ def main():
                     "instructions":instruction_identity(harness.home,harness.essentials,harness.hermes_source),
                     "kb_snapshot":kb_snapshot(args.kb_mode,args.product_manifest,args.product_manifest_sha256,
                                               args.policy_overlay,args.policy_overlay_sha256)}
-        before=bindings()
-        harness.start(scenario_fixture(indexed[0][1],indexed[0][0]))
+        before=baseline_after_preflight(harness, bindings, scenario_fixture(indexed[0][1],indexed[0][0]))
         results=[]
         for ordinal,scenario in indexed:
+            if bindings()!=before:
+                raise ValueError("QA binding changed before a case; no further model calls permitted")
             print(f"QA {scenario['id']} ({len(results)+1}/{len(indexed)})",flush=True)
             results.append(harness.run(scenario,ordinal))
             atomic_json(harness.output/"results.json",results)

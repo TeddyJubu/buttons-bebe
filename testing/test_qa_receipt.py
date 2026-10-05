@@ -33,9 +33,13 @@ class ReceiptTests(unittest.TestCase):
             {"default": "test-model", "provider": "custom", "api_key": "synthetic-key"},
             {group: 19000 + i for i, group in enumerate(GROUPS)})))
         self.model_runtime = model_runtime_identity(self.profile, self.interpreter)
+        # This fixture pin is synthetic; it never claims a real binary execution.
+        fixture_pin = patch.object(qa_receipt, "APPROVED_INTERPRETER_SHA256", self.model_runtime["interpreter_sha256"])
+        fixture_pin.start()
+        self.addCleanup(fixture_pin.stop)
         for name, text in {"processor/hermes_runner/prompt.py": "PROMPT = 1\n", "processor/draft_cleaner.py": "",
                            "intake/message_content.py": "CLEANUP_VERSION = 'fixture'\n",
-                           "processor/orchestrator.py": "", "webhook/src/bb_webhook/app.py": "",
+                           "processor/orchestrator.py": "", "processor/hermes_runner/process.py": "synthetic helper\n", "webhook/src/bb_webhook/app.py": "",
                            "kb/scripts/search_kb.py": "", "testing/qa_harness.py": "", "testing/test_qa_harness.py": "",
                            "kb/policies/returns.md": "Returns within 30 days.\n"}.items():
             self.write(name, text)
@@ -87,11 +91,31 @@ class ReceiptTests(unittest.TestCase):
         before = {"source": source_fingerprint(self.repo), "hermes": hermes, "kb_snapshot": snapshot,
                   "model_runtime": self.model_runtime if model_runtime is None else model_runtime,
                   "instructions": self.identity()}
-        results = [{"id": i, "tool_calls": list(kb_calls) if n == 0 else []} for n, i in enumerate(ids)]
+        results = [{"id": i, "tool_calls": list(kb_calls) if n == 0 else [],
+                    "execution": self.synthetic_execution(before, n)} for n, i in enumerate(ids)]
         receipt = run_receipt(suite, ids, results, before, {**before, **(after or {})}, self.repo)
         path = self.out / f"{suite}-run.json"
         path.write_text(json.dumps(receipt))
         return path
+
+    def synthetic_execution(self, bindings, ordinal=0):
+        pin = bindings["model_runtime"]["interpreter_sha256"]
+        helper = bindings["source"]["files"]["processor/hermes_runner/process.py"]
+        image = {"path": "/synthetic/private/home/.hermes/tools/python-3.14.7/bin/python3.14",
+                 "normalized_path": "${QA_HOME}/.hermes/tools/python-3.14.7/bin/python3.14",
+                 "role": "private_managed_python", "device": 1, "inode": 2, "size": 3,
+                 "device_after": 1, "inode_after": 2, "size_after": 3,
+                 "path_source": "/proc/PID/exe", "sha256_before": pin, "sha256_after": pin, "samples": 2}
+        return {"base_launch_sha256": bindings["hermes"]["launch_sha256"], "command_sha256": "c" * 64,
+                "observation": {"schema": 1, "status": "verified_sampled", "pid": 1000 + ordinal,
+                    "pid_start_ticks": 100, "samples": 2, "reader_kind": "linux_proc",
+                    "required_effective_role": "private_managed_python", "expected_sha256": pin,
+                    "requested_launch_sha256": "c" * 64, "helper_sha256_before": helper, "helper_sha256_after": helper,
+                    "effective_observed_image": 0, "all_exec_transitions_observed": False,
+                    "process_exit_observed": True, "helper_completed": True, "helper_cleanup_completed": True,
+                    "child_returncode": 0, "helper_returncode": 0, "final_pid_state": "absent_after_helper_reap",
+                    "selected_python": "/synthetic/approved/python3.14", "images": [image],
+                    "observed_transitions": [{"image": 0, "elapsed_seconds": 0.01}]}}
 
     def judge(self, run, **overrides):
         value = judgment_template(run)
@@ -144,6 +168,100 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["suites"]["core"]["counts"]["PASS"], 48)
         self.assertEqual(check_receipt(receipt, self.repo), {"review_complete": True, "release_passed": True})
         self.assertNotIn("hermes_output", json.dumps(receipt))
+        self.assertNotIn("/synthetic/private/home", json.dumps(receipt))
+
+    def test_actual_child_evidence_required_even_when_all_other_hashes_match(self):
+        original = self.build()
+        mutations = [
+            lambda s: s.pop("execution"),
+            lambda s: s["execution"].pop(),
+            lambda s: s["execution"].reverse(),
+            lambda s: s["execution"][0].update(base_launch_sha256="0" * 64),
+        ]
+        for key, value in (("reader_kind", "injected"), ("status", "incomplete"),
+                           ("required_effective_role", "selected_python"), ("effective_observed_image", 7),
+                           ("expected_sha256", "0" * 64), ("requested_launch_sha256", "0" * 64),
+                           ("helper_sha256_after", "0" * 64), ("pid_start_ticks", 0),
+                           ("helper_completed", False), ("helper_cleanup_completed", False),
+                           ("process_exit_observed", False), ("child_returncode", 1),
+                           ("final_pid_state", "live"), ("all_exec_transitions_observed", True)):
+            mutations.append(lambda s, k=key, v=value: s["execution"][0]["observation"].update({k: v}))
+        for key, value in (("sha256_after", "0" * 64), ("inode_after", 99), ("samples", 1),
+                           ("path_source", "injected"), ("role", "selected_python"),
+                           ("normalized_path", "${QA_HOME}/../host/python3")):
+            mutations.append(lambda s, k=key, v=value: s["execution"][0]["observation"]["images"][0].update({k: v}))
+        for ordinal, mutate in enumerate(mutations):
+            with self.subTest(ordinal=ordinal):
+                receipt = json.loads(json.dumps(original))
+                summary = receipt["suites"]["core"]
+                mutate(summary)
+                if "execution" in summary:
+                    summary["execution_sha256"] = qa_receipt.digest(summary["execution"])
+                with self.assertRaises(ValueError):
+                    check_receipt(receipt, self.repo)
+        run = json.loads(self.run_file("core").read_text())
+        run.pop("execution")
+        with self.assertRaises(ValueError):
+            check_run_integrity(run)
+        receipt = json.loads(json.dumps(original))
+        receipt["source"]["files"]["processor/hermes_runner/process.py"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "source file identity"):
+            check_receipt(receipt, self.repo)
+
+    def test_execution_shareable_paths_and_transition_shapes(self):
+        bindings = {"source": source_fingerprint(self.repo), "hermes": HERMES, "model_runtime": self.model_runtime,
+                    "instructions": self.identity(), "kb_snapshot": POLICIES}
+        case = {"id": IDS["core"][0], "execution": self.synthetic_execution(bindings)}
+        observed = case["execution"]["observation"]
+        observed["selected_python"] = "/private/synthetic/tenant/.hermes/tools/python3"
+        selected = dict(observed["images"][0], role="selected_python",
+                        normalized_path=observed["selected_python"], path=observed["selected_python"])
+        observed["images"].insert(0, selected)
+        observed["effective_observed_image"] = 1
+        observed["samples"] = 4
+        observed["observed_transitions"] = [{"image": 0, "elapsed_seconds": 0.0}, {"image": 1, "elapsed_seconds": 0.01}]
+        run = run_receipt("core", [case["id"]], [case], bindings, bindings, self.repo)
+        self.assertNotIn("/private/synthetic", json.dumps(run))
+        self.assertEqual(run["execution"][0]["observation"]["selected_python"], "${SELECTED_PYTHON}")
+        check_run_integrity(run)
+        forged = json.loads(json.dumps(run))
+        consumer = forged["execution"][0]["observation"]
+        consumer["selected_python"] = "/private/synthetic/tenant/.hermes/tools/python3"
+        consumer["images"][0]["normalized_path"] = consumer["selected_python"]
+        with self.assertRaisesRegex(ValueError, "canonical shareable"):
+            check_run_integrity(forged)
+        receipt = self.build()
+        receipt["suites"]["core"]["execution"][0]["observation"]["selected_python"] = "/private/synthetic/tenant/python3"
+        receipt["suites"]["core"]["execution_sha256"] = qa_receipt.digest(receipt["suites"]["core"]["execution"])
+        with self.assertRaisesRegex(ValueError, "canonical shareable"):
+            check_receipt(receipt, self.repo)
+        observed["observed_transitions"][-1]["private_path"] = "/private/synthetic/tenant/config.yaml"
+        with self.assertRaises(ValueError):
+            run_receipt("core", [case["id"]], [case], bindings, bindings, self.repo)
+        receipt = self.build()
+        receipt["suites"]["core"]["execution"][0]["observation"]["observed_transitions"][0]["private_path"] = "private"
+        receipt["suites"]["core"]["execution_sha256"] = qa_receipt.digest(receipt["suites"]["core"]["execution"])
+        with self.assertRaises(ValueError):
+            check_receipt(receipt, self.repo)
+
+    def test_malformed_direct_consumer_shapes_raise_bounded_value_error(self):
+        good = self.build()
+        for malformed in (None, [], {**good, "suites": None}, {**good, "blocking_defects": None}):
+            with self.subTest(receipt=type(malformed).__name__), self.assertRaises(ValueError):
+                check_receipt(malformed, self.repo)
+        run = json.loads(self.run_file("core").read_text())
+        variants = [None, [], {k: v for k, v in run.items() if k != "bindings"},
+                    {**run, "bindings": None}, {k: v for k, v in run.items() if k != "ids"},
+                    {**run, "suite": []}, {**run, "kb_observed": None}]
+        for malformed in variants:
+            with self.subTest(run=type(malformed).__name__), self.assertRaises(ValueError):
+                check_run_integrity(malformed)
+        with self.assertRaises(ValueError):
+            run_receipt("core", ["S01"], [None], run["bindings"], run["bindings"], self.repo)
+        path = self.out / "null-run.json"
+        path.write_text("null")
+        with self.assertRaises(ValueError):
+            build_receipt(path, path, path, path, self.repo)
 
     def test_different_models_providers_endpoints_and_runtime_settings_cannot_combine(self):
         original = json.loads(self.profile.read_text())
@@ -160,7 +278,7 @@ class ReceiptTests(unittest.TestCase):
                     self.build(reliability=self.run_file("reliability", model_runtime=other))
         self.profile.write_text(json.dumps(original))
         self.interpreter.write_bytes(b"different interpreter")
-        with self.assertRaisesRegex(ValueError, "different model/runtime"):
+        with self.assertRaisesRegex(ValueError, "different model/runtime|execution identity"):
             self.build(reliability=self.run_file("reliability", model_runtime=model_runtime_identity(self.profile, self.interpreter)))
 
     def test_shard_ports_homes_auth_and_api_keys_do_not_change_identity_or_leak(self):
@@ -190,6 +308,37 @@ class ReceiptTests(unittest.TestCase):
         run = self.run_file("core", model_runtime=before, after={"model_runtime": after})
         with self.assertRaisesRegex(ValueError, "model/runtime.*changed during"):
             check_run_integrity(json.loads(run.read_text()))
+
+    def test_unsafe_actual_profiles_and_rehashed_receipt_settings_are_refused(self):
+        original = json.loads(self.profile.read_text())
+        mutations = {
+            "memory": lambda c: c["memory"].update(memory_enabled=True),
+            "user profile": lambda c: c["memory"].update(user_profile_enabled=True),
+            "native tools": lambda c: c["agent"].update(disabled_toolsets=[]),
+            "CLI": lambda c: c["platform_toolsets"].update(cli=["terminal"]),
+            "extra capability": lambda c: c["mcp_servers"]["buttonsbebe_gorgias"]["tools"]["include"].append("send_reply"),
+            "missing capability": lambda c: c["mcp_servers"]["buttonsbebe_redo"]["tools"].update(include=[]),
+            "trusted server": lambda c: c["mcp_servers"]["buttonsbebe_kb"].update(trust="trusted"),
+            "disabled server": lambda c: c["mcp_servers"]["buttonsbebe_redo"].update(enabled=False),
+            "missing server": lambda c: c["mcp_servers"].pop("buttonsbebe_gorgias"),
+            "additional server": lambda c: c["mcp_servers"].update(other=c["mcp_servers"]["buttonsbebe_kb"].copy()),
+            "remote server": lambda c: c["mcp_servers"]["buttonsbebe_kb"].update(url="http://example.invalid:19000/mcp"),
+            "resource scope": lambda c: c["mcp_servers"]["buttonsbebe_kb"]["tools"].update(resources=False),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label, surface="actual profile"):
+                config = json.loads(json.dumps(original))
+                mutate(config)
+                self.profile.write_text(json.dumps(config))
+                with self.assertRaises(ValueError):
+                    model_runtime_identity(self.profile, self.interpreter)
+            with self.subTest(label=label, surface="rehashed receipt"):
+                identity = json.loads(json.dumps(self.model_runtime))
+                mutate(identity)
+                identity["sha256"] = qa_receipt.digest({k: v for k, v in identity.items() if k != "sha256"})
+                with self.assertRaises(ValueError):
+                    self.run_file("core", model_runtime=identity)
+        self.profile.write_text(json.dumps(original))
 
     def test_legacy_or_missing_model_identity_cannot_be_reviewed_combined_or_checked(self):
         core, reliability = self.run_file("core"), self.run_file("reliability")
@@ -568,7 +717,7 @@ class ReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Stale"):
             check_receipt(receipt, self.repo)
         changed = {"source": dict(source_fingerprint(self.repo), sha256="0" * 64)}
-        with self.assertRaisesRegex(ValueError, "changed during"):
+        with self.assertRaisesRegex(ValueError, "source file identity"):
             self.build(core=self.run_file("core", after=changed))
         with self.assertRaisesRegex(ValueError, "different Hermes"):
             self.build(core=self.run_file("core", hermes={**HERMES, "launch_sha256": "0" * 64}))

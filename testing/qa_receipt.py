@@ -9,12 +9,16 @@ import subprocess
 import sys
 import yaml
 from urllib.parse import urlsplit, urlunsplit
+from qa_safety import TOOLS
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SUITES = {"core": ("testing/scenarios.json", 48), "reliability": ("testing/reliability-scenarios.json", 10)}
 VERDICTS = ("PASS", "NEEDS_WORK", "FAIL", "pending")
 RECEIPT_SCHEMA = 4
+APPROVED_INTERPRETER_SHA256 = "8dfa9757a52b9c3edf1dedaaa2a7a8c40ea4beb058f20e90bdd47b48f3b1b176"
+QA_DISABLED_TOOLSETS = frozenset({"terminal", "file", "code_execution", "browser", "computer_use", "web", "memory",
+                                "skills", "cronjob", "delegation", "session_search", "search", "todo"})
 # Production Hermes reads these from ~/.hermes (HERMES_IGNORE_RULES unset). QA seeds exactly these bytes.
 INSTRUCTION_FILES = ("SOUL.md", "skills/buttonsbebe/support-agent/SKILL.md", "skills/buttonsbebe/ticket-processor/SKILL.md")
 SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
@@ -126,24 +130,16 @@ def _safe_url(value: str, *, local: bool = False) -> str:
         raise ValueError("QA profile URL must be a credential-free endpoint without query or fragment") from None
 
 
-def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
-    """Read the actual isolated profile, never the original config or auth file.
-
-    Only the supported, nonsecret configuration shape enters the identity.
-    Model API keys are ignored before hashing; unknown configuration fails closed.
-    """
-    if profile.is_symlink() or not profile.is_file() or profile.stat().st_size > 16384:
-        raise ValueError("Invalid isolated QA profile")
+def _profile_settings(config: dict, *, normalized: bool = False) -> dict:
+    """The same safety semantics apply to actual profiles and consumed receipts."""
     try:
-        # Hermes startup writes YAML and adds its migration version. JSON is a
-        # YAML subset; fingerprint the actual settings rather than the first write.
-        config = yaml.safe_load(profile.read_text(encoding="utf-8"))
         required = {"model", "agent", "memory", "platform_toolsets", "mcp_servers"}
         if (not isinstance(config, dict) or not required <= set(config) <= required | {"_config_version"}
                 or not _supported_config_version(config)):
             raise ValueError
         model = config["model"]
-        if not isinstance(model, dict) or not set(model) <= {"default", "provider", "base_url", "api_key"}:
+        allowed_model = {"default", "provider", "base_url"} | (set() if normalized else {"api_key"})
+        if not isinstance(model, dict) or not set(model) <= allowed_model:
             raise ValueError
         if any(not isinstance(model.get(key), str) or not model[key].strip() for key in ("default", "provider")):
             raise ValueError
@@ -155,11 +151,12 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
                 or type(agent["max_turns"]) is not int or not 1 <= agent["max_turns"] <= 1000
                 or type(agent["verbose"]) is not bool
                 or not isinstance(agent["disabled_toolsets"], list)
-                or any(not isinstance(name, str) or not name.isidentifier() for name in agent["disabled_toolsets"])):
+                or any(not isinstance(name, str) for name in agent["disabled_toolsets"])
+                or set(agent["disabled_toolsets"]) != QA_DISABLED_TOOLSETS):
             raise ValueError
         memory = config["memory"]
         if (not isinstance(memory, dict) or set(memory) != {"memory_enabled", "user_profile_enabled"}
-                or any(type(value) is not bool for value in memory.values())
+                or any(value is not False for value in memory.values())
                 or config["platform_toolsets"] != {"cli": []}):
             raise ValueError
         servers = config["mcp_servers"]
@@ -169,21 +166,40 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
         for name, server in servers.items():
             if (not isinstance(server, dict) or set(server) != {"url", "enabled", "connect_timeout", "trust", "tools"}
                     or server["enabled"] is not True or type(server["connect_timeout"]) is not int
+                    or not 1 <= server["connect_timeout"] <= 60
                     or server["trust"] != "untrusted" or not isinstance(server["tools"], dict)
                     or set(server["tools"]) != {"include", "resources", "prompts"}
-                    or any(type(server["tools"][key]) is not bool for key in ("resources", "prompts"))
+                    or any(server["tools"][key] is not True for key in ("resources", "prompts"))
                     or not isinstance(server["tools"]["include"], list)
-                    or any(not isinstance(tool, str) or not tool.isidentifier() for tool in server["tools"]["include"])):
+                    or any(not isinstance(tool, str) for tool in server["tools"]["include"])
+                    or set(server["tools"]["include"]) != TOOLS[name]):
                 raise ValueError
-            safe_servers[name] = {**server, "url": _safe_url(server["url"], local=True),
+            if normalized:
+                if server["url"] != "http://127.0.0.1/mcp":
+                    raise ValueError
+                url = server["url"]
+            else:
+                url = _safe_url(server["url"], local=True)
+            safe_servers[name] = {**server, "url": url,
                                   "tools": {**server["tools"], "include": sorted(set(server["tools"]["include"]))}}
         safe = {"model": safe_model, "agent": {**agent, "disabled_toolsets": sorted(set(agent["disabled_toolsets"]))},
-                "memory": memory, "platform_toolsets": {"cli": []}, "mcp_servers": safe_servers,
-                "interpreter_sha256": sha256_bytes(interpreter.read_bytes())}
+                "memory": memory, "platform_toolsets": {"cli": []}, "mcp_servers": safe_servers}
         if "_config_version" in config: safe["_config_version"] = config["_config_version"]
-        return {**safe, "sha256": digest(safe)}
-    except (KeyError, TypeError, AttributeError, ValueError, UnicodeError, yaml.YAMLError):
+        return safe
+    except (KeyError, TypeError, AttributeError, ValueError):
         raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
+
+
+def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
+    """Read actual safe YAML; remove API keys before hashing supported settings."""
+    if profile.is_symlink() or not profile.is_file() or profile.stat().st_size > 16384:
+        raise ValueError("Invalid isolated QA profile")
+    try:
+        safe = _profile_settings(yaml.safe_load(profile.read_text(encoding="utf-8")))
+    except (UnicodeError, yaml.YAMLError):
+        raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
+    safe["interpreter_sha256"] = sha256_bytes(interpreter.read_bytes())
+    return {**safe, "sha256": digest(safe)}
 
 
 def _supported_config_version(config: dict) -> bool:
@@ -377,6 +393,14 @@ def _require_instructions(bindings: dict) -> None:
 
 
 def _require_model_runtime(bindings: dict) -> None:
+    if not isinstance(bindings, dict):
+        raise ValueError("Missing QA bindings; rerun against the frozen source")
+    source = bindings.get("source")
+    if (not isinstance(source, dict) or not isinstance(source.get("files"), dict)
+            or not source["files"] or any(not isinstance(name, str) or not _valid_sha256(value)
+                                          for name, value in source["files"].items())
+            or source.get("sha256") != digest(source["files"])):
+        raise ValueError("Missing or invalid source file identity; rerun QA against the frozen source")
     hermes = bindings.get("hermes")
     if (not isinstance(hermes, dict) or set(hermes) != {"launch_sha256", "source_sha256", "source_files"}
             or not _valid_sha256(hermes["launch_sha256"])
@@ -393,6 +417,8 @@ def _require_model_runtime(bindings: dict) -> None:
             or not _valid_sha256(identity["interpreter_sha256"])
             or identity.get("sha256") != digest({key: value for key, value in identity.items() if key != "sha256"})):
         raise ValueError("Missing or invalid model/runtime identity; legacy QA evidence must be rerun")
+    _profile_settings({key: value for key, value in identity.items()
+                       if key not in {"sha256", "interpreter_sha256"}}, normalized=True)
     _require_instructions(bindings)
 
 
@@ -426,29 +452,141 @@ def observed_kb(results: list) -> list:
 
 
 def _single_content(observed, message: str) -> None:
+    if (not isinstance(observed, list) or any(not isinstance(row, (tuple, list)) or len(row) != 3
+            or any(not isinstance(value, str) for value in row) for row in observed)):
+        raise ValueError("Invalid observed KB evidence")
     sections = {}
     for name, heading, value in observed:
         if sections.setdefault((name, heading), value) != value:
             raise ValueError(f"{message}: {name} {heading!r}")
 
 
+def _execution_identity(case: dict, bindings: dict) -> dict:
+    """Consume actual per-child evidence; profile/probe hashes cannot replace it."""
+    try:
+        execution = case["execution"]
+        observed = execution["observation"]
+        pin = bindings["model_runtime"]["interpreter_sha256"]
+        helper = bindings["source"]["files"]["processor/hermes_runner/process.py"]
+        if (set(execution) != {"base_launch_sha256", "command_sha256", "observation"}
+                or execution["base_launch_sha256"] != bindings["hermes"]["launch_sha256"]
+                or not _valid_sha256(execution["command_sha256"])
+                or pin != APPROVED_INTERPRETER_SHA256
+                or observed["schema"] != 1 or observed["status"] != "verified_sampled"
+                or observed.get("failure") or observed["reader_kind"] != "linux_proc"
+                or observed["expected_sha256"] != pin
+                or observed["requested_launch_sha256"] != execution["command_sha256"]
+                or observed["helper_sha256_before"] != helper or observed["helper_sha256_after"] != helper
+                or type(observed["pid"]) is not int or observed["pid"] <= 0
+                or type(observed["pid_start_ticks"]) is not int or observed["pid_start_ticks"] <= 0
+                or observed["all_exec_transitions_observed"] is not False
+                or observed["process_exit_observed"] is not True
+                or observed["helper_completed"] is not True
+                or observed["helper_cleanup_completed"] is not True
+                or type(observed["child_returncode"]) is not int
+                or type(observed["helper_returncode"]) is not int
+                or observed["helper_returncode"] != observed["child_returncode"]
+                or observed["final_pid_state"] != "absent_after_helper_reap"
+                or observed["required_effective_role"] != "private_managed_python"
+                or not isinstance(observed.get("selected_python"), str)
+                or not (observed["selected_python"] == "${SELECTED_PYTHON}" or observed["selected_python"].startswith("/"))
+                or len(observed["selected_python"]) > 1024
+                or type(observed["samples"]) is not int or observed["samples"] < 2):
+            raise ValueError
+        images = observed["images"]
+        effective = observed["effective_observed_image"]
+        if (not isinstance(images, list) or not 1 <= len(images) <= 8
+                or type(effective) is not int or not 0 <= effective < len(images)):
+            raise ValueError
+        safe_images = []
+        for image in images:
+            if (image["path_source"] != "/proc/PID/exe" or image["role"] not in {"selected_python", "private_managed_python"}
+                    or image["sha256_before"] != pin or image["sha256_after"] != pin
+                    or any(type(image[key]) is not int or image[key] <= 0 for key in ("inode", "size", "samples"))
+                    or type(image["device"]) is not int or image["device"] < 0
+                    or any(type(image[key + "_after"]) is not int for key in ("device", "inode", "size"))
+                    or any(image[key] != image[key + "_after"] for key in ("device", "inode", "size"))):
+                raise ValueError
+            normalized = image["normalized_path"]
+            if image["role"] == "private_managed_python":
+                if not isinstance(normalized, str) or not re.fullmatch(
+                        r"\$\{QA_HOME\}/\.hermes/tools/python-\d+\.\d+\.\d+(?:\+[-A-Za-z0-9_.]+)?/bin/python3(?:\.\d+)?", normalized):
+                    raise ValueError
+            elif normalized != observed["selected_python"]:
+                raise ValueError
+            safe_image = {key: image[key] for key in ("normalized_path", "role", "device", "inode", "size",
+                          "path_source", "sha256_before", "sha256_after", "device_after", "inode_after", "size_after", "samples")}
+            if image["role"] == "selected_python": safe_image["normalized_path"] = "${SELECTED_PYTHON}"
+            safe_images.append(safe_image)
+        if (images[effective]["role"] != "private_managed_python" or images[effective]["samples"] < 2
+                or observed["samples"] != sum(image["samples"] for image in images)):
+            raise ValueError
+        transitions = observed["observed_transitions"]
+        if (not isinstance(transitions, list) or not 1 <= len(transitions) <= 32
+                or any(not isinstance(item, dict) or set(item) != {"image", "elapsed_seconds"}
+                       or type(item.get("image")) is not int or not 0 <= item["image"] < len(images)
+                       or type(item.get("elapsed_seconds")) not in (int, float) or not 0 <= item["elapsed_seconds"] <= 600
+                       for item in transitions)
+                or transitions[-1]["image"] != effective):
+            raise ValueError
+        safe_observed = {key: observed[key] for key in ("schema", "status", "pid", "pid_start_ticks", "samples",
+            "reader_kind", "required_effective_role", "expected_sha256", "requested_launch_sha256",
+            "helper_sha256_before", "helper_sha256_after", "effective_observed_image", "all_exec_transitions_observed",
+            "process_exit_observed", "helper_completed", "helper_cleanup_completed", "child_returncode", "helper_returncode", "final_pid_state")}
+        safe_observed["selected_python"] = "${SELECTED_PYTHON}"
+        safe_observed.update(images=safe_images, observed_transitions=[
+            {"image": item["image"], "elapsed_seconds": item["elapsed_seconds"]} for item in transitions])
+        return {"id": case["id"], "base_launch_sha256": execution["base_launch_sha256"],
+                "command_sha256": execution["command_sha256"], "observation": safe_observed}
+    except (KeyError, TypeError, AttributeError, ValueError, IndexError):
+        raise ValueError("Missing or invalid actual case execution identity; rerun with Linux child evidence") from None
+
+
+def _require_execution_rows(rows, ids, bindings):
+    if (not isinstance(rows, list) or len(rows) != len(ids)
+            or [row.get("id") for row in rows if isinstance(row, dict)] != ids):
+        raise ValueError("Execution evidence must cover every captured case in order")
+    # Consumed rows have already had private paths removed; reuse the same validator.
+    canonical = [_execution_identity({"id": row["id"], "execution": {key: value for key, value in row.items() if key != "id"}}, bindings)
+                 for row in rows]
+    if rows != canonical:
+        raise ValueError("Execution evidence must use canonical shareable identities")
+    return canonical
+
+
 def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
+    if (not isinstance(suite, str) or suite not in SUITES or not isinstance(ids, (tuple, list))
+            or any(not isinstance(value, str) or not value for value in ids)
+            or not isinstance(results, list) or any(not isinstance(result, dict)
+                or not isinstance(result.get("id"), str) or not result["id"] for result in results)):
+        raise ValueError("Invalid captured QA cases")
     catalog_sha256, all_ids = catalog(suite, repo)
     captured = [result["id"] for result in results]
     _require_model_runtime(before)
     _require_model_runtime(after)
+    execution = [_execution_identity(result, before) for result in results]
+    try:
+        kb_observed = observed_kb(results)
+    except (KeyError, TypeError, AttributeError):
+        raise ValueError("Invalid captured KB evidence") from None
     return {"schema": RECEIPT_SCHEMA, "suite": suite, "catalog_sha256": catalog_sha256, "ids": captured,
             "complete": captured == all_ids and list(ids) == all_ids,
-            "bindings": before, "bindings_after_sha256": digest(after), "kb_observed": observed_kb(results)}
+            "bindings": before, "bindings_after_sha256": digest(after), "kb_observed": kb_observed,
+            "execution": execution}
 
 
 def check_run_integrity(run: dict) -> None:
-    if run.get("schema") != RECEIPT_SCHEMA:
+    if not isinstance(run, dict) or run.get("schema") != RECEIPT_SCHEMA:
         raise ValueError("Legacy QA run lacks model/runtime and instruction-parity evidence; rerun the suites")
-    _require_model_runtime(run["bindings"])
+    if (not isinstance(run.get("suite"), str) or run["suite"] not in SUITES or not isinstance(run.get("ids"), list)
+            or any(not isinstance(value, str) or not value for value in run["ids"])
+            or len(set(run["ids"])) != len(run["ids"])):
+        raise ValueError("Invalid run catalog evidence")
+    _require_model_runtime(run.get("bindings"))
+    _require_execution_rows(run.get("execution"), run["ids"], run["bindings"])
     if digest(run["bindings"]) != run.get("bindings_after_sha256"):
         raise ValueError(f"{run['suite']}: source, Hermes, model/runtime or approved KB snapshot changed during the run")
-    _single_content(run["kb_observed"], f"{run['suite']}: KB content changed during the run")
+    _single_content(run.get("kb_observed"), f"{run['suite']}: KB content changed during the run")
 
 
 def judgment_template(run_path: Path) -> dict:
@@ -462,7 +600,8 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
     raw = run_path.read_bytes()
     run, judgments = json.loads(raw), json.loads(judgments_path.read_bytes())
     catalog_sha256, all_ids = catalog(suite, repo)
-    if (run.get("schema") != RECEIPT_SCHEMA or judgments.get("schema") != RECEIPT_SCHEMA
+    if (not isinstance(run, dict) or not isinstance(judgments, dict)
+            or run.get("schema") != RECEIPT_SCHEMA or judgments.get("schema") != RECEIPT_SCHEMA
             or run.get("suite") != suite or judgments.get("suite") != suite):
         raise ValueError(f"{suite}: schema 4 model/runtime and instruction-parity evidence required; rerun legacy suites")
     if not run.get("complete") or run.get("ids") != all_ids:
@@ -479,6 +618,7 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
     if not isinstance(defects, list):
         raise ValueError(f"{suite}: blocking_defects must be a list")
     summary = {"catalog_sha256": catalog_sha256, "run_sha256": sha256_bytes(raw),
+               "execution": run["execution"], "execution_sha256": digest(run["execution"]),
                "kb_observed_documents": len(run["kb_observed"]), "kb_observed_sha256": digest(run["kb_observed"]),
                "verdicts": {i: verdicts[i] for i in all_ids},
                "counts": {v: list(verdicts.values()).count(v) for v in VERDICTS}}
@@ -508,18 +648,25 @@ def review_state(receipt: dict) -> dict:
 
 
 def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> dict:
-    if receipt.get("schema") != RECEIPT_SCHEMA or set(receipt.get("suites", {})) != set(SUITES):
+    if (not isinstance(receipt, dict) or receipt.get("schema") != RECEIPT_SCHEMA
+            or not isinstance(receipt.get("suites"), dict) or set(receipt["suites"]) != set(SUITES)):
         raise ValueError("Schema 4 receipt must cover both suites with model/runtime and instruction-parity evidence; rerun legacy suites")
     _require_model_runtime(receipt)
+    if type(receipt.get("blocking_defects")) is not int or receipt["blocking_defects"] < 0:
+        raise ValueError("Invalid blocking defect count")
     current = source_fingerprint(repo)
     if receipt["source"]["sha256"] != current["sha256"]:
         raise ValueError("Stale receipt: source content differs from the reviewed run")
     for suite, summary in receipt["suites"].items():
         catalog_sha256, all_ids = catalog(suite, repo)
-        if summary["catalog_sha256"] != catalog_sha256 or list(summary["verdicts"]) != all_ids:
+        if (not isinstance(summary, dict) or summary.get("catalog_sha256") != catalog_sha256
+                or not isinstance(summary.get("verdicts"), dict) or list(summary["verdicts"]) != all_ids):
             raise ValueError(f"{suite}: receipt does not cover the current full catalog")
         if any(v not in VERDICTS for v in summary["verdicts"].values()):
             raise ValueError(f"{suite}: unknown verdict")
+        _require_execution_rows(summary.get("execution"), all_ids, receipt)
+        if summary.get("execution_sha256") != digest(summary["execution"]):
+            raise ValueError(f"{suite}: execution evidence digest differs")
     state = review_state(receipt)
     if receipt.get("review_complete") != state["review_complete"] or receipt.get("release_passed") != state["release_passed"]:
         raise ValueError("Receipt state does not match its verdicts")

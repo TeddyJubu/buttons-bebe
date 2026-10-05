@@ -20,7 +20,9 @@ from mcp.client.streamable_http import streamablehttp_client
 from qa_safety import GROUPS, TOOLS, UTILITY_NAMES, policy_files, redact, scenario_fixture
 from qa_metadata import prove_metadata
 from qa_catalog import load_manifest
-from qa_receipt import NO_BUNDLED_SKILLS_MARKER, instruction_identity, seed_instructions
+from qa_receipt import (NO_BUNDLED_SKILLS_MARKER, QA_DISABLED_TOOLSETS, APPROVED_INTERPRETER_SHA256,
+                        digest, instruction_identity, model_runtime_identity, seed_instructions)
+from qa_execution import load_helper, run_observed, command_digest
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -44,7 +46,7 @@ def profile_config(model: dict, ports: dict) -> dict:
         raise ValueError("Model provider must use HTTPS")
     return {
         "model": model,
-        "agent": {"max_turns":30,"verbose":False,"disabled_toolsets":["terminal","file","code_execution","browser","computer_use","web","memory","skills","cronjob","delegation","session_search","search","todo"]},
+        "agent": {"max_turns":30,"verbose":False,"disabled_toolsets":sorted(QA_DISABLED_TOOLSETS)},
         "platform_toolsets":{"cli":[]},
         "memory":{"memory_enabled":False,"user_profile_enabled":False},
         "mcp_servers":{group:{"url":f"http://127.0.0.1:{ports[group]}/mcp","enabled":True,"connect_timeout":15,
@@ -260,6 +262,7 @@ class Harness:
         self.ports={group:base_port+i for i,group in enumerate(GROUPS)}
         self.config=profile_config(model["model"],self.ports)
         atomic_json(self.home/".hermes"/"config.yaml",self.config) # JSON is valid YAML.
+        self.requested_model_runtime=model_runtime_identity(self.home/".hermes/config.yaml",hermes_python)
         if "access_token" in model:
             if model["model"].get("provider") != "openai-codex" or not isinstance(model["access_token"],str) or not model["access_token"]:
                 raise ValueError("Access-token input requires the Codex provider")
@@ -369,10 +372,28 @@ class Harness:
                 raise ValueError("Unexpected QA command or tool authorization")
             require_clean_env(self.env,self.home)
             before=instruction_identity(self.home,self.essentials,self.hermes_source)
-            captured["attempted"]=True
-            result=isolated_run([*self.launch,*command[1:]],timeout=self.timeout,env=self.env,cwd=self.home)
+            profile_before=model_runtime_identity(self.home/".hermes/config.yaml",self.hermes_python)
+            if profile_before["interpreter_sha256"] != APPROVED_INTERPRETER_SHA256:
+                raise ValueError("QA model interpreter differs from the approved binary")
+            actual_command=[*self.launch,*command[1:]]
+            try:
+                result,evidence=run_observed(load_helper(REPO/"processor/hermes_runner/process.py"),actual_command,
+                    timeout=self.timeout,env=self.env,cwd=self.home,private_home=self.home,
+                    selected_python=self.hermes_python,expected_sha256=APPROVED_INTERPRETER_SHA256)
+                captured["execution"]={"base_launch_sha256":digest(self.launch),
+                                      "command_sha256":command_digest(actual_command),"observation":evidence}
+                captured["attempted"]=type(evidence.get("pid")) is int and evidence["pid"] > 0
+            except BaseException as error:
+                captured["execution"]={"base_launch_sha256":digest(self.launch),
+                    "command_sha256":command_digest(actual_command),
+                    "observation":getattr(error,"execution_evidence",{"status":"incomplete"})}
+                failed=captured["execution"]["observation"]
+                captured["attempted"]=type(failed.get("pid")) is int and failed["pid"] > 0
+                raise
             if instruction_identity(self.home,self.essentials,self.hermes_source)!=before:
                 raise ValueError("QA instructions changed during the run")
+            if model_runtime_identity(self.home/".hermes/config.yaml",self.hermes_python)!=profile_before:
+                raise ValueError("QA model profile changed during the case")
             for secret in self.secret_values:
                 result.stdout=result.stdout.replace(secret,"[credential removed]")
             result.stderr=""  # Provider errors are never copied into processor logs.
@@ -381,6 +402,10 @@ class Harness:
         started=time.monotonic()
         with patch.object(runner,"get_settings",return_value=settings),patch.object(runner,"_run_environment",return_value=self.env),patch.object(runner,"_make_run_token",return_value=token),patch.object(runner,"run_bounded",side_effect=execute):
             result=runner.process_ticket_with_hermes(fixture["ticket"]["id"],scenario["message"],scenario["subject"],scenario["email"],[scenario.get("intent","")])
+        execution=captured.get("execution")
+        if not execution or execution["observation"].get("status")!="verified_sampled" or execution["observation"].get("failure"):
+            atomic_json(self.output/"failed-execution.json",{"id":scenario["id"],"execution":execution})
+            raise ValueError("QA child execution identity failed; no further cases permitted")
         self.assert_no_fatal_audit()
         process=captured.get("result")
         output=process.stdout if process and process.returncode==0 else ""
@@ -391,6 +416,7 @@ class Harness:
         return {"id":scenario["id"],"scenario":scenario,"result":result,"hermes_output":redact(output),
                 "seconds":round(time.monotonic()-started,2),"run_token":token,"process_returncode":process.returncode if process else None,
                 "model_called":captured.get("attempted",False),"authenticated_verdict":bool(valid_verdicts),
+                "execution":captured.get("execution"),
                 "draft_extraction":vars(extraction) if extraction else None,"human_review":"pending",
                 "tool_calls":[json.loads(line) for line in self.audit_path.read_text().splitlines() if json.loads(line).get("scenario_id")==scenario["id"]] if self.audit_path.exists() else []}
 
