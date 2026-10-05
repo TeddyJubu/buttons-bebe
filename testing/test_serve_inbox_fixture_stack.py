@@ -93,7 +93,7 @@ class FixturePortTests(unittest.TestCase):
                 "PYTHONUNBUFFERED": "1",
             }
             process = subprocess.Popen(
-                [sys.executable, str(REPO / "testing" / "serve_inbox_fixture_stack.py"),
+                [os.environ.get("INBOX_PYTHON", sys.executable), str(REPO / "testing" / "serve_inbox_fixture_stack.py"),
                  "--repo", str(REPO), "--port", "0"],
                 cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
