@@ -6,7 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import export_shop_rail as exporter
 from shop_rail import attach, display_payload
@@ -439,6 +439,149 @@ class ShopRailTests(unittest.TestCase):
             self.assertNotIn('shopifyRail', attach(dict(TICKET), dest))
             dest.write_text('corrupt')
             self.assertNotIn('shopifyRail', attach(dict(TICKET), dest))
+
+    def test_mint_failure_publishes_safe_fallback_and_drops_known_other_store(self):
+        current = 'current-synthetic.myshopify.com'
+        for stored_shop in (current, 'old-synthetic.myshopify.com'):
+            with self.subTest(stored_shop=stored_shop), tempfile.TemporaryDirectory() as temp:
+                legacy = {'status': 'found', 'email': TICKET['fromEmail'],
+                          'keysHash': exporter.keys_hash(TICKET), 'shop': stored_shop,
+                          'customer': CUSTOMER, 'order': ORDER, 'fetchedAtEpoch': 1000}
+                dest = Path(temp) / 'rail.sqlite3'
+                with sqlite3.connect(dest) as db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                calls = []
+                def failed_mint(env):
+                    calls.append(env)
+                    raise exporter.HTTPError('https://synthetic.invalid/token', 503, 'synthetic outage', {}, None)
+                with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                     patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current}), \
+                     patch.object(exporter, 'lookup_ticket', side_effect=AssertionError('No lookup without token')):
+                    exporter.export('', dest, '', now=23000, mint=failed_mint)
+                    payload = exporter.load_cache(dest)[TICKET['id']]['payload']
+                    self.assertEqual(payload['shop'], current)
+                    self.assertTrue(payload['refreshError'])
+                    self.assertEqual(payload['retryAt'], 23000 + exporter.CACHE_MISS_SECONDS)
+                    if stored_shop == current:
+                        self.assertEqual(payload['customer']['id'], CUSTOMER['id'])
+                        self.assertIsNone(payload['customer']['amountSpent'])
+                        self.assertIsNone(payload['order']['currentTotalPriceSet'])
+                        self.assertEqual(payload['fetchedAtEpoch'], 1000)
+                    else:
+                        self.assertEqual(payload['status'], 'error')
+                        for field in ('customer', 'order', 'history', 'returns', 'fetchedAtEpoch'):
+                            self.assertNotIn(field, payload)
+                    exporter.export('', dest, '', now=23001, mint=failed_mint)
+                    self.assertEqual(len(calls), 1)
+
+    def test_invalid_json_cache_payloads_are_rejected_before_budget_and_failures(self):
+        current = 'current-synthetic.myshopify.com'
+        for invalid in ([], None, 7, 'invalid', True):
+            for mode in ('mint_failure', 'lookup_failure', 'spent_budget'):
+                with self.subTest(invalid=invalid, mode=mode), tempfile.TemporaryDirectory() as temp:
+                    dest = Path(temp) / 'rail.sqlite3'
+                    with sqlite3.connect(dest) as db:
+                        db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                        db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(invalid), 1000))
+                    self.assertFalse(exporter.fresh(exporter.load_cache(dest)[TICKET['id']], 1100))
+                    prior = {**TICKET, 'id': 'gorgias:prior'}
+                    tickets = [prior, TICKET] if mode == 'spent_budget' else [TICKET]
+                    def mint(env):
+                        if mode == 'mint_failure':
+                            raise exporter.URLError('synthetic outage')
+                        return 'synthetic token'
+                    def lookup(env, token, ticket, caches):
+                        if mode == 'spent_budget':
+                            caches['lookups'] = exporter.MAX_LOOKUPS
+                            return {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'missing', 'shop': current}, True
+                        raise TimeoutError('synthetic outage')
+                    with patch.object(exporter, 'read_projection_tickets', return_value=tickets), \
+                         patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current}), \
+                         patch.object(exporter, 'lookup_ticket', side_effect=lookup):
+                        exporter.export('', dest, '', now=1100, mint=mint)
+                    cache = exporter.load_cache(dest)
+                    if mode == 'spent_budget':
+                        self.assertNotIn(TICKET['id'], cache)
+                    else:
+                        payload = cache[TICKET['id']]['payload']
+                        self.assertEqual(payload['shop'], current)
+                        self.assertEqual(payload['status'], 'error')
+                        self.assertTrue(payload['refreshError'])
+                        for field in ('customer', 'order', 'history', 'returns'):
+                            self.assertNotIn(field, payload)
+
+    def test_malformed_provider_json_shapes_fail_as_caught_runtime_errors(self):
+        env = {'SHOPIFY_SHOP': 'synthetic.myshopify.com', 'SHOPIFY_CLIENT_ID': 'synthetic',
+               'SHOPIFY_CLIENT_SECRET': 'synthetic', 'SHOPIFY_API_VERSION': 'synthetic'}
+        for invalid in ([], None, 7, 'invalid', True):
+            with self.subTest(invalid=invalid):
+                opener = MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = json.dumps(invalid).encode()
+                with patch.object(exporter, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(RuntimeError, 'token response invalid'):
+                        exporter.mint_token(env)
+                    with self.assertRaisesRegex(RuntimeError, 'graphql response invalid'):
+                        exporter.graphql(env, 'synthetic', exporter.CUSTOMER_BY_EMAIL, {})
+
+    def test_token_response_rejects_missing_empty_or_nonstring_token(self):
+        env = {'SHOPIFY_SHOP': 'synthetic.myshopify.com', 'SHOPIFY_CLIENT_ID': 'synthetic',
+               'SHOPIFY_CLIENT_SECRET': 'synthetic'}
+        for token in (None, '', ' ', 7, False, [], {}):
+            with self.subTest(token=token):
+                opener = MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = json.dumps({'access_token': token}).encode()
+                with patch.object(exporter, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(RuntimeError, 'token mint failed'):
+                        exporter.mint_token(env)
+
+    def test_invalid_provider_bytes_use_the_caught_decoding_error_types(self):
+        env = {'SHOPIFY_SHOP': 'synthetic.myshopify.com', 'SHOPIFY_CLIENT_ID': 'synthetic',
+               'SHOPIFY_CLIENT_SECRET': 'synthetic', 'SHOPIFY_API_VERSION': 'synthetic'}
+        for body, error in ((b'\xff', UnicodeDecodeError), (b'{', json.JSONDecodeError)):
+            with self.subTest(error=error.__name__):
+                opener = MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = body
+                with patch.object(exporter, 'build_opener', return_value=opener):
+                    with self.assertRaises(error):
+                        exporter.mint_token(env)
+                    with self.assertRaises(error):
+                        exporter.graphql(env, 'synthetic', exporter.CUSTOMER_BY_EMAIL, {})
+
+    def test_mint_failure_is_attempted_once_while_all_other_store_and_invalid_rows_are_removed(self):
+        current = 'current-synthetic.myshopify.com'
+        tickets = [{**TICKET, 'id': f'gorgias:{kind}'} for kind in ('first', 'invalid', 'other', 'matching')]
+        matching = {'status': 'found', 'shop': current, 'email': TICKET['fromEmail'],
+                    'keysHash': exporter.keys_hash(TICKET), 'customer': CUSTOMER, 'fetchedAtEpoch': 1000}
+        mismatched = {**matching, 'shop': 'old-synthetic.myshopify.com'}
+        for failure in (exporter.HTTPError('https://synthetic.invalid/token', 503, 'outage', {}, None),
+                        json.JSONDecodeError('synthetic', '', 0),
+                        UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'synthetic')):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as temp:
+                dest = Path(temp) / 'rail.sqlite3'
+                with sqlite3.connect(dest) as db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    for ticket, payload in zip(tickets, (mismatched, [], mismatched, matching)):
+                        db.execute('INSERT INTO rail VALUES(?,?,?)', (ticket['id'], json.dumps(payload), 1000))
+                calls = []
+                def mint(env):
+                    calls.append(env)
+                    raise failure
+                with patch.object(exporter, 'read_projection_tickets', return_value=tickets), \
+                     patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current}), \
+                     patch.object(exporter, 'lookup_ticket', side_effect=AssertionError('No lookup without token')):
+                    exporter.export('', dest, '', now=23000, mint=mint)
+                cache = exporter.load_cache(dest)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(set(cache), {'gorgias:first', 'gorgias:matching'})
+                self.assertEqual(cache['gorgias:first']['payload']['status'], 'error')
+                self.assertNotIn('customer', cache['gorgias:first']['payload'])
+                # Unattempted same-store legacy data is unchanged on disk and
+                # remains honestly redacted by the normal snapshot reader.
+                self.assertEqual(cache['gorgias:matching']['payload'], matching)
+                displayed = attach({**TICKET, 'id': 'gorgias:matching'}, dest)['shopifyRail']
+                self.assertIsNone(displayed['customer']['amountSpent'])
+                self.assertTrue(displayed['legacyMoneyUnverified'])
 
 
 if __name__ == '__main__':

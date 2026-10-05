@@ -91,8 +91,10 @@ def mint_token(env):
     )
     with opener.open(request, timeout=30) as response:
         payload = json.loads(response.read().decode())
+    if not isinstance(payload, dict):
+        raise RuntimeError('token response invalid')
     token = payload.get('access_token')
-    if not isinstance(token, str) or not token:
+    if not isinstance(token, str) or not token.strip():
         raise RuntimeError('token mint failed')
     return token
 
@@ -112,6 +114,8 @@ def graphql(env, token, document, variables):
     opener = build_opener(_RefuseRedirects())
     with opener.open(request, timeout=30) as response:
         payload = json.loads(response.read().decode())
+    if not isinstance(payload, dict):
+        raise RuntimeError('graphql response invalid')
     if payload.get('errors'):
         raise RuntimeError('graphql errors')
     data = payload.get('data')
@@ -337,7 +341,8 @@ def load_cache(path):
 
 
 def fresh(entry, now):
-    if not entry or (entry.get('payload') or {}).get('payloadVersion') != PAYLOAD_VERSION:
+    if (not entry or not isinstance(entry.get('payload'), dict)
+            or entry['payload'].get('payloadVersion') != PAYLOAD_VERSION):
         return False
     if entry['payload'].get('refreshError'):
         return now < entry['payload'].get('retryAt', 0)
@@ -348,6 +353,9 @@ def fresh(entry, now):
 
 
 def known_store_mismatch(payload, env):
+    # Invalid cache rows cannot establish a safe store binding either.
+    if not isinstance(payload, dict):
+        return True
     observed, configured = payload.get('shop'), env.get('SHOPIFY_SHOP')
     return bool(observed and configured and observed != configured)
 
@@ -451,11 +459,11 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
         if not ticket_id:
             continue
         entry = cache.get(ticket_id)
-        if entry and entry['payload'].get('keysHash') != keys_hash(ticket):
-            entry = None
         if entry and known_store_mismatch(entry['payload'], env):
-            # A known different store cannot supply any cached details, even
+            # An invalid or known different store cannot supply cached details, even
             # while reads fail or the lookup budget is exhausted.
+            entry = None
+        if entry and entry['payload'].get('keysHash') != keys_hash(ticket):
             entry = None
         if entry:
             timestamps[ticket_id] = entry['updated_at']
@@ -466,9 +474,9 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             if entry:
                 payloads[ticket_id] = entry['payload']
             continue
-        if token is None:
-            token = mint_fn(env)
         try:
+            if token is None:
+                token = mint_fn(env)
             payload, _ = lookup_ticket(env, token, ticket, caches)
             payload['fetchedAt'] = datetime.fromtimestamp(now, timezone.utc).isoformat()
             payload['fetchedAtEpoch'] = now
@@ -477,7 +485,7 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             if entry:
                 payloads[ticket_id] = entry['payload']
             continue
-        except (HTTPError, URLError, TimeoutError, RuntimeError, json.JSONDecodeError):
+        except (HTTPError, URLError, TimeoutError, RuntimeError, json.JSONDecodeError, UnicodeDecodeError):
             # cubic: the fallback a failed refresh writes must still name the
             # store scope — every exported snapshot names the one store.
             old = (entry or {}).get('payload')
@@ -489,6 +497,8 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             # snapshot's observation time and unverified legacy prices stay honest.
             payload.update(payloadVersion=PAYLOAD_VERSION, refreshError=True,
                            retryAt=now + CACHE_MISS_SECONDS)
+            if token is None:
+                caches['lookups'] = MAX_LOOKUPS
         payloads[ticket_id] = payload
     fd, name = tempfile.mkstemp(prefix='.shop-rail-', suffix='.sqlite3', dir=directory)
     os.close(fd)
