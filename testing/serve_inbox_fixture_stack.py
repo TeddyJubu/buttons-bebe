@@ -40,6 +40,7 @@ FIXTURE_PROVIDER_OPERATIONS = {
     "synthetic_shopify_snapshot": frozenset({"read"}),
     "synthetic_redo_snapshot": frozenset({"read"}),
 }
+PROVIDER_TICKET_ID = re.compile(r"[1-9][0-9]{0,17}", re.ASCII)
 
 
 def scrub_provider_environment() -> list[str]:
@@ -130,12 +131,31 @@ def load_fixture(path: Path) -> dict[str, Any]:
     if value.get("version") != 1 or not isinstance(value.get("tickets"), list):
         raise ValueError(f"Unsupported fixture file: {path}")
     ids = [str(ticket.get("id", "")) for ticket in value["tickets"]]
-    if len(ids) != len(set(ids)) or any(not item.isdigit() for item in ids):
-        raise ValueError("Fixture tickets need unique numeric provider IDs.")
+    if len(ids) != len(set(ids)) or any(PROVIDER_TICKET_ID.fullmatch(item) is None for item in ids):
+        raise ValueError("Fixture tickets need unique ASCII positive provider IDs of 1 to 18 digits.")
     for case, ticket_id in value.get("cases", {}).items():
         if str(ticket_id) not in ids:
             raise ValueError(f"Fixture case {case!r} names a missing ticket.")
     return value
+
+
+def bind_loopback_listener(port: int) -> tuple[socket.socket, int]:
+    """Bind once and hand the still-owned socket directly to Uvicorn.
+
+    Port zero asks the operating system for an unused loopback port. Keeping the
+    socket bound until Uvicorn takes ownership avoids a reserve/close/rebind gap.
+    """
+    if type(port) is not int or not 0 <= port <= 65535:
+        raise ValueError("Fixture port must be zero or between 1 and 65535.")
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.1", port))
+        listener.listen(socket.SOMAXCONN)
+        actual_port = int(listener.getsockname()[1])
+        return listener, actual_port
+    except BaseException:
+        listener.close()
+        raise
 
 
 def discover_local_assets(assets_dir: Path) -> set[str]:
@@ -777,52 +797,59 @@ def serve(args: argparse.Namespace) -> int:
         import uvicorn
 
         with tempfile.TemporaryDirectory(prefix="buttonsbebe-inbox-fixture-") as temporary:
-            state_dir = Path(temporary)
-            runtime = FixtureRuntime(root, data, args.port, state_dir, egress_guard)
-            runtime.set_case(args.case)
-            live_api = runtime.configure_api()
-            app = runtime.build_app(live_api)
-            config = uvicorn.Config(app, host="127.0.0.1", port=args.port,
-                                    access_log=False, log_level="warning",
-                                    server_header=False)
-            server = uvicorn.Server(config)
-            server.install_signal_handlers = lambda: None
-            thread = threading.Thread(target=server.run, name="fixture-inbox-api", daemon=False)
-            thread.start()
+            listener, port = bind_loopback_listener(args.port)
             try:
-                diagnostics = wait_until_ready(args.port, runtime, live_api, thread)
-                print("Synthetic Inbox fixture stack is ready.", flush=True)
-                print(f"UI: http://127.0.0.1:{args.port}/inbox/?ticket={runtime.selected_ticket_id}", flush=True)
-                print(f"Health: http://127.0.0.1:{args.port}/health", flush=True)
-                print(f"Readiness and captured calls: http://127.0.0.1:{args.port}/__fixture__/diagnostics", flush=True)
-                print(f"Loaded {diagnostics['loadedTicketCount']} fixture tickets into temporary SQLite stores.", flush=True)
-                print("Provider clients are replaced, credentials are removed, and non-loopback network access is blocked.", flush=True)
-                if removed_env:
-                    print(f"Removed {len(removed_env)} credential or provider environment entries from this process.", flush=True)
-                print("Press Ctrl-C to stop the service and remove its temporary stores.", flush=True)
-                while thread.is_alive():
-                    thread.join(timeout=0.5)
-                return 0
-            except KeyboardInterrupt:
-                server.should_exit = True
-                return 0
+                state_dir = Path(temporary)
+                runtime = FixtureRuntime(root, data, port, state_dir, egress_guard)
+                runtime.set_case(args.case)
+                live_api = runtime.configure_api()
+                app = runtime.build_app(live_api)
+                config = uvicorn.Config(app, host="127.0.0.1", port=port,
+                                        access_log=False, log_level="warning",
+                                        server_header=False)
+                server = uvicorn.Server(config)
+                server.install_signal_handlers = lambda: None
+                thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]},
+                                         name="fixture-inbox-api", daemon=False)
+                try:
+                    thread.start()
+                    print(f"FIXTURE_PORT={port}", flush=True)
+                    diagnostics = wait_until_ready(port, runtime, live_api, thread)
+                    print("Synthetic Inbox fixture stack is ready.", flush=True)
+                    print(f"UI: http://127.0.0.1:{port}/inbox/?ticket={runtime.selected_ticket_id}", flush=True)
+                    print(f"Health: http://127.0.0.1:{port}/health", flush=True)
+                    print(f"Readiness and captured calls: http://127.0.0.1:{port}/__fixture__/diagnostics", flush=True)
+                    print(f"Loaded {diagnostics['loadedTicketCount']} fixture tickets into temporary SQLite stores.", flush=True)
+                    print("Provider clients are replaced, credentials are removed, and non-loopback network access is blocked.", flush=True)
+                    if removed_env:
+                        print(f"Removed {len(removed_env)} credential or provider environment entries from this process.", flush=True)
+                    print("Press Ctrl-C to stop the service and remove its temporary stores.", flush=True)
+                    while thread.is_alive():
+                        thread.join(timeout=0.5)
+                    return 0
+                except KeyboardInterrupt:
+                    server.should_exit = True
+                    return 0
+                finally:
+                    server.should_exit = True
+                    if thread.ident is not None:
+                        thread.join(timeout=35)
+                        if thread.is_alive():
+                            server.force_exit = True
+                            thread.join(timeout=2)
+                        if thread.is_alive():
+                            raise RuntimeError("Fixture server did not stop; temporary stores were retained until process exit.")
+                        with live_api.WORKER_LOCK:
+                            worker = live_api.WORKER
+                        if worker and worker.thread and worker.thread.is_alive():
+                            live_api.stop_worker(worker)
+                        if worker and worker.thread and worker.thread.is_alive():
+                            raise RuntimeError("Fixture sync worker did not stop; temporary stores were retained until process exit.")
+                        with live_api.WORKER_LOCK:
+                            if live_api.WORKER is worker:
+                                live_api.WORKER = None
             finally:
-                server.should_exit = True
-                thread.join(timeout=35)
-                if thread.is_alive():
-                    server.force_exit = True
-                    thread.join(timeout=2)
-                if thread.is_alive():
-                    raise RuntimeError("Fixture server did not stop; temporary stores were retained until process exit.")
-                with live_api.WORKER_LOCK:
-                    worker = live_api.WORKER
-                if worker and worker.thread and worker.thread.is_alive():
-                    live_api.stop_worker(worker)
-                if worker and worker.thread and worker.thread.is_alive():
-                    raise RuntimeError("Fixture sync worker did not stop; temporary stores were retained until process exit.")
-                with live_api.WORKER_LOCK:
-                    if live_api.WORKER is worker:
-                        live_api.WORKER = None
+                listener.close()
     finally:
         egress_guard.restore()
 
@@ -838,8 +865,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case", default="long-email",
                         help="Fixture ticket to open first. Default: long-email.")
     args = parser.parse_args()
-    if not 1 <= args.port <= 65535:
-        parser.error("--port must be between 1 and 65535")
+    if not 0 <= args.port <= 65535:
+        parser.error("--port must be zero (ephemeral) or between 1 and 65535")
     return args
 
 

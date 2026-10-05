@@ -21,12 +21,47 @@ from urllib.request import ProxyHandler, build_opener
 STARTUP_TIMEOUT_SECONDS = 15
 PORT_ATTEMPTS = 5
 TEST_TIMEOUT_SECONDS = 120
+REQUIRED_BROWSER_SUITES = (
+    "conversation-state.mjs",
+    "customer-loading.mjs",
+    "draft-recovery.mjs",
+    "layout.mjs",
+    "local-controls.mjs",
+    "local-state.mjs",
+    "redo-details.mjs",
+    "rewrite-draft.mjs",
+    "send-access.mjs",
+    "ticket-views.mjs",
+)
+FIXTURE_RUNTIME_HELPER = "fixture-runtime.mjs"
 
 
 def free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+def required_browser_files(tests_dir: Path) -> tuple[list[Path], Path]:
+    """Require every named regression before any browser or preview is started."""
+    missing = [name for name in REQUIRED_BROWSER_SUITES if not (tests_dir / name).is_file()]
+    if missing:
+        raise FileNotFoundError("required Inbox browser suites are missing: " + ", ".join(missing))
+    helper = tests_dir / FIXTURE_RUNTIME_HELPER
+    if not helper.is_file():
+        raise FileNotFoundError(f"required full-stack Inbox fixture helper is missing: {helper.name}")
+    return [tests_dir / name for name in REQUIRED_BROWSER_SUITES], helper
+
+
+def is_loopback_bind_collision(output: str) -> bool:
+    """Recognize common Unix and Windows address-in-use diagnostics only."""
+    message = output.casefold()
+    return any(marker in message for marker in (
+        "address already in use",
+        "winerror 10048",
+        "only one usage of each socket address",
+        "wsaeaddrinuse",
+    ))
 
 
 def browser_cache_path() -> str:
@@ -183,8 +218,10 @@ def running_preview(repo: Path, helper: Path, env: dict[str, str], scratch: Path
 
             log_handle.flush()
             output = log_path.read_text(encoding="utf-8", errors="replace")
-            if "Address already in use" in output and attempt + 1 < PORT_ATTEMPTS:
-                continue
+            if is_loopback_bind_collision(output):
+                if attempt + 1 < PORT_ATTEMPTS:
+                    continue
+                raise RuntimeError("Could not reserve a loopback port for the synthetic Inbox preview after bounded retries")
             raise RuntimeError(
                 "The synthetic Inbox preview did not become ready on loopback. "
                 f"Preview output: {output.strip() or '(empty)'}"
@@ -200,9 +237,10 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     tests_dir = repo / "console-src" / "inbox2" / "tests"
     helper = repo / "skills" / "buttonsbebe-support-webapp" / "scripts" / "serve_inbox_preview.py"
-    tests = sorted(tests_dir.glob("*.mjs"))
-    if not tests:
-        print(f"inbox browser gate failed: no browser tests found in {tests_dir}", file=sys.stderr)
+    try:
+        tests, fixture_helper = required_browser_files(tests_dir)
+    except OSError as error:
+        print(f"inbox browser gate failed: {error}", file=sys.stderr)
         return 1
     node = shutil.which("node")
     if not node:
@@ -229,7 +267,7 @@ def main() -> int:
             with running_preview(repo, helper, env, scratch) as (_, _, base_url):
                 env["INBOX_TEST_URL"] = base_url
                 print(f"inbox browser gate: synthetic preview ready at {base_url}")
-                print(f"inbox browser gate: running all {len(tests)} browser tests")
+                print(f"inbox browser gate: running all {len(tests)} required browser suites")
                 for test in tests:
                     print(f"\n--- {test.relative_to(repo)} ---", flush=True)
                     try:
@@ -244,13 +282,23 @@ def main() -> int:
             print(f"inbox browser gate failed: {error}", file=sys.stderr)
             return 1
 
+        print("\ninbox browser gate: running full-stack fixture helper separately", flush=True)
+        try:
+            helper_result = run_browser_test(node, fixture_helper, repo, env)
+            if helper_result:
+                failures.append(f"{FIXTURE_RUNTIME_HELPER} exited with status {helper_result}")
+        except TimeoutError as error:
+            failures.append(str(error))
+        except OSError as error:
+            failures.append(f"{FIXTURE_RUNTIME_HELPER} could not start: {error}")
+
         if failures:
             for failure in failures:
                 print(f"inbox browser gate failed: {failure}", file=sys.stderr)
             return 1
         if "INBOX_EVIDENCE_DIR" not in os.environ:
             print("inbox browser gate: temporary screenshots were removed after the run")
-        print(f"inbox browser gate passed: all {len(tests)} browser tests used the synthetic loopback preview")
+        print(f"inbox browser gate passed: all {len(tests)} required suites and the separate fixture helper completed")
         return 0
 
 

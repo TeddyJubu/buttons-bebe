@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
@@ -12,12 +11,9 @@ const root=fileURLToPath(new URL('../../../',import.meta.url));
 const python=process.env.INBOX_TEST_PYTHON||process.env.QA_PYTHON||'python3';
 const evidence=process.env.INBOX_EVIDENCE_DIR||fs.mkdtempSync(path.join(os.tmpdir(),'bb-inbox-fixture-runtime-'));
 fs.mkdirSync(evidence,{recursive:true});
-const reservation=net.createServer();
-await new Promise((resolve,reject)=>{reservation.once('error',reject);reservation.listen(0,'127.0.0.1',resolve);});
-const port=reservation.address().port;
-await new Promise(resolve=>reservation.close(resolve));
-const base=`http://127.0.0.1:${port}`,ticketId='gorgias:841000000000001';
-const child=spawn(python,['-u',path.join(root,'testing/serve_inbox_fixture_stack.py'),'--repo',root,'--port',String(port)],{cwd:root,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},stdio:['ignore','pipe','pipe']});
+let port=0,base='';
+const ticketId='gorgias:841000000000001';
+const child=spawn(python,['-u',path.join(root,'testing/serve_inbox_fixture_stack.py'),'--repo',root,'--port','0'],{cwd:root,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},stdio:['ignore','pipe','pipe']});
 let logs='',exitResult=null,spawnError=null,browser=null,context=null,videoPath=null,receipt=null;
 const append=data=>{logs=(logs+data.toString()).slice(-20000);};
 child.stdout.on('data',append);child.stderr.on('data',append);
@@ -28,8 +24,10 @@ let deadline;
 const bounded=new Promise((_,reject)=>{deadline=setTimeout(()=>{child.kill('SIGINT');void browser?.close().catch(()=>{});reject(new Error(`Fixture browser exceeded 110 seconds. ${logs}`));},110000);});
 async function json(url,options={}){const response=await fetch(url,{...options,signal:AbortSignal.timeout(1500)});assert(response.ok,`HTTP ${response.status} from ${url}`);return response.json();}
 async function actualTicket(){return json(`${base}/inbox/api/helpdesk`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:'helpdesk.get_ticket',arguments:{ticketId}})});}
+async function assignedPort(){const end=Date.now()+15000;while(Date.now()<end){if(spawnError)throw spawnError;if(exitResult)throw new Error(`Fixture process exited ${JSON.stringify(exitResult)} before binding. ${logs}`);const match=logs.match(/^FIXTURE_PORT=([1-9][0-9]{0,4})$/m);if(match)return Number(match[1]);await wait(40);}throw new Error(`Fixture child did not report its bound port. ${logs}`);}
 async function ready(){const end=Date.now()+30000;let lastError;while(Date.now()<end){if(spawnError)throw spawnError;if(exitResult)throw new Error(`Fixture process exited ${JSON.stringify(exitResult)}. ${logs}`);try{const health=await json(`${base}/health`),diagnostics=await json(`${base}/__fixture__/diagnostics`);if(health.ok&&diagnostics.fixtureDataReady&&diagnostics.syncComplete){const response=await actualTicket();if(response.ok&&response.ticket?.id===ticketId&&response.ticket.messages?.length===6)return {diagnostics,ticket:response.ticket};}}catch(error){lastError=error.message;}await wait(100);}throw new Error(`Fixture readiness failed. ${lastError}. ${logs}`);}
 async function run(){
+  port=await assignedPort();base=`http://127.0.0.1:${port}`;
   const initial=await ready();
   assert.equal(initial.diagnostics.synthetic,true);assert.equal(initial.diagnostics.readOnly,true);
   assert.equal(initial.ticket.messages.length,6);
@@ -69,7 +67,7 @@ async function run(){
   await page.locator('.redo-section>summary').click();
   assert((await page.locator('.redo-section').textContent()).includes('size exchange'));
   assert((await page.locator('#customer-rail').textContent()).includes('Shopify returns'));
-  assert.equal(await page.locator('.order-item').count(),2);
+  assert.equal(await page.locator('.order-item').count(),1);
   await page.screenshot({path:path.join(evidence,'fixture-runtime-shopify-redo.png')});await wait(3000);
   await page.locator('[data-view="closed"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('[data-ticket]').length===1&&document.querySelector('[data-ticket]')?.dataset.ticket==='gorgias:841000000000003');

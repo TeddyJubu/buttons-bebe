@@ -229,7 +229,7 @@
       "customer": {
         "displayName": "Nadia Rahman",
         "numberOfOrders": 2,
-        "amountSpent": {"amount": "118.00", "currencyCode": "USD"},
+        "amountSpent": {"amount": "108.00", "currencyCode": "USD"},
         "createdAt": "2025-02-12T10:00:00Z",
         "tags": ["fixture-customer"]
       },
@@ -239,13 +239,12 @@
         "createdAt": "2026-10-01T08:18:00Z",
         "displayFinancialStatus": "PAID",
         "displayFulfillmentStatus": "UNFULFILLED",
-        "currentTotalPriceSet": {"shopMoney": {"amount": "58.00", "currencyCode": "USD"}},
+        "currentTotalPriceSet": {"shopMoney": {"amount": "48.00", "currencyCode": "USD"}},
         "shippingAddress": {"name": "Nadia Rahman", "city": "Dhaka", "country": "Bangladesh"},
         "billingAddress": {"name": "Nadia Rahman", "city": "Dhaka", "country": "Bangladesh"},
         "fulfillments": [],
         "lineItems": {"nodes": [
-          {"title": "Green Garden Embroidered Romper", "variantTitle": "12–18 months", "quantity": 1, "unfulfilledQuantity": 1, "originalUnitPriceSet": {"shopMoney": {"amount": "48.00", "currencyCode": "USD"}}},
-          {"title": "Garden Bow Headband", "variantTitle": "Sage", "quantity": 1, "unfulfilledQuantity": 1, "originalUnitPriceSet": {"shopMoney": {"amount": "10.00", "currencyCode": "USD"}}}
+          {"title": "Green Garden Embroidered Romper", "variantTitle": "12–18 months", "quantity": 1, "unfulfilledQuantity": 1, "originalUnitPriceSet": {"shopMoney": {"amount": "48.00", "currencyCode": "USD"}}}
         ]}
       },
       "returns": {"returns": {"nodes": [
