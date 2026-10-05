@@ -94,6 +94,13 @@ def epoch(value):
     try: return datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
     except (ValueError, TypeError): return 0
 
+def source_epoch(value):
+    if not isinstance(value,str) or not value.strip(): return 0
+    try:
+        parsed=datetime.fromisoformat(value.strip())
+        return parsed.timestamp() if parsed.tzinfo is not None and parsed.utcoffset() is not None else 0
+    except (ValueError,OverflowError,OSError): return 0
+
 def database():
     db = sqlite3.connect(DB, timeout=10)
     db.row_factory = sqlite3.Row
@@ -218,9 +225,9 @@ def summary(t):
             'customerContext':{'source':'gorgias_api','status':'observed','conflict':False,
                                'identity':{'email':customer.get('email') or '', 'name':customer.get('name') or ''},'observedAt':now()}}
 
-def cache_summary(db,ticket,generation):
+def cache_summary(db,ticket,generation,preserve_preview=True):
     old=db.execute('SELECT payload FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
-    if old:
+    if old and preserve_preview:  # summary syncs keep a detail preview; a fresh covered detail may replace it
         prior=json.loads(old[0])
         if prior.get('previewMessageId') and prior.get('lastMessageAt') and prior.get('lastMessageAt')==ticket.get('lastMessageAt'):
             for key in ('snippet','previewMessageId','previewProvenance'):
@@ -375,9 +382,28 @@ def attach_customer_details(ticket):
         ticket['redoDetails']={'source':'redo','status':'unavailable','reason':'Redo lookup storage is temporarily unavailable.'}
     return ticket
 
+def newer_summary(db,ticket):
+    """Stored summary row, and whether it carries newer activity (or same activity, newer metadata) than ticket."""
+    row=db.execute('SELECT generation,payload FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
+    stored=json.loads(row[1]) if row else {}
+    if not isinstance(stored,dict): raise ValueError('Invalid cached ticket summary')
+    mine,theirs=epoch(ticket.get('lastMessageAt')),epoch(stored.get('lastMessageAt'))
+    return row,theirs>mine,theirs>mine or (theirs==mine and epoch(stored.get('updatedAt'))>epoch(ticket.get('updatedAt')))
+
+def mark_stale(ticket):
+    # Keep messages readable, but block Send/rewrite/retry and Use draft in the existing UI.
+    return {**ticket,'syncStale':True,'draftSuperseded':True}
+
 def get_ticket(number):
     key=str(number)
     with DETAIL_LOCK: cached=DETAIL_CACHE.get(key)
+    if cached:
+        try:
+            with closing(database()) as db: stale=newer_summary(db,cached[1])[2]
+        except (sqlite3.Error,ValueError,TypeError):
+            # A failed freshness check may serve readable cached data, never an actionable fresh draft.
+            return attach_customer_details(mark_stale(cached[1]))
+        if stale: cached=(0,cached[1])  # a newer synced summary forces a re-fetch past the 15 s cache
     if cached and time.time()-cached[0]<15: return attach_customer_details(cached[1])
     try:
         with MCP() as client:
@@ -386,25 +412,33 @@ def get_ticket(number):
             page=messages_page(client,number)
         ticket=summary(raw);ticket.update(messages=page['messages'],messagesNextCursor=page['nextCursor'],historyIncomplete=bool(page['nextCursor']),observedMessageCount=len(page['messages']),syncedAt=now(),syncStale=False)
         enrich(ticket)
-        latest=next((m for m in reversed(ticket['messages']) if not m['internal'] and m.get('body')),None)
+        # Promote a message preview only when the page reaches the provider's latest activity (any message, notes included).
+        activity=source_epoch(raw.get('last_message_datetime'))
+        public_chronology_known=all(source_epoch(m['at'])>0 for m in ticket['messages'] if not m['internal'])
+        covered=activity>0 and public_chronology_known and max((source_epoch(m['at']) for m in ticket['messages']),default=0)>=activity
+        latest=next((m for m in reversed(ticket['messages']) if not m['internal'] and m.get('body')),None) if covered else None
         if latest:
             ticket.update(snippet=latest['body'][:300],previewMessageId=latest['id'],previewProvenance={'source':'message','truncated':len(latest['body'])>300,'cleanupVersion':latest.get('cleanup_version')})
+        with closing(database()) as db, db:
+            db.execute('BEGIN IMMEDIATE')  # recheck the row and publish atomically against a concurrent sync
+            row,stale,older=newer_summary(db,ticket)
+            if not older and covered:
+                saved=summary(raw)
+                for field in ('snippet','previewMessageId','previewProvenance'):
+                    if field in ticket:saved[field]=ticket[field]
+                cache_summary(db,saved,row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation','')),preserve_preview=not latest)
+        # Known activity the page does not reach, or a newer synced summary, makes this detail explicitly stale.
+        if older or not public_chronology_known or (activity>0 and not covered): return mark_stale(ticket)
         with DETAIL_LOCK:
             if len(DETAIL_CACHE)>=128: DETAIL_CACHE.pop(next(iter(DETAIL_CACHE)))
             DETAIL_CACHE[key]=(time.time(),ticket)
-        with closing(database()) as db, db:
-            row=db.execute('SELECT generation FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
-            saved=summary(raw)
-            for field in ('snippet','previewMessageId','previewProvenance'):
-                if field in ticket:saved[field]=ticket[field]
-            cache_summary(db,saved,row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation','')))
         return ticket
     except Gone:
         with DETAIL_LOCK: DETAIL_CACHE.pop(key,None)
         with closing(database()) as db, db: db.execute('DELETE FROM tickets WHERE id=?',('gorgias:'+key,))
         raise
     except Exception:
-        if cached: return attach_customer_details({**cached[1],'syncStale':True})
+        if cached: return attach_customer_details(mark_stale(cached[1]))
         raise Unavailable()
 
 def list_tickets(args):

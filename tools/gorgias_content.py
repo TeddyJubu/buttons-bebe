@@ -60,9 +60,10 @@ def curate_messages(response):
 
 
 def curate_ticket(response):
-    if isinstance(response, dict) and isinstance(response.get("messages"), list):
-        return {**response, "messages": [curate_message(message) for message in response["messages"]]}
-    return response
+    result = curate_summary(response)
+    if isinstance(result, dict) and isinstance(result.get("messages"), list):
+        result["messages"] = [curate_message(message) for message in result["messages"]]
+    return result
 
 
 def curate_summary(ticket):

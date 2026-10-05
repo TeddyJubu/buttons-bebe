@@ -2,6 +2,21 @@ import unittest
 from tools.gorgias_content import curate_message,curate_messages,curate_ticket
 
 class GorgiasContentTests(unittest.TestCase):
+    def test_ticket_excerpt_is_cleaned_even_without_embedded_messages(self):
+        excerpt='<p>New activity অর্ডার #10330001 🙏</p><div style="display:none">HIDDEN-NEW</div>'
+        for extra in ({},{'messages':[{'id':8,'body_text':'Customer message'}]}):
+            with self.subTest(extra=bool(extra)):
+                source={'id':7,'excerpt':excerpt,**extra}
+                result=curate_ticket(source)
+                self.assertEqual(result['excerpt'],'New activity অর্ডার #10330001 🙏')
+                self.assertEqual(result['display_text'],result['excerpt'])
+                self.assertEqual(result['original_content'],excerpt)
+                self.assertEqual(result['original_field'],'excerpt')
+                self.assertTrue(result['source_truncated'])
+                self.assertEqual(result['cleanup_version'],'intake-1')
+                self.assertEqual(source['excerpt'],excerpt)
+                if extra:self.assertEqual(result['messages'][0]['display_text'],'Customer message')
+
     def test_retained_content_selected_and_original_metadata_preserved(self):
         message={'id':123,'body_text':None,'body_html':None,'stripped_text':'Retained reply','headers':None,'body_url':'https://archive.example/private'}
         result=curate_messages({'data':[message]})['data'][0]
