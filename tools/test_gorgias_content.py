@@ -2,6 +2,23 @@ import unittest
 from tools.gorgias_content import curate_message,curate_messages,curate_ticket
 
 class GorgiasContentTests(unittest.TestCase):
+    def test_customer_ask_and_original_survive_canonical_cleanup(self):
+        for field, source, expected in (
+            ('body_text', 'Sent from my warehouse on Monday; why is the order still missing?',
+             'Sent from my warehouse on Monday; why is the order still missing?'),
+            ('body_html', '<blockquote>Old reply</blockquote>My package is missing.',
+             'My package is missing.'),
+        ):
+            with self.subTest(field=field):
+                raw = {'id': 123, field: source}
+                result = curate_messages({'data': [raw]})['data'][0]
+                self.assertEqual(result['current_text'], expected)
+                self.assertEqual(result['original_content'], source)
+                self.assertEqual(result['preferred_content'], source)
+                self.assertEqual(result[field], source)
+                self.assertFalse(result['content_unavailable'])
+                self.assertNotIn('current_text', raw)
+
     def test_ticket_excerpt_is_cleaned_even_without_embedded_messages(self):
         excerpt='<p>New activity অর্ডার #10330001 🙏</p><div style="display:none">HIDDEN-NEW</div>'
         for extra in ({},{'messages':[{'id':8,'body_text':'Customer message'}]}):

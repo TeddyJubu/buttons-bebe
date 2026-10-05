@@ -382,6 +382,37 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored["display_source"], "body_text")
         self.assertEqual(stored["current_source"], "stripped_text")
 
+    async def test_customer_ask_after_footer_words_or_html_quote_reaches_the_queue(self):
+        from tools.gorgias_content import curate_message
+        cases = (
+            ('body_text', 'Sent from my warehouse on Monday; why is the order still missing?',
+             'Sent from my warehouse on Monday; why is the order still missing?'),
+            ('body_html', '<blockquote>Old reply</blockquote>My package is missing.',
+             'My package is missing.'),
+        )
+        for offset, (field, source, expected) in enumerate(cases):
+            with self.subTest(field=field):
+                message_id = 730082446 + offset
+                provider_message = message(message_id)
+                for key in ('stripped_text', 'preferred_content', 'preferred_content_field'):
+                    provider_message.pop(key)
+                provider_message[field] = source
+                current_ticket = ticket()
+                current_ticket['updated_datetime'] = f'2026-09-25T14:39:0{4 + offset}+00:00'
+                provider_message['created_datetime'] = current_ticket['updated_datetime']
+                current_ticket['last_received_message_datetime'] = current_ticket['updated_datetime']
+                client = FakeMCP([current_ticket], {284477559: [curate_message(provider_message)]})
+                self.position = SweepPosition()
+                self.assertEqual((await self.scan(client))[1], 1)
+                self.assertEqual(self.rows('SELECT message_text FROM parsed_messages WHERE message_id=?',
+                                          (str(message_id),)), [(expected,)])
+                raw = json.loads(self.rows('SELECT raw_payload FROM webhook_events WHERE message_id=?',
+                                           (str(message_id),))[0][0])['message']
+                self.assertEqual(raw['current_text'], expected)
+                self.assertEqual(raw['original_content'], source)
+                self.assertEqual(raw[field], source)
+                self.assertEqual(raw['preferred_content'], source)
+
     async def test_curated_contract_is_stored_without_inventing_a_body(self):
         raw_message = message(body="Please help with my order.")
         raw_message["preferred_content"] = "NOT A RAW BODY"

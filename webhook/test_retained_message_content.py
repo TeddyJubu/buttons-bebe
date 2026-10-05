@@ -251,6 +251,27 @@ class RetainedContentTests(unittest.TestCase):
         self.assertLess(elapsed, 2.0, f'20 normalizations of a 100KB message took {elapsed:.3f}s')
 
     @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
+    def test_real_customer_ask_survives_footer_words_and_bottom_posted_html(self, settings):
+        import json
+        from bb_webhook.webhook_handler import parse_event
+        for field, source, expected in (
+            ('body_text', 'Sent from my warehouse on Monday; why is the order still missing?',
+             'Sent from my warehouse on Monday; why is the order still missing?'),
+            ('body_html', '<blockquote>Old reply</blockquote>My package is missing.',
+             'My package is missing.'),
+        ):
+            with self.subTest(field=field):
+                payload = {'event': 'ticket-message-created', 'ticket': {'id': 123}, 'message': {
+                    'id': 456, 'from_agent': False, 'created_datetime': '2026-09-07T00:00:00Z',
+                    'channel': 'email', field: source,
+                }}
+                parsed = parse_event(json.dumps(payload).encode())
+                self.assertEqual(parsed['message_text'], expected)
+                self.assertEqual(parsed['intake']['current_text'], expected)
+                self.assertEqual(parsed['intake']['original_content'], source)
+                self.assertEqual(parsed['raw']['message'][field], source)
+
+    @patch("bb_webhook.webhook_handler.get_settings", return_value=SimpleNamespace(gorgias_subdomain="synthetic"))
     def test_webhook_keeps_current_text_and_intake_provenance(self, settings):
         import json
         from bb_webhook.webhook_handler import parse_event

@@ -32,20 +32,58 @@ class MessageContentTests(unittest.TestCase):
             source = _line(length) + "\nout today"
             result = normalize_message({"stripped_text": source})
             self.assertEqual(result["display_text"], source)
+            self.assertEqual(result["current_text"], source)
             self.assertEqual(result["original_content"], source)
-        self.assertEqual(
-            normalize_message({"stripped_text": _line(70) + "\r\nout today"})["display_text"],
-            _line(70) + " out today",
-        )
-        self.assertEqual(
-            normalize_message({"stripped_text": _line(70) + "\nOut today"})["display_text"],
-            _line(70) + "\nOut today",
-        )
         stopped = _line(69) + "."
-        self.assertEqual(
-            normalize_message({"stripped_text": stopped + "\nout today"})["display_text"],
-            stopped + "\nout today",
-        )
+        for source, expected in (
+            (_line(70) + "\r\nout today", _line(70) + " out today"),
+            (_line(70) + "\nOut today", _line(70) + "\nOut today"),
+            (stopped + "\nout today", stopped + "\nout today"),
+        ):
+            result = normalize_message({"stripped_text": source})
+            self.assertEqual(result["display_text"], expected)
+            self.assertEqual(result["current_text"], expected)
+
+    def test_signature_shaped_customer_prose_stays_current(self):
+        for source in (
+            "Sent from my warehouse on Monday; why is the order still missing?",
+            "Sent from my iPhone but I still need a refund.",
+            "It was sent from my iPhone",
+            "Sent from my store in Tel Aviv",
+            "Sent from my unknown device",
+        ):
+            with self.subTest(source=source):
+                result = normalize_message({"body_text": source})
+                self.assertEqual(result["current_text"], source)
+                self.assertEqual(result["display_text"], source)
+                self.assertEqual(result["original_content"], source)
+
+    def test_known_mobile_footers_and_glued_client_boundary_are_removed(self):
+        request = "Please edit order #10322954."
+        for footer in ("Sent from my iPhone", "Sent from my iPad", "Sent from my Galaxy"):
+            for source in (request + "\n" + footer, request + footer):
+                with self.subTest(source=source):
+                    result = normalize_message({"body_text": source})
+                    self.assertEqual(result["current_text"], request)
+                    self.assertEqual(result["original_content"], source)
+        source = request + "Sent from my Galaxy -------- Original message --------Old order"
+        self.assertEqual(normalize_message({"body_text": source})["current_text"], request)
+        self.assertEqual(normalize_message({"body_text": "Sent from my Galaxy\n> old request"})["current_text"], "")
+
+    def test_text_after_outer_blockquote_is_a_current_customer_line(self):
+        for source, expected in (
+            ("<blockquote>Old refund request</blockquote>My package is missing.", "My package is missing."),
+            ("<p>Please help.</p><blockquote>Old refund request</blockquote>My package is missing.",
+             "Please help.\n\nMy package is missing."),
+            ("<blockquote>Old reply<blockquote>Earlier request</blockquote>Old follow-up</blockquote>Cancel this order.",
+             "Cancel this order."),
+        ):
+            with self.subTest(source=source):
+                result = normalize_message({"body_html": source})
+                self.assertEqual(result["current_text"], expected)
+                self.assertNotIn("Old", result["current_text"])
+                self.assertEqual(result["original_content"], source)
+                self.assertTrue(result["history_available"])
 
     def test_stripped_text_keeps_lists_paragraphs_and_urls(self):
         samples = (

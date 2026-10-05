@@ -75,7 +75,10 @@ _GLUED_MARKERS = re.compile(
     re.IGNORECASE,
 )
 _SIGNATURE_RE = re.compile(
-    r"(?:\n|^|(?<=[a-z0-9,.!?]))sent from my\s+\S[^\n]*(?:\n|$)",
+    # A known device footer must end the line. Generic "Sent from my ..."
+    # sentences and requests following a device name are customer content.
+    r"(?:(?:\n|^)[ \t]*|(?<=[a-z0-9,.!?]))"
+    r"sent[ \t]+from[ \t]+my[ \t]+(?:iphone|ipad|galaxy)[ \t]*(?:\n|$)",
     re.IGNORECASE,
 )
 _QUOTE_LINE_RE = re.compile(r"^\s*(?:>|\|)")
@@ -218,6 +221,10 @@ class _VisibleText(HTMLParser):
             self.anchor = None
         if tag == "blockquote" and self.in_quote:
             self.in_quote -= 1
+            if not self.in_quote:
+                # Bare bottom-posted text is a new customer line, even when
+                # the mail client adds no paragraph after the quoted block.
+                self.parts.append("\n")
         elif tag in _BLOCK_END:
             self.parts.append("\n")
 
