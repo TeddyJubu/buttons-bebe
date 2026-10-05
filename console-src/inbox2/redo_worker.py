@@ -326,7 +326,8 @@ def publish(cache, destination=None):
                 raise
         raise
     finally:
-        temporary.unlink(missing_ok=True)
+        # Successful replace consumes the temporary path; no cleanup can fail after it.
+        if not replaced: temporary.unlink(missing_ok=True)
         if backup is not None and not recovery_failed:
             try: backup.unlink(missing_ok=True)
             except OSError:

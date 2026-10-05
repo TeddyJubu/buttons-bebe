@@ -256,6 +256,20 @@ class RedoTests(unittest.TestCase):
         self.assertEqual(self.attach(now=3002)['orders']['10312345']['returns'][0]['id'],'updated')
         self.assertEqual(w.process(rows,3002),0);self.assertEqual(len(self.calls),2)
 
+    def test_consumed_temporary_cleanup_cannot_fail_after_durable_publication(self):
+        self.attach();w=self.run_worker();self.response={'returns':[{**RETURN,'id':'updated'}]}
+        self.attach(now=3000);rows=worker.read_requests(self.queue,3001);original=Path.unlink;consumed_attempts=[]
+        def unlink(path,*args,**kwargs):
+            if path.name.startswith('.redo-') and not path.name.startswith('.redo-before-') and not path.exists():
+                consumed_attempts.append(path)
+                raise PermissionError('synthetic consumed temporary cleanup error')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'unlink',unlink):self.assertEqual(w.process(rows,3001),1)
+        self.assertEqual(consumed_attempts,[])
+        self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        self.assertEqual(self.attach(now=3002)['orders']['10312345']['returns'][0]['id'],'updated')
+        self.assertEqual(w.process(rows,3002),0);self.assertEqual(len(self.calls),2)
+
     def test_restart_sql_byte_guard_excludes_unicode_row_before_python_loading(self):
         oversized=json.dumps({'text':'é'*(worker.MAX_CACHE_BYTES//2)},ensure_ascii=False)
         self.assertLess(len(oversized),worker.MAX_CACHE_BYTES)
