@@ -285,6 +285,38 @@ def bounded_cache(cache):
     return retained
 
 
+
+def bounded_observations(cache, now):
+    """Keep newest observations and small suppression records for byte eviction."""
+    ordered=sorted(cache.items(),key=lambda item:(item[1]['updated_at'],item[0]),reverse=True)[:MAX_SNAPSHOTS]
+    retained=dict(ordered)
+    sizes={ticket_id:serialized_size(ticket_id,entry) for ticket_id,entry in ordered}
+    size=sum(sizes.values())
+    for ticket_id,entry in reversed(ordered):
+        if size<=MAX_CACHE_BYTES:break
+        payload=entry['payload'];replacement=None
+        try:
+            # Only exact, bounded identities can receive a retry record.
+            email=payload.get('email','')
+            request=make_request(ticket_id,email,list(payload.get('orders',{})))
+            if (len(ticket_id)<=40 and len(email)<=254 and request
+                    and request_key(request)==payload.get('requestKey')):
+                previous=payload.get('failures',0)
+                failures=min((previous if isinstance(previous,int) else 0)+1,5)
+                replacement={'payload':{'requestKey':payload['requestKey'],'email':request['email'],
+                    'orders':{order:{'status':'failed','refreshFailedAt':now} for order in request['orders']},
+                    'attemptedAt':payload.get('attemptedAt',entry['updated_at']),
+                    'refreshError':True,'failures':failures,'retryAt':now+min(30*2**(failures-1),300),
+                    'fetchedAt':None,'fetchedAtEpoch':0},'updated_at':entry['updated_at']}
+        except (TypeError,ValueError,AttributeError):pass
+        replacement_size=serialized_size(ticket_id,replacement) if replacement else sizes[ticket_id]
+        if replacement is not None and replacement_size<sizes[ticket_id]:
+            retained[ticket_id]=replacement;size+=replacement_size-sizes[ticket_id]
+        else:
+            del retained[ticket_id];size-=sizes[ticket_id]
+    return retained
+
+
 def _fsync_directory(directory):
     fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
     try: os.fsync(fd)
@@ -428,7 +460,7 @@ class Worker:
                 entry={'payload':payload,'updated_at':now}
                 logging.warning('Redo ticket observation exceeds snapshot budget')
             working[request['ticketId']] = entry
-            working=bounded_cache(working)
+            working=bounded_observations(working,now)
             completed += 1
         if completed:
             self.publish(working, self.destination)

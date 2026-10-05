@@ -369,6 +369,63 @@ class RedoTests(unittest.TestCase):
         self.assertEqual(len(attempts),2);self.assertEqual(w.cache,worker.load_cache(self.snapshot))
         self.assertEqual(self.attach(orders,now=3003)['status'],'unavailable')
 
+    def aggregate_requests(self):
+        rows=[]
+        for number in (1,2):
+            request=details.make_request(f'gorgias:{number}',EMAIL,['#10312345','#10312346'])
+            rows.append((request,details.request_key(request),1000))
+        return rows
+
+    def test_aggregate_eviction_keeps_unavailable_suppression_without_relookup(self):
+        rows=self.aggregate_requests();w=worker.Worker(self.snapshot,call=self.oversized_call)
+        self.assertEqual(w.process(rows,1001),2);self.assertEqual(len(self.calls),4)
+        for now in range(1002,1006):self.assertEqual(w.process(rows,now),0)
+        self.assertEqual(len(self.calls),4);self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        self.assertEqual(set(w.cache),{'gorgias:1','gorgias:2'})
+        self.assertLessEqual(sum(worker.serialized_size(k,v) for k,v in w.cache.items()),worker.MAX_CACHE_BYTES)
+        views={row[0]['ticketId']:details.view(row[0],w.cache[row[0]['ticketId']]['payload'],1006)['status'] for row in rows}
+        self.assertEqual(sorted(views.values()),['observed','unavailable'])
+        unavailable=next(k for k,v in views.items() if v=='unavailable');payload=w.cache[unavailable]['payload']
+        self.assertTrue(payload['refreshError']);self.assertGreater(payload['retryAt'],1006)
+        self.assertTrue(all(o['status']=='failed' and 'returns' not in o for o in payload['orders'].values()))
+        self.assertLess(worker.serialized_size(unavailable,w.cache[unavailable]),1024)
+        restarted=worker.Worker(self.snapshot,call=self.oversized_call)
+        self.assertEqual(restarted.process(rows,1006),0);self.assertEqual(len(self.calls),4)
+
+    def test_legacy_aggregate_startup_trim_converges_without_repeated_reads(self):
+        rows=self.aggregate_requests()
+        with closing(sqlite3.connect(self.snapshot)) as db:
+            db.execute('CREATE TABLE redo(ticket_id TEXT PRIMARY KEY,payload TEXT,updated_at REAL)')
+            for request,key,_ in rows:
+                orders={order:worker.summarize(order,self.oversized_call(order),1001) for order in request['orders']}
+                payload={'requestKey':key,'email':EMAIL,'orders':orders,'attemptedAt':1001,'fetchedAtEpoch':1001}
+                entry={'payload':payload,'updated_at':1001}
+                self.assertLess(worker.serialized_size(request['ticketId'],entry),worker.MAX_CACHE_BYTES)
+                db.execute('INSERT INTO redo VALUES(?,?,?)',(request['ticketId'],json.dumps(payload),1001))
+            db.commit()
+        self.calls.clear();w=worker.Worker(self.snapshot,call=self.oversized_call)
+        self.assertEqual(len(w.cache),1);self.assertEqual(w.process(rows,1002),1)
+        self.assertEqual(len(self.calls),2);self.assertEqual(set(w.cache),{'gorgias:1','gorgias:2'})
+        for now in range(1003,1007):self.assertEqual(w.process(rows,now),0)
+        self.assertEqual(len(self.calls),2);self.assertEqual(w.cache,worker.load_cache(self.snapshot))
+        restarted=worker.Worker(self.snapshot,call=self.oversized_call)
+        self.assertEqual(restarted.process(rows,1007),0);self.assertEqual(len(self.calls),2)
+
+    def test_aggregate_marker_publication_failure_preserves_old_memory_and_disk(self):
+        self.attach();w=self.run_worker();old=copy.deepcopy(w.cache);disk=self.snapshot.read_bytes()
+        rows=self.aggregate_requests();rows=[(r,k,3000) for r,k,_ in rows];w.call=self.oversized_call
+        attempts=[]
+        def publish(cache,path):
+            attempts.append(True)
+            if len(attempts)==1:raise OSError('synthetic aggregate marker publication failure')
+            worker.publish(cache,path)
+        w.publish=publish
+        with self.assertRaises(OSError):w.process(rows,3001)
+        self.assertEqual(w.cache,old);self.assertEqual(self.snapshot.read_bytes(),disk)
+        self.assertEqual(w.process(rows,3002),2);self.assertEqual(len(attempts),2)
+        self.assertEqual(w.cache,worker.load_cache(self.snapshot));before=len(self.calls)
+        self.assertEqual(w.process(rows,3003),0);self.assertEqual(len(self.calls),before)
+
     def test_startup_trim_storage_failure_survives_and_retries_persisted_cache(self):
         for error in (OSError,sqlite3.Error):
             with self.subTest(error=error):
