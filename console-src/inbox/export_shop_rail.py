@@ -347,6 +347,11 @@ def fresh(entry, now):
     return age < limit
 
 
+def known_store_mismatch(payload, env):
+    observed, configured = payload.get('shop'), env.get('SHOPIFY_SHOP')
+    return bool(observed and configured and observed != configured)
+
+
 class LookupBudgetExceeded(Exception):
     pass
 
@@ -447,6 +452,10 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             continue
         entry = cache.get(ticket_id)
         if entry and entry['payload'].get('keysHash') != keys_hash(ticket):
+            entry = None
+        if entry and known_store_mismatch(entry['payload'], env):
+            # A known different store cannot supply any cached details, even
+            # while reads fail or the lookup budget is exhausted.
             entry = None
         if entry:
             timestamps[ticket_id] = entry['updated_at']

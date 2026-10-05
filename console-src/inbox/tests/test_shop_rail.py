@@ -369,7 +369,6 @@ class ShopRailTests(unittest.TestCase):
         old_shop = 'old-synthetic.myshopify.com'
         for old_value, env, expected in (
             (None, {'SHOPIFY_SHOP': current_shop}, current_shop),
-            (old_shop, {'SHOPIFY_SHOP': current_shop}, current_shop),
             (old_shop, {}, old_shop),
         ):
             with self.subTest(old_shop=old_value, env=env), tempfile.TemporaryDirectory() as temp:
@@ -391,6 +390,48 @@ class ShopRailTests(unittest.TestCase):
                 self.assertIsNone(payload['customer']['amountSpent'])
                 self.assertEqual(payload['payloadVersion'], exporter.PAYLOAD_VERSION)
                 self.assertEqual(payload['retryAt'], 23000 + exporter.CACHE_MISS_SECONDS)
+
+    def test_known_other_store_cache_is_rejected_before_every_reuse_path(self):
+        old_shop, current_shop = 'old-synthetic.myshopify.com', 'current-synthetic.myshopify.com'
+        old_payload = {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'found',
+                       'email': TICKET['fromEmail'], 'keysHash': exporter.keys_hash(TICKET),
+                       'shop': old_shop, 'customer': CUSTOMER, 'order': ORDER,
+                       'history': [{'id': 'old-shop-history'}],
+                       'returns': {'returns': {'nodes': [{'id': 'old-shop-return'}]}}}
+        for mode, now in (('fresh', 1100), ('failed_refresh', 23000),
+                          ('budget_exhausted', 23000), ('lookup_budget_exceeded', 23000)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                dest = Path(temp) / 'rail.sqlite3'
+                with sqlite3.connect(dest) as db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(old_payload), 1000))
+                prior = {**TICKET, 'id': 'gorgias:prior'}
+                tickets = [prior, TICKET] if mode == 'budget_exhausted' else [TICKET]
+                calls = []
+                def lookup(env, token, ticket, caches):
+                    calls.append(ticket['id'])
+                    if mode == 'budget_exhausted':
+                        caches['lookups'] = exporter.MAX_LOOKUPS
+                        return {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'missing',
+                                'shop': current_shop}, True
+                    if mode == 'lookup_budget_exceeded':
+                        raise exporter.LookupBudgetExceeded()
+                    raise TimeoutError('synthetic outage')
+                with patch.object(exporter, 'read_projection_tickets', return_value=tickets), \
+                     patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current_shop}), \
+                     patch.object(exporter, 'lookup_ticket', side_effect=lookup):
+                    exporter.export('', dest, '', now=now, mint=lambda _: '')
+                cache = exporter.load_cache(dest)
+                if mode in ('budget_exhausted', 'lookup_budget_exceeded'):
+                    self.assertNotIn(TICKET['id'], cache)
+                else:
+                    self.assertEqual(calls, [TICKET['id']])
+                    payload = cache[TICKET['id']]['payload']
+                    self.assertEqual(payload['shop'], current_shop)
+                    self.assertEqual(payload['status'], 'error')
+                    self.assertTrue(payload['refreshError'])
+                    for field in ('customer', 'order', 'history', 'returns'):
+                        self.assertNotIn(field, payload)
 
     def test_bad_or_absent_snapshot_is_nonfatal(self):
         with tempfile.TemporaryDirectory() as temp:
