@@ -94,7 +94,7 @@ def mint_token(env):
     if not isinstance(payload, dict):
         raise RuntimeError('token response invalid')
     token = payload.get('access_token')
-    if not isinstance(token, str) or not token.strip():
+    if not isinstance(token, str) or not token or any(char.isspace() for char in token):
         raise RuntimeError('token mint failed')
     return token
 
@@ -450,6 +450,7 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
     cache = load_cache(destination)
     env = load_shopify_env(env_file)
     token = None
+    mint_failed = False
     caches = {'customers': {}, 'orders': {}, 'history': {}, 'lookups': 0, 'graphql': graphql_call or graphql}
     mint_fn = mint or mint_token
     payloads = {}
@@ -470,14 +471,19 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
         if fresh(entry, now):
             payloads[ticket_id] = entry['payload']
             continue
-        if caches['lookups'] >= MAX_LOOKUPS:
+        if mint_failed or caches['lookups'] >= MAX_LOOKUPS:
             if entry:
                 payloads[ticket_id] = entry['payload']
             continue
         try:
             if token is None:
                 token = mint_fn(env)
-            payload, _ = lookup_ticket(env, token, ticket, caches)
+            try:
+                payload, _ = lookup_ticket(env, token, ticket, caches)
+            except (AttributeError, TypeError):
+                # Malformed nested provider data must still publish the filtered
+                # fallback rather than leave rejected old-store data on disk.
+                raise RuntimeError('Shopify response shape invalid') from None
             payload['fetchedAt'] = datetime.fromtimestamp(now, timezone.utc).isoformat()
             payload['fetchedAtEpoch'] = now
             timestamps[ticket_id] = now
@@ -498,7 +504,7 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             payload.update(payloadVersion=PAYLOAD_VERSION, refreshError=True,
                            retryAt=now + CACHE_MISS_SECONDS)
             if token is None:
-                caches['lookups'] = MAX_LOOKUPS
+                mint_failed = True
         payloads[ticket_id] = payload
     fd, name = tempfile.mkstemp(prefix='.shop-rail-', suffix='.sqlite3', dir=directory)
     os.close(fd)
