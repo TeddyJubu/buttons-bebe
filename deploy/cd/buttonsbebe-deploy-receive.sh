@@ -121,7 +121,7 @@ if metadata.get('commit') != sys.argv[2]:
 PYMETA
 # Validate the applied files as well as the reviewed source fingerprints.
 # The approval file uses: absolute-path sha256, one protected file per line.
-python3 - "$approved_config_file" <<'PYCONFIG'
+python3 - "$approved_config_file" "$release_dir" <<'PYCONFIG'
 import hashlib, pathlib, sys
 entries = []
 for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
@@ -136,6 +136,24 @@ required = {'/etc/caddy/sites/support.caddy', '/etc/systemd/system/helpdesk-inbo
             '/etc/systemd/system/buttonsbebe-inbox-projection.timer'}
 if not required.issubset(entries):
     raise SystemExit('Support Caddy, inbox and projection unit applied fingerprints are required')
+# The approved source tree binds these canonical base units. Merely approving
+# old installed bytes cannot make consumers import the newly shared intake.
+# Reviewed drop-ins remain separately fingerprinted; root installation owns
+# daemon-reload, so CD neither reads runtime Environment nor reloads units.
+consumers = {
+    '/etc/systemd/system/buttonsbebe-webhook.service': 'buttonsbebe-webhook.service',
+    '/etc/systemd/system/buttonsbebe-processor.service': 'buttonsbebe-processor.service',
+    '/etc/systemd/system/buttonsbebe-gorgias-mcp.service': 'buttonsbebe-gorgias-mcp.service',
+}
+if not consumers.keys() <= set(entries):
+    raise SystemExit('Shared intake consumer unit applied fingerprints are required')
+for installed, name in consumers.items():
+    canonical = pathlib.Path(sys.argv[2]) / 'deploy/systemd' / name
+    if not canonical.is_file():
+        raise SystemExit('Reviewed shared intake consumer unit is absent: ' + name)
+    actual = hashlib.sha256(pathlib.Path(installed).read_bytes()).digest()
+    if actual != hashlib.sha256(canonical.read_bytes()).digest():
+        raise SystemExit('Shared intake consumer unit differs from reviewed release: ' + name)
 PYCONFIG
 # A root-approved helper owns the exclusions; an incoming archive cannot weaken
 # rollback data protection. Dependency changes fail here, before service stops.
