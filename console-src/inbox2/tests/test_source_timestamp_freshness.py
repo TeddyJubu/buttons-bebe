@@ -63,6 +63,72 @@ class SourceTimestampFreshness(unittest.TestCase):
                                                  ('gorgias:841999118',)).fetchone())
                 self.assertNoFreshDetailCache()
 
+    def test_unverifiable_stored_activity_with_newer_update_stays_closed(self):
+        later_update = '2026-10-06T15:00:00Z'
+        bad_activities = (
+            ('missing', None),
+            ('null', None),
+            ('blank', ''),
+            ('naive', '2026-10-06T20:00:00'),
+            ('date-only', '2026-10-06'),
+            ('garbage', 'not-a-time'),
+        )
+        for label, activity in bad_activities:
+            with self.subTest(activity=label):
+                stored = {'id': 841999118, 'status': 'closed',
+                          'excerpt': 'Resolved on the later update',
+                          'updated_datetime': later_update}
+                if label != 'missing':
+                    stored['last_message_datetime'] = activity
+                self.fixture.sync(stored)
+                before = self.fixture.stored()
+
+                candidate = detail_setup.raw(detail_setup.T6, 'Older covered detail', detail_setup.T6, status='open')
+                out = self.fixture.detail(candidate, [detail_setup.OLD])
+
+                self.fixture.assertStale(out)
+                self.assertEqual(out['status'], 'open')
+                self.assertEqual(self.fixture.stored(), before)
+                self.assertEqual(self.fixture.stored()[0]['status'], 'closed')
+                self.assertNoFreshDetailCache()
+
+    def test_stored_update_time_protects_against_newer_activity_with_older_metadata(self):
+        self.fixture.sync(detail_setup.raw('2026-10-05T06:00:00Z', 'Stored closed summary',
+                                           '2026-10-05T08:00:00Z', status='closed'))
+        before = self.fixture.stored()
+        candidate = detail_setup.raw('2026-10-05T07:00:00Z', 'Lagging metadata',
+                                     '2026-10-05T07:30:00Z', status='open')
+        latest = {
+            'id': 842000123, 'display_text': 'Newer activity, older ticket metadata',
+            'created_datetime': '2026-10-05T07:00:00Z', 'channel': 'email', 'public': True,
+        }
+
+        out = self.fixture.detail(candidate, [latest])
+
+        self.fixture.assertStale(out)
+        self.assertEqual(self.fixture.stored(), before)
+        self.assertEqual(self.fixture.stored()[0]['status'], 'closed')
+        self.assertNoFreshDetailCache()
+
+    def test_verified_nonolder_provider_update_repairs_unknown_activity(self):
+        update = '2026-10-06T15:00:00Z'
+        self.fixture.sync({'id': 841999118, 'status': 'closed',
+                           'excerpt': 'Stored row with unknown activity',
+                           'updated_datetime': update, 'last_message_datetime': 'not-a-time'})
+        candidate = detail_setup.raw(detail_setup.T6, 'Verified current detail', update, status='open')
+
+        out = self.fixture.detail(candidate, [detail_setup.OLD])
+
+        self.assertEqual((out['syncStale'], out['draftSuperseded']), (False, False))
+        self.assertEqual((out['status'], out['lastMessageAt'], out['updatedAt']),
+                         ('open', detail_setup.T6, update))
+        self.assertEqual(out['previewMessageId'], '842000118')
+        saved, generation = self.fixture.stored()
+        self.assertEqual((saved['status'], saved['lastMessageAt'], saved['updatedAt'], generation),
+                         ('open', detail_setup.T6, update, 'g1'))
+        self.assertEqual((api.DETAIL_CACHE['841999118'][1]['syncStale'],
+                          api.DETAIL_CACHE['841999118'][1]['draftSuperseded']), (False, False))
+
     def test_future_naive_or_date_only_activity_is_held_stale(self):
         for activity in ('2026-10-05T20:00:00', '2026-10-06'):
             with self.subTest(activity=activity):

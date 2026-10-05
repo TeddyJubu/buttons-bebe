@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import qa_receipt
+import yaml
 from qa_receipt import (build_receipt, catalog, check_receipt, judgment_template, kb_snapshot, observed_kb, run_receipt,
                         source_fingerprint, model_runtime_identity, check_run_integrity,
                         instruction_identity, seed_instructions, INSTRUCTION_FILES)
@@ -370,6 +371,109 @@ class ReceiptTests(unittest.TestCase):
         self.profile.write_text(json.dumps(config))
         with self.assertRaisesRegex(ValueError, "Unsupported"):
             model_runtime_identity(self.profile, self.interpreter)
+
+    def test_yaml_profile_matches_equivalent_json_profile(self):
+        config = json.loads(self.profile.read_text())
+        config["model"]["base_url"] = "https://models.example.test/v1"
+        json_profile = self.out / "equivalent.json"
+        yaml_profile = self.out / "equivalent.yaml"
+        json_profile.write_text(json.dumps(config))
+        yaml_profile.write_text(yaml.safe_dump(config, sort_keys=False))
+
+        json_identity = model_runtime_identity(json_profile, self.interpreter)
+        yaml_identity = model_runtime_identity(yaml_profile, self.interpreter)
+
+        self.assertEqual(yaml_identity, json_identity)
+        self.assertNotIn("synthetic-key", json.dumps(yaml_identity))
+
+    def test_optional_hermes_config_version_is_semantic_and_serialization_independent(self):
+        config = json.loads(self.profile.read_text())
+        without_version_json = self.out / "without-version.json"
+        without_version_yaml = self.out / "without-version.yaml"
+        without_version_json.write_text(json.dumps(config))
+        without_version_yaml.write_text(yaml.safe_dump(config, sort_keys=False))
+        baseline_json = model_runtime_identity(without_version_json, self.interpreter)
+        baseline_yaml = model_runtime_identity(without_version_yaml, self.interpreter)
+        self.assertEqual(baseline_json, baseline_yaml)
+
+        identities = {}
+        for version in (4, 5):
+            versioned = {**config, "_config_version": version}
+            json_profile = self.out / f"version-{version}.json"
+            yaml_profile = self.out / f"version-{version}.yaml"
+            json_profile.write_text(json.dumps(versioned))
+            yaml_profile.write_text(yaml.safe_dump(versioned, sort_keys=False))
+            identities[version] = model_runtime_identity(json_profile, self.interpreter)
+            self.assertEqual(identities[version], model_runtime_identity(yaml_profile, self.interpreter))
+            self.assertNotEqual(identities[version], baseline_json)
+        self.assertNotEqual(identities[4], identities[5])
+        for identity in (*identities.values(), baseline_json):
+            self.assertNotIn("synthetic-key", json.dumps(identity))
+
+        core = self.run_file("core", model_runtime=identities[5])
+        reliability = self.run_file("reliability", model_runtime=identities[5])
+        receipt = self.build(core=core, reliability=reliability)
+        self.assertEqual(receipt["model_runtime"]["_config_version"], 5)
+        self.assertEqual(check_receipt(receipt, self.repo), {"review_complete": True, "release_passed": True})
+        self.assertNotIn("synthetic-key", json.dumps(receipt))
+
+    def test_yaml_profile_ignores_only_api_key_and_rejects_credential_urls(self):
+        config = json.loads(self.profile.read_text())
+        config["model"]["api_key"] = "different-synthetic-key"
+        key_only = self.out / "different-key.yaml"
+        key_only.write_text(yaml.safe_dump(config, sort_keys=False))
+        identity = model_runtime_identity(key_only, self.interpreter)
+        self.assertEqual(identity, self.model_runtime)
+        self.assertNotIn("different-synthetic-key", json.dumps(identity))
+
+        for url in ("https://user:synthetic-password@models.example.test/v1",
+                    "https://models.example.test/v1?api_key=synthetic-url-key",
+                    "https://models.example.test/v1#synthetic-url-secret"):
+            config["model"]["base_url"] = url
+            profile = self.out / "credential-url.yaml"
+            profile.write_text(yaml.safe_dump(config, sort_keys=False))
+            with self.subTest(url=url), self.assertRaises(ValueError) as failure:
+                model_runtime_identity(profile, self.interpreter)
+            self.assertNotIn("synthetic", str(failure.exception))
+        self.assertNotIn("synthetic", json.dumps(identity))
+
+    def test_yaml_profile_rejects_unknown_keys_and_unsafe_tags(self):
+        config = json.loads(self.profile.read_text())
+        variants = []
+        top_level = dict(config)
+        top_level["unreviewed_setting"] = True
+        variants.append(top_level)
+        nested = json.loads(json.dumps(config))
+        nested["model"]["temperature"] = 0.3
+        variants.append(nested)
+        for index, variant in enumerate(variants):
+            profile = self.out / f"unknown-{index}.yaml"
+            profile.write_text(yaml.safe_dump(variant, sort_keys=False))
+            with self.subTest(unknown=index), self.assertRaisesRegex(ValueError, "Unsupported"):
+                model_runtime_identity(profile, self.interpreter)
+
+        marker = self.out / "unsafe-yaml-tag-was-executed"
+        unsafe_profile = self.out / "unsafe-tag.yaml"
+        unsafe_profile.write_text(
+            "!!python/object/apply:builtins.open\n"
+            f"- {json.dumps(str(marker))}\n"
+            "- w\n"
+        )
+        with self.assertRaises(ValueError):
+            model_runtime_identity(unsafe_profile, self.interpreter)
+        self.assertFalse(marker.exists(), "YAML loading must not construct or execute Python objects")
+
+    def test_yaml_and_json_profiles_reject_invalid_hermes_config_versions(self):
+        config = json.loads(self.profile.read_text())
+        for version in (True, -1, 1001):
+            with self.subTest(version=version):
+                versioned = {**config, "_config_version": version}
+                for suffix, contents in (("json", json.dumps(versioned)),
+                                         ("yaml", yaml.safe_dump(versioned, sort_keys=False))):
+                    profile = self.out / f"invalid-version-{suffix}"
+                    profile.write_text(contents)
+                    with self.subTest(format=suffix), self.assertRaisesRegex(ValueError, "Unsupported"):
+                        model_runtime_identity(profile, self.interpreter)
 
     def test_malformed_hermes_identity_is_rejected_at_every_receipt_boundary(self):
         core = self.run_file("core")

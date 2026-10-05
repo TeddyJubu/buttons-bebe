@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import yaml
 from urllib.parse import urlsplit, urlunsplit
 
 HERE = Path(__file__).resolve().parent
@@ -134,8 +135,12 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
     if profile.is_symlink() or not profile.is_file() or profile.stat().st_size > 16384:
         raise ValueError("Invalid isolated QA profile")
     try:
-        config = json.loads(profile.read_bytes())
-        if not isinstance(config, dict) or set(config) != {"model", "agent", "memory", "platform_toolsets", "mcp_servers"}:
+        # Hermes startup writes YAML and adds its migration version. JSON is a
+        # YAML subset; fingerprint the actual settings rather than the first write.
+        config = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        required = {"model", "agent", "memory", "platform_toolsets", "mcp_servers"}
+        if (not isinstance(config, dict) or not required <= set(config) <= required | {"_config_version"}
+                or not _supported_config_version(config)):
             raise ValueError
         model = config["model"]
         if not isinstance(model, dict) or not set(model) <= {"default", "provider", "base_url", "api_key"}:
@@ -175,9 +180,15 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
         safe = {"model": safe_model, "agent": {**agent, "disabled_toolsets": sorted(set(agent["disabled_toolsets"]))},
                 "memory": memory, "platform_toolsets": {"cli": []}, "mcp_servers": safe_servers,
                 "interpreter_sha256": sha256_bytes(interpreter.read_bytes())}
+        if "_config_version" in config: safe["_config_version"] = config["_config_version"]
         return {**safe, "sha256": digest(safe)}
-    except (KeyError, TypeError, AttributeError, ValueError):
+    except (KeyError, TypeError, AttributeError, ValueError, UnicodeError, yaml.YAMLError):
         raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
+
+
+def _supported_config_version(config: dict) -> bool:
+    return ("_config_version" not in config or
+            (type(config["_config_version"]) is int and 0 <= config["_config_version"] <= 1000))
 
 
 CONTEXT_FILE_NAMES = frozenset({".hermes.md", "hermes.md", "agents.override.md", "agents.md", "claude.md", ".cursorrules", ".cursor"})
@@ -373,7 +384,8 @@ def _require_model_runtime(bindings: dict) -> None:
         raise ValueError("Missing or invalid Hermes launch/source identity; rerun QA with a pinned runtime")
     identity = bindings.get("model_runtime")
     expected = {"model", "agent", "memory", "platform_toolsets", "mcp_servers", "interpreter_sha256", "sha256"}
-    if (not isinstance(identity, dict) or set(identity) != expected
+    if (not isinstance(identity, dict) or not expected <= set(identity) <= expected | {"_config_version"}
+            or not _supported_config_version(identity)
             or not isinstance(identity["model"], dict)
             or not {"default", "provider"} <= set(identity["model"]) <= {"default", "provider", "base_url"}
             or any(not isinstance(value, str) or not value.strip() for value in identity["model"].values())

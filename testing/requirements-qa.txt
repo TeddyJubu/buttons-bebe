@@ -2,3 +2,5 @@
 mcp>=1.20,<2
 pydantic-settings>=2,<3
 python-dotenv>=1,<2
+# The actual Hermes startup profile is YAML (JSON on first write).
+PyYAML==6.0.3

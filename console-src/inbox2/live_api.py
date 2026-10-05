@@ -388,7 +388,9 @@ def newer_summary(db,ticket):
     if not isinstance(stored,dict): raise ValueError('Invalid cached ticket summary')
     mine,theirs=epoch(ticket.get('lastMessageAt')),epoch(stored.get('lastMessageAt'))
     updated,stored_updated=epoch(ticket.get('updatedAt')),epoch(stored.get('updatedAt'))
-    held=mine<=0 or updated<=0 or theirs>mine or (theirs==mine and stored_updated>updated)
+    # Either known newer clock protects the row. Unknown activity cannot erase
+    # a verified newer metadata update (or let an older Open detail undo Closed).
+    held=mine<=0 or updated<=0 or theirs>mine or stored_updated>updated
     # Unverifiable stored times cannot prove a warm cache fresh. A new, fully
     # verified provider read may repair that summary, subject to message coverage.
     refetch=held or bool(row and (theirs<=0 or stored_updated<=0))

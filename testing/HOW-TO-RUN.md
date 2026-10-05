@@ -81,6 +81,12 @@ rerun changed cases and the full gate as warranted. No QA result authorizes Send
 
 ## Review receipts
 
+The identity reads the actual private profile as safe YAML, including Hermes'
+integer configuration migration version when startup adds it. JSON and YAML with
+the same settings have the same identity; a version or supported setting change
+changes the fingerprint. Unknown fields and unsafe YAML tags remain refused.
+The YAML reader is pinned in the QA-only dependency lock and changes no production environment.
+
 Each run writes `run.json`: suite, catalog hash, captured IDs, whether the run
 was complete, and the bindings it ran against. Bindings are working-tree content
 hashes (plus HEAD and dirty state) of first-party processor, webhook, Inbox and
