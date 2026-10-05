@@ -3,10 +3,12 @@ from __future__ import annotations
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import socket
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.request import ProxyHandler, build_opener
 
@@ -148,7 +150,7 @@ class BrowserPortRetryTests(unittest.TestCase):
 
 
 class PreviewLifecycleTests(unittest.TestCase):
-    def make_actual_preview_repo(self) -> tuple[Path, Path, Path]:
+    def make_actual_preview_repo(self, *, platform_name: str | None = None) -> tuple[Path, Path, Path]:
         temporary = tempfile.TemporaryDirectory(prefix="inbox-preview-actual-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -162,11 +164,18 @@ class PreviewLifecycleTests(unittest.TestCase):
         runner_path.write_text("# temporary path anchor\n", encoding="utf-8")
         helper = root / "skills" / "buttonsbebe-support-webapp" / "scripts" / "serve_inbox_preview.py"
         helper.parent.mkdir(parents=True)
-        helper.write_text(
-            (Path(__file__).resolve().parents[1] / "skills" / "buttonsbebe-support-webapp" /
-             "scripts" / "serve_inbox_preview.py").read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
+        preview_source = (Path(__file__).resolve().parents[1] / "skills" / "buttonsbebe-support-webapp" /
+                          "scripts" / "serve_inbox_preview.py").read_text(encoding="utf-8")
+        if platform_name == "nt":
+            constructor = "    server = ThreadingHTTPServer("
+            if constructor not in preview_source:
+                raise AssertionError("The collision helper no longer has its expected server constructor")
+            preview_source = preview_source.replace(
+                constructor,
+                "    ThreadingHTTPServer.allow_reuse_address = False\n" + constructor,
+                1,
+            )
+        helper.write_text(preview_source, encoding="utf-8")
         assets = root / "console-src" / "inbox2"
         for name, content in {
             "index.html": "<!doctype html><title>Inbox</title><main>synthetic Inbox</main>",
@@ -178,6 +187,58 @@ class PreviewLifecycleTests(unittest.TestCase):
         }.items():
             (assets / name).write_text(content, encoding="utf-8")
         return root, runner_path, helper
+
+    @staticmethod
+    def bind_collision_blocker(blocker, platform_name: str, socket_options, address) -> None:
+        if platform_name == "nt":
+            exclusive = getattr(socket_options, "SO_EXCLUSIVEADDRUSE", None)
+            if type(exclusive) is not int:
+                raise RuntimeError("Windows collision test requires socket.SO_EXCLUSIVEADDRUSE")
+            blocker.setsockopt(socket_options.SOL_SOCKET, exclusive, 1)
+        else:
+            blocker.setsockopt(socket_options.SOL_SOCKET, socket_options.SO_REUSEADDR, 1)
+        blocker.bind(address)
+
+    def test_injected_platform_collision_options_precede_bind_and_windows_helper_disables_reuse(self):
+        class RecordingSocket:
+            def __init__(self):
+                self.events = []
+
+            def setsockopt(self, level, option, value):
+                self.events.append(("setsockopt", level, option, value))
+
+            def bind(self, address):
+                self.events.append(("bind", address))
+
+        windows_options = SimpleNamespace(SOL_SOCKET=1, SO_EXCLUSIVEADDRUSE=2, SO_REUSEADDR=3)
+        windows_socket = RecordingSocket()
+        self.bind_collision_blocker(windows_socket, "nt", windows_options, ("127.0.0.1", 31000))
+        self.assertEqual(windows_socket.events, [
+            ("setsockopt", 1, 2, 1), ("bind", ("127.0.0.1", 31000)),
+        ])
+
+        missing_constant_socket = RecordingSocket()
+        missing_constant_options = SimpleNamespace(SOL_SOCKET=1, SO_REUSEADDR=3)
+        with self.assertRaisesRegex(RuntimeError, "SO_EXCLUSIVEADDRUSE"):
+            self.bind_collision_blocker(
+                missing_constant_socket, "nt", missing_constant_options, ("127.0.0.1", 31000))
+        self.assertEqual(missing_constant_socket.events, [], "unsupported Windows setup must fail before bind")
+
+        posix_socket = RecordingSocket()
+        posix_options = SimpleNamespace(SOL_SOCKET=1, SO_REUSEADDR=3)
+        self.bind_collision_blocker(posix_socket, "posix", posix_options, ("127.0.0.1", 31000))
+        self.assertEqual(posix_socket.events, [
+            ("setsockopt", 1, 3, 1), ("bind", ("127.0.0.1", 31000)),
+        ])
+
+        _root, _runner_path, windows_helper = self.make_actual_preview_repo(platform_name="nt")
+        windows_source = windows_helper.read_text(encoding="utf-8")
+        no_reuse = "    ThreadingHTTPServer.allow_reuse_address = False\n"
+        constructor = "    server = ThreadingHTTPServer("
+        self.assertEqual(windows_source.count(no_reuse), 1)
+        self.assertLess(windows_source.index(no_reuse), windows_source.index(constructor))
+        _root, _runner_path, posix_helper = self.make_actual_preview_repo(platform_name="posix")
+        self.assertNotIn(no_reuse, posix_helper.read_text(encoding="utf-8"))
 
     def test_running_preview_yields_process_log_and_url_then_exits_cleanly(self):
         with tempfile.TemporaryDirectory(prefix="inbox-preview-lifecycle-") as temporary:
@@ -213,10 +274,9 @@ class PreviewLifecycleTests(unittest.TestCase):
     def test_main_retries_real_address_collision_sets_test_url_and_preserves_other_listener(self):
         with tempfile.TemporaryDirectory(prefix="inbox-preview-retry-") as temporary:
             scratch = Path(temporary)
-            root, runner_path, _helper = self.make_actual_preview_repo()
+            root, runner_path, _helper = self.make_actual_preview_repo(platform_name=os.name)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
-                blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                blocker.bind(("127.0.0.1", 0))
+                self.bind_collision_blocker(blocker, os.name, socket, ("127.0.0.1", 0))
                 blocker.listen(1)
                 blocker.settimeout(2)
                 occupied_port = int(blocker.getsockname()[1])

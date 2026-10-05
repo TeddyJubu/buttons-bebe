@@ -208,6 +208,79 @@ class ReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source file identity"):
             check_receipt(receipt, self.repo)
 
+    def test_catalog_no_reply_roundtrip_and_redigested_forgery_rejection(self):
+        real = qa_receipt.REPO
+        source = source_fingerprint(real)
+        instructions = self.identity()
+        instructions['files'] = {name: source['files']['hermes/' + name] for name in INSTRUCTION_FILES}
+        instructions['sha256'] = qa_receipt.digest({k: v for k, v in instructions.items() if k != 'sha256'})
+        bindings = {'source': source, 'hermes': HERMES, 'model_runtime': self.model_runtime,
+                    'instructions': instructions, 'kb_snapshot': POLICIES}
+        scenario = next(row for row in json.loads((real / 'testing/scenarios.json').read_text()) if row['id'] == 'E02')
+        result = {'priority': 'low', 'reason': 'No draft generated — no question to answer (thanks/ack only)',
+                  'generation_state': 'no_reply', 'action': 'no_draft_needed', 'notify_owner': False,
+                  'gorgias_priority_set': False, 'note_posted': False, 'draft_text': '', 'no_draft': True}
+        case = {'id': 'E02', 'scenario': scenario, 'result': result, 'model_called': False,
+                'hermes_output': '', 'process_returncode': None, 'authenticated_verdict': False,
+                'draft_extraction': None, 'tool_calls': [],
+                'execution': qa_receipt.deterministic_no_reply_record(
+                    scenario, result, model_attempts=0, tool_calls=[], repo=real)}
+        run = run_receipt('core', ['E02'], [case], bindings, bindings, real)
+        check_run_integrity(run, real)
+        run_path = self.out / 'thanks-run.json'
+        run_path.write_text(json.dumps(run))
+        self.assertEqual(judgment_template(run_path, real)['verdicts'], {'E02': 'pending'})
+        complete_runs = {}
+        for suite in qa_receipt.SUITES:
+            ids = catalog(suite, real)[1]
+            cases = [case if scenario_id == 'E02' else {
+                'id': scenario_id, 'tool_calls': [], 'execution': self.synthetic_execution(bindings, n)}
+                     for n, scenario_id in enumerate(ids)]
+            full = run_receipt(suite, ids, cases, bindings, bindings, real)
+            path = self.out / (suite + '-mixed-run.json')
+            path.write_text(json.dumps(full)); complete_runs[suite] = path
+        receipt = build_receipt(complete_runs['core'], self.judge(complete_runs['core']),
+                                complete_runs['reliability'], self.judge(complete_runs['reliability']), real)
+        self.assertTrue(check_receipt(receipt, real)['release_passed'])
+        core_rows = receipt['suites']['core']['execution']
+        skip_index = next(n for n, row in enumerate(core_rows) if row['id'] == 'E02')
+        forged = json.loads(json.dumps(receipt))
+        forged['suites']['core']['execution'][skip_index]['child_attempts'] = 1
+        forged['suites']['core']['execution_sha256'] = qa_receipt.digest(forged['suites']['core']['execution'])
+        with self.assertRaises(ValueError):
+            check_receipt(forged, real)
+        for mutate in (
+                lambda c: c.update(model_called=True),
+                lambda c: c.update(hermes_output='unexpected output'),
+                lambda c: c.update(tool_calls=[{'tool': 'get_ticket'}]),
+                lambda c: c['result'].update(notify_owner=True),
+                lambda c: c['scenario'].update(message='Please refund my order')):
+            broken = json.loads(json.dumps(case)); mutate(broken)
+            with self.assertRaises(ValueError):
+                run_receipt('core', ['E02'], [broken], bindings, bindings, real)
+        for change in ({'id': 'L01'}, {'model_called': True}, {'model_called': 0},
+                       {'child_attempts': 1}, {'child_attempts': False},
+                       {'scenario_sha256': '0' * 64}, {'source_sha256': '0' * 64},
+                       {'extra': 'unverified'}, {'result': {**result, 'note_posted': True}}):
+            broken = json.loads(json.dumps(run)); broken['execution'][0].update(change)
+            if 'id' in change: broken['ids'] = [change['id']]
+            with self.assertRaises(ValueError):
+                check_run_integrity(broken, real)
+        for message in ('Please refund my order', 'Thanks, when will it ship?', 'Cancel my order'):
+            altered = {**scenario, 'message': message}
+            with self.assertRaises(ValueError):
+                qa_receipt.deterministic_no_reply_record(altered, result, model_attempts=0, tool_calls=[])
+        with self.assertRaises(ValueError):
+            qa_receipt.deterministic_no_reply_record(scenario, result, model_attempts=1, tool_calls=[])
+        for name in ('processor/draft_cleaner.py', 'processor/hermes_runner/constants.py',
+                     'processor/hermes_runner/runner.py', 'testing/scenarios.json'):
+            broken = json.loads(json.dumps(run))
+            broken['bindings']['source']['files'][name] = '0' * 64
+            broken['bindings']['source']['sha256'] = qa_receipt.digest(broken['bindings']['source']['files'])
+            broken['bindings_after_sha256'] = qa_receipt.digest(broken['bindings'])
+            with self.assertRaises(ValueError):
+                check_run_integrity(broken, real)
+
     def test_execution_shareable_paths_and_transition_shapes(self):
         bindings = {"source": source_fingerprint(self.repo), "hermes": HERMES, "model_runtime": self.model_runtime,
                     "instructions": self.identity(), "kb_snapshot": POLICIES}

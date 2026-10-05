@@ -238,38 +238,107 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
     def test_cli_receipt_reads_actual_profile_again_after_last_scenario(self):
         import run_live_tests
-        from qa_receipt import check_run_integrity
-        for mutate in (False, True):
-            output = self.root / ("cli-mutated" if mutate else "cli-stable")
-            def capture(harness, scenario, ordinal):
-                if mutate:
-                    profile = harness.home / ".hermes" / "config.yaml"
-                    config = json.loads(profile.read_text())
-                    config["model"]["default"] = "changed-after-model-call"
-                    atomic_json(profile, config)
-                return {"id": scenario["id"], "tool_calls": []}
-            argv = ["run_live_tests.py", "--hermes-python", sys.executable,
-                    "--hermes-source", str(self.source), "--model-config", str(self.model),
-                    "--output", str(output), "--limit", "1", "--timeout", "10"]
-            # Only network/model entry points are replaced. Profile writing,
-            # both identity reads and binding integrity use the real code.
-            # Synthetic calls cannot supply real Linux child evidence.
-            with patch.object(sys, "argv", argv), patch.object(Harness, "start"), \
-                    patch.object(Harness, "run", new=capture), \
-                    patch("qa_receipt._execution_identity", return_value={}), \
-                    patch("qa_receipt._require_execution_rows"), \
-                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                status = run_live_tests.main()
-            self.assertEqual(status, 1 if mutate else 0)
-            run = json.loads((output / "run.json").read_text())
-            self.assertEqual(run["bindings"]["model_runtime"]["model"], {"default": "test", "provider": "custom"})
-            self.assertNotIn("test-only-model-key", json.dumps(run))
-            with patch("qa_receipt._require_execution_rows"):
-                if mutate:
-                    with self.assertRaisesRegex(ValueError, "model/runtime.*changed during"):
-                        check_run_integrity(run)
+        import qa_receipt
+
+        def synthetic_execution(harness):
+            bindings = {
+                "source": qa_receipt.source_fingerprint(),
+                "hermes": qa_receipt.hermes_identity(harness.launch, harness.hermes_source),
+                "model_runtime": qa_receipt.model_runtime_identity(
+                    harness.home / ".hermes" / "config.yaml", harness.hermes_python),
+            }
+            pin = bindings["model_runtime"]["interpreter_sha256"]
+            helper = bindings["source"]["files"]["processor/hermes_runner/process.py"]
+            launch_sha256 = bindings["hermes"]["launch_sha256"]
+            command_sha256 = "c" * 64
+            image = {
+                "path": "/synthetic/private/home/.hermes/tools/python-3.14.7/bin/python3.14",
+                "normalized_path": "${QA_HOME}/.hermes/tools/python-3.14.7/bin/python3.14",
+                "role": "private_managed_python", "device": 1, "inode": 2, "size": 3,
+                "device_after": 1, "inode_after": 2, "size_after": 3,
+                "path_source": "/proc/PID/exe", "sha256_before": pin,
+                "sha256_after": pin, "samples": 2,
+            }
+            return {
+                "base_launch_sha256": launch_sha256,
+                "command_sha256": command_sha256,
+                "observation": {
+                    "schema": 1, "status": "verified_sampled", "pid": 1001,
+                    "pid_start_ticks": 100, "samples": 2, "reader_kind": "linux_proc",
+                    "required_effective_role": "private_managed_python", "expected_sha256": pin,
+                    "requested_launch_sha256": command_sha256,
+                    "helper_sha256_before": helper, "helper_sha256_after": helper,
+                    "effective_observed_image": 0, "all_exec_transitions_observed": False,
+                    "process_exit_observed": True, "helper_completed": True,
+                    "helper_cleanup_completed": True, "child_returncode": 0,
+                    "helper_returncode": 0, "final_pid_state": "absent_after_helper_reap",
+                    "selected_python": "${SELECTED_PYTHON}", "images": [image],
+                    "observed_transitions": [{"image": 0, "elapsed_seconds": 0.01}],
+                },
+            }
+
+        approved_fixture_pin = hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest()
+        for mode in ("stable", "mutated", "missing-execution", "invalid-execution"):
+            with self.subTest(mode=mode):
+                output = self.root / f"cli-{mode}"
+
+                def capture(harness, scenario, ordinal):
+                    result = {"id": scenario["id"], "tool_calls": []}
+                    if mode != "missing-execution":
+                        result["execution"] = (synthetic_execution(harness) if mode != "invalid-execution"
+                                                else {"observation": {"status": "invalid synthetic fixture"}})
+                    if mode == "mutated":
+                        profile = harness.home / ".hermes" / "config.yaml"
+                        config = json.loads(profile.read_text())
+                        config["model"]["default"] = "changed-after-model-call"
+                        atomic_json(profile, config)
+                    return result
+
+                argv = ["run_live_tests.py", "--hermes-python", sys.executable,
+                        "--hermes-source", str(self.source), "--model-config", str(self.model),
+                        "--output", str(output), "--limit", "1", "--timeout", "10"]
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                # The fake result carries explicit synthetic evidence so the real
+                # producer and consumer validators remain active. The patched pin
+                # validates fixture structure only, not a Linux child invocation.
+                with (
+                    patch.object(qa_receipt, "APPROVED_INTERPRETER_SHA256", approved_fixture_pin),
+                    patch.object(sys, "argv", argv),
+                    patch.object(Harness, "start"),
+                    patch.object(Harness, "run", new=capture),
+                    patch.object(run_live_tests, "run_receipt", wraps=run_live_tests.run_receipt) as receipt,
+                    patch.object(run_live_tests, "check_run_integrity",
+                                 wraps=run_live_tests.check_run_integrity) as integrity,
+                    contextlib.redirect_stdout(stdout),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    status = run_live_tests.main()
+                self.assertEqual(status, 0 if mode == "stable" else 1)
+                if mode == "stable":
+                    self.assertEqual(receipt.call_count, 1)
+                    integrity.assert_called_once()
+                    run = json.loads((output / "run.json").read_text())
+                    self.assertEqual(run["bindings"]["model_runtime"]["model"],
+                                     {"default": "test", "provider": "custom"})
+                    self.assertEqual(len(run["execution"]), 1)
+                    self.assertEqual(run["execution"][0]["observation"]["reader_kind"], "linux_proc")
+                    self.assertNotIn("test-only-model-key", json.dumps(run))
+                    with patch.object(qa_receipt, "APPROVED_INTERPRETER_SHA256", approved_fixture_pin):
+                        qa_receipt.check_run_integrity(run)
+                elif mode == "mutated":
+                    self.assertIn("changed during the run", stderr.getvalue())
+                    receipt.assert_called_once()
+                    integrity.assert_called_once()
+                    run = json.loads((output / "run.json").read_text())
+                    with patch.object(qa_receipt, "APPROVED_INTERPRETER_SHA256", approved_fixture_pin):
+                        with self.assertRaisesRegex(ValueError, "source, Hermes, model/runtime.*changed during"):
+                            qa_receipt.check_run_integrity(run)
                 else:
-                    check_run_integrity(run)
+                    self.assertIn("QA stopped safely (ValueError)", stderr.getvalue())
+                    self.assertFalse((output / "run.json").exists())
+                    integrity.assert_not_called()
+                    receipt.assert_called_once()
 
     def test_real_production_runner_prompt_and_extraction_are_used(self):
         interpreter=self.root/"chosen/bin/python3"
@@ -332,6 +401,52 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
             finally:
                 harness.close()
                 import shutil;shutil.rmtree(harness.output)
+
+    def test_catalog_thanks_is_a_verified_zero_model_disposition(self):
+        scenario = next(row for row in json.loads((qa_harness.REPO / 'testing/scenarios.json').read_text())
+                        if row['id'] == 'E02')
+        harness = self.harness()
+        try:
+            with patch('qa_harness.run_observed', side_effect=AssertionError('model must not run')) as observed:
+                case = harness.run(scenario, 36)
+            self.assertEqual(observed.call_count, 0)
+            self.assertFalse(case['model_called'])
+            self.assertEqual(case['execution']['kind'], 'deterministic_no_reply')
+            self.assertEqual(case['result']['generation_state'], 'no_reply')
+            self.assertEqual(case['tool_calls'], [])
+            self.assertEqual(case['hermes_output'], '')
+            self.assertFalse((harness.output / 'failed-execution.json').exists())
+        finally:
+            harness.close()
+
+    def test_model_generated_no_reply_still_has_execution_and_failed_attempt_cannot_skip(self):
+        import re
+        harness = self.harness()
+        def observed(helper, command, **kwargs):
+            token = re.search(r'RUN TOKEN for this ticket: ([a-f0-9]+)', command[-1]).group(1)
+            text = '<DRAFT:' + token + '>No customer reply is needed.</DRAFT:' + token + '>'
+            text += '\nJSON_RESULT[' + token + ']: ' + json.dumps({
+                'priority': 'low', 'action': 'no_draft_needed', 'reason': 'Synthetic authenticated decision',
+                'notify_owner': False, 'gorgias_priority_set': False, 'note_posted': False})
+            return subprocess.CompletedProcess(command, 0, text, ''), {
+                'status': 'verified_sampled', 'reader_kind': 'injected', 'pid': 1}
+        try:
+            pin = hashlib.sha256(harness.hermes_python.read_bytes()).hexdigest()
+            with patch('qa_harness.APPROVED_INTERPRETER_SHA256', pin), \
+                    patch('qa_harness.run_observed', side_effect=observed) as child:
+                case = harness.run(SCENARIO, 1)
+            self.assertEqual(child.call_count, 1)
+            self.assertTrue(case['model_called'])
+            self.assertTrue(case['authenticated_verdict'])
+            self.assertEqual(case['result']['generation_state'], 'no_reply')
+            self.assertNotIn('kind', case['execution'])
+            # A failed invocation with no observed PID is not a deterministic skip.
+            with patch('qa_harness.APPROVED_INTERPRETER_SHA256', pin), \
+                    patch('qa_harness.run_observed', side_effect=ValueError('synthetic refusal')):
+                with self.assertRaisesRegex(ValueError, 'execution identity failed'):
+                    harness.run(SCENARIO, 1)
+        finally:
+            harness.close()
 
     def test_source_without_runtime_launcher_or_bound_interpreter_is_refused(self):
         variants={"missing":None,

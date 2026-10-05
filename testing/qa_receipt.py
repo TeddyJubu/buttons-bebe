@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -8,6 +9,7 @@ import re
 import subprocess
 import sys
 import yaml
+from types import ModuleType
 from urllib.parse import urlsplit, urlunsplit
 from qa_safety import TOOLS
 
@@ -461,10 +463,96 @@ def _single_content(observed, message: str) -> None:
             raise ValueError(f"{message}: {name} {heading!r}")
 
 
-def _execution_identity(case: dict, bindings: dict) -> dict:
+def _deterministic_no_reply(scenario_id, bindings=None, repo: Path = REPO):
+    """Recompute the production gate for an exact catalog case, without Hermes."""
+    try:
+        if not isinstance(scenario_id, str) or not scenario_id:
+            raise ValueError
+        matches = []
+        for name, _ in SUITES.values():
+            raw = (repo / name).read_bytes()
+            for scenario in json.loads(raw):
+                if scenario.get('id') == scenario_id:
+                    matches.append((scenario, name, sha256_bytes(raw)))
+        if len(matches) != 1:
+            raise ValueError
+        scenario, catalog_name, catalog_hash = matches[0]
+        names = ('processor/draft_cleaner.py', 'processor/hermes_runner/constants.py',
+                 'processor/hermes_runner/runner.py')
+        source_bytes = {name: (repo / name).read_bytes() for name in names}
+        sources = {name: sha256_bytes(raw) for name, raw in source_bytes.items()}
+        sources[catalog_name] = catalog_hash
+        if bindings is not None and any(bindings['source']['files'].get(name) != value
+                                        for name, value in sources.items()):
+            raise ValueError
+        # This module is standard-library-only. Load the exact hashed gate file;
+        # importing the runner would also import production credential settings.
+        key = '_qa_no_reply_gate_' + sources[names[0]]
+        module = ModuleType(key)
+        module.__file__ = str(repo / names[0])
+        sys.modules[key] = module
+        try:
+            exec(compile(source_bytes[names[0]], module.__file__, 'exec'), module.__dict__)
+            gate = module.should_draft(scenario['message'], scenario['subject'])
+        finally:
+            sys.modules.pop(key, None)
+        if gate.ok is not False or not isinstance(gate.reason, str) or not gate.reason:
+            raise ValueError
+        tree = ast.parse(source_bytes[names[1]])
+        templates = [ast.literal_eval(node.value) for node in tree.body
+                     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                     and node.target.id == '_NO_DRAFT_RESULT']
+        if len(templates) != 1 or not isinstance(templates[0], dict):
+            raise ValueError
+        result = {**templates[0], 'reason': 'No draft generated — ' + gate.reason}
+        if (result.get('generation_state') != 'no_reply' or result.get('action') != 'no_draft_needed'
+                or result.get('draft_text') != '' or result.get('no_draft') is not True
+                or any(result.get(k) is not False for k in ('notify_owner', 'gorgias_priority_set', 'note_posted'))):
+            raise ValueError
+        record = {'kind': 'deterministic_no_reply', 'scenario_sha256': digest(scenario),
+                  'source_sha256': digest(sources), 'gate_reason': gate.reason, 'result': result,
+                  'model_called': False, 'child_attempts': 0, 'tool_call_count': 0,
+                  'hermes_output': '', 'process_returncode': None,
+                  'authenticated_verdict': False, 'draft_extraction': None}
+        return scenario, record
+    except (KeyError, TypeError, AttributeError, ValueError, OSError, SyntaxError):
+        raise ValueError('Invalid deterministic no-reply disposition; exact source and catalog gate required') from None
+
+
+def deterministic_no_reply_record(scenario, result, *, model_attempts, tool_calls, repo: Path = REPO):
+    """Only an exact production skip with zero invocation attempts is admissible."""
+    try:
+        expected, record = _deterministic_no_reply(scenario['id'], repo=repo)
+        if (digest(scenario) != digest(expected) or digest(result) != digest(record['result']) or type(model_attempts) is not int
+                or model_attempts != 0 or tool_calls != []):
+            raise ValueError
+        return record
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('No-reply proof requires an exact catalog case and zero model/tool attempts') from None
+
+
+def _require_no_reply_capture(case, bindings, repo):
+    try:
+        scenario, record = _deterministic_no_reply(case['id'], bindings, repo)
+        if (digest(case.get('scenario')) != digest(scenario) or digest(case.get('result')) != digest(record['result'])
+                or case.get('model_called') is not False or case.get('tool_calls') != []
+                or case.get('hermes_output') != '' or case.get('process_returncode', 'missing') is not None
+                or case.get('authenticated_verdict') is not False
+                or case.get('draft_extraction', 'missing') is not None or digest(case.get('execution')) != digest(record)):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('Invalid captured deterministic no-reply case') from None
+
+
+def _execution_identity(case: dict, bindings: dict, repo: Path = REPO) -> dict:
     """Consume actual per-child evidence; profile/probe hashes cannot replace it."""
     try:
         execution = case["execution"]
+        if isinstance(execution, dict) and execution.get('kind') == 'deterministic_no_reply':
+            _, expected = _deterministic_no_reply(case['id'], bindings, repo)
+            if digest(execution) != digest(expected):
+                raise ValueError
+            return {'id': case['id'], **expected}
         observed = execution["observation"]
         pin = bindings["model_runtime"]["interpreter_sha256"]
         helper = bindings["source"]["files"]["processor/hermes_runner/process.py"]
@@ -542,12 +630,12 @@ def _execution_identity(case: dict, bindings: dict) -> dict:
         raise ValueError("Missing or invalid actual case execution identity; rerun with Linux child evidence") from None
 
 
-def _require_execution_rows(rows, ids, bindings):
+def _require_execution_rows(rows, ids, bindings, repo: Path = REPO):
     if (not isinstance(rows, list) or len(rows) != len(ids)
             or [row.get("id") for row in rows if isinstance(row, dict)] != ids):
         raise ValueError("Execution evidence must cover every captured case in order")
     # Consumed rows have already had private paths removed; reuse the same validator.
-    canonical = [_execution_identity({"id": row["id"], "execution": {key: value for key, value in row.items() if key != "id"}}, bindings)
+    canonical = [_execution_identity({"id": row["id"], "execution": {key: value for key, value in row.items() if key != "id"}}, bindings, repo)
                  for row in rows]
     if rows != canonical:
         raise ValueError("Execution evidence must use canonical shareable identities")
@@ -564,7 +652,10 @@ def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
     captured = [result["id"] for result in results]
     _require_model_runtime(before)
     _require_model_runtime(after)
-    execution = [_execution_identity(result, before) for result in results]
+    for result in results:
+        if isinstance(result.get('execution'), dict) and result['execution'].get('kind') == 'deterministic_no_reply':
+            _require_no_reply_capture(result, before, repo)
+    execution = [_execution_identity(result, before, repo) for result in results]
     try:
         kb_observed = observed_kb(results)
     except (KeyError, TypeError, AttributeError):
@@ -575,7 +666,7 @@ def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
             "execution": execution}
 
 
-def check_run_integrity(run: dict) -> None:
+def check_run_integrity(run: dict, repo: Path = REPO) -> None:
     if not isinstance(run, dict) or run.get("schema") != RECEIPT_SCHEMA:
         raise ValueError("Legacy QA run lacks model/runtime and instruction-parity evidence; rerun the suites")
     if (not isinstance(run.get("suite"), str) or run["suite"] not in SUITES or not isinstance(run.get("ids"), list)
@@ -583,15 +674,15 @@ def check_run_integrity(run: dict) -> None:
             or len(set(run["ids"])) != len(run["ids"])):
         raise ValueError("Invalid run catalog evidence")
     _require_model_runtime(run.get("bindings"))
-    _require_execution_rows(run.get("execution"), run["ids"], run["bindings"])
+    _require_execution_rows(run.get("execution"), run["ids"], run["bindings"], repo)
     if digest(run["bindings"]) != run.get("bindings_after_sha256"):
         raise ValueError(f"{run['suite']}: source, Hermes, model/runtime or approved KB snapshot changed during the run")
     _single_content(run.get("kb_observed"), f"{run['suite']}: KB content changed during the run")
 
 
-def judgment_template(run_path: Path) -> dict:
+def judgment_template(run_path: Path, repo: Path = REPO) -> dict:
     run = json.loads(run_path.read_bytes())
-    check_run_integrity(run)
+    check_run_integrity(run, repo)
     return {"schema": RECEIPT_SCHEMA, "suite": run["suite"], "run_sha256": sha256_bytes(run_path.read_bytes()),
             "verdicts": {scenario_id: "pending" for scenario_id in run["ids"]}, "blocking_defects": []}
 
@@ -608,7 +699,7 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
         raise ValueError(f"{suite}: partial run; every catalog ID must be captured")
     if run.get("catalog_sha256") != catalog_sha256:
         raise ValueError(f"{suite}: catalog changed since the run")
-    check_run_integrity(run)
+    check_run_integrity(run, repo)
     if judgments.get("run_sha256") != sha256_bytes(raw):
         raise ValueError(f"{suite}: judgments are for a different run")
     verdicts = judgments.get("verdicts")
@@ -664,7 +755,7 @@ def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> 
             raise ValueError(f"{suite}: receipt does not cover the current full catalog")
         if any(v not in VERDICTS for v in summary["verdicts"].values()):
             raise ValueError(f"{suite}: unknown verdict")
-        _require_execution_rows(summary.get("execution"), all_ids, receipt)
+        _require_execution_rows(summary.get("execution"), all_ids, receipt, repo)
         if summary.get("execution_sha256") != digest(summary["execution"]):
             raise ValueError(f"{suite}: execution evidence digest differs")
     state = review_state(receipt)

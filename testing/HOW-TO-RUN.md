@@ -125,7 +125,7 @@ reliability runs with different source, Hermes, model/runtime, Hermes instructio
 judgments for a different run. The two suites may observe different sections.
 The combined receipt keeps recorded nonsecret identities, hashes, IDs and verdicts; defect text and model
 output stay private.
-Every captured case also requires Linux evidence from the actual child launched by the
+Every case that attempts model execution requires Linux evidence from the actual child launched by the
 unchanged production process helper: PID/start identity, sampled executable path and inode,
 approved binary hashes before and after cleanup, and matching child/helper exit codes with
 the child confirmed reaped. The final sampled image must be the private managed Python,
@@ -135,6 +135,14 @@ normalized in shareable receipts. Sampling does not prove every brief execution 
 the receipt explicitly records this limit. Injected-reader tests and separate startup
 probes cannot supply release evidence for a paid case. Missing evidence stops receipt
 creation, combination or checking; older schema 4 captures without it must be rerun.
+The sole alternative is a typed `deterministic_no_reply` record for an exact catalog
+input that the source-bound production `should_draft` gate refuses. Producer and
+consumer checks recompute the gate and trusted empty result, verify the catalog and
+gate/runner/template hashes, and require zero invocation attempts, tool calls, output,
+drafts, alerts and provider writes. An actionable request or a model-generated no-reply
+verdict still requires the actual child evidence above. All source, instructions,
+profile and KB bindings remain required for either outcome; this is not a waiver for
+failed or missing execution evidence.
 
 Hermes runs like the production processor: without `--ignore-rules` and without
 `HERMES_IGNORE_RULES`, so it loads its home instructions. The private QA home gets exactly

@@ -21,7 +21,7 @@ from qa_safety import GROUPS, TOOLS, UTILITY_NAMES, policy_files, redact, scenar
 from qa_metadata import prove_metadata
 from qa_catalog import load_manifest
 from qa_receipt import (NO_BUNDLED_SKILLS_MARKER, QA_DISABLED_TOOLSETS, APPROVED_INTERPRETER_SHA256,
-                        digest, instruction_identity, model_runtime_identity, seed_instructions)
+                        deterministic_no_reply_record, digest, instruction_identity, model_runtime_identity, seed_instructions)
 from qa_execution import load_helper, run_observed, command_digest
 
 HERE = Path(__file__).resolve().parent
@@ -353,6 +353,7 @@ class Harness:
             raise ValueError("QA policy proxy refused a response; run stopped")
 
     def run(self, scenario, ordinal):
+        audit_before = len(self.audit_path.read_text().splitlines()) if self.audit_path.exists() else 0
         fixture=scenario_fixture(scenario,ordinal)
         atomic_json(self.fixture_path,fixture)
         # Suppress processor/config.py's import-time dotenv loading. QA settings
@@ -368,6 +369,7 @@ class Harness:
         settings=SimpleNamespace(hermes_bin="hermes",hermes_profile="",hermes_ignore_rules=False,hermes_skip_approval=False,
                                  hermes_toolsets=",".join(GROUPS),hermes_home=str(self.home),job_timeout=self.timeout,support_store_name="Buttons Bebe")
         def execute(command,**kwargs):
+            captured['invocations'] = captured.get('invocations', 0) + 1
             if "--yolo" in command or "--ignore-rules" in command or "HERMES_IGNORE_RULES" in self.env or command[command.index("-t")+1] != ",".join(GROUPS) or command[0]!="hermes":
                 raise ValueError("Unexpected QA command or tool authorization")
             require_clean_env(self.env,self.home)
@@ -403,7 +405,12 @@ class Harness:
         with patch.object(runner,"get_settings",return_value=settings),patch.object(runner,"_run_environment",return_value=self.env),patch.object(runner,"_make_run_token",return_value=token),patch.object(runner,"run_bounded",side_effect=execute):
             result=runner.process_ticket_with_hermes(fixture["ticket"]["id"],scenario["message"],scenario["subject"],scenario["email"],[scenario.get("intent","")])
         execution=captured.get("execution")
-        if not execution or execution["observation"].get("status")!="verified_sampled" or execution["observation"].get("failure"):
+        tool_calls = [json.loads(line) for line in self.audit_path.read_text().splitlines()[audit_before:]
+                      if json.loads(line).get('scenario_id') == scenario['id']] if self.audit_path.exists() else []
+        if not captured:
+            execution = deterministic_no_reply_record(scenario, result, model_attempts=0, tool_calls=tool_calls)
+            captured['execution'] = execution
+        elif not execution or execution["observation"].get("status")!="verified_sampled" or execution["observation"].get("failure"):
             atomic_json(self.output/"failed-execution.json",{"id":scenario["id"],"execution":execution})
             raise ValueError("QA child execution identity failed; no further cases permitted")
         self.assert_no_fatal_audit()
@@ -418,7 +425,7 @@ class Harness:
                 "model_called":captured.get("attempted",False),"authenticated_verdict":bool(valid_verdicts),
                 "execution":captured.get("execution"),
                 "draft_extraction":vars(extraction) if extraction else None,"human_review":"pending",
-                "tool_calls":[json.loads(line) for line in self.audit_path.read_text().splitlines() if json.loads(line).get("scenario_id")==scenario["id"]] if self.audit_path.exists() else []}
+                "tool_calls":tool_calls}
 
     def close(self):
         for child in self.children:
