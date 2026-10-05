@@ -143,6 +143,12 @@ drafts, alerts and provider writes. An actionable request or a model-generated n
 verdict still requires the actual child evidence above. All source, instructions,
 profile and KB bindings remain required for either outcome; this is not a waiver for
 failed or missing execution evidence.
+The checker accepts only explicitly reviewed semantic AST shapes for the gate,
+runner and result template. It evaluates bounded literal dependencies and three
+approved pure gate functions, without executing module imports, decorators or
+top-level statements. Its runner-prefix check binds the gate arguments and the
+early-return branch. A production source-shape change requires an explicit renewal
+and review of these acceptance pins before new receipts can pass.
 
 Hermes runs like the production processor: without `--ignore-rules` and without
 `HERMES_IGNORE_RULES`, so it loads its home instructions. The private QA home gets exactly

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+import ast
 import io
 import json
 import os
@@ -28,6 +29,67 @@ REQUIRED_SUITES = (
     "ticket-views.mjs",
 )
 FIXTURE_HELPER = "fixture-runtime.mjs"
+SYNTHETIC_WINDOWS_NO_REUSE = "ThreadingHTTPServer.allow_reuse_address = False"
+
+
+def synthetic_windows_policy_nodes(source: str):
+    module = ast.parse(source)
+    mains = [node for node in module.body
+             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "main"]
+    if len(mains) != 1:
+        raise AssertionError("The preview helper must have one main function")
+
+    def is_no_reuse_assignment(statement) -> bool:
+        if isinstance(statement, ast.Assign):
+            targets = statement.targets
+            value = statement.value
+        elif isinstance(statement, ast.AnnAssign):
+            targets = [statement.target]
+            value = statement.value
+        else:
+            return False
+        return (
+            len(targets) == 1
+            and isinstance(targets[0], ast.Attribute)
+            and isinstance(targets[0].value, ast.Name)
+            and targets[0].value.id == "ThreadingHTTPServer"
+            and targets[0].attr == "allow_reuse_address"
+            and isinstance(value, ast.Constant)
+            and value.value is False
+        )
+
+    def is_server_constructor(statement) -> bool:
+        return (
+            isinstance(statement, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "server"
+                    for target in statement.targets)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id == "ThreadingHTTPServer"
+        )
+
+    statements = mains[0].body
+    constructors = [statement for statement in statements if is_server_constructor(statement)]
+    settings = [statement for statement in statements if is_no_reuse_assignment(statement)]
+    if len(constructors) != 1:
+        raise AssertionError("The preview helper must have one recognizable server construction")
+    return settings, constructors
+
+
+def synthetic_windows_collision_source(source: str) -> str:
+    """Apply the test-only Windows collision policy once, before server creation."""
+    settings, constructors = synthetic_windows_policy_nodes(source)
+    constructor = constructors[0]
+    if settings:
+        if len(settings) != 1 or settings[0].lineno >= constructor.lineno:
+            raise AssertionError("The synthetic Windows reuse setting must occur once before construction")
+        return source
+
+    lines = source.splitlines(keepends=True)
+    constructor_line = lines[constructor.lineno - 1]
+    indentation = constructor_line[:len(constructor_line) - len(constructor_line.lstrip())]
+    lines.insert(constructor.lineno - 1, indentation + SYNTHETIC_WINDOWS_NO_REUSE + "\n")
+    return "".join(lines)
 
 
 class BrowserGateManifestTests(unittest.TestCase):
@@ -165,17 +227,10 @@ class PreviewLifecycleTests(unittest.TestCase):
         helper = root / "skills" / "buttonsbebe-support-webapp" / "scripts" / "serve_inbox_preview.py"
         helper.parent.mkdir(parents=True)
         preview_source = (Path(__file__).resolve().parents[1] / "skills" / "buttonsbebe-support-webapp" /
-                          "scripts" / "serve_inbox_preview.py").read_text(encoding="utf-8")
+                          "scripts" / "serve_inbox_preview.py").read_bytes().decode("utf-8")
         if platform_name == "nt":
-            constructor = "    server = ThreadingHTTPServer("
-            if constructor not in preview_source:
-                raise AssertionError("The collision helper no longer has its expected server constructor")
-            preview_source = preview_source.replace(
-                constructor,
-                "    ThreadingHTTPServer.allow_reuse_address = False\n" + constructor,
-                1,
-            )
-        helper.write_text(preview_source, encoding="utf-8")
+            preview_source = synthetic_windows_collision_source(preview_source)
+        helper.write_bytes(preview_source.encode("utf-8"))
         assets = root / "console-src" / "inbox2"
         for name, content in {
             "index.html": "<!doctype html><title>Inbox</title><main>synthetic Inbox</main>",
@@ -199,7 +254,7 @@ class PreviewLifecycleTests(unittest.TestCase):
             blocker.setsockopt(socket_options.SOL_SOCKET, socket_options.SO_REUSEADDR, 1)
         blocker.bind(address)
 
-    def test_injected_platform_collision_options_precede_bind_and_windows_helper_disables_reuse(self):
+    def test_injected_platform_collision_options_and_synthetic_windows_helper_are_idempotent(self):
         class RecordingSocket:
             def __init__(self):
                 self.events = []
@@ -231,14 +286,21 @@ class PreviewLifecycleTests(unittest.TestCase):
             ("setsockopt", 1, 3, 1), ("bind", ("127.0.0.1", 31000)),
         ])
 
-        _root, _runner_path, windows_helper = self.make_actual_preview_repo(platform_name="nt")
+        source_path = (Path(__file__).resolve().parents[1] / "skills" / "buttonsbebe-support-webapp" /
+                       "scripts" / "serve_inbox_preview.py")
+        original_source = source_path.read_bytes()
+        _windows_root, _runner_path, windows_helper = self.make_actual_preview_repo(platform_name="nt")
         windows_source = windows_helper.read_text(encoding="utf-8")
-        no_reuse = "    ThreadingHTTPServer.allow_reuse_address = False\n"
-        constructor = "    server = ThreadingHTTPServer("
-        self.assertEqual(windows_source.count(no_reuse), 1)
-        self.assertLess(windows_source.index(no_reuse), windows_source.index(constructor))
-        _root, _runner_path, posix_helper = self.make_actual_preview_repo(platform_name="posix")
-        self.assertNotIn(no_reuse, posix_helper.read_text(encoding="utf-8"))
+        self.assertEqual(windows_source, synthetic_windows_collision_source(original_source.decode("utf-8")))
+        self.assertEqual(synthetic_windows_collision_source(windows_source), windows_source,
+                         "an existing equivalent assignment must not be inserted a second time")
+        assignments, constructors = synthetic_windows_policy_nodes(windows_source)
+        self.assertEqual(len(assignments), 1)
+        self.assertLess(assignments[0].lineno, constructors[0].lineno)
+
+        _posix_root, _runner_path, posix_helper = self.make_actual_preview_repo(platform_name="posix")
+        self.assertEqual(posix_helper.read_bytes(), original_source,
+                         "POSIX receives the checked-in helper byte-for-byte")
 
     def test_running_preview_yields_process_log_and_url_then_exits_cleanly(self):
         with tempfile.TemporaryDirectory(prefix="inbox-preview-lifecycle-") as temporary:

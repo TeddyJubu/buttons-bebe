@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import ast
+import copy
 import hashlib
 import json
 import os
@@ -9,7 +10,7 @@ import re
 import subprocess
 import sys
 import yaml
-from types import ModuleType
+from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
 from qa_safety import TOOLS
 
@@ -463,6 +464,134 @@ def _single_content(observed, message: str) -> None:
             raise ValueError(f"{message}: {name} {heading!r}")
 
 
+# These are reviewed semantic ASTs, not hashes supplied by a run. A production
+# gate/runner change needs an explicit update and review of this acceptance policy.
+_NO_REPLY_SOURCE_AST = {
+    'processor/draft_cleaner.py': '503e0a5d03c1f04aabbcea1d5c977f6c0e72d3f34543e8e467f90144430cf7fc',
+    'processor/hermes_runner/runner.py': 'ef697e7a66f4e7a386b91194a4707367fb3347e991eee9d6820ce17bccfeb8f4',
+    'processor/hermes_runner/constants.py': '518eb959f49fe9e26d4f06814bb9bc346b177737ccee58a0008283bafd087fcf',
+}
+_NO_REPLY_RUNNER_PREFIX_AST = '7260f7debc31d02b775c9f938e4e3807ae7273b91dddac157312b4d2d3922fb8'
+_NO_REPLY_GATE_FUNCTIONS = ('_strip_decoration', '_carries_no_content', 'should_draft')
+_NO_REPLY_GATE_LITERALS = ('_MAX_GATE_SUBJECT', '_MAX_GATE_MESSAGE', '_SAFE_EMOJI', '_INERT_PUNCT')
+_NO_REPLY_GATE_SETS = ('_ACK_ANCHORS', '_ACK_FILLER', '_GRATITUDE_ANCHORS', '_DECISION_ANCHORS')
+_NO_REPLY_GATE_REGEXES = ('_TOKEN_RE', '_EMOTICON_RE', '_HAPPY_EMOTICON_RE', '_SUBJECT_NOISE_RE')
+
+
+def _no_reply_ast_digest(node):
+    # Explicit fields retain empty lists across Python versions; ast.dump's
+    # display formatting is not an identity contract.
+    def normalized(value):
+        if isinstance(value, ast.AST):
+            return {'node': type(value).__name__,
+                    'fields': {key: normalized(item) for key, item in ast.iter_fields(value)}}
+        if isinstance(value, list):
+            return [normalized(item) for item in value]
+        return value
+    return digest(normalized(node))
+
+
+def _reviewed_no_reply_trees(source_bytes):
+    trees = {}
+    for name, approved in _NO_REPLY_SOURCE_AST.items():
+        raw = source_bytes[name]
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= 128 * 1024:
+            raise ValueError('Unsupported no-reply source bounds')
+        tree = ast.parse(raw)
+        if _no_reply_ast_digest(tree) != approved:
+            raise ValueError('Unsupported no-reply source shape; reviewed AST required')
+        trees[name] = tree
+    # This proof binds the exact call arguments and the trusted False branch,
+    # including its template copy and gate-derived reason, before any evaluation.
+    runners = [n for n in trees['processor/hermes_runner/runner.py'].body
+               if isinstance(n, ast.FunctionDef) and n.name == 'process_ticket_with_hermes']
+    if len(runners) != 1:
+        raise ValueError('Ambiguous production runner gate')
+    runner = runners[0]
+    prefix = ast.Module(body=runner.body[1:3], type_ignores=[])
+    if _no_reply_ast_digest(prefix) != _NO_REPLY_RUNNER_PREFIX_AST:
+        raise ValueError('Unsupported production runner gate coupling')
+    return trees
+
+
+def _pure_gate_result(ok, reason=''):
+    if type(ok) is not bool or not isinstance(reason, str):
+        raise ValueError('Invalid pure gate result')
+    return SimpleNamespace(ok=ok, reason=reason)
+
+
+def _pure_no_reply_gate(tree, message, subject):
+    """Evaluate only the reviewed gate slice; imports/top-level code never run."""
+    if not isinstance(message, str) or not isinstance(subject, str):
+        raise ValueError('Catalog gate inputs must be text')
+    assignments = {}
+    functions = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id in assignments:
+                raise ValueError('Ambiguous gate dependency')
+            assignments[node.targets[0].id] = node.value
+        elif isinstance(node, ast.FunctionDef):
+            if node.name in functions:
+                raise ValueError('Ambiguous gate function')
+            functions[node.name] = node
+    env = {'__builtins__': {'str': str, 'len': len, 'all': all, 'any': any},
+           'ShouldDraft': _pure_gate_result}
+    for name in _NO_REPLY_GATE_LITERALS:
+        value = ast.literal_eval(assignments[name])
+        if not isinstance(value, (str, int, tuple)) or type(value) is bool:
+            raise ValueError('Unsupported gate literal')
+        env[name] = value
+    for name in _NO_REPLY_GATE_SETS:
+        call = assignments[name]
+        if (not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name)
+                or call.func.id != 'frozenset' or len(call.args) != 1 or call.keywords):
+            raise ValueError('Unsupported gate set')
+        items = ast.literal_eval(call.args[0])
+        if not isinstance(items, set) or len(items) > 2000 or any(not isinstance(x, str) for x in items):
+            raise ValueError('Unsupported gate set literal')
+        env[name] = frozenset(items)
+    env['_ACK_ALLOWED'] = env['_ACK_ANCHORS'] | env['_ACK_FILLER']
+    # The reviewed AST pins this exact bounded range and literal suffixes. No
+    # generator, chr/range call, or arbitrary initializer from source executes.
+    decoration = assignments['_DECORATION']
+    env['_DECORATION'] = (''.join(chr(c) for c in range(0x1F3FB, 0x1F400))
+                          + ast.literal_eval(decoration.left.right)
+                          + ast.literal_eval(decoration.right))
+    for name in _NO_REPLY_GATE_REGEXES:
+        call = assignments[name]
+        if (not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute)
+                or not isinstance(call.func.value, ast.Name) or call.func.value.id != 're'
+                or call.func.attr != 'compile' or call.keywords or not 1 <= len(call.args) <= 2):
+            raise ValueError('Unsupported gate regex')
+        pattern = ast.literal_eval(call.args[0])
+        if not isinstance(pattern, str) or len(pattern) > 4096:
+            raise ValueError('Unsupported gate regex literal')
+        flags = 0
+        if len(call.args) == 2:
+            flag = call.args[1]
+            if (not isinstance(flag, ast.Attribute) or not isinstance(flag.value, ast.Name)
+                    or flag.value.id != 're' or flag.attr not in ('UNICODE', 'IGNORECASE')):
+                raise ValueError('Unsupported gate regex flags')
+            flags = {'UNICODE': re.UNICODE, 'IGNORECASE': re.IGNORECASE}[flag.attr]
+        env[name] = re.compile(pattern, flags)
+    selected = []
+    for name in _NO_REPLY_GATE_FUNCTIONS:
+        node = copy.deepcopy(functions[name])
+        if node.decorator_list or node.args.kwonlyargs or node.args.vararg or node.args.kwarg:
+            raise ValueError('Unsupported gate function shape')
+        # The complete reviewed AST already pins defaults, annotations and every
+        # call/attribute. Remove annotations so no source type expression runs.
+        node.returns = None
+        for arg in (*node.args.posonlyargs, *node.args.args):
+            arg.annotation = None
+        selected.append(node)
+    code = compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])),
+                   '<reviewed-pure-no-reply-gate>', 'exec', dont_inherit=True)
+    exec(code, env)
+    return env['should_draft'](message, subject)
+
+
 def _deterministic_no_reply(scenario_id, bindings=None, repo: Path = REPO):
     """Recompute the production gate for an exact catalog case, without Hermes."""
     try:
@@ -479,26 +608,22 @@ def _deterministic_no_reply(scenario_id, bindings=None, repo: Path = REPO):
         scenario, catalog_name, catalog_hash = matches[0]
         names = ('processor/draft_cleaner.py', 'processor/hermes_runner/constants.py',
                  'processor/hermes_runner/runner.py')
-        source_bytes = {name: (repo / name).read_bytes() for name in names}
+        source_bytes = {}
+        for name in names:
+            with (repo / name).open('rb') as stream:
+                source_bytes[name] = stream.read(128 * 1024 + 1)
+            if not 0 < len(source_bytes[name]) <= 128 * 1024:
+                raise ValueError
         sources = {name: sha256_bytes(raw) for name, raw in source_bytes.items()}
         sources[catalog_name] = catalog_hash
         if bindings is not None and any(bindings['source']['files'].get(name) != value
                                         for name, value in sources.items()):
             raise ValueError
-        # This module is standard-library-only. Load the exact hashed gate file;
-        # importing the runner would also import production credential settings.
-        key = '_qa_no_reply_gate_' + sources[names[0]]
-        module = ModuleType(key)
-        module.__file__ = str(repo / names[0])
-        sys.modules[key] = module
-        try:
-            exec(compile(source_bytes[names[0]], module.__file__, 'exec'), module.__dict__)
-            gate = module.should_draft(scenario['message'], scenario['subject'])
-        finally:
-            sys.modules.pop(key, None)
+        trees = _reviewed_no_reply_trees(source_bytes)
+        gate = _pure_no_reply_gate(trees[names[0]], scenario['message'], scenario['subject'])
         if gate.ok is not False or not isinstance(gate.reason, str) or not gate.reason:
             raise ValueError
-        tree = ast.parse(source_bytes[names[1]])
+        tree = trees[names[1]]
         templates = [ast.literal_eval(node.value) for node in tree.body
                      if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
                      and node.target.id == '_NO_DRAFT_RESULT']
@@ -515,7 +640,7 @@ def _deterministic_no_reply(scenario_id, bindings=None, repo: Path = REPO):
                   'hermes_output': '', 'process_returncode': None,
                   'authenticated_verdict': False, 'draft_extraction': None}
         return scenario, record
-    except (KeyError, TypeError, AttributeError, ValueError, OSError, SyntaxError):
+    except (KeyError, TypeError, AttributeError, ValueError, OSError, SyntaxError, RecursionError, MemoryError):
         raise ValueError('Invalid deterministic no-reply disposition; exact source and catalog gate required') from None
 
 

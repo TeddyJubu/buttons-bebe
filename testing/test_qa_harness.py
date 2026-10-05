@@ -403,19 +403,39 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
                 import shutil;shutil.rmtree(harness.output)
 
     def test_catalog_thanks_is_a_verified_zero_model_disposition(self):
-        scenario = next(row for row in json.loads((qa_harness.REPO / 'testing/scenarios.json').read_text())
-                        if row['id'] == 'E02')
+        catalog = json.loads((qa_harness.REPO / 'testing/scenarios.json').read_text())
+        indexed = [(ordinal, row) for ordinal, row in enumerate(catalog, 1) if row['id'] == 'E02']
+        self.assertEqual(len(indexed), 1)
+        original_ordinal, scenario = indexed[0]
+        reordered_catalog = [scenario, *(row for row in catalog if row['id'] != 'E02')]
+        reordered = [(ordinal, row) for ordinal, row in enumerate(reordered_catalog, 1)
+                     if row['id'] == 'E02']
+        self.assertEqual(len(reordered), 1)
+        reordered_ordinal, reordered_scenario = reordered[0]
+        self.assertEqual(reordered_ordinal, 1)
         harness = self.harness()
         try:
-            with patch('qa_harness.run_observed', side_effect=AssertionError('model must not run')) as observed:
-                case = harness.run(scenario, 36)
-            self.assertEqual(observed.call_count, 0)
-            self.assertFalse(case['model_called'])
-            self.assertEqual(case['execution']['kind'], 'deterministic_no_reply')
-            self.assertEqual(case['result']['generation_state'], 'no_reply')
-            self.assertEqual(case['tool_calls'], [])
-            self.assertEqual(case['hermes_output'], '')
-            self.assertFalse((harness.output / 'failed-execution.json').exists())
+            for selected_ordinal, selected_scenario in (
+                (original_ordinal, scenario), (reordered_ordinal, reordered_scenario),
+            ):
+                with patch('qa_harness.run_observed',
+                           side_effect=AssertionError('model must not run')) as observed:
+                    case = harness.run(selected_scenario, selected_ordinal)
+                self.assertEqual(observed.call_count, 0)
+                self.assertFalse(case['model_called'])
+                self.assertEqual(case['execution']['kind'], 'deterministic_no_reply')
+                self.assertEqual(case['id'], 'E02')
+                self.assertEqual(case['result']['generation_state'], 'no_reply')
+                self.assertEqual(case['tool_calls'], [])
+                self.assertEqual(case['hermes_output'], '')
+                self.assertFalse((harness.output / 'failed-execution.json').exists())
+                fixture = json.loads(harness.fixture_path.read_text())
+                self.assertEqual(fixture['scenario_id'], 'E02')
+                self.assertEqual(fixture['ticket']['id'], 900_000_000 + selected_ordinal)
+                self.assertEqual(fixture['customer']['id'], 910_000_000 + selected_ordinal)
+                if selected_ordinal == reordered_ordinal:
+                    self.assertEqual(fixture['ticket']['id'], 900_000_001)
+                    self.assertEqual(fixture['customer']['id'], 910_000_001)
         finally:
             harness.close()
 
