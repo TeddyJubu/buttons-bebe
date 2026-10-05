@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import io
+import json
 from pathlib import Path
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.request import ProxyHandler, build_opener
 
 import run_inbox_browser_tests as browser_runner
 
@@ -143,6 +146,143 @@ class BrowserPortRetryTests(unittest.TestCase):
                         self.fail("a failed preview cannot be yielded")
             self.assertEqual(start.call_count, 1)
 
+
+class PreviewLifecycleTests(unittest.TestCase):
+    def make_actual_preview_repo(self) -> tuple[Path, Path, Path]:
+        temporary = tempfile.TemporaryDirectory(prefix="inbox-preview-actual-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        tests_dir = root / "console-src" / "inbox2" / "tests"
+        tests_dir.mkdir(parents=True)
+        for name in REQUIRED_SUITES:
+            (tests_dir / name).write_text("// synthetic suite stub\n", encoding="utf-8")
+        (tests_dir / FIXTURE_HELPER).write_text("// synthetic helper stub\n", encoding="utf-8")
+        runner_path = root / "testing" / "run_inbox_browser_tests.py"
+        runner_path.parent.mkdir(parents=True)
+        runner_path.write_text("# temporary path anchor\n", encoding="utf-8")
+        helper = root / "skills" / "buttonsbebe-support-webapp" / "scripts" / "serve_inbox_preview.py"
+        helper.parent.mkdir(parents=True)
+        helper.write_text(
+            (Path(__file__).resolve().parents[1] / "skills" / "buttonsbebe-support-webapp" /
+             "scripts" / "serve_inbox_preview.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        assets = root / "console-src" / "inbox2"
+        for name, content in {
+            "index.html": "<!doctype html><title>Inbox</title><main>synthetic Inbox</main>",
+            "app.js": "",
+            "styles.css": "",
+            "local_state.js": "",
+            "icons.js": "",
+            "lucide-LICENSE.txt": "synthetic test asset",
+        }.items():
+            (assets / name).write_text(content, encoding="utf-8")
+        return root, runner_path, helper
+
+    def test_running_preview_yields_process_log_and_url_then_exits_cleanly(self):
+        with tempfile.TemporaryDirectory(prefix="inbox-preview-lifecycle-") as temporary:
+            scratch = Path(temporary)
+            root, _runner_path, helper = self.make_actual_preview_repo()
+            process = None
+            log_handle = None
+            stopped = []
+            actual_stop = browser_runner.stop_preview
+            with patch.object(browser_runner, "stop_preview",
+                              side_effect=lambda child: (stopped.append(child), actual_stop(child))[1]):
+                with browser_runner.running_preview(root, helper, {}, scratch) as preview:
+                    process, log_handle, base_url = preview
+                    self.assertIsInstance(process, browser_runner.subprocess.Popen)
+                    self.assertFalse(log_handle.closed)
+                    self.assertTrue(base_url.startswith("http://127.0.0.1:"))
+                    env = {"INBOX_TEST_URL": base_url}
+                    self.assertEqual(env["INBOX_TEST_URL"], base_url)
+                    with build_opener(ProxyHandler({})).open(base_url + "/health", timeout=2) as response:
+                        self.assertEqual(json.loads(response.read()), {
+                            "ok": True, "synthetic": True, "readOnly": True,
+                        })
+                    with build_opener(ProxyHandler({})).open(env["INBOX_TEST_URL"] + "/inbox/", timeout=2) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertIn(b"synthetic Inbox", response.read())
+
+            self.assertIsNotNone(process)
+            self.assertEqual(stopped, [process], "running_preview must stop its owned child after the context body")
+            self.assertIsNotNone(process.poll(), "running_preview must not leave its owned preview running")
+            self.assertIsNotNone(log_handle)
+            self.assertTrue(log_handle.closed)
+
+    def test_main_retries_real_address_collision_sets_test_url_and_preserves_other_listener(self):
+        with tempfile.TemporaryDirectory(prefix="inbox-preview-retry-") as temporary:
+            scratch = Path(temporary)
+            root, runner_path, _helper = self.make_actual_preview_repo()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
+                blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                blocker.bind(("127.0.0.1", 0))
+                blocker.listen(1)
+                blocker.settimeout(2)
+                occupied_port = int(blocker.getsockname()[1])
+
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                    probe.bind(("127.0.0.1", 0))
+                    retry_port = int(probe.getsockname()[1])
+
+                actual_popen = browser_runner.subprocess.Popen
+                spawned: list[object] = []
+                stopped: list[object] = []
+                calls: list[tuple[str, str]] = []
+
+                def recording_popen(*args, **kwargs):
+                    process = actual_popen(*args, **kwargs)
+                    spawned.append(process)
+                    return process
+
+                def read_only_test(node, test, repo, env):
+                    url = env.get("INBOX_TEST_URL", "")
+                    self.assertTrue(url.startswith(f"http://127.0.0.1:{retry_port}"), url)
+                    name = Path(test).name
+                    if name != FIXTURE_HELPER:
+                        self.assertNotIn(spawned[1], stopped,
+                                         "the retried preview stays alive while browser suites run")
+                        with build_opener(ProxyHandler({})).open(url + "/health", timeout=2) as response:
+                            health = json.loads(response.read())
+                        self.assertEqual(health, {"ok": True, "synthetic": True, "readOnly": True})
+                    else:
+                        self.assertIn(spawned[1], stopped,
+                                      "main must stop the actual preview after browser suites and before the fixture helper")
+                        self.assertIsNotNone(spawned[1].poll())
+                    calls.append((name, url))
+                    return 0
+
+                actual_stop = browser_runner.stop_preview
+
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with (
+                    patch.object(browser_runner, "__file__", str(runner_path)),
+                    patch.object(browser_runner.shutil, "which", return_value="/synthetic/node"),
+                    patch.object(browser_runner, "verify_playwright"),
+                    patch.object(browser_runner, "free_loopback_port",
+                                 side_effect=[occupied_port, retry_port]),
+                    patch.object(browser_runner, "run_browser_test", side_effect=read_only_test),
+                    patch.object(browser_runner, "stop_preview",
+                                 side_effect=lambda child: (stopped.append(child), actual_stop(child))[1]),
+                    patch.object(browser_runner.subprocess, "Popen", side_effect=recording_popen),
+                    redirect_stdout(stdout),
+                    redirect_stderr(stderr),
+                ):
+                    result = browser_runner.main()
+
+                self.assertEqual(result, 0, stderr.getvalue())
+                self.assertIn("running all 10 required browser suites", stdout.getvalue())
+                self.assertIn("running full-stack fixture helper separately", stdout.getvalue())
+                self.assertEqual([name for name, _url in calls], [*REQUIRED_SUITES, FIXTURE_HELPER])
+                self.assertTrue(all(url == calls[0][1] for _name, url in calls))
+                self.assertEqual(len(spawned), 2)
+                self.assertNotEqual(spawned[0].returncode, 0, "the occupied-port child should fail its own bind")
+                self.assertIn(spawned[1], stopped)
+                self.assertIsNotNone(spawned[1].poll(), "the retried preview child must be stopped")
+
+                self.assertEqual(blocker.getsockname()[1], occupied_port)
+                self.assertGreaterEqual(blocker.fileno(), 0, "retry must not close another owner's listener")
 
 if __name__ == "__main__":
     unittest.main()

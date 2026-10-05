@@ -149,6 +149,7 @@ def bind_loopback_listener(port: int) -> tuple[socket.socket, int]:
         raise ValueError("Fixture port must be zero or between 1 and 65535.")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", port))
         listener.listen(socket.SOMAXCONN)
         actual_port = int(listener.getsockname()[1])
