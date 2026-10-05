@@ -2,7 +2,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from urllib.parse import urlsplit, urlunsplit
@@ -11,7 +13,9 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SUITES = {"core": ("testing/scenarios.json", 48), "reliability": ("testing/reliability-scenarios.json", 10)}
 VERDICTS = ("PASS", "NEEDS_WORK", "FAIL", "pending")
-RECEIPT_SCHEMA = 3
+RECEIPT_SCHEMA = 4
+# Production Hermes reads these from ~/.hermes (HERMES_IGNORE_RULES unset). QA seeds exactly these bytes.
+INSTRUCTION_FILES = ("SOUL.md", "skills/buttonsbebe/support-agent/SKILL.md", "skills/buttonsbebe/ticket-processor/SKILL.md")
 SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
     "intake": ("intake/__init__.py", "intake/message_content.py"),
     "processor": (
@@ -85,14 +89,15 @@ def source_fingerprint(repo: Path = REPO) -> dict:
     return {"head": head, "dirty": dirty, "files": dict(sorted(files.items())), "sha256": digest(files)}
 
 
-def hermes_identity(executable: Path, source: Path) -> dict:
+def hermes_identity(launch: list[str], source: Path) -> dict:
     source = source.resolve()
     files = {path.relative_to(source).as_posix(): sha256_bytes(path.read_bytes())
              for path in sorted(source.rglob("*.py"))
              if not SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS.intersection(path.relative_to(source).parts)}
     if not files:
         raise ValueError("Hermes source has no Python files")
-    return {"executable_sha256": sha256_bytes(executable.read_bytes()), "source_sha256": digest(files), "source_files": len(files)}
+    # The launch is the exact interpreter + Hermes runtime_command bootstrap the QA child runs.
+    return {"launch_sha256": digest(launch), "source_sha256": digest(files), "source_files": len(files)}
 
 
 def _safe_url(value: str, *, local: bool = False) -> str:
@@ -175,16 +180,207 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
         raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
 
 
+CONTEXT_FILE_NAMES = frozenset({".hermes.md", "hermes.md", "agents.override.md", "agents.md", "claude.md", ".cursorrules", ".cursor"})
+
+
+def _regular_bytes(base: Path, name: str) -> bytes:
+    """Read base/name, refusing a symlink anywhere below base (O_NOFOLLOW only covers the leaf)."""
+    path = base
+    if base.is_symlink():
+        raise ValueError(f"QA instruction path must not traverse links: {base.name}")
+    for part in Path(name).parts:
+        path = path / part
+        if part in ("..", ".") or path.is_symlink():
+            raise ValueError(f"QA instruction path must not traverse links: {name}")
+    if not path.is_file():
+        raise ValueError(f"QA instruction file must be a regular file: {name}")
+    return path.read_bytes()
+
+
+def seed_instructions(hermes_home: Path, repo: Path = REPO) -> None:
+    if hermes_home.parent.is_symlink():
+        raise ValueError("QA instruction home must not be a link")
+    for name in INSTRUCTION_FILES:
+        data = _regular_bytes(repo / "hermes", name)
+        directory = hermes_home.parent
+        for part in (hermes_home.name, *Path(name).parts[:-1]):
+            directory = directory / part
+            if directory.is_symlink():
+                raise ValueError(f"QA instruction directory must not be a link: {name}")
+            directory.mkdir(exist_ok=True, mode=0o700)
+        with open(os.open(directory / Path(name).name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), "wb") as handle:
+            handle.write(data)
+
+
+def _present(path: Path) -> bool:
+    try:
+        path.lstat()
+        return True
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True  # Unknown counts as present: fail closed.
+
+
+def context_directories(cwd: Path) -> list[Path]:
+    """Directories Hermes project-context discovery reads (agent/prompt_builder.py, fae9e567):
+    every directory from cwd up to the nearest ancestor holding .git, or cwd alone without one."""
+    cwd = cwd.resolve()
+    chain = [cwd, *cwd.parents]
+    root = next((index for index, directory in enumerate(chain) if _present(directory / ".git")), 0)
+    return chain[:root + 1]
+
+
+NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"  # Hermes essential-only opt-out (tools/skills_sync.py).
+
+
+def _skill_tree(root: Path) -> dict:
+    """Regular files under root keyed by relative path; links refused, runtime caches skipped."""
+    files = {}
+    if root.is_symlink():
+        raise ValueError("QA skill tree must not contain links at its root")
+    if not root.is_dir():
+        raise ValueError("QA skill tree root must be a directory")
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_symlink():
+            raise ValueError(f"QA skill tree must not contain links: {relative.as_posix()}")
+        if path.is_file() and "__pycache__" not in relative.parts and path.suffix not in (".pyc", ".pyo"):
+            files[relative.as_posix()] = path.read_bytes()
+    return files
+
+
+def _md5_dir(files: dict) -> str:
+    # Mirrors Hermes tools/skills_sync._dir_hash (manifest origin hash) over the same file set.
+    hasher = hashlib.md5()
+    for name in sorted(files, key=lambda item: Path(item)):
+        hasher.update(str(Path(name)).encode("utf-8"))
+        hasher.update(files[name])
+    return hasher.hexdigest()
+
+
+def _valid_essentials(essentials) -> bool:
+    if not isinstance(essentials, dict) or not essentials:
+        return False
+    for name, relative in essentials.items():
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}",name)
+                or not isinstance(relative, str) or not relative or len(relative)>512 or "\\" in relative):
+            return False
+        parts=Path(relative).parts
+        if (not parts or Path(relative).is_absolute() or Path(relative).as_posix()!=relative
+                or len(parts)>10 or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}",part) for part in parts)):
+            return False
+    return True
+
+
+def _valid_sha256(value) -> bool:
+    return isinstance(value,str) and re.fullmatch(r"[0-9a-f]{64}",value) is not None
+
+
+def essential_expectation(hermes_source: Path, essentials: dict) -> tuple[dict, str]:
+    """Exact bytes Hermes essential-only sync installs from the pinned source: each essential
+    skill, its category DESCRIPTION.md, and the v2 manifest. No full bundled-index parity."""
+    if not _valid_essentials(essentials):
+        raise ValueError("Invalid essential skill locations")
+    bundled = hermes_source.resolve() / "skills"
+    if bundled.is_symlink():
+        raise ValueError("QA essential source must not contain links")
+    expected, manifest = {}, []
+    for name, relative in sorted(essentials.items()):
+        parts = Path(relative).parts
+        _regular_bytes(bundled, f"{relative}/SKILL.md")
+        tree = _skill_tree(bundled / relative)
+        if "SKILL.md" not in tree:
+            raise ValueError(f"Essential skill missing from the pinned source: {name}")
+        expected.update({f"skills/{relative}/{key}": value for key, value in tree.items()})
+        manifest.append(f"{name}:{_md5_dir(tree)}\n")
+        description = bundled / Path(relative).parent / "DESCRIPTION.md"
+        if description.is_symlink():
+            raise ValueError("QA essential source must not contain links")
+        if len(parts) > 1 and description.is_file() and not description.is_symlink():
+            expected[f"skills/{Path(relative).parent.as_posix()}/DESCRIPTION.md"] = description.read_bytes()
+    expected["skills/.bundled_manifest"] = "".join(sorted(manifest)).encode()
+    return expected, digest({key: sha256_bytes(value) for key, value in expected.items()})
+
+
+def instruction_identity(home: Path, essentials: dict, hermes_source: Path, repo: Path = REPO) -> dict:
+    """Hash the instruction bytes Hermes will actually load from the private HOME (also the QA cwd).
+
+    Approved SOUL/skills plus the source-pinned essential skills seeded under the explicit
+    .no-bundled-skills opt-out. Fails closed on missing, modified, linked or extra
+    context/skill/memory files, including approved files.
+    """
+    hermes_home = home / ".hermes"
+    if home.is_symlink() or hermes_home.is_symlink():
+        raise ValueError("QA instruction home must not traverse links")
+    files = {}
+    for name in INSTRUCTION_FILES:
+        data = _regular_bytes(hermes_home, name)
+        if data != _regular_bytes(repo / "hermes", name):
+            raise ValueError(f"QA instruction file differs from the reviewed source: {name}")
+        files[name] = sha256_bytes(data)
+    marker = hermes_home / NO_BUNDLED_SKILLS_MARKER
+    if marker.is_symlink() or not marker.is_file():
+        raise ValueError("QA requires the explicit essential-only skills opt-out marker")
+    expected, source_sha256 = essential_expectation(hermes_source, essentials)
+    essential_keys = sorted(expected)
+    expected.update({name: _regular_bytes(repo / "hermes", name) for name in INSTRUCTION_FILES[1:]})
+    installed = {f"skills/{key}": value for key, value in _skill_tree(hermes_home / "skills").items()}
+    if set(installed) != set(expected):
+        raise ValueError("Unexpected or missing QA skill files")
+    if any(installed[key] != value for key, value in expected.items()):
+        raise ValueError("QA skill file differs from the pinned source")
+    memories = hermes_home / "memories"
+    if memories.exists() and (memories.is_symlink() or any(memories.iterdir())):
+        raise ValueError("QA memory must stay empty")
+    for directory in context_directories(home):
+        found = sorted(entry.name for entry in directory.iterdir() if entry.name.lower() in CONTEXT_FILE_NAMES)
+        if found:
+            raise ValueError(f"Hermes would load project context from {directory}: {', '.join(found)}")
+    essential = {"opt_out_marker": NO_BUNDLED_SKILLS_MARKER, "skills": dict(sorted(essentials.items())),
+                 "source_sha256": source_sha256,
+                 "installed_sha256": digest({key: sha256_bytes(installed[key]) for key in essential_keys})}
+    identity = {"ignore_rules": False, "files": files, "essential_skills": essential}
+    return {**identity, "sha256": digest(identity)}
+
+
+def _require_instructions(bindings: dict) -> None:
+    identity = bindings.get("instructions")
+    source = bindings.get("source", {}).get("files", {})
+    essential = identity.get("essential_skills") if isinstance(identity, dict) else None
+    if (not isinstance(identity, dict) or set(identity) != {"ignore_rules", "files", "essential_skills", "sha256"}
+            or identity["ignore_rules"] is not False or not isinstance(identity["files"], dict)
+            or list(identity["files"]) != list(INSTRUCTION_FILES)
+            or any(not _valid_sha256(value) for value in identity["files"].values())
+            or any(source.get(f"hermes/{name}") != value for name, value in identity["files"].items())
+            or not isinstance(essential, dict)
+            or set(essential) != {"opt_out_marker", "skills", "source_sha256", "installed_sha256"}
+            or essential["opt_out_marker"] != NO_BUNDLED_SKILLS_MARKER
+            or not _valid_essentials(essential["skills"])
+            or not _valid_sha256(essential["source_sha256"])
+            or not _valid_sha256(essential["installed_sha256"])
+            or essential["source_sha256"] != essential["installed_sha256"]
+            or identity["sha256"] != digest({key: value for key, value in identity.items() if key != "sha256"})):
+        raise ValueError("Missing or invalid Hermes instruction parity; rerun QA with the reviewed SOUL, skills and pinned essentials")
+
+
 def _require_model_runtime(bindings: dict) -> None:
+    hermes = bindings.get("hermes")
+    if (not isinstance(hermes, dict) or set(hermes) != {"launch_sha256", "source_sha256", "source_files"}
+            or not _valid_sha256(hermes["launch_sha256"])
+            or not _valid_sha256(hermes["source_sha256"])
+            or type(hermes["source_files"]) is not int or not 1 <= hermes["source_files"] <= 100_000):
+        raise ValueError("Missing or invalid Hermes launch/source identity; rerun QA with a pinned runtime")
     identity = bindings.get("model_runtime")
     expected = {"model", "agent", "memory", "platform_toolsets", "mcp_servers", "interpreter_sha256", "sha256"}
     if (not isinstance(identity, dict) or set(identity) != expected
             or not isinstance(identity["model"], dict)
             or not {"default", "provider"} <= set(identity["model"]) <= {"default", "provider", "base_url"}
             or any(not isinstance(value, str) or not value.strip() for value in identity["model"].values())
-            or not isinstance(identity["interpreter_sha256"], str) or len(identity["interpreter_sha256"]) != 64
+            or not _valid_sha256(identity["interpreter_sha256"])
             or identity.get("sha256") != digest({key: value for key, value in identity.items() if key != "sha256"})):
         raise ValueError("Missing or invalid model/runtime identity; legacy QA evidence must be rerun")
+    _require_instructions(bindings)
 
 
 def catalog(suite: str, repo: Path = REPO) -> tuple[str, list[str]]:
@@ -235,7 +431,7 @@ def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
 
 def check_run_integrity(run: dict) -> None:
     if run.get("schema") != RECEIPT_SCHEMA:
-        raise ValueError("Legacy QA run lacks model/runtime evidence; rerun the suites")
+        raise ValueError("Legacy QA run lacks model/runtime and instruction-parity evidence; rerun the suites")
     _require_model_runtime(run["bindings"])
     if digest(run["bindings"]) != run.get("bindings_after_sha256"):
         raise ValueError(f"{run['suite']}: source, Hermes, model/runtime or approved KB snapshot changed during the run")
@@ -255,7 +451,7 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
     catalog_sha256, all_ids = catalog(suite, repo)
     if (run.get("schema") != RECEIPT_SCHEMA or judgments.get("schema") != RECEIPT_SCHEMA
             or run.get("suite") != suite or judgments.get("suite") != suite):
-        raise ValueError(f"{suite}: schema 3 model/runtime evidence required; rerun legacy suites")
+        raise ValueError(f"{suite}: schema 4 model/runtime and instruction-parity evidence required; rerun legacy suites")
     if not run.get("complete") or run.get("ids") != all_ids:
         raise ValueError(f"{suite}: partial run; every catalog ID must be captured")
     if run.get("catalog_sha256") != catalog_sha256:
@@ -280,7 +476,7 @@ def build_receipt(core_run, core_judgments, reliability_run, reliability_judgmen
     core, core_meta, core_defects = _suite_review("core", core_run, core_judgments, repo)
     reliability, rel_meta, rel_defects = _suite_review("reliability", reliability_run, reliability_judgments, repo)
     bindings = core_meta["bindings"]
-    for name, label in (("source", "source"), ("hermes", "Hermes"), ("model_runtime", "model/runtime"),
+    for name, label in (("source", "source"), ("hermes", "Hermes"), ("model_runtime", "model/runtime"), ("instructions", "Hermes instructions"),
                         ("kb_snapshot", "approved KB snapshot")):
         if digest(bindings[name]) != digest(rel_meta["bindings"][name]):
             raise ValueError(f"Core and reliability runs used a different {label}")
@@ -300,7 +496,7 @@ def review_state(receipt: dict) -> dict:
 
 def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> dict:
     if receipt.get("schema") != RECEIPT_SCHEMA or set(receipt.get("suites", {})) != set(SUITES):
-        raise ValueError("Schema 3 receipt must cover both suites with model/runtime evidence; rerun legacy suites")
+        raise ValueError("Schema 4 receipt must cover both suites with model/runtime and instruction-parity evidence; rerun legacy suites")
     _require_model_runtime(receipt)
     current = source_fingerprint(repo)
     if receipt["source"]["sha256"] != current["sha256"]:

@@ -18,6 +18,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from qa_safety import filter_policy_results, redact, scenario_fixture, GROUPS, TOOLS, UTILITY_NAMES
+import qa_harness
 from qa_harness import Harness, atomic_json, endpoint_preflight, isolated_run, minimal_environment, profile_config, prove_hermes_bindings
 
 SCENARIO={"id":"QA-TEST","subject":"Shipping question","message":"When does order #10312 ship?","email":"qa@example.com","intent":"shipping","cat":"low"}
@@ -108,6 +109,55 @@ class PolicyBoundaryTests(unittest.TestCase):
         for index,row in enumerate(rows,1):scenario_fixture(row,index)
 
 
+LAUNCHERS = '''from pathlib import Path
+def runtime_command(repo_root, args=(), *, module="hermes_cli.main", code=None, python=None, home=None):
+    root = Path(repo_root).resolve()
+    bootstrap = ("import os, sys, runpy; "
+        "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
+        "os.environ.pop('VIRTUAL_ENV', None); "
+        f"sys.path.insert(0, {str(root)!r}); "
+        f"os.environ['HERMES_HOME'] = os.environ.get('HERMES_HOME') or {default_home}; "
+        "import hermes_bootstrap; "
+        + entry)
+    return [str(python), "-I", "-c", bootstrap, *args]
+'''.replace("    root = Path(repo_root).resolve()\n", """    root = Path(repo_root).resolve()
+    entry = f"exec({code!r})" if code is not None else (
+        f"runpy.run_module({module!r}, run_name='__main__', alter_sys=True)")
+    default_home = (f"{str(home)!r}" if home is not None else
+                    "str(__import__('hermes_constants').get_default_hermes_root())")
+""")
+
+# Literal stand-in for Hermes tools/skills_sync essential-only seeding (real run: evidence qa-startup-r4).
+SKILLS_SYNC = '''import hashlib, os, shutil
+from pathlib import Path
+from agent.skill_utils import ESSENTIAL_SKILLS
+def _get_bundled_dir():
+    return Path(__file__).resolve().parent.parent / 'skills'
+def _discover_bundled_skills(bundled):
+    return [(md.parent.name, md.parent) for md in sorted(bundled.rglob('SKILL.md'))]
+def _hash(directory):
+    md5 = hashlib.md5()
+    for path in sorted(directory.rglob('*')):
+        if path.is_file():
+            md5.update(str(path.relative_to(directory)).encode()); md5.update(path.read_bytes())
+    return md5.hexdigest()
+def sync_skills(quiet=False):
+    home = Path(os.environ['HERMES_HOME']); opt_out = (home / '.no-bundled-skills').exists()
+    bundled = _get_bundled_dir(); lines = []
+    for name, source in _discover_bundled_skills(bundled):
+        if opt_out and name not in ESSENTIAL_SKILLS:
+            continue
+        dest = home / 'skills' / source.relative_to(bundled)
+        if not dest.exists():
+            shutil.copytree(source, dest)
+        lines.append(f'{name}:{_hash(source)}\\n')
+        if (source.parent / 'DESCRIPTION.md').exists() and not (dest.parent / 'DESCRIPTION.md').exists():
+            shutil.copy2(source.parent / 'DESCRIPTION.md', dest.parent / 'DESCRIPTION.md')
+    (home / 'skills' / '.bundled_manifest').write_text(''.join(sorted(lines)))
+    return {'skipped_opt_out': opt_out}
+'''
+
+
 class RuntimeBoundaryTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
@@ -118,18 +168,33 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.source=self.root/"hermes-source"
         self.source.mkdir()
         (self.source/"model_tools.py").write_text("")
+        (self.source/"hermes_bootstrap.py").write_text("import os\nos.environ['QA_BOOTSTRAPPED']='1'\n")
+        (self.source/"hermes_constants.py").write_text("def get_default_hermes_root():\n    return '/root/.hermes'\n")
+        for name,text in {"agent/__init__.py":"","agent/skill_utils.py":"ESSENTIAL_SKILLS=frozenset({'hermes-agent'})\n",
+                          "tools/__init__.py":"","tools/skills_sync.py":SKILLS_SYNC,
+                          "skills/autonomous-ai-agents/DESCRIPTION.md":"agents\n",
+                          "skills/autonomous-ai-agents/hermes-agent/SKILL.md":"essential\n",
+                          "skills/autonomous-ai-agents/hermes-agent/references/a.md":"ref\n",
+                          "skills/creative/DESCRIPTION.md":"creative\n",
+                          "skills/creative/not-essential/SKILL.md":"never seeded\n"}.items():
+            (self.source/name).parent.mkdir(parents=True,exist_ok=True)
+            (self.source/name).write_text(text)
+        (self.source/"hermes_cli").mkdir()
+        (self.source/"hermes_cli/__init__.py").write_text("")
+        # Same contract as Hermes' hermes_cli/_launchers.py runtime_command (pinned fae9e567).
+        (self.source/"hermes_cli/_launchers.py").write_text(LAUNCHERS)
 
     def tearDown(self):self.temp.cleanup()
 
-    def harness(self,binary=None):
-        return Harness(output=self.root/"run",model_config=self.model,hermes=binary or Path(sys.executable),hermes_python=Path(sys.executable),hermes_source=self.source,kb_mode="fixture",timeout=10,base_port=28877)
+    def harness(self,interpreter=None):
+        return Harness(output=self.root/"run",model_config=self.model,hermes_python=interpreter or Path(sys.executable),hermes_source=self.source,kb_mode="fixture",timeout=10,base_port=28877)
 
     def test_interpreter_symlink_keeps_virtual_environment_context(self):
         interpreter = self.root / 'venv/bin/python'
         interpreter.parent.mkdir(parents=True)
         interpreter.symlink_to(sys.executable)
         harness = Harness(output=self.root/'interpreter-run', model_config=self.model,
-                          hermes=Path(sys.executable), hermes_python=interpreter,
+                          hermes_python=interpreter,
                           hermes_source=self.source, kb_mode='fixture', timeout=10,
                           base_port=28877)
         self.assertEqual(harness.hermes_python, interpreter.absolute())
@@ -161,7 +226,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                     config["model"]["default"] = "changed-after-model-call"
                     atomic_json(profile, config)
                 return {"id": scenario["id"], "tool_calls": []}
-            argv = ["run_live_tests.py", "--hermes", sys.executable, "--hermes-python", sys.executable,
+            argv = ["run_live_tests.py", "--hermes-python", sys.executable,
                     "--hermes-source", str(self.source), "--model-config", str(self.model),
                     "--output", str(output), "--limit", "1", "--timeout", "10"]
             # Only network/model entry points are replaced. Profile writing,
@@ -181,17 +246,26 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 check_run_integrity(run)
 
     def test_real_production_runner_prompt_and_extraction_are_used(self):
-        executable=self.root/"synthetic-hermes"
-        # A shebang cannot quote; the space in this repo's directory name splits
-        # it. exec via /bin/sh instead, quoting the interpreter path explicitly:
-        # shlex.quote would leave a spaceless path (CI) bare, and Python would
-        # then parse `"exec" /usr/bin/python3` as division — a SyntaxError.
-        # Always-quoted, the line is a no-op string expression in Python.
-        # ponytail: an apostrophe in the path would break the polyglot; not a
-        # realistic venv location.
-        executable.write_text('#!/bin/sh\n"exec" \''+sys.executable+'\' "$0" "$@"'+'''\nimport sys,re,json
+        interpreter=self.root/"chosen/bin/python3"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.symlink_to(sys.executable)
+        body='''import sys,re,json
 assert '--yolo' not in sys.argv
+assert '--ignore-rules' not in sys.argv
 import os
+assert os.path.samefile(sys.executable,CHOSEN) and sys.flags.isolated, (sys.executable, sys.flags.isolated)
+assert sys.argv[0]==SOURCE+'/hermes_cli/main.py' and sys.path[0]==SOURCE
+assert not {'PYTHONPATH','VIRTUAL_ENV'} & set(os.environ) and '/qa-injected' not in sys.path
+assert 'HERMES_IGNORE_RULES' not in os.environ
+for name in ('SOUL.md','skills/buttonsbebe/support-agent/SKILL.md','skills/buttonsbebe/ticket-processor/SKILL.md'):
+    assert open(os.environ['HOME']+'/.hermes/'+name,'rb').read()==open(REPO+'/hermes/'+name,'rb').read(), name
+assert sorted(os.listdir(os.environ['HOME']+'/.hermes/skills/buttonsbebe'))==['support-agent','ticket-processor']
+assert os.environ.get('QA_BOOTSTRAPPED')=='1'
+from tools.skills_sync import sync_skills
+sync_skills(quiet=True)  # Hermes normal startup sync: must be a no-op after QA seeding.
+assert os.listdir(os.environ['HOME'])==['.hermes']
+if MUTATE:
+    open(os.environ['HOME']+'/.hermes/SOUL.md','ab').write(b'mutated by child')
 assert os.environ['HERMES_HOME']==os.environ['HOME']+'/.hermes'
 assert os.environ['HERMES_CONFIG']==os.environ['HERMES_HOME']+'/config.yaml'
 assert os.getcwd()==os.environ['HOME']
@@ -200,15 +274,102 @@ prompt=sys.argv[-1]
 token=re.search(r'RUN TOKEN for this ticket: ([a-f0-9]+)',prompt).group(1)
 print('<DRAFT:'+token+'>Thanks for reaching out. Your order is awaiting fulfillment. I can help confirm the next steps once the team has reviewed the shipping details.</DRAFT:'+token+'>')
 print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'drafted','reason':'Synthetic QA fixture','notify_owner':False,'gorgias_priority_set':False,'note_posted':False}))
-''')
-        executable.chmod(0o700)
-        harness=self.harness(executable)
-        try:
-            result=harness.run(SCENARIO,1)
-            self.assertTrue(result["authenticated_verdict"],result)
-            self.assertTrue(result["model_called"])
-            self.assertIn("Thanks for reaching out",result["result"]["draft_text"])
-        finally:harness.close()
+'''
+        repo=str(Path(__file__).resolve().parent.parent)
+        for mutate in (False,True):
+            (self.source/"hermes_cli/main.py").write_text(
+                f"REPO={repo!r}\nMUTATE={mutate}\nCHOSEN={str(interpreter)!r}\nSOURCE={str(self.source.resolve())!r}\n"+body)
+            harness=self.harness(interpreter)
+            try:
+                if mutate:
+                    # The runner turns the refusal into its fallback result.
+                    with patch("qa_harness.isolated_run",wraps=isolated_run) as spy:
+                        result=harness.run(SCENARIO,1)
+                    self.assertEqual(spy.call_count,1)
+                    self.assertFalse(result["authenticated_verdict"])
+                    # Child ran cleanly, but the post-run instruction check refused its output.
+                    self.assertTrue(result["model_called"])
+                    self.assertIsNone(result["process_returncode"])
+                    continue
+                with patch("qa_harness.isolated_run",wraps=isolated_run) as spy:
+                    result=harness.run(SCENARIO,1)
+                self.assertEqual(spy.call_count,1)
+                self.assertEqual(spy.call_args.args[0][:3],[str(interpreter),'-I','-c'])
+                self.assertTrue(result["authenticated_verdict"],result)
+                self.assertTrue(result["model_called"])
+                self.assertIn("Thanks for reaching out",result["result"]["draft_text"])
+            finally:
+                harness.close()
+                import shutil;shutil.rmtree(harness.output)
+
+    def test_source_without_runtime_launcher_or_bound_interpreter_is_refused(self):
+        variants={"missing":None,
+                  "per-shard home":LAUNCHERS.replace("if home is not None else","if True else"),
+                  "other interpreter":LAUNCHERS.replace("return [str(python),","return ['/usr/bin/python3',"),
+                  "no isolation":LAUNCHERS.replace('"-I", ',""),
+                  "console script":"def runtime_command(*a, **k):\n    return ['/root/.hermes/bin/hermes']\n"}
+        for label,text in variants.items():
+            with self.subTest(label):
+                launchers=self.source/"hermes_cli/_launchers.py"
+                launchers.unlink()
+                if text:launchers.write_text(text)
+                with self.assertRaisesRegex(ValueError,"runtime_command launcher contract"):
+                    self.harness()
+                launchers.write_text(LAUNCHERS)
+        self.assertEqual(self.harness().launch[:3],[sys.executable,"-I","-c"])
+
+    def test_shards_share_one_canonical_launch_and_instruction_identity(self):
+        from qa_receipt import hermes_identity, instruction_identity
+        first=Harness(output=self.root/"shard-a",model_config=self.model,hermes_python=Path(sys.executable),hermes_source=self.source,kb_mode="fixture",timeout=10,base_port=28877)
+        second=Harness(output=self.root/"shard-b",model_config=self.model,hermes_python=Path(sys.executable),hermes_source=self.source,kb_mode="fixture",timeout=10,base_port=29877)
+        self.assertNotEqual(first.home,second.home)
+        self.assertEqual(first.launch,second.launch)
+        self.assertNotIn(str(first.home),first.launch[3])
+        self.assertEqual(hermes_identity(first.launch,self.source),hermes_identity(second.launch,self.source))
+        self.assertEqual(instruction_identity(first.home,first.essentials,self.source),
+                         instruction_identity(second.home,second.essentials,self.source))
+
+    def test_essentials_seed_before_model_run_idempotently_and_mutations_reject(self):
+        from qa_receipt import instruction_identity
+        harness=self.harness()
+        hermes_home=harness.home/".hermes"
+        self.assertEqual(harness.essentials,{"hermes-agent":"autonomous-ai-agents/hermes-agent"})
+        self.assertTrue((hermes_home/".no-bundled-skills").is_file())
+        self.assertFalse((hermes_home/"skills/creative").exists())  # non-essential never seeded
+        identity=instruction_identity(harness.home,harness.essentials,self.source)
+        qa_harness.seed_essentials(self.source,harness.home,harness.bootstrapped_run)  # = startup sync
+        self.assertEqual(instruction_identity(harness.home,harness.essentials,self.source),identity)
+        essential=hermes_home/"skills/autonomous-ai-agents/hermes-agent/SKILL.md"
+        for label,mutate,undo in (
+                ("pinned source",lambda:essential.write_text("x"),lambda:essential.write_text("essential\n")),
+                ("Unexpected",lambda:(hermes_home/"skills/extra.md").write_text("x"),lambda:(hermes_home/"skills/extra.md").unlink()),
+                ("opt-out",lambda:(hermes_home/".no-bundled-skills").unlink(),lambda:(hermes_home/".no-bundled-skills").write_text(""))):
+            with self.subTest(label):
+                mutate()
+                with self.assertRaisesRegex(ValueError,label):
+                    instruction_identity(harness.home,harness.essentials,self.source)
+                undo()
+        # A sync that ignores the opt-out (full bundled install) fails before any scenario.
+        (self.source/"tools/skills_sync.py").write_text(SKILLS_SYNC.replace("(home / '.no-bundled-skills').exists()","False"))
+        with self.assertRaisesRegex(ValueError,"seeding failed"):
+            Harness(output=self.root/"full-sync",model_config=self.model,hermes_python=Path(sys.executable),hermes_source=self.source,kb_mode="fixture",timeout=10,base_port=28877)
+
+    def test_preflight_probes_use_pinned_bootstrap_and_refuse_context_overrides(self):
+        import inspect
+        harness=self.harness()
+        probe="import os,sys,json;print('QA_PROBE='+json.dumps([sys.flags.isolated,sys.executable,sys.path[0],os.environ.get('QA_BOOTSTRAPPED'),os.environ['HERMES_HOME'],sys.argv[1:]]))"
+        result=harness.bootstrapped_run([sys.executable,"-c",probe,"a","b"],timeout=30)
+        row=json.loads(result.stdout.split("QA_PROBE=")[1])
+        self.assertEqual(row,[1,sys.executable,str(self.source.resolve()),"1",str(harness.home/".hermes"),["a","b"]])
+        source=inspect.getsource(Harness.start)
+        self.assertIn("GROUPS,self.bootstrapped_run)",source)
+        self.assertIn("90,self.bootstrapped_run)",source)
+        for key,value in (("TERMINAL_CWD","/srv"),("HERMES_IGNORE_RULES","1"),("HERMES_BUNDLED_SKILLS","/x"),("PYTHONPATH","/x")):
+            with self.subTest(key):
+                harness.env[key]=value
+                with self.assertRaisesRegex(ValueError,"overrides are refused"):
+                    harness.bootstrapped_run([sys.executable,"-c","pass"],timeout=10)
+                del harness.env[key]
 
     def test_fast_final_output_overflow_is_rejected(self):
         for stream, size in ((1, 1100000), (2, 140000)):
@@ -243,8 +404,6 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
 
     def test_binding_preflight_discovers_before_exact_allowlist_check(self):
         names = sorted(f"mcp__{g}__{t}" for g in GROUPS for t in TOOLS[g] | UTILITY_NAMES)
-        (self.source / 'tools').mkdir()
-        (self.source / 'tools/__init__.py').write_text('')
         (self.source / 'tools/mcp_tool.py').write_text(
             "discovered=False\ndef discover_mcp_tools():\n global discovered\n discovered=True\ndef shutdown_mcp_servers(): pass\n")
         module = ("from tools import mcp_tool\n"
@@ -252,12 +411,12 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
                   f" return [{{'function':{{'name':n}}}} for n in {names!r}] if mcp_tool.discovered else []\n")
         (self.source / 'model_tools.py').write_text(module)
         result = prove_hermes_bindings(Path(sys.executable), self.source,
-                                      minimal_environment(self.root), self.root, 5)
+                                      minimal_environment(self.root), self.root, 5, isolated_run)
         self.assertEqual(result, {'raw': names, 'actual': names})
         (self.source / 'model_tools.py').write_text(module.replace(repr(names), repr(names + ['terminal'])))
         with self.assertRaisesRegex(ValueError, 'missing or extra'):
             prove_hermes_bindings(Path(sys.executable), self.source,
-                                  minimal_environment(self.root), self.root, 5)
+                                  minimal_environment(self.root), self.root, 5, isolated_run)
 
     def test_bridge_receipt_requires_exact_catalog_and_rejection_proof(self):
         import copy
@@ -268,9 +427,8 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
                                    'rejected_outside_without_dispatch':True}}
         def verify(value):
             completed = subprocess.CompletedProcess([], 0, 'QA_BINDINGS='+json.dumps(value), '')
-            with patch.object(qa_harness, 'isolated_run', return_value=completed):
-                return prove_hermes_bindings(Path(sys.executable), self.source,
-                                            minimal_environment(self.root), self.root, 5)
+            return prove_hermes_bindings(Path(sys.executable), self.source,
+                                        minimal_environment(self.root), self.root, 5, lambda *a, **k: completed)
         self.assertEqual(verify(receipt), receipt)
         for key, value in [('reachable', names+['terminal']), ('executor_scope', names[:-1]),
                            ('rejected_outside_without_dispatch', False)]:

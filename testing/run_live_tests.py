@@ -7,14 +7,13 @@ import os
 from pathlib import Path
 import sys
 from qa_harness import Harness, atomic_json
-from qa_receipt import check_run_integrity, hermes_identity, kb_snapshot, model_runtime_identity, run_receipt, source_fingerprint
+from qa_receipt import check_run_integrity, hermes_identity, instruction_identity, kb_snapshot, model_runtime_identity, run_receipt, source_fingerprint
 from qa_safety import scenario_fixture
 
 
 def main():
     os.umask(0o077)
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hermes",type=Path,required=True,help="Underlying Hermes executable, not a production shell wrapper")
     parser.add_argument("--hermes-python",type=Path,required=True)
     parser.add_argument("--hermes-source",type=Path,required=True)
     parser.add_argument("--model-config",type=Path,required=True,help="Private model-only JSON; never pass the production profile")
@@ -46,13 +45,14 @@ def main():
         parser.error("Use a new output directory; prior evidence is never overwritten")
     harness=None
     try:
-        harness=Harness(output=args.output,model_config=args.model_config,hermes=args.hermes,hermes_python=args.hermes_python,
+        harness=Harness(output=args.output,model_config=args.model_config,hermes_python=args.hermes_python,
                         hermes_source=args.hermes_source,kb_mode=args.kb_mode,timeout=args.timeout,base_port=args.base_port,
                         product_manifest=args.product_manifest,product_manifest_sha256=args.product_manifest_sha256,
                         policy_overlay=args.policy_overlay,policy_overlay_sha256=args.policy_overlay_sha256)
         def bindings():
-            return {"source":source_fingerprint(),"hermes":hermes_identity(harness.hermes,harness.hermes_source),
+            return {"source":source_fingerprint(),"hermes":hermes_identity(harness.launch,harness.hermes_source),
                     "model_runtime":model_runtime_identity(harness.home/".hermes"/"config.yaml",harness.hermes_python),
+                    "instructions":instruction_identity(harness.home,harness.essentials,harness.hermes_source),
                     "kb_snapshot":kb_snapshot(args.kb_mode,args.product_manifest,args.product_manifest_sha256,
                                               args.policy_overlay,args.policy_overlay_sha256)}
         before=bindings()

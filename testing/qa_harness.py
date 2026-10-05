@@ -19,6 +19,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from qa_safety import GROUPS, TOOLS, UTILITY_NAMES, policy_files, redact, scenario_fixture
 from qa_metadata import prove_metadata
 from qa_catalog import load_manifest
+from qa_receipt import NO_BUNDLED_SKILLS_MARKER, instruction_identity, seed_instructions
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -48,6 +49,16 @@ def profile_config(model: dict, ports: dict) -> dict:
         "mcp_servers":{group:{"url":f"http://127.0.0.1:{ports[group]}/mcp","enabled":True,"connect_timeout":15,
                               "trust":"untrusted","tools":{"include":sorted(TOOLS[group]),"resources":True,"prompts":True}} for group in GROUPS},
     }
+
+
+ALLOWED_ENV = frozenset({"HOME","HERMES_HOME","HERMES_CONFIG","PATH","LANG","PYTHONUNBUFFERED","DEMO_MODE","OLLAMA_API_KEY"})
+
+
+def require_clean_env(env: dict, home: Path) -> None:
+    """Refuse TERMINAL_CWD, HERMES_IGNORE_RULES, HERMES_BUNDLED_SKILLS or any other inherited override."""
+    if (set(env) - ALLOWED_ENV or env.get("HOME") != str(home) or env.get("HERMES_HOME") != str(home/".hermes")
+            or env.get("HERMES_CONFIG") != str(home/".hermes"/"config.yaml")):
+        raise ValueError("Inherited Hermes context or working-directory overrides are refused")
 
 
 def minimal_environment(home: Path) -> dict:
@@ -111,7 +122,7 @@ async def endpoint_preflight(ports, fixture, schemas=None):
     return receipt
 
 
-def prove_hermes_bindings(hermes_python, hermes_source, env, home, timeout):
+def prove_hermes_bindings(hermes_python, hermes_source, env, home, timeout, run):
     expected = sorted(f"mcp__{group}__{tool}" for group in GROUPS for tool in TOOLS[group] | UTILITY_NAMES)
     code = """
 import sys,json
@@ -149,7 +160,7 @@ try:
 finally:
  shutdown_mcp_servers()
 """
-    result = isolated_run([str(hermes_python),"-c",code,str(hermes_source),json.dumps(GROUPS)],timeout=timeout,env=env,cwd=home)
+    result = run([str(hermes_python),"-c",code,str(hermes_source),json.dumps(GROUPS)],timeout=timeout,env=env,cwd=home)
     matches = [line[len("QA_BINDINGS="):] for line in result.stdout.splitlines() if line.startswith("QA_BINDINGS=")]
     if result.returncode or len(matches)!=1:
         raise ValueError("Hermes tool-binding preflight failed; no scenarios run")
@@ -163,8 +174,61 @@ finally:
     return actual
 
 
+LAUNCH_PROBE = """
+import json,sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from hermes_cli._launchers import runtime_command
+print('QA_LAUNCH='+json.dumps(runtime_command(Path(sys.argv[1]),python=sys.argv[2],code=json.loads(sys.argv[3]))))
+"""
+# Production home=None form: the private HERMES_HOME comes from the environment, so every shard's
+# launch (and launch_sha256) is identical. A home baked into the command would differ per shard.
+DEFAULT_HOME = "os.environ['HERMES_HOME'] = os.environ.get('HERMES_HOME') or str(__import__('hermes_constants').get_default_hermes_root()); "
+
+
+def resolve_launch(hermes_python, hermes_source, env, home, code=None, timeout=60):
+    """The pinned source's own production launcher (-I bootstrap) bound to the exact chosen interpreter."""
+    require_clean_env(env, home)
+    result = isolated_run([str(hermes_python),"-I","-c",LAUNCH_PROBE,str(hermes_source),str(hermes_python),json.dumps(code)],
+                          timeout=timeout,env=env,cwd=home)
+    matches = [line[len("QA_LAUNCH="):] for line in result.stdout.splitlines() if line.startswith("QA_LAUNCH=")]
+    launch = json.loads(matches[0]) if not result.returncode and len(matches)==1 else None
+    entry = f"exec({code!r})" if code is not None else "runpy.run_module('hermes_cli.main'"
+    if (not isinstance(launch,list) or len(launch)!=4 or not all(isinstance(part,str) for part in launch)
+            or launch[:3]!=[str(hermes_python),"-I","-c"] or f"sys.path.insert(0, {str(hermes_source)!r})" not in launch[3]
+            or "import hermes_bootstrap; " not in launch[3] or entry not in launch[3]
+            or DEFAULT_HOME not in launch[3] or str(home) in launch[3]):
+        raise ValueError("Hermes source lacks the supported runtime_command launcher contract; no scenarios run")
+    return launch
+
+
+SEED_PROBE = """
+import json
+from agent.skill_utils import ESSENTIAL_SKILLS
+from tools.skills_sync import _discover_bundled_skills, _get_bundled_dir, sync_skills
+result = sync_skills(quiet=True)
+bundled = _get_bundled_dir()
+print('QA_SEED=' + json.dumps({'opt_out': result.get('skipped_opt_out') is True, 'bundled': str(bundled.resolve()),
+    'essentials': {name: src.relative_to(bundled).as_posix() for name, src in _discover_bundled_skills(bundled) if name in ESSENTIAL_SKILLS}}))
+"""
+
+
+def seed_essentials(hermes_source, home, run):
+    """Write the explicit essential-only opt-out, then run the source's own sync synchronously
+    before any model run, so Hermes startup sync finds nothing new to install."""
+    marker = home/".hermes"/NO_BUNDLED_SKILLS_MARKER
+    os.close(os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600))
+    result = run(["python","-c",SEED_PROBE],timeout=120,env=None,cwd=home)
+    matches = [line[len("QA_SEED="):] for line in result.stdout.splitlines() if line.startswith("QA_SEED=")]
+    seeded = json.loads(matches[0]) if not result.returncode and len(matches)==1 else {}
+    if (seeded.get("opt_out") is not True or seeded.get("bundled") != str(Path(hermes_source).resolve()/"skills")
+            or not isinstance(seeded.get("essentials"),dict) or not seeded["essentials"]):
+        raise ValueError("Hermes essential-only skill seeding failed; no scenarios run")
+    return seeded["essentials"]
+
+
 class Harness:
-    def __init__(self, *, output: Path, model_config: Path, hermes: Path, hermes_python: Path, hermes_source: Path, kb_mode: str, timeout: int, base_port: int, product_manifest: Path | None = None, product_manifest_sha256: str | None = None, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None):
+    def __init__(self, *, output: Path, model_config: Path, hermes_python: Path, hermes_source: Path, kb_mode: str, timeout: int, base_port: int, product_manifest: Path | None = None, product_manifest_sha256: str | None = None, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None):
         if not model_config.is_file() or model_config.is_symlink() or model_config.stat().st_mode & 0o077:
             raise ValueError("Model-only config must be a private regular file")
         if model_config.stat().st_size > 16384:
@@ -181,6 +245,7 @@ class Harness:
         self.home=self.output / "home"
         self.home.mkdir(mode=0o700,exist_ok=True)
         (self.home / ".hermes").mkdir(parents=True,exist_ok=True,mode=0o700)
+        seed_instructions(self.home / ".hermes")
         self.ports={group:base_port+i for i,group in enumerate(GROUPS)}
         self.config=profile_config(model["model"],self.ports)
         atomic_json(self.home/".hermes"/"config.yaml",self.config) # JSON is valid YAML.
@@ -198,9 +263,12 @@ class Harness:
             provider = model["model"].get("provider")
             if provider == "ollama-cloud":
                 self.env["OLLAMA_API_KEY"] = provider_key
-        self.hermes=hermes.resolve();self.hermes_python=hermes_python.absolute();self.hermes_source=hermes_source.resolve()
-        if not self.hermes.is_file() or not self.hermes_python.is_file() or not (self.hermes_source/"model_tools.py").is_file():
-            raise ValueError("Explicit Hermes executable/interpreter/source paths are required")
+        self.hermes_python=hermes_python.absolute();self.hermes_source=hermes_source.resolve()
+        if not self.hermes_python.is_file() or not (self.hermes_source/"model_tools.py").is_file():
+            raise ValueError("Explicit Hermes interpreter/source paths are required")
+        self.launch=resolve_launch(self.hermes_python,self.hermes_source,self.env,self.home)
+        self.essentials=seed_essentials(self.hermes_source,self.home,self.bootstrapped_run)
+        instruction_identity(self.home,self.essentials,self.hermes_source)
         self.fixture_path=self.output/"active-fixture.json"
         self.audit_path=self.output/"tool-audit.jsonl"
         self.allowlist=self.output/"policy-allowlist.json"
@@ -221,6 +289,15 @@ class Harness:
         self.policy_overlay_sha256 = policy_overlay_sha256
         self.kb_mode=kb_mode;self.timeout=timeout;self.children=[]
         self.secret_values=([model["access_token"]] if "access_token" in model else []) + [value for key,value in model["model"].items() if key=="api_key" and isinstance(value,str) and value]
+
+    def bootstrapped_run(self, command, *, timeout, env=None, cwd=None, **ignored):
+        """Run a [python, -c, code, *args] probe through the pinned runtime_command bootstrap
+        (same -I interpreter, dependency selection and HERMES_HOME path as production)."""
+        if len(command) < 3 or command[1] != "-c":
+            raise ValueError("Unexpected QA probe command")
+        require_clean_env(self.env, self.home)
+        launch = resolve_launch(self.hermes_python,self.hermes_source,self.env,self.home,code=command[2])
+        return isolated_run([*launch,*command[3:]],timeout=timeout,env=self.env,cwd=self.home)
 
     def start(self, first_fixture):
         atomic_json(self.fixture_path,{**first_fixture,"scenario_id":"QA-PREFLIGHT"})
@@ -246,8 +323,8 @@ class Harness:
                 if time.monotonic()>=deadline or any(child.poll() is not None for child in self.children):
                     raise ValueError("QA MCP preflight failed") from None
                 time.sleep(0.2)
-        metadata=prove_metadata(self.hermes_python,self.hermes_source,self.env,self.home,schemas,GROUPS,isolated_run)
-        bindings=prove_hermes_bindings(self.hermes_python,self.hermes_source,self.env,self.home,90)
+        metadata=prove_metadata(self.hermes_python,self.hermes_source,self.env,self.home,schemas,GROUPS,self.bootstrapped_run)
+        bindings=prove_hermes_bindings(self.hermes_python,self.hermes_source,self.env,self.home,90,self.bootstrapped_run)
         receipt={"endpoints":receipt,"hermes_bindings":bindings,"hermes_metadata":metadata,"kb_mode":self.kb_mode,
                  "production_prompt_sha256":hashlib.sha256((REPO/"processor/hermes_runner/prompt.py").read_bytes()).hexdigest(),
                  "production_extract_sha256":hashlib.sha256((REPO/"processor/hermes_runner/extract.py").read_bytes()).hexdigest(),
@@ -274,13 +351,17 @@ class Harness:
         from hermes_runner.constants import _make_run_token
         token=_make_run_token()
         captured={}
-        settings=SimpleNamespace(hermes_bin=str(self.hermes),hermes_profile="",hermes_ignore_rules=True,hermes_skip_approval=False,
+        settings=SimpleNamespace(hermes_bin="hermes",hermes_profile="",hermes_ignore_rules=False,hermes_skip_approval=False,
                                  hermes_toolsets=",".join(GROUPS),hermes_home=str(self.home),job_timeout=self.timeout,support_store_name="Buttons Bebe")
         def execute(command,**kwargs):
-            if "--yolo" in command or command[command.index("-t")+1] != ",".join(GROUPS) or Path(command[0]).resolve()!=self.hermes:
+            if "--yolo" in command or "--ignore-rules" in command or "HERMES_IGNORE_RULES" in self.env or command[command.index("-t")+1] != ",".join(GROUPS) or command[0]!="hermes":
                 raise ValueError("Unexpected QA command or tool authorization")
+            require_clean_env(self.env,self.home)
+            before=instruction_identity(self.home,self.essentials,self.hermes_source)
             captured["attempted"]=True
-            result=isolated_run(command,timeout=self.timeout,env=self.env,cwd=self.home)
+            result=isolated_run([*self.launch,*command[1:]],timeout=self.timeout,env=self.env,cwd=self.home)
+            if instruction_identity(self.home,self.essentials,self.hermes_source)!=before:
+                raise ValueError("QA instructions changed during the run")
             for secret in self.secret_values:
                 result.stdout=result.stdout.replace(secret,"[credential removed]")
             result.stderr=""  # Provider errors are never copied into processor logs.

@@ -37,8 +37,7 @@ Start with one scenario, using a new private output directory outside the repo:
 
 ```sh
 /tmp/buttonsbebe-qa-venv/bin/python testing/run_live_tests.py \
-  --hermes /usr/local/lib/hermes-agent/venv/bin/hermes \
-  --hermes-python /usr/local/lib/hermes-agent/venv/bin/python \
+  --hermes-python /root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3 \
   --hermes-source /usr/local/lib/hermes-agent \
   --model-config /private/operator-provided-model.json \
   --output /private/qa-smoke --limit 1 --kb-mode policies-only
@@ -105,15 +104,56 @@ then replace every `pending` with the reviewer's `PASS`, `NEEDS_WORK` or `FAIL`
 and list blocking defects. Combine full core and reliability runs with
 `qa_receipt.py build`. It rejects partial runs, bindings that changed during a
 run, a section whose content changed within or between the runs, core and
-reliability runs with different source, Hermes, model/runtime or approved KB snapshot, and
+reliability runs with different source, Hermes, model/runtime, Hermes instructions or approved KB snapshot, and
 judgments for a different run. The two suites may observe different sections.
 The combined receipt keeps recorded nonsecret identities, hashes, IDs and verdicts; defect text and model
 output stay private.
 
-New runs, judgments and combined receipts use schema 3. Older evidence cannot be
-upgraded by copying a model name into it: schema 2 receipts did not record the actual
-profile before and after a run. Rerun both suites and grade the new captures. The
-template, combine and check commands fail closed on older or missing model identity.
+Hermes runs like the production processor: without `--ignore-rules` and without
+`HERMES_IGNORE_RULES`, so it loads its home instructions. The private QA home gets exactly
+three reviewed regular files copied byte for byte from the repo: `hermes/SOUL.md`,
+`hermes/skills/buttonsbebe/support-agent/SKILL.md` and
+`hermes/skills/buttonsbebe/ticket-processor/SKILL.md`, at the same paths under `.hermes/`.
+Nothing comes from a production home, profile, auth file, MCP config or customer data.
+Before and after every scenario, and in the run bindings, the copied bytes are hashed
+and compared with the repo. A missing, changed or linked file or directory fails the run.
+So does any other skill file or a nonempty `memories/`.
+
+Hermes startup also syncs its bundled skills and always keeps the essential ones (the
+system prompt points at `hermes-agent`). QA uses Hermes' own essential-only opt-out: it
+writes `.hermes/.no-bundled-skills`, then runs the pinned source's `sync_skills` through
+the same launcher before the first model call. That installs only the essential skills,
+their category `DESCRIPTION.md` and `.bundled_manifest`, so the startup sync finds nothing
+new. The instruction identity records the opt-out marker, the essential names and
+locations, and separate hashes of the source bytes and the installed bytes. A missing
+marker, a changed essential or approved file, or any extra file fails the run. This
+proves the essential files only. It does not claim parity with production's full skill
+index. The QA home is also Hermes' working
+directory. Hermes reads project context (`.hermes.md`, `HERMES.md`, `AGENTS.md`,
+`AGENTS.override.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/`) from every directory between
+that working directory and the nearest ancestor containing `.git`, or from the working
+directory alone when no ancestor has one. Any such file in that range fails the run.
+Receipts cross-check these hashes against the source fingerprint.
+
+`--hermes-python` is the exact interpreter that runs the model. The harness asks the pinned
+`--hermes-source` for its own production launcher (`hermes_cli._launchers.runtime_command`)
+bound to that interpreter, in its production `home=None` form. The private home comes
+only from `HERMES_HOME` in the environment, so every shard gets the same launch command
+and hash. The launcher runs Python with `-I`, clears
+`PYTHONHOME`, `PYTHONPATH` and `VIRTUAL_ENV`, imports `hermes_bootstrap` and runs the
+`hermes_cli.main` module. A source without that launcher stops the run before any model call.
+The preflight probes (metadata, tool bindings and essential seeding) run through the same
+launcher with `code=`, never through a bare `python -c`. The child environment is a fixed
+allow-list: `TERMINAL_CWD`, `HERMES_IGNORE_RULES`, `HERMES_BUNDLED_SKILLS`, `PYTHONPATH` or
+any other inherited variable stops the run.
+The launch command's hash is recorded in the Hermes identity. Shell wrappers and console
+scripts are never executed.
+
+New runs, judgments and combined receipts use schema 4. Older evidence cannot be
+upgraded: schema 3 runs used `--ignore-rules` and never gave the model the reviewed
+SOUL or skills, and schema 2 runs did not record the actual profile. Rerun both suites
+and grade the new captures. The template, combine and check commands fail closed on
+older evidence or missing model or instruction identity.
 
 `qa_receipt.py check <receipt>` recomputes the state against the current
 checkout. It rejects stale sources, pending verdicts, `NEEDS_WORK`, `FAIL` and
