@@ -217,7 +217,17 @@ function listRender() {
   $('#ticket-list').innerHTML=page.map(t=>`<div class="ticket-row-wrap"><input type="checkbox" class="row-select" data-select-ticket="${esc(t.id)}" aria-label="Select ${esc(rowTitle(t))}" ${state.selected.has(t.id)?'checked':''}><button class="ticket-row ${readState(t,readRecords(stored(keys.read,{})))?'is-read':'is-unread'}" data-ticket="${esc(t.id)}" ${t.id===state.id?'aria-current="true"':''}><div class="row-top"><span class="row-name">${esc(t.customerName||'Unknown sender')}</span><span class="age">${esc(age(t.updatedAt))}</span></div><div class="row-subject">${esc(rowTitle(t))}</div><div class="row-snippet">${esc(t.snippet)||'No message preview'}</div><div class="row-state">${t.localOnly?'Local ticket · ':t.browserOverride?`Browser changes · ${storageAvailable?'Last saved read':'Session observation'} · `:''}${readState(t,readRecords(stored(keys.read,{})))?'Read':'Unread'}${effective(t,'status')==='closed'?' · Closed':''}${localValue(t,'snooze')?' · Snoozed locally':''}</div></button></div>`).join('')||`<div class="empty-state${state.error?' is-error':''}">${esc(state.loading?'Loading tickets…':state.error||'No tickets match this view.')}${state.error?'<br><button class="button" data-action="refresh">Try again</button>':''}</div>`;
   updateSelection();
   $('#local-scope').hidden=!localRows().length&&!Object.keys(stateRecords(stored(keys.state,{}))).length;
-  for(const button of document.querySelectorAll('[data-view]')) {const available=button.dataset.view==='assigned'&&!state.operator?false:state.categoryAvailability[button.dataset.view];button.disabled=available===false||available?.available===false;button.title=button.disabled?(button.dataset.view==='assigned'&&!state.operator?'Assigned to me is unavailable because the operator email is not configured.':available?.reason||'Gorgias has not supplied the fields needed for this view.'):`Show ${button.textContent.trim()} tickets`;}
+  const hasBrowserSnoozed=organizationRows().some(ticket=>matchesLocal(ticket,'snoozed',{},effective,state.operator));
+  for(const button of document.querySelectorAll('[data-view]')) {
+    const assignedUnavailable=button.dataset.view==='assigned'&&!state.operator;
+    const available=assignedUnavailable?false:state.categoryAvailability[button.dataset.view];
+    const providerUnavailable=available===false||available?.available===false;
+    const browserOnlySnoozed=button.dataset.view==='snoozed'&&hasBrowserSnoozed&&providerUnavailable;
+    button.disabled=providerUnavailable&&!browserOnlySnoozed;
+    button.title=browserOnlySnoozed
+      ?`Browser-only Snoozed tickets are available. Gorgias snooze fields are unavailable${available?.reason?`: ${available.reason}`:'.'}`
+      :button.disabled?(assignedUnavailable?'Assigned to me is unavailable because the operator email is not configured.':available?.reason||'Gorgias has not supplied the fields needed for this view.'):`Show ${button.textContent.trim()} tickets`;
+  }
   const providerShown=rows.filter(t=>!t.localOnly&&!t.browserOverride).length,localShown=rows.filter(t=>t.localOnly||t.browserOverride).length;
   const count=state.loading&&!rows.length?'Loading tickets…':`Page ${state.page+1} · ${providerShown} of ${state.rows.length} loaded Gorgias shown · ${state.total.toLocaleString()} total`;
   $('#count').textContent=`${count}${organizationRows().length?' · '+localShown+' browser rows shown of '+matchingLocalRows().length+' matching':''}`;

@@ -27,6 +27,109 @@ await page.route('**/inbox/api/helpdesk',async route=>{
   const matches=!(payload.arguments.view==='closed'&&t.status!=='closed'||payload.arguments.view==='open'&&t.status!=='open');
   await route.fulfill({json:{ok:true,source:'gorgias_api',...(tool==='get_ticket'?{ticket:t}:tool==='list_tickets'?{tickets:matches?(payload.arguments.offset?[{...t,id:'gorgias:124'}]:[t]):[],total:matches?(listPages?2:1):0,nextOffset:matches&&listPages&&!payload.arguments.offset?9:null,projection:{complete:true},operatorEmail:'support@example.invalid',categoryAvailability:{assigned:true,snoozed:true,spam:true,trash:true}}:{})}});
 });
+async function checkLocalSnoozedAccess(){
+  const probe=await browser.newContext({viewport:{width:1280,height:800},timezoneId:'Asia/Dhaka'});
+  const future='2026-10-07T12:00:00Z',expired='2026-10-04T12:00:00Z',stamp='2026-10-05T10:00:00Z';
+  async function run({name,kind='observed',availability=false,value=future,count=1,orphan=false,reset=false,filtersAndPages=false,failRefresh=false,providerAvailable=false}={}){
+    const p=await probe.newPage();await p.clock.setFixedTime(new Date('2026-10-05T12:00:00Z'));
+    const calls=[],writes=[],pageErrors=[];let failSnoozed=false;
+    const records={},locals=[];
+    for(let i=0;i<count;i++){
+      const id=`gorgias:${501+i}`;
+      const summary={id,browserOverride:true,savedAt:Date.parse(stamp),customerName:`Saved customer ${i}`,fromEmail:`saved-${i}@example.invalid`,subject:`Saved snooze ${i}`,snippet:'Saved browser observation',status:'open',gorgiasPriority:'normal',assigneeEmail:'',channel:'email',updatedAt:stamp,lastMessageAt:stamp,lastMessageId:`saved-${i}`,snoozedUntil:'',snoozeUntil:'',syncedAt:stamp};
+      if(!orphan&&kind==='observed')records[id]={observed:summary,...(value?{snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}}:{})};
+    }
+    if(kind==='local'){
+      const id='local:snoozed-probe';
+      locals.push({id,localOnly:true,customerName:'Private local customer',subject:'Private local snooze',fromEmail:'',status:'open',channel:'local',updatedAt:stamp,snippet:'Private local message',messages:[]});
+      records[id]={snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}};
+    }
+    if(orphan)records['gorgias:501']={snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}};
+    await p.addInitScript(({seedRecords,seedLocals})=>{
+      localStorage.setItem('bb-inbox-ticket-state-v1',JSON.stringify({version:1,records:seedRecords}));
+      localStorage.setItem('bb-inbox-local-tickets-v1',JSON.stringify(seedLocals));
+    },{seedRecords:records,seedLocals:locals});
+    p.on('pageerror',error=>pageErrors.push(error.message));
+    await p.route('**/console/api/**',async route=>{writes.push(route.request().url());await route.fulfill({status:403,json:{error:'inbox_read_only'}});});
+    await p.route('**/inbox/api/helpdesk',async route=>{
+      const payload=route.request().postDataJSON(),tool=payload.tool.split('.').at(-1),args=payload.arguments||{};calls.push(payload);
+      assert(['capabilities','get_ticket','get_messages','list_tickets'].includes(tool),`${name}: unexpected read tool ${tool}`);
+      assert(!String(args.ticketId||'').startsWith('local:'),`${name}: local-only ID reached provider read`);
+      const ticket={id:'gorgias:501',subject:'Provider ticket',customerName:'Provider customer',fromEmail:'provider@example.invalid',status:'open',channel:'email',gorgiasPriority:'normal',updatedAt:stamp,lastMessageAt:stamp,syncedAt:stamp,messages:[],shopifyRail:{status:'unavailable'}};
+      assert.equal(Object.hasOwn(ticket,'snoozeUntil'),false,'provider fixture must omit snooze fields');
+      if(tool==='capabilities'){await route.fulfill({json:{ok:true,source:'gorgias_api',readOnly:true,capabilities:{sendReply:false}}});return;}
+      if(tool==='list_tickets'){
+        if(failSnoozed&&args.view==='snoozed'){await route.fulfill({status:503,json:{message:'Synthetic provider list failure'}});return;}
+        await route.fulfill({json:{ok:true,source:'gorgias_api',tickets:[],total:0,nextOffset:null,projection:{complete:true,generatedAt:stamp},categoryAvailability:{assigned:true,snoozed:providerAvailable?true:availability,spam:false,trash:false}}});return;
+      }
+      await route.fulfill({json:{ok:true,source:'gorgias_api',...(tool==='get_ticket'?{ticket}:tool==='get_messages'?{messages:[],nextCursor:null}:{})}});
+    });
+    await p.goto(`${base}/inbox/?ticket=gorgias%3A501`);await p.locator('.ticket-title').waitFor();
+    await p.waitForFunction(()=>document.querySelector('#count')?.textContent.startsWith('Page'));
+    const snoozed=p.locator('[data-view="snoozed"]');
+    const parsedSnooze=Date.parse(value),hasLocalSnooze=!orphan&&['observed','local'].includes(kind)&&Number.isFinite(parsedSnooze)&&parsedSnooze>Date.parse('2026-10-05T12:00:00Z');
+    assert.equal(await snoozed.isDisabled(),!providerAvailable&&!hasLocalSnooze,`${name}: only provider availability or a valid future local member enables Snoozed`);
+    assert.equal(await p.locator('[data-view="assigned"]').isDisabled(),true,`${name}: Assigned still requires an operator`);
+    assert.equal(await p.locator('[data-view="spam"]').isDisabled(),true,`${name}: local Snoozed membership must not enable Spam`);
+    assert.equal(await p.locator('[data-view="trash"]').isDisabled(),true,`${name}: local Snoozed membership must not enable Trash`);
+    if(!providerAvailable&&hasLocalSnooze){
+      const title=await snoozed.getAttribute('title');
+      assert.match(title,/browser-only/i,`${name}: explain browser-only Snoozed access`);
+      assert.match(title,/Gorgias.*snooze fields.*unavailable/i,`${name}: explain missing Gorgias snooze fields`);
+      if(typeof availability==='object')assert(title.includes(availability.reason),`${name}: retain the provider unavailability reason in the explanation`);
+    }
+    if(reset){
+      await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
+      await p.locator('[data-ticket="gorgias:501"]').click();await p.locator('.ticket-actions-menu summary').click();await p.locator('[data-action="reset-local"]').click();
+      assert.equal(await snoozed.isDisabled(),true,`${name}: resetting the last local override removes local Snoozed access`);
+    }else if(filtersAndPages){
+      const ids=()=>p.locator('.ticket-row').evaluateAll(nodes=>nodes.map(node=>node.dataset.ticket));
+      await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:510');
+      assert.deepEqual(await ids(),['gorgias:510','gorgias:511','gorgias:512']);
+      await p.locator('[data-select-ticket="gorgias:510"]').check();await snoozed.click();
+      await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed'&&document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:501');
+      assert.deepEqual(await ids(),['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509'],'view click resets page to the first local page');
+      assert.equal(await p.locator('#selection-count').textContent(),'0 selected on this page','view click clears selection');
+      assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 9 browser rows shown of 12 matching'));
+      await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:510');assert.deepEqual(await ids(),['gorgias:510','gorgias:511','gorgias:512']);
+      await p.locator('#search').fill('no saved snoozed item matches this');await p.waitForFunction(()=>new URLSearchParams(location.search).get('q')==='no saved snoozed item matches this'&&!document.querySelector('.ticket-row'));
+      assert.equal(await snoozed.isDisabled(),false,`${name}: query and current page do not control Snoozed availability`);
+      await p.locator('.list-filters summary').click();await p.locator('[data-filter="priority"]').selectOption('low');await p.waitForFunction(()=>!document.querySelector('.ticket-row'));
+      assert.equal(await snoozed.isDisabled(),false,`${name}: filters do not control Snoozed availability`);
+      await p.locator('#search').fill('');await p.locator('[data-filter="priority"]').selectOption('');
+      await p.waitForFunction(()=>!new URLSearchParams(location.search).get('q'));
+      failSnoozed=failRefresh;await p.locator('[data-action="refresh"]').click();
+      if(failRefresh){await p.waitForFunction(()=>document.querySelector('#refresh span')?.textContent.includes('Sync delayed · Retry'));
+        assert.equal(await snoozed.isDisabled(),false);assert.deepEqual((await ids()).length?await ids():[],['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509']);
+        assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 9 browser rows shown of 12 matching'));
+        assert(await p.locator('#sync-status').evaluate(el=>el.classList.contains('sync-delayed')),'provider failure must retain delayed-refresh status');}
+    }else if(hasLocalSnooze&&!providerAvailable){
+      await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
+      const expected=kind==='local'?'local:snoozed-probe':'gorgias:501';
+      await p.waitForFunction(id=>document.querySelector(`[data-ticket="${id}"]`)!==null,expected);
+      assert.deepEqual(await p.locator('.ticket-row').evaluateAll(nodes=>nodes.map(node=>node.dataset.ticket)),[expected],`${name}: Snoozed shows the literal browser row`);
+      assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total'));
+      assert((await p.locator('#count').textContent()).includes('1 browser rows shown of 1 matching'));
+    }
+    assert.equal(calls.filter(call=>call.tool==='helpdesk.list_tickets'&&call.arguments.view==='snoozed').length>0,hasLocalSnooze||reset||filtersAndPages,`${name}: entering Snoozed must issue its normal read request`);
+    assert.equal(calls.some(call=>String(call.arguments.ticketId||'').startsWith('local:')),false,`${name}: local IDs never reach provider read`);
+    assert.deepEqual(writes,[],`${name}: local organization never calls console mutations`);assert.deepEqual(pageErrors,[],`${name}: browser page errors`);
+    await p.close();
+  }
+  await run({name:'observed future / provider false',kind:'observed',availability:false});
+  await run({name:'observed future / provider object false',kind:'observed',availability:{available:false,reason:'Gorgias omitted snooze_datetime'}});
+  await run({name:'local-only future / provider false',kind:'local',availability:false});
+  await run({name:'local-only future / provider object false',kind:'local',availability:{available:false,reason:'Gorgias omitted snooze_datetime'}});
+  await run({name:'expired observed snooze',value:expired});
+  await run({name:'invalid observed snooze',value:'not-a-time'});
+  await run({name:'blank observed snooze',value:''});
+  await run({name:'orphan snooze without observed summary',orphan:true});
+  await run({name:'reset last observed snooze',reset:true});
+  await run({name:'provider view counts, pagination, filters and failed refresh',count:12,availability:{available:false,reason:'Gorgias omitted snooze_datetime'},filtersAndPages:true,failRefresh:true});
+  await run({name:'provider-available Snoozed',kind:'none',value:'',providerAvailable:true});
+  await probe.close();
+}
+await checkLocalSnoozedAccess();
 await page.goto(`${base}/inbox/?ticket=gorgias%3A123`);
 await page.locator('.ticket-title').waitFor();
 assert.equal(await page.locator('.ticket-title').textContent(),'New Ticket');
