@@ -137,6 +137,93 @@ async function checkLocalSnoozedAccess(){
   await run({name:'provider-available Snoozed',kind:'none',value:'',providerAvailable:true});
   await probe.close();
 }
+async function checkOpenedMessageEvidence(){
+  const probe=await browser.newContext({viewport:{width:1280,height:800}}),p=await probe.newPage();
+  p.setDefaultTimeout(10000);
+  const id='gorgias:601',messageAt='2026-10-05T00:00:00Z',updatedAt='2026-10-05T01:00:00Z';
+  const original={id,subject:'Missing list activity',customerName:'Synthetic reader',status:'open',gorgiasPriority:'normal',assigneeEmail:'reader@example.invalid',updatedAt};
+  const other={...original,id:'gorgias:602',subject:'Other synthetic ticket',lastMessageAt:messageAt,lastMessageId:'z1',messages:[{id:'z1',at:messageAt,body:'Other selected ticket',fromAgent:false}]};
+  let row={...original},detail={...original,messages:[{id:'m1',at:messageAt,body:'Actual observed message',fromAgent:false}]};
+  const calls=[],writes=[],pageErrors=[];
+  let held=null;
+  p.on('pageerror',error=>pageErrors.push(error.message));
+  await p.route('**/console/api/**',async route=>{writes.push(route.request().url());await route.fulfill({status:403,json:{error:'read_only'}});});
+  await p.route('**/inbox/api/helpdesk',async route=>{
+    const payload=route.request().postDataJSON();calls.push(payload);
+    assert(['helpdesk.capabilities','helpdesk.list_tickets','helpdesk.get_ticket','helpdesk.get_messages'].includes(payload.tool));
+    assert(!String(payload.arguments.ticketId||'').startsWith('local:'));
+    if(payload.tool==='helpdesk.get_ticket'){
+      const ticket=structuredClone(payload.arguments.ticketId===id?detail:other),pending=held;
+      if(pending){held=null;pending.started();await pending.promise;}
+      await route.fulfill({json:{ok:true,source:'gorgias_api',ticket}});return;
+    }
+    await route.fulfill({json:{ok:true,source:'gorgias_api',readOnly:true,tickets:[row,other],total:2,nextOffset:null,projection:{complete:true}}});
+  });
+  const button=p.locator(`[data-ticket="${id}"]`);
+  const marker=()=>p.evaluate(id=>JSON.parse(localStorage.getItem('bb-inbox-read-v1'))?.records[id],id);
+  const listOnly=async()=>{
+    const response=p.waitForResponse(r=>r.url().endsWith('/inbox/api/helpdesk')&&r.request().postDataJSON()?.tool==='helpdesk.list_tickets');
+    await p.locator('[data-view="all"]').click();await (await response).finished();
+    await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  };
+  const refresh=async()=>{
+    const response=p.waitForResponse(r=>r.url().endsWith('/inbox/api/helpdesk')&&r.request().postDataJSON()?.tool==='helpdesk.get_ticket');
+    await p.locator('[data-action="refresh"]').click();await (await response).finished();
+    await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  };
+  try{
+    await p.goto(`${base}/inbox/`);await p.locator('.ticket-title').waitFor();
+    assert.equal(await button.getAttribute('class'),'ticket-row is-read','opening dated detail must immediately read a list missing both message time and ID');
+    await p.locator('.ticket-actions-menu summary').click();
+    assert.equal(await p.locator('[data-action="toggle-read"]').textContent(),'Mark unread');
+    const firstMarker=await marker();
+    assert.equal(firstMarker.message,'m1');assert.equal(firstMarker.activity,messageAt);
+    await p.screenshot({path:path.join(dir,'opened-missing-activity-read.png')});
+    await listOnly();assert.equal(await button.getAttribute('class'),'ticket-row is-read','unchanged deficient list refresh reuses accepted real message evidence');
+    assert.deepEqual(await marker(),firstMarker);
+    row={...original,updatedAt:'2026-10-05T02:00:00Z'};detail={...detail,updatedAt:row.updatedAt};
+    await refresh();assert.equal(await button.getAttribute('class'),'ticket-row is-read','same-message metadata refresh stays read');
+    assert.deepEqual(await marker(),firstMarker);
+    row={...row,lastMessageAt:'2026-10-05T03:00:00Z',lastMessageId:'m2'};
+    detail={...row,messages:[{id:'m2',at:row.lastMessageAt,body:'A genuine new message',fromAgent:false}]};
+    await refresh();assert.equal(await button.getAttribute('class'),'ticket-row is-unread','genuine new message invalidates the old marker');
+    assert.equal(await p.locator('[data-action="toggle-read"]').textContent(),'Mark read');assert.deepEqual(await marker(),firstMarker);
+    detail={...original,messages:[{id:'m1',at:messageAt,body:'Delayed old detail',fromAgent:false}]};
+    await refresh();assert.equal(await button.getAttribute('class'),'ticket-row is-unread','stale detail cannot overwrite newer list evidence');
+    assert.deepEqual(await marker(),firstMarker);
+    let release,started;const requested=new Promise(resolve=>{started=resolve;});
+    held={started,promise:new Promise(resolve=>{release=resolve;})};
+    await p.locator('[data-action="refresh"]').click();await requested;
+    row={...row,updatedAt:'2026-10-05T04:00:00Z',lastMessageAt:'2026-10-05T04:00:00Z',lastMessageId:'m3'};
+    await listOnly();release();await p.locator('[data-message-id="m1"]').waitFor();
+    assert.equal(await button.getAttribute('class'),'ticket-row is-unread','delayed detail cannot erase an independently newer list observation');
+    assert.deepEqual(await marker(),firstMarker);
+    await p.evaluate(({id,row})=>localStorage.setItem('bb-inbox-ticket-state-v1',JSON.stringify({version:1,records:{[id]:{title:{value:'Saved newer title'},observed:{...row,browserOverride:true,savedAt:1}}}})),{id,row});
+    await p.reload();await p.locator('.ticket-title').waitFor();
+    assert.equal(await button.getAttribute('class'),'ticket-row is-unread','opening older detail preserves a saved newer observation');
+    assert.equal(await p.evaluate(id=>JSON.parse(localStorage.getItem('bb-inbox-ticket-state-v1')).records[id].observed.lastMessageId,id),'m3');
+    const savedMarker=await marker();
+    const hold=()=>{
+      let release,started;const requested=new Promise(resolve=>{started=resolve;});
+      held={started,promise:new Promise(resolve=>{release=resolve;})};
+      const response=p.waitForResponse(r=>r.url().endsWith('/inbox/api/helpdesk')&&r.request().postDataJSON()?.tool==='helpdesk.get_ticket'&&r.request().postDataJSON()?.arguments.ticketId===id);
+      return {requested,finish:async()=>{release();await (await response).finished();await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}};
+    };
+    let pending=hold();
+    await p.locator('[data-action="refresh"]').click();await pending.requested;
+    await p.locator(`[data-ticket="${other.id}"]`).click();await p.locator('[data-message-id="z1"]').waitFor();await pending.finish();
+    assert.equal(await p.locator('[data-message-id="z1"]').count(),1,'delayed refresh cannot change the newly selected ticket');
+    assert.equal(await button.getAttribute('class'),'ticket-row is-unread');assert.deepEqual(await marker(),savedMarker);
+    pending=hold();await button.click();await pending.requested;
+    await p.locator(`[data-ticket="${other.id}"]`).click();await p.locator('[data-message-id="z1"]').waitFor();await pending.finish();
+    assert.equal(await p.locator('[data-message-id="z1"]').count(),1,'delayed selection cannot change the newly selected ticket');
+    assert.equal(await button.getAttribute('class'),'ticket-row is-unread');assert.deepEqual(await marker(),savedMarker,'discarded selection must not write an old read marker');
+    assert.deepEqual(writes,[]);assert.deepEqual(pageErrors,[]);
+    fs.writeFileSync(path.join(dir,'opened-message-evidence.json'),JSON.stringify({scope:'Rendered Chromium with isolated browser storage and synthetic intercepted read responses only',cases:['immediate-open missing time and identity','unchanged deficient list','metadata-only same message','genuine new message','stale detail','delayed detail/newer list','saved newer observation','delayed refresh after selection change','delayed selection response'],calls,consoleWrites:writes,pageErrors},null,2));
+    console.log(`Passed rendered opened-message evidence, nine focused cases and zero mutations. Evidence ${dir}`);
+  }finally{await probe.close();}
+}
+await checkOpenedMessageEvidence();
 await checkLocalSnoozedAccess();
 await page.goto(`${base}/inbox/?ticket=gorgias%3A123`);
 await page.locator('.ticket-title').waitFor();

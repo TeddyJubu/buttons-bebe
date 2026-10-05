@@ -40,6 +40,21 @@ function verifiedTimestamp(value) {
   if(m<1||m>12||d<1||d>days[m-1]||Number(hour)>23||Number(minute)>59||Number(second)>59||Number(offsetHour)>23||Number(offsetMinute)>59)return NaN;
   return Date.parse(value);
 }
+export function enrichMessageEvidence(row,detail) {
+  if(!providerId.test(row?.id||'')||row.localOnly||detail?.localOnly||detail?.id!==row.id)return row;
+  const knownId=ticket=>{
+    const value=ticket.lastMessageId||ticket.latestMessageId||ticket.messages?.at(-1)?.id;
+    return typeof value==='string'||Number.isSafeInteger(value)&&value>0?String(value):'';
+  };
+  const activity=observedMessageTime(detail),incomingTime=verifiedTimestamp(activity),previousTime=verifiedTimestamp(observedMessageTime(row));
+  const incomingUpdated=verifiedTimestamp(detail.updatedAt),previousUpdated=verifiedTimestamp(row.updatedAt);
+  if(Number.isFinite(previousUpdated)&&(!Number.isFinite(incomingUpdated)||incomingUpdated<previousUpdated))return row;
+  if(Number.isFinite(previousTime)&&(!Number.isFinite(incomingTime)||incomingTime<previousTime))return row;
+  const message=knownId(detail),previousMessage=knownId(row);
+  if(previousMessage&&message&&previousMessage!==message&&!(Number.isFinite(previousTime)&&Number.isFinite(incomingTime)&&incomingTime>previousTime))return row;
+  if(!Number.isFinite(incomingTime)&&!message)return row;
+  return {...row,...(Number.isFinite(incomingTime)?{lastMessageAt:activity}:{}),...(message?{lastMessageId:message}:{})};
+}
 export function observedSummary(ticket, savedAt=Date.now(), prior=null) {
   if(!providerId.test(ticket?.id||'')||ticket.localOnly)return null;
   const text=(value,max)=>typeof value==='string'?value.slice(0,max):'';

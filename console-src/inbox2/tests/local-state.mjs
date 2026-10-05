@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source=fs.readFileSync(new URL('../local_state.js',import.meta.url),'utf8');
-const {stateRecords,readRecords,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,syncObservedOverride,MAX_OBSERVED_SUMMARIES}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const {stateRecords,readRecords,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,syncObservedOverride,enrichMessageEvidence,MAX_OBSERVED_SUMMARIES}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 assert.deepEqual(readRecords(['gorgias:1']),{});
 assert.deepEqual(stateRecords({version:2,records:{unsafe:true}}),{});
 assert.deepEqual(stateRecords({version:1,records:[]}),{});
@@ -36,6 +36,30 @@ const numericMessage={id:'gorgias:5',lastMessageId:123456,updatedAt:'2026-10-05T
 const numericRead={'gorgias:5':readMarker(numericMessage)};
 assert(readState({...numericMessage,updatedAt:'2026-10-05T02:00:00Z'},numericRead),'mutable metadata does not unread an unchanged known message');
 assert.equal(readState({...numericMessage,lastMessageId:123457},numericRead),false,'a newer numeric message identity invalidates read');
+const deficient={id:'gorgias:601',status:'closed',gorgiasPriority:'high',assigneeEmail:'row@example.invalid',subject:'Row subject',snippet:'Row snippet',updatedAt:'2026-10-05T01:00:00Z'};
+const accepted={...deficient,status:'open',gorgiasPriority:'normal',assigneeEmail:'detail@example.invalid',messages:[{id:'m1',at:'2026-10-05T00:00:00Z'}]};
+const enriched=enrichMessageEvidence(deficient,accepted);
+assert.deepEqual(enriched,{...deficient,lastMessageAt:'2026-10-05T00:00:00Z',lastMessageId:'m1'},'only genuine message evidence enriches a matching provider row');
+assert.equal(Object.hasOwn(deficient,'lastMessageAt'),false,'enrichment leaves input unchanged');
+assert.equal(readState(enriched,{[deficient.id]:readMarker(accepted)}),true);
+assert.equal(readState({...deficient,lastMessageId:'m1'},{[deficient.id]:readMarker(accepted)}),true,'same known ID already reads without timestamp enrichment');
+assert.deepEqual(enrichMessageEvidence(deficient,{...deficient,messages:[{id:123456}]}),{...deficient,lastMessageId:'123456'},'ID-only actual numeric message does not manufacture activity');
+for(const incoming of [
+  {...deficient}, {...deficient,updatedAt:'2026-10-05T02:00:00Z'},
+  {...accepted,updatedAt:'2026-10-05T00:00:00Z'},
+  {...accepted,updatedAt:''}, {...accepted,updatedAt:'2026-10-05T02:00:00'},
+  ...['not-a-time','2026-02-30T00:00:00Z','2026-10-05T00:00:00'].map(at=>({...deficient,messages:[{at}]})),
+  {...accepted,id:'gorgias:602'}, {...accepted,localOnly:true},
+])assert.deepEqual(enrichMessageEvidence(deficient,incoming),deficient,'missing/invalid message evidence or regressed/unknown metadata never invents a watermark');
+const newer={...deficient,lastMessageAt:'2026-10-05T03:00:00Z',lastMessageId:'m3',updatedAt:'2026-10-05T04:00:00Z'};
+for(const incoming of [
+  accepted, {...accepted,updatedAt:'2026-10-05T05:00:00Z'},
+  {...newer,lastMessageId:'different'}, {...newer,lastMessageAt:'',lastMessageId:'different'},
+  {...newer,lastMessageAt:'2026-10-05T05:00:00Z',updatedAt:'2026-10-05T03:00:00Z',lastMessageId:'different'},
+])assert.deepEqual(enrichMessageEvidence(newer,incoming),newer,'independent clocks and equal/unknown differing IDs preserve existing message evidence');
+assert.deepEqual(enrichMessageEvidence({...deficient,lastMessageId:'m-old'},accepted),{...deficient,lastMessageId:'m-old'},'a differing known ID cannot be replaced when previous activity ordering is unknown');
+assert.deepEqual(enrichMessageEvidence({...deficient,id:'local:uuid'},accepted),{...deficient,id:'local:uuid'});
+assert.deepEqual(enrichMessageEvidence(newer,{...newer,lastMessageAt:'2026-10-05T05:00:00Z',lastMessageId:'m4'}),{...newer,lastMessageAt:'2026-10-05T05:00:00Z',lastMessageId:'m4'},'fully nonregressing genuine new activity may advance');
 const filtered={...ticket,customerName:'Foo Bar',assignee:'Owner@Example.invalid',channel:'Email',tags:['Returns']};
 assert(matchesLocal(filtered,'assigned',{},effective,'owner@example.invalid'));
 assert(matchesLocal(filtered,'all',{assignee:'owner@example.invalid',tag:'returns',channel:'email',query:'  FOO   BAR  '},effective,''));

@@ -1,5 +1,5 @@
 import { icons } from './icons.js';
-import {stateRecords,readRecords,lastMessage,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,syncObservedOverride} from './local_state.js';
+import {stateRecords,readRecords,lastMessage,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,syncObservedOverride,enrichMessageEvidence} from './local_state.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${icons[name] || icons.info}</svg>`;
@@ -248,7 +248,7 @@ async function loadList(background=false){
   try{
     const result=await api('list_tickets',{view:state.view,query:state.query,...state.filters,oldest:state.oldest,limit:state.size,offset:state.page*state.size});
     if(request!==state.listRequest)return;
-    state.rows=result.tickets;updateObserved(state.rows);state.categoryAvailability=result.categoryAvailability||{};if(result.operatorEmail)state.operator=result.operatorEmail;state.total=result.total;state.hasNext=result.nextOffset!=null||matchingLocalRows().length>(state.page+1)*state.size;state.projection=result.projection;state.loading=false;
+    state.rows=result.tickets.map(row=>enrichMessageEvidence(row,state.ticket));updateObserved(state.rows);state.categoryAvailability=result.categoryAvailability||{};if(result.operatorEmail)state.operator=result.operatorEmail;state.total=result.total;state.hasNext=result.nextOffset!=null||matchingLocalRows().length>(state.page+1)*state.size;state.projection=result.projection;state.loading=false;
     if(state.page>0&&!state.rows.length&&!allRows().length){state.page=Math.max(0,Math.ceil(Math.max(state.total,matchingLocalRows().length)/state.size)-1);return loadList();}
     listRender();
     if(!state.id){const first=filtered()[0];if(first)selectTicket(first.id,false);else $('#conversation').innerHTML='<div class="empty-state">'+(state.projection?.complete?'No tickets in this view.':'Connecting to Gorgias. Tickets will appear as they sync.')+'</div>';}
@@ -267,7 +267,7 @@ async function refreshTicket(){
       fresh.historyIncomplete=Boolean(fresh.messagesNextCursor);
     }
     const focusedAction=document.activeElement?.dataset?.action;
-    state.ticket=fresh;updateObserved([fresh]);const row=state.rows.find(t=>t.id===id);if(row){row.lastMessageAt=fresh.lastMessageAt||fresh.messages?.at(-1)?.at||fresh.updatedAt;row.lastMessageId=lastMessage(fresh);}renderTicket();renderRail();listRender();
+    state.ticket=fresh;updateObserved([fresh]);state.rows=state.rows.map(row=>enrichMessageEvidence(row,fresh));renderTicket();renderRail();listRender();
     if(focusedAction)document.querySelector(`[data-action="${focusedAction}"]`)?.focus({preventScroll:true});
   }catch(error){if(id!==state.id||request!==state.ticketRequest)return;if(error.auth)showAuth();else if(error.gone){state.ticket=null;$('#conversation').innerHTML='<div class="empty-state">This ticket is no longer available in Gorgias.</div>';$('#customer-rail').innerHTML='';}else{const status=$('#live-ticket-sync');if(status)status.textContent='Refresh delayed · Showing the last successful read';}}
   finally{refreshingTicket=false;}
@@ -386,7 +386,7 @@ async function selectTicket(id,push=true,focus=false) {
     if(id.startsWith('local:')&&!local)throw new Error('This local ticket is unavailable in this browser.');
     const result=local?{ticket:local}:await api('get_ticket',{ticketId:id});
     if(request!==state.ticketRequest)return;
-    state.ticket=result.ticket;updateObserved([state.ticket]);markRead(state.ticket);
+    state.ticket=result.ticket;updateObserved([state.ticket]);state.rows=state.rows.map(row=>enrichMessageEvidence(row,state.ticket));markRead(state.ticket);
     renderTicket();renderRail();listRender();
     document.title=`${ticketTitle(state.ticket)} · Buttons Bebe Support`;
     if(focus)$('#conversation').focus({preventScroll:true});
