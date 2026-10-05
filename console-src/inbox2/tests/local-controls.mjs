@@ -30,25 +30,32 @@ await page.route('**/inbox/api/helpdesk',async route=>{
 async function checkLocalSnoozedAccess(){
   const probe=await browser.newContext({viewport:{width:1280,height:800},timezoneId:'Asia/Dhaka'});
   const future='2026-10-07T12:00:00Z',expired='2026-10-04T12:00:00Z',stamp='2026-10-05T10:00:00Z';
-  async function run({name,kind='observed',availability=false,value=future,count=1,orphan=false,reset=false,filtersAndPages=false,failRefresh=false,providerAvailable=false}={}){
+  async function run({name,kind='observed',availability=false,value=future,includeSnooze=true,count=1,orphan=false,reset=false,filtersAndPages=false,failRefresh=false,providerAvailable=false}={}){
     const p=await probe.newPage();await p.clock.setFixedTime(new Date('2026-10-05T12:00:00Z'));
     const calls=[],writes=[],pageErrors=[];let failSnoozed=false;
     const records={},locals=[];
     for(let i=0;i<count;i++){
       const id=`gorgias:${501+i}`;
       const summary={id,browserOverride:true,savedAt:Date.parse(stamp),customerName:`Saved customer ${i}`,fromEmail:`saved-${i}@example.invalid`,subject:`Saved snooze ${i}`,snippet:'Saved browser observation',status:'open',gorgiasPriority:'normal',assigneeEmail:'',channel:'email',updatedAt:stamp,lastMessageAt:stamp,lastMessageId:`saved-${i}`,snoozedUntil:'',snoozeUntil:'',syncedAt:stamp};
-      if(!orphan&&kind==='observed')records[id]={observed:summary,...(value?{snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}}:{})};
+      if(!orphan&&kind==='observed')records[id]={observed:summary,...(includeSnooze?{snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}}:{})};
     }
     if(kind==='local'){
       const id='local:snoozed-probe';
       locals.push({id,localOnly:true,customerName:'Private local customer',subject:'Private local snooze',fromEmail:'',status:'open',channel:'local',updatedAt:stamp,snippet:'Private local message',messages:[]});
-      records[id]={snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}};
+      records[id]=includeSnooze?{snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}}:{};
     }
     if(orphan)records['gorgias:501']={snooze:{value,by:'synthetic operator',at:Date.parse(stamp)}};
+    const storedSeed=JSON.parse(JSON.stringify(records));
+    if(name==='blank observed snooze'){
+      assert.equal(Object.hasOwn(storedSeed['gorgias:501'],'snooze'),true,'blank control stores a snooze record before browser initialization');
+      assert.equal(Object.hasOwn(storedSeed['gorgias:501'].snooze,'value'),true,'blank snooze value is an own property before browser initialization');
+      assert.equal(storedSeed['gorgias:501'].snooze.value,'','blank control stores the literal empty value before browser initialization');
+    }
+    if(name==='absent observed snooze record')assert.equal(Object.hasOwn(storedSeed['gorgias:501'],'snooze'),false,'absent control has no snooze record before browser initialization');
     await p.addInitScript(({seedRecords,seedLocals})=>{
       localStorage.setItem('bb-inbox-ticket-state-v1',JSON.stringify({version:1,records:seedRecords}));
       localStorage.setItem('bb-inbox-local-tickets-v1',JSON.stringify(seedLocals));
-    },{seedRecords:records,seedLocals:locals});
+    },{seedRecords:storedSeed,seedLocals:locals});
     p.on('pageerror',error=>pageErrors.push(error.message));
     await p.route('**/console/api/**',async route=>{writes.push(route.request().url());await route.fulfill({status:403,json:{error:'inbox_read_only'}});});
     await p.route('**/inbox/api/helpdesk',async route=>{
@@ -67,7 +74,7 @@ async function checkLocalSnoozedAccess(){
     await p.goto(`${base}/inbox/?ticket=gorgias%3A501`);await p.locator('.ticket-title').waitFor();
     await p.waitForFunction(()=>document.querySelector('#count')?.textContent.startsWith('Page'));
     const snoozed=p.locator('[data-view="snoozed"]');
-    const parsedSnooze=Date.parse(value),hasLocalSnooze=!orphan&&['observed','local'].includes(kind)&&Number.isFinite(parsedSnooze)&&parsedSnooze>Date.parse('2026-10-05T12:00:00Z');
+    const parsedSnooze=Date.parse(value),hasLocalSnooze=!orphan&&includeSnooze&&['observed','local'].includes(kind)&&Number.isFinite(parsedSnooze)&&parsedSnooze>Date.parse('2026-10-05T12:00:00Z');
     assert.equal(await snoozed.isDisabled(),!providerAvailable&&!hasLocalSnooze,`${name}: only provider availability or a valid future local member enables Snoozed`);
     assert.equal(await p.locator('[data-view="assigned"]').isDisabled(),true,`${name}: Assigned still requires an operator`);
     assert.equal(await p.locator('[data-view="spam"]').isDisabled(),true,`${name}: local Snoozed membership must not enable Spam`);
@@ -123,6 +130,7 @@ async function checkLocalSnoozedAccess(){
   await run({name:'expired observed snooze',value:expired});
   await run({name:'invalid observed snooze',value:'not-a-time'});
   await run({name:'blank observed snooze',value:''});
+  await run({name:'absent observed snooze record',includeSnooze:false});
   await run({name:'orphan snooze without observed summary',orphan:true});
   await run({name:'reset last observed snooze',reset:true});
   await run({name:'provider view counts, pagination, filters and failed refresh',count:12,availability:{available:false,reason:'Gorgias omitted snooze_datetime'},filtersAndPages:true,failRefresh:true});

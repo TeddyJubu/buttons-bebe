@@ -1,8 +1,13 @@
 """Adversarial tests for source-bound deterministic no-reply validation.
 
-These tests copy only synthetic scenario catalogs and reviewed Python source into
-private temporary roots. They do not import the Hermes runner module or load
-credential/configuration files.
+The source-mutation tests use private copies of synthetic scenario catalogs and
+reviewed Python source. The runner-coupling test imports the real Hermes runner
+and its configuration/logging dependencies with DEMO_MODE enabled before
+import, which skips .env loading. It isolates and restores owned sys.modules
+entries and sys.path; its DEMO_MODE patch preserves inherited environment
+variables and is not a full environment sandbox. Settings access and child
+execution are stubbed. No Hermes child or external provider is invoked, and no
+credential/profile files are read.
 """
 from __future__ import annotations
 
