@@ -1,0 +1,214 @@
+{
+  "format": "offline-intake-readiness-v1",
+  "recorded_on": "2026-09-29",
+  "artifact_kind": "static_documentation_not_runtime_configuration",
+  "decision": "NOT_READY_FOR_LIVE",
+  "activation_authorized": false,
+  "authorized_live_actions": [],
+  "authorized_live_channels": [],
+  "authorized_deployment_targets": [],
+  "current_scope": "Local implementation, review and offline tests with synthetic or already saved data only.",
+  "owner_sample_decision": {
+    "decision": "accepted_with_listed_gaps",
+    "scope": "offline_sample_only",
+    "tickets": 50,
+    "messages": 211,
+    "reviewed_cases": 7,
+    "selected_messages": 31,
+    "automated_checks": 2388,
+    "original_seven_artifacts_unchanged": true,
+    "live_activation_authorized": false
+  },
+  "aggregate_evidence": {
+    "source_tickets": 50,
+    "source_messages": 211,
+    "source_attachment_references": 22,
+    "source_field_checks": 2088,
+    "e1_saved_rows_unchanged": true,
+    "e2_per_user_read_checks": 150,
+    "e3_explicit_fixture_runs": 100,
+    "e3_deduplicated_repeat_runs": 50,
+    "e3_model_calls": 0,
+    "e4_historical_backend_tests": 145,
+    "e4_saved_data_assertions": 460,
+    "e4_fabricated_followups": 206,
+    "e4_original_tickets_threaded": 49,
+    "e4_historical_outcomes": {
+      "duplicate_message": 135,
+      "ignored": 76
+    },
+    "e4_final_jobs_done": 421,
+    "e4_final_tickets": 50,
+    "e4_final_messages": 418,
+    "e4_original_sources_preserved": 261,
+    "e4_deliberate_unresolved_fake_attempts": 1,
+    "e4_deliberate_receipt_conflicts": 1,
+    "e4_cli_jobs_done": 7,
+    "e4_cli_repeat_events_deduplicated": 7,
+    "e4_browser_external_requests": 0,
+    "e4_browser_live_route_requests": 0
+  },
+  "future_production_gates": [
+    {
+      "id": "P1",
+      "name": "Whole-history completeness and implemented baseline/delta/final fence",
+      "status": "unproven"
+    },
+    {
+      "id": "P2",
+      "name": "Chosen provider and exact channel integration",
+      "status": "unproven"
+    },
+    {
+      "id": "P3",
+      "name": "Required replacement workflow and channel coverage",
+      "status": "unproven"
+    },
+    {
+      "id": "P4",
+      "name": "Production identity, message trust and attachment quarantine",
+      "status": "unproven"
+    },
+    {
+      "id": "P5",
+      "name": "Real assistance quality, if assistance is included",
+      "status": "unproven",
+      "current_behavior": "disabled"
+    },
+    {
+      "id": "P6",
+      "name": "Measured operations, monitoring, alerts and capacity",
+      "status": "unproven"
+    },
+    {
+      "id": "P7",
+      "name": "Offsite restore, post-checkpoint reconciliation and one sending owner",
+      "status": "unproven"
+    },
+    {
+      "id": "P8",
+      "name": "Exact reviewed release scope and new owner instruction",
+      "status": "not_authorized"
+    }
+  ],
+  "evidence": [
+    {
+      "stage": "D2_D3",
+      "private_path": "intake/.local/gorgias-export-review-20260928/reconciliation.json",
+      "sha256": "6dafcf3aeefc1df738512f565c0b1f7757e894cf2f397558cdd6fe6431794e07"
+    },
+    {
+      "stage": "D4",
+      "private_path": "intake/.local/gorgias-replay-proof-20260928-v3/replay-reconciliation.json",
+      "sha256": "69ab32304b088f0c6a8e4084087a92188b57cb4ef7fc72dd07b33db618653c0f"
+    },
+    {
+      "stage": "D5",
+      "private_path": "intake/.local/gorgias-delivery-proof-20260928-v3/delivery-reconciliation.json",
+      "sha256": "d604ac1cda684c3b483ac53119b366a1e843fb7f0e4b79af146803303313d737"
+    },
+    {
+      "stage": "D6",
+      "private_path": "intake/.local/gorgias-recovery-proof-20260928/recovery-reconciliation.json",
+      "sha256": "21335b249eda3d5802ce888b58374a46412e8c7d3b5ecfb05f162302c02a2cc2"
+    },
+    {
+      "stage": "D7_review",
+      "private_path": "intake/.local/gorgias-owner-review-20260928-v2/owner-review.json",
+      "sha256": "8f73df2c3178ce824636c0f62db9a6292a3025030834f71aada2a5e08ce3397b"
+    },
+    {
+      "stage": "D7_decision",
+      "private_path": "intake/.local/gorgias-owner-review-20260928-v2/owner-decision.json",
+      "sha256": "b80a73da40f2c29b08d20358c743d950d89eabfff450ab9eaa803010f19f070e"
+    },
+    {
+      "stage": "E1",
+      "private_path": "intake/.local/gorgias-inbox-proof-20260928/inbox-display-reconciliation.json",
+      "sha256": "7f6e2cdf676081502cc37e4bb0f217f45666a37b9d97a24b99d901a8786f437f"
+    },
+    {
+      "stage": "E2",
+      "private_path": "intake/.local/gorgias-team-proof-20260928/team-saved-proof.json",
+      "sha256": "866ba367c8ed6a820e6dd31b85231de436b5a861d23503e435b0dd74d0579eb7"
+    },
+    {
+      "stage": "E3",
+      "private_path": "intake/.local/gorgias-assistance-proof-20260928/assistance-saved-proof.json",
+      "sha256": "ad85a4a17cfe33597d48153b32bcaff9216db3f0ad9bdfa238e08e059423bd27"
+    },
+    {
+      "stage": "E4",
+      "private_path": "intake/.local/gorgias-channel-proof-20260929/channel-reconciliation.json",
+      "sha256": "cb982c6e84795c5759dddf782a2e2a6313ada371f9922eea1fbcb9bc5d66afe7"
+    },
+    {
+      "stage": "E4_CLI",
+      "private_path": "intake/.local/e4-cli-20260929/cli-proof.json",
+      "sha256": "da7e4fd53d358aa3022d9b77d73f791128fd150a1ba6353c196b62804f3cd4d7"
+    },
+    {
+      "stage": "E4_browser",
+      "private_path": "intake/.local/inbox-1790667638968/inbox-browser-result.json",
+      "sha256": "9d4d2f1c9d66f6755829d360ef6f4c2bb9df4eedabdab41d72aa836829813102"
+    },
+    {
+      "stage": "completion_team_browser",
+      "private_path": "intake/.local/team-1790668299872/team-browser-proof.json",
+      "sha256": "47eb52e8ee1628c72f95a252fcb7b2785510a4baa69a91dbbcb101909d0be393"
+    },
+    {
+      "stage": "completion_assistance_browser",
+      "private_path": "intake/.local/assist-browser-1790668300041/assistance-browser-proof.json",
+      "sha256": "1093b3c09d1bf631d402d77db14112a8c811aaea923ddf1d14901799eab5c1ee"
+    },
+    {
+      "stage": "completion_lab_browser",
+      "private_path": "intake/.local/browser-1790668385661/browser-result.json",
+      "sha256": "190938b1c4ed36466a2a30cd3600d13f588ec15502847527d80a71e3f35d8ca8"
+    },
+    {
+      "stage": "completion_inbox_browser",
+      "private_path": "intake/.local/inbox-1790668385661/inbox-browser-result.json",
+      "sha256": "15bb0c5b0ec6bcb5f4771eddf1fc82f281e0c9122eb56751cee6deb90f5cc599"
+    },
+    {
+      "stage": "E5_saved_rehearsal",
+      "private_path": "intake/.local/e5-local-proof-20260929/channel-reconciliation.json",
+      "sha256": "543863b6cb53d427cf3b3202252219151745ce00aaebb89426bb0c2979ab71da"
+    },
+    {
+      "stage": "E5_runbook_recovery",
+      "private_path": "intake/.local/e5-local-proof-20260929-recover/runbook-recovery-proof.json",
+      "sha256": "e0b4108fcfb7e755ba53326fca30fefd9df8987573a876921ac8b6051af08067"
+    },
+    {
+      "stage": "completion_gate",
+      "private_path": "intake/.local/checklist-completion-20260929/verification.json",
+      "sha256": "a99607131e8809aa34f80eda1c97ad3f6674cd75644187042d071d06a2b07aac"
+    }
+  ],
+  "documents": {
+    "owner_packet": "intake/READINESS.md",
+    "cutover_runbook": "intake/CUTOVER.md",
+    "continuation_checklist": "INTAKE-TASKLIST.md"
+  },
+  "final_offline_verification": {
+    "backend_tests_passed": 155,
+    "javascript_syntax_passed": true,
+    "browser_suites_passed": 4,
+    "external_browser_requests": 0,
+    "saved_export_field_checks": 2088,
+    "e5_rehearsal_assertions": 460,
+    "fabricated_followups": 206,
+    "runbook_backup_restore_passed": true,
+    "restored_intake_held": true,
+    "independent_review_material_findings_remaining": 0,
+    "review_fixes": [
+      "invalid_password_substitution",
+      "missing_captured_jobs",
+      "missing_completed_native_messages"
+    ],
+    "outboundActions": 0
+  }
+}

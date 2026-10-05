@@ -1,0 +1,17 @@
+{
+  "source": "console-src/inbox2",
+  "base_revision": "73fc4c5",
+  "usage": {
+    "styles.css": "unchanged copy",
+    "icons.js": "unchanged copy",
+    "lucide-LICENSE.txt": "unchanged copy",
+    "index.html": "adapted shell; offline client, navigation and dialogs"
+  },
+  "source_sha256": {
+    "index.html": "91df33fb5a5b5e49e26861c8108075ee6752ea811665ecf623878baaa5e30e9c",
+    "styles.css": "09d2c733364188b5bd4fac4395fa0a9d8bf5aa52d5097cdd4f0dbcb5127087b6",
+    "icons.js": "dd0e2d65f15c946b8b99f03926fd4fd299cd8a7ffc86aa2e47c557f9c27774fa",
+    "lucide-LICENSE.txt": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+    "app.js": "9bd0c6f934c2ca64f7ae5e8c17a5d5808383c4215e25148f4676a7f00021f616"
+  }
+}

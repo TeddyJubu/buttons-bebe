@@ -1,0 +1,84 @@
+{
+  "tickets": [
+    {
+      "id": 900001,
+      "subject": "Where is the rest of my order?",
+      "status": "open",
+      "priority": "normal",
+      "channel": "email",
+      "created_datetime": "2026-09-20T09:00:00Z",
+      "updated_datetime": "2026-09-20T11:30:00Z",
+      "customer": {"id": 800001, "name": "Avery Example", "email": "avery@example.test"},
+      "assignee_user": {"id": 700001, "name": "Test operator", "email": "operator@example.test"},
+      "tags": [{"id": 1, "name": "Order status"}],
+      "messages_count": 3,
+      "messages": [
+        {
+          "id": 910001,
+          "ticket_id": 900001,
+          "public": true,
+          "from_agent": false,
+          "channel": "email",
+          "created_datetime": "2026-09-20T09:00:00Z",
+          "sender": {"name": "Avery Example", "email": "avery@example.test"},
+          "receiver": {"email": "support@example.test"},
+          "body_text": "Hi! One parcel arrived today, but the cardigan from order #TEST-1001 was missing. Is it being sent separately?",
+          "headers": {"Message-ID": "<sample-incoming-1@example.test>"},
+          "attachments": []
+        },
+        {
+          "id": 910002,
+          "ticket_id": 900001,
+          "public": false,
+          "from_agent": true,
+          "channel": "internal-note",
+          "created_datetime": "2026-09-20T10:00:00Z",
+          "sender": {"name": "Test operator", "email": "operator@example.test"},
+          "body_text": "Synthetic private note: check the second fulfillment before drafting a response.",
+          "headers": {},
+          "attachments": []
+        },
+        {
+          "id": 910003,
+          "ticket_id": 900001,
+          "public": true,
+          "from_agent": true,
+          "channel": "email",
+          "created_datetime": "2026-09-20T11:30:00Z",
+          "sender": {"name": "Buttons Bebe test support", "email": "support@example.test"},
+          "receiver": {"name": "Avery Example", "email": "avery@example.test"},
+          "body_text": "This is an imported synthetic reply. The sandbox did not send it.",
+          "headers": {"Message-ID": "<sample-reply-1@example.test>", "In-Reply-To": "<sample-incoming-1@example.test>", "References": "<sample-incoming-1@example.test>"},
+          "attachments": []
+        }
+      ]
+    },
+    {
+      "id": 900002,
+      "subject": "Photo of a damaged button",
+      "status": "open",
+      "priority": "high",
+      "channel": "email",
+      "created_datetime": "2026-09-21T14:20:00+00:00",
+      "updated_datetime": "2026-09-21T14:20:00+00:00",
+      "customer": {"id": 800002, "name": "Riley Example", "email": "riley@example.test"},
+      "assignee_user": null,
+      "tags": [{"id": 2, "name": "Damaged item"}],
+      "messages_count": 1,
+      "messages": [
+        {
+          "id": 910004,
+          "ticket_id": 900002,
+          "public": true,
+          "from_agent": false,
+          "channel": "email",
+          "created_datetime": "2026-09-21T14:20:00Z",
+          "sender": {"name": "Riley Example", "email": "riley@example.test"},
+          "body_html": "<p>Hello, the button arrived damaged.</p><img src=\"https://tracking.example.test/pixel\"><script>fetch('https://tracking.example.test/collect')</script><p>I have attached a photo.</p>",
+          "headers": {"Message-ID": "<sample-incoming-2@example.test>"},
+          "attachments": [{"id": "file-1", "name": "button-photo.jpg", "content_type": "image/jpeg", "size": 42000, "url": "https://files.example.test/button-photo.jpg"}]
+        }
+      ]
+    }
+  ]
+}

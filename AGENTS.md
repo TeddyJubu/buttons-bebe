@@ -21,6 +21,27 @@ skills/buttonsbebe-support-webapp/SKILL.md for the current file map and
 synthetic local preview. This AGENTS.md remains authoritative for safety and
 operations.
 
+## Ticket replacement intake — isolated work, 28 September 2026
+
+Before any work on `intake/`, read and update `INTAKE-TASKLIST.md`. This is the
+active checklist for the standalone ticket replacement, separate from older
+Inbox UI task lists. Record evidence before marking a task complete, and leave
+unproven work unchecked with the next concrete step.
+
+The owner authorized implementation and offline testing with exported data only.
+On 2026-09-28 the owner additionally authorized us to make the read-only Gorgias
+export ourselves. That export runs separately through the existing read-only MCP,
+without credentials in the sandbox. It saves private files for explicit offline
+import and does not authorize live intake or ongoing synchronization.
+No live intake, provider writes, real email, AI API calls, alerts, deployment,
+public hosting, service restarts, or push/merge to main are authorized for this
+project. Do not copy credentials or load the production environment. Keep
+`intake/` outside the production release inventory. The sandbox must have no
+configuration switch that activates real delivery. Future activation requires
+passing the checklist's proof gates and a new explicit owner instruction.
+Exports and local databases can contain customer data: keep them in ignored,
+private storage and out of source control, logs, screenshots and shared artifacts.
+
 ## Inbox retirement — 25 September 2026
 
 Inbox (`/inbox/`) is the sole ticket destination. The previous Inbox 1 interface,

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Intake lab · Buttons Bebe</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#conversation">Skip to conversation</a>
+  <header class="topbar">
+    <div class="brand">buttons bebe<span>Intake lab</span></div>
+    <div class="top-actions"><button id="open-import">Import export</button><button id="open-create" class="primary">+ New test ticket</button></div>
+  </header>
+  <div class="sandbox-banner" role="status"><strong>Offline sandbox</strong><span>Saved test data only. No live messages, delivery or AI.</span><span id="workspace-name"></span></div>
+  <p id="notice" class="notice" role="alert" hidden></p>
+  <main class="workspace">
+    <section class="ticket-panel" aria-label="Ticket list">
+      <div class="list-heading"><h1>Tickets <span id="count">0</span></h1><button id="refresh" class="quiet">Refresh</button></div>
+      <label class="sr-only" for="search">Search tickets and messages</label>
+      <input id="search" type="search" placeholder="Search tickets and messages…" autocomplete="off">
+      <label class="sr-only" for="queue">Ticket queue</label>
+      <select id="queue"><option value="work">Inbox + needs review</option><option value="inbox">Inbox</option><option value="review">Needs review</option><option value="spam">Spam</option><option value="automatic">Automatic responses</option><option value="all">All queues</option></select>
+      <label class="sr-only" for="filter">Ticket status</label>
+      <select id="filter"><option value="">All statuses</option><option value="open">Open</option><option value="waiting_customer">Waiting on customer</option><option value="waiting_team">Waiting on team</option><option value="snoozed">Snoozed</option><option value="closed">Closed</option></select>
+      <div id="ticket-list" class="ticket-list" aria-live="polite"><p class="empty">Loading sandbox…</p></div>
+      <div class="pagination"><button id="previous" disabled>Previous</button><span id="page-label"></span><button id="next" disabled>Next</button></div>
+    </section>
+    <section id="conversation" class="conversation" tabindex="-1" aria-label="Conversation">
+      <header id="ticket-header"><div class="empty"><h2>Your independent ticket workspace</h2><p>Import a saved conversation export or create a test ticket to begin.</p></div></header>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <form id="note-form" class="composer" hidden>
+        <label for="note">Internal note <span>Visible only in this sandbox</span></label>
+        <textarea id="note" placeholder="Record a test note…" rows="3" maxlength="100000" required></textarea>
+        <div class="composer-actions"><span>Customer delivery is unavailable.</span><button class="primary" type="submit">Save note</button></div>
+      </form>
+    </section>
+    <aside class="details-panel" aria-label="Ticket details">
+      <h2>Ticket details</h2>
+      <div id="contact"><p class="muted">Select a ticket to see its details.</p></div>
+      <section id="reply-tools" hidden><button id="open-reply">Simulate reply…</button><p id="reply-unavailable" class="hint"></p></section>
+      <form id="details-form" hidden>
+        <label for="status">Status</label><select id="status"><option value="open">Open</option><option value="waiting_customer">Waiting on customer</option><option value="waiting_team">Waiting on team</option><option value="snoozed">Snoozed</option><option value="closed">Closed</option></select>
+        <label for="priority">Priority</label><select id="priority"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option></select>
+        <label for="assignee">Assigned to</label><select id="assignee"><option value="">Unassigned</option></select>
+        <button type="submit">Save details</button>
+      </form>
+      <div id="provenance"></div><section id="fixture-context" class="rail-section"></section>
+      <h3>Simulated delivery</h3><div id="delivery-ledger"><p class="muted">No simulations yet.</p></div>
+      <h3>Activity</h3><div id="activity" class="activity"><p class="muted">No ticket selected.</p></div>
+      <button id="open-history" class="history-button">Import history</button>
+    </aside>
+  </main>
+  <dialog id="create-dialog">
+    <div class="dialog-heading"><h2>New test ticket</h2><button type="button" data-close="create-dialog" aria-label="Close new ticket">×</button></div>
+    <p class="muted">Create a shared sandbox record. This does not contact the customer.</p>
+    <form id="create-form">
+      <label for="customer-name">Customer name</label><input id="customer-name" name="name" maxlength="500" autocomplete="off">
+      <label for="customer-email">Email <span>Optional</span></label><input id="customer-email" name="email" type="email" maxlength="320" autocomplete="off">
+      <label for="subject">Subject</label><input id="subject" name="subject" maxlength="2000" required>
+      <label for="description">Internal description</label><textarea id="description" name="body" rows="5" maxlength="100000" required></textarea>
+      <p id="create-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" data-close="create-dialog">Cancel</button><button type="submit" class="primary">Create test ticket</button></div>
+    </form>
+  </dialog>
+  <dialog id="import-dialog">
+    <div class="dialog-heading"><h2>Import saved conversations</h2><button type="button" data-close="import-dialog" aria-label="Close import">×</button></div>
+    <p class="muted">Choose a local Gorgias JSON export with full messages. Imported history cannot trigger replies, notifications or AI. Attachment files are not downloaded.</p>
+    <form id="import-form">
+      <label for="account">Source account</label><input id="account" placeholder="e.g. buttonsbebe" pattern="[a-z0-9][a-z0-9.\-]{0,79}" maxlength="80" required>
+      <p class="hint">Use the same account name for every export from the same Gorgias account.</p>
+      <label for="export-file">Conversation export <span>JSON · up to 20 MiB</span></label><input id="export-file" type="file" accept=".json,application/json" required>
+      <p id="import-error" class="form-error" role="alert"></p>
+      <div id="import-report" aria-live="polite"></div>
+      <div class="dialog-actions"><button type="submit">Preview import</button><button id="commit-import" type="button" class="primary" disabled>Import into sandbox</button></div>
+    </form>
+  </dialog>
+  <dialog id="history-dialog"><div class="dialog-heading"><h2>Import history</h2><button data-close="history-dialog" aria-label="Close import history">×</button></div><div id="history"></div></dialog>
+  <dialog id="reply-dialog">
+    <div class="dialog-heading"><h2>Simulate a reply</h2><button data-close="reply-dialog" aria-label="Close reply simulation">×</button></div>
+    <p class="muted">This records a test delivery locally. No email leaves the sandbox.</p>
+    <p id="reply-target" class="source"></p>
+    <form id="reply-form">
+      <div id="reply-editor"><button id="reply-clear" type="button">Start a blank manual reply</button>
+        <label for="reply-body">Reply text</label><textarea id="reply-body" rows="6" maxlength="100000" required></textarea>
+        <label for="reply-scenario">Test outcome</label>
+        <select id="reply-scenario"><option value="accepted">Simulated success</option><option value="rejected">Rejected before acceptance</option><option value="accepted_timeout">Accepted, acknowledgement lost</option><option value="unknown">Outcome unavailable</option></select>
+      </div>
+      <section id="reply-review" hidden aria-label="Frozen reply review"><h3>Review this exact reply</h3><p id="review-envelope" class="source"></p><div id="review-body" class="review-body"></div><p id="review-outcome" class="hint"></p></section>
+      <p id="reply-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="reply-edit" type="button" hidden>Edit draft</button><button id="reply-preview" type="submit">Review simulated reply</button><button id="reply-confirm" type="button" class="primary" hidden>Confirm simulation</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

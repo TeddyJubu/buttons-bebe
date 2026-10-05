@@ -1,0 +1,9 @@
+const $=s=>document.querySelector(s),params=new URLSearchParams(location.search);
+const proposed=params.get('next'),next=proposed&&(/^\/inbox\/(?:\?[^#]*)?$/.test(proposed)||proposed==='/')?proposed:'/inbox/';
+const channel=new BroadcastChannel('intake-session');
+let token='';
+async function post(path,data){const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',cache:'no-store',headers:{'Content-Type':'application/json','X-Intake-Token':token},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw new Error(value.error||'Sign-in failed.');return value;}
+async function busy(form,action){const button=form.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{await action();}catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}}
+$('#login-form').addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{await post('/api/auth/login',{username:$('#username').value,password:$('#password').value});$('#password').value='';channel.postMessage('changed');location.replace(next);});});
+$('#password-form').addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{if($('#new-password').value!==$('#repeat-password').value)throw new Error('Passwords did not match.');await post('/api/auth/password',{password:$('#current-password').value,new_password:$('#new-password').value});event.target.reset();channel.postMessage('changed');location.replace('/login');});});
+if(params.has('password')){try{const response=await fetch('/api/session',{cache:'no-store'});if(!response.ok)throw new Error('Sign in before changing your password.');const session=await response.json();token=session.token;$('#login-form').hidden=true;$('#password-form').hidden=false;$('h1').textContent='Change sandbox password';}catch(error){$('#login-error').textContent=error.message;}}

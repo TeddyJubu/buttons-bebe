@@ -88,3 +88,9 @@ output/
 .claude/launch.json
 .claude/scheduled_tasks.lock
 console-src/inbox/.claude/
+
+# Standalone intake: private exports, databases and verification artifacts.
+/intake/.local/
+/intake/exports/
+/intake/reports/
+/intake/screenshots/
