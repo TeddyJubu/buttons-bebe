@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from .. import deps
+from .. import database
 from ..logging_utils import get_logger, log_event
 from ..middleware.rate_limit import _check_rate_limit
 from ..webhook_handler import (
@@ -28,11 +28,10 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
     idempotency insert remains after parsing, tenant validation, and replay
     checks. Those ordering guarantees are part of the webhook contract.
     """
-    max_body_bytes = deps.resolve("_MAX_WEBHOOK_BODY_BYTES", _MAX_WEBHOOK_BODY_BYTES)
     content_length = request.headers.get("content-length")
     if content_length:
         try:
-            if int(content_length) > max_body_bytes:
+            if int(content_length) > _MAX_WEBHOOK_BODY_BYTES:
                 return JSONResponse(status_code=413, content={"error": "payload_too_large"})
         except ValueError:
             return JSONResponse(status_code=400, content={"error": "invalid_content_length"})
@@ -41,13 +40,12 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
     body_size = 0
     async for chunk in request.stream():
         body_size += len(chunk)
-        if body_size > max_body_bytes:
+        if body_size > _MAX_WEBHOOK_BODY_BYTES:
             return JSONResponse(status_code=413, content={"error": "payload_too_large"})
         chunks.append(chunk)
     raw_body = b"".join(chunks)
 
-    signature_checker = deps.resolve("verify_signature", verify_signature)
-    if not signature_checker(
+    if not verify_signature(
         raw_body,
         request.headers.get("X-Gorgias-Signature"),
         request.query_params.get("secret"),
@@ -55,20 +53,11 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
         return JSONResponse(status_code=401, content={"error": "invalid_signature"})
 
     client_ip = request.client.host if request.client else "unknown"
-    rate_checker = deps.resolve("_check_rate_limit", _check_rate_limit)
-    if rate_checker is _check_rate_limit:
-        allowed = rate_checker(
-            client_ip,
-            deps.resolve("_MAX_REQUESTS_PER_MINUTE", 60),
-        )
-    else:
-        allowed = rate_checker(client_ip)
-    if not allowed:
+    if not _check_rate_limit(client_ip):
         log_event(logger, "WARNING", "Rate limit exceeded", client_ip=client_ip)
         return JSONResponse(status_code=429, content={"error": "rate_limited"})
 
-    event_parser = deps.resolve("parse_event", parse_event)
-    event = event_parser(raw_body)
+    event = parse_event(raw_body)
     if event is None:
         return JSONResponse(status_code=400, content={"error": "malformed_payload"})
 
@@ -111,7 +100,7 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
         channel=event["channel"],
     )
 
-    if await deps.database_function("is_duplicate")(message_id_str):
+    if await database.is_duplicate(message_id_str):
         log_event(
             logger,
             "INFO",
@@ -124,9 +113,7 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
             content={"status": "duplicate", "message_id": message_id_str},
         )
 
-    too_old = deps.resolve("is_event_too_old", is_event_too_old)
-    in_future = deps.resolve("is_event_in_future", is_event_in_future)
-    if too_old(event.get("created_at")):
+    if is_event_too_old(event.get("created_at")):
         log_event(
             logger,
             "WARNING",
@@ -135,7 +122,7 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
             created_at=event.get("created_at"),
         )
         return JSONResponse(status_code=410, content={"error": "event_expired"})
-    if in_future(event.get("created_at")):
+    if is_event_in_future(event.get("created_at")):
         log_event(
             logger,
             "WARNING",
@@ -145,7 +132,7 @@ async def receive_gorgias_webhook(request: Request, tenant_id: str) -> JSONRespo
         )
         return JSONResponse(status_code=400, content={"error": "event_in_future"})
 
-    job_id = await deps.database_function("ingest_event")(
+    job_id = await database.ingest_event(
         event=event,
         raw_payload=raw_body.decode("utf-8", errors="replace"),
     )

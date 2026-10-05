@@ -67,9 +67,25 @@ for required in \
   "tools/runtime-constraints.txt" \
   "testing/requirements-qa.lock" \
   "whatsapp-connect/package.json" \
-  "whatsapp-connect/package-lock.json"; do
+  "whatsapp-connect/package-lock.json" \
+  "console-src/package.json" \
+  "console-src/package-lock.json"; do
   [[ -f "$required" ]] || fail "missing dependency manifest: $required"
 done
+
+unset PLAYWRIGHT_MODULE INBOX_TEST_BROWSER
+node -e '
+const fs = require("fs"), path = require("path"), dir = process.argv[1];
+const locked = require(path.join(dir, "package-lock.json")).packages["node_modules/playwright"].version;
+const installed = require(path.join(dir, "node_modules/playwright/package.json")).version;
+if (installed !== locked) throw new Error(`Playwright ${installed} installed, ${locked} locked`);
+const { chromium } = require(path.join(dir, "node_modules/playwright"));
+if (!fs.existsSync(chromium.executablePath())) throw new Error("Playwright Chromium is not installed");
+' "$ROOT_DIR/console-src" || \
+  fail "browser dependencies missing: run 'npm ci --prefix console-src' and 'console-src/node_modules/.bin/playwright install chromium' first"
+
+gate_tmp="$(mktemp -d "${TMPDIR:-/tmp}/buttonsbebe-gate.XXXXXX")"
+trap 'rm -rf "$gate_tmp"' EXIT
 
 # Keep first-party production Python modules small enough to review. The
 # helper owns the path exclusions and fails closed on missing roots,
@@ -122,6 +138,17 @@ if len(scenarios) != 48:
 ids = [s.get("id") for s in scenarios]
 if len(set(ids)) != len(ids):
     raise SystemExit("testing/scenarios.json has duplicate scenario ids")
+reliability = json.loads(Path("testing/reliability-scenarios.json").read_text(encoding="utf-8"))
+if len(reliability) != 10 or len({s.get("id") for s in reliability}) != 10:
+    raise SystemExit("testing/reliability-scenarios.json must hold 10 unique scenario ids")
+
+console_package = json.loads(Path("console-src/package.json").read_text(encoding="utf-8"))
+console_lock = json.loads(Path("console-src/package-lock.json").read_text(encoding="utf-8"))
+console_dev = console_package.get("devDependencies")
+if (console_dev != {"playwright": "1.63.0"}
+        or console_lock.get("packages", {}).get("", {}).get("devDependencies") != console_dev
+        or console_lock["packages"].get("node_modules/playwright", {}).get("version") != "1.63.0"):
+    raise SystemExit("console-src must lock exactly playwright 1.63.0 in package.json and package-lock.json")
 
 package = json.loads(Path("whatsapp-connect/package.json").read_text(encoding="utf-8"))
 lock = json.loads(Path("whatsapp-connect/package-lock.json").read_text(encoding="utf-8"))
@@ -166,6 +193,8 @@ esac
 # their tests. Keep the requests stub explicit so this gate remains offline.
 "$PYTHON" -c 'import sys,types,unittest; requests=types.ModuleType("requests"); requests.get=lambda *a,**k: None; requests.post=lambda *a,**k: None; sys.modules["requests"]=requests; names=["feedback.tests.test_all","feedback.tests.test_retirement"]; suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(n) for n in names); result=unittest.TextTestRunner(verbosity=1).run(suite); raise SystemExit(not result.wasSuccessful())'
 "$QA_PYTHON" -m unittest discover -s testing -p 'test_*.py' -v
+"$PYTHON" -c 'import lancedb'
+"$PYTHON" -m unittest discover -s testing -p 'test_qa_mcp_server_contract.py' -v
 "$PYTHON" -m unittest discover -s kb/tests -v
 "$PYTHON" -m unittest discover -s deploy/tests -v
 "$PYTHON" -m unittest discover -s tools -p 'test_*.py' -v
@@ -224,8 +253,31 @@ if [ -d whatsapp-connect/node_modules ]; then
 else
   echo "release gate: whatsapp root tests skipped (no node_modules; CI runs them via npm ci)"
 fi
-node --test console-src/test/*.test.js
+node --test --test-reporter=spec --test-reporter-destination=stdout \
+  --test-reporter=tap --test-reporter-destination="$gate_tmp/console.tap" console-src/test/*.test.js
+grep -qx '# skipped 0' "$gate_tmp/console.tap" && grep -qx '# todo 0' "$gate_tmp/console.tap" || \
+  fail "console tests skipped work; every browser check must run"
+"$PYTHON" tools/inbox_browser_gate.py
 node --check kb-admin/server.js
 node --test kb-admin/test/*.test.js
 
-echo "release gate passed: manifests, syntax, offline tests, KB admin safety, WhatsApp auth, and no-Twilio check"
+"$PYTHON" -m unittest discover -s demo -p 'test_fake_gorgias.py' -v
+demo_fixture_suites=(
+  test_processor_adversarial
+  test_processor_security
+  test_queue_resilience
+  test_demo_isolation
+  test_console_api
+  test_webhook_adversarial
+)
+for _suite in "${demo_fixture_suites[@]}"; do
+  [[ -f "demo/adversarial/$_suite.py" ]] || fail "missing adversarial suite: demo/adversarial/$_suite.py"
+  case "$_suite" in
+    test_console_api|test_webhook_adversarial)
+      PYTHONPATH="$ROOT_DIR/webhook/src${PYTHONPATH:+:$PYTHONPATH}" \
+        "$WEBHOOK_PYTHON" -m unittest "demo.adversarial.$_suite" -v ;;
+    *) "$PROCESSOR_PYTHON" -m unittest "demo.adversarial.$_suite" -v ;;
+  esac
+done
+
+echo "release gate passed: manifests, syntax, offline tests, console and Inbox browser suites, demo safety suites, KB admin safety, WhatsApp auth, and no-Twilio check"

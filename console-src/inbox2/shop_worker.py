@@ -21,7 +21,7 @@ if not (INBOX_MODULES / 'projection.py').is_file():
     INBOX_MODULES = Path('/opt/buttonsbebe/inbox/console-src/inbox')
 sys.path.insert(0, str(INBOX_MODULES))
 import export_shop_rail as exporter
-from customer_details import QUEUE, SNAPSHOT, fresh, request_key, request_ticket
+from customer_details import QUEUE, SNAPSHOT, display_payload, fresh, request_key, request_ticket
 
 STOP = threading.Event()
 
@@ -72,6 +72,14 @@ class Worker:
         self.env, self.destination = env, destination
         self.graphql, self.mint = graphql or exporter.graphql, mint or exporter.mint_token
         self.cache = exporter.load_cache(destination)
+        rejected = [ticket_id for ticket_id, entry in self.cache.items()
+                    if exporter.known_store_mismatch(entry['payload'], self.env)]
+        for ticket_id in rejected:
+            del self.cache[ticket_id]
+        if rejected:
+            # Remove old-store details from the published snapshot even when
+            # there are no new requests or the worker cannot make a lookup.
+            publish(self.cache, self.destination)
         self.token = None
         self.token_at = 0
         self.window_at = 0
@@ -87,10 +95,16 @@ class Worker:
             self.caches = self.new_caches()
         completed = 0
         for ticket, key, requested_at in requests:
-            if STOP.is_set() or self.caches['lookups'] >= exporter.MAX_LOOKUPS:
+            if STOP.is_set():
                 break
             entry = self.cache.get(ticket['id'], {})
             old = entry.get('payload', {})
+            if exporter.known_store_mismatch(old, self.env):
+                self.cache.pop(ticket['id'], None)
+                publish(self.cache, self.destination)
+                old = {}
+            if self.caches['lookups'] >= exporter.MAX_LOOKUPS:
+                break
             if fresh(old, key, now):
                 continue
             if old.get('requestKey') != key:
@@ -109,7 +123,11 @@ class Worker:
                 # Never put secrets, upstream bodies, or customer data in logs.
                 logging.warning('Shopify details lookup failed (%s)', type(error).__name__)
                 failures = min(old.get('failures', 0) + 1, 5)
-                payload = {**old, 'status': old.get('status', 'error'), 'email': ticket['fromEmail'],
+                # Upgrade retry metadata without trusting legacy money fields.
+                payload = {**(display_payload(old) if old else {}),
+                           'payloadVersion': exporter.PAYLOAD_VERSION,
+                           'status': old.get('status', 'error'), 'email': ticket['fromEmail'],
+                           'shop': self.env.get('SHOPIFY_SHOP') or old.get('shop'),
                            'refreshError': True, 'failures': failures, 'retryAt': now + min(30 * 2 ** (failures - 1), 300)}
                 if not self.token:
                     self.caches['lookups'] = exporter.MAX_LOOKUPS

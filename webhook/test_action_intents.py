@@ -4,9 +4,10 @@ import json
 import hashlib
 import unittest
 import uuid
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from bb_webhook import app as app_module
+from bb_webhook import database
+from bb_webhook.routers import console as console_router
 from bb_webhook.db import Database
 from bb_webhook.send_intents import IntentStore, ActionConflict
 from webhook.action_test_support import setup_action_case
@@ -26,6 +27,53 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
                     ticket_id=1, source_message_id='source-1', text='I can help check that.',
                     draft_revision=self.payload['draft_revision'])
         return await self.store.reserve(**(args | changes))
+
+    async def newer_customer(self, at='2026-09-26T01:00:00.000200Z'):
+        await database.ingest_event(dict(tenant_id='test', ticket_id=1, message_id='new-source',
+            event_type='message', author_type='customer', is_customer_message=True,
+            message_text='A new customer question', created_at=at), '{}', self.path)
+
+    async def test_stale_fresh_reply_is_not_attempted_but_note_policy_is_preserved(self):
+        await self.newer_customer()
+        with patch.object(console_router, '_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'new_customer_message_refresh_ticket')
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.assertEqual(response.json()['operation_id'], self.operation)
+        self.assertIsNone(await self.store.get(self.operation))
+        transport.assert_not_called()
+        _, fresh=await self.reserve(kind='note')
+        self.assertTrue(fresh)
+
+    async def test_malformed_legacy_chronology_blocks_fresh_reply_without_transport(self):
+        await self.newer_customer(at='invalid')
+        with patch.object(console_router, '_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'message_chronology_unavailable')
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.assertEqual(response.json()['operation_id'], self.operation)
+        self.assertIsNone(await self.store.get(self.operation))
+        transport.assert_not_called()
+        self.assertTrue((await self.reserve(kind='note'))[1])
+
+    async def test_both_replay_paths_survive_newer_source_and_restart(self):
+        await self.reserve()
+        await self.newer_customer()
+        self.store=IntentStore(self.path)
+        for state in ('uncertain', 'pending', 'sent'):
+            await self.store.finish(self.operation, state, {'ok':state=='sent', 'delivery_status':state}, 200 if state=='sent' else 202)
+            for operation in (self.operation, str(uuid.uuid4())):
+                row, fresh=await self.reserve(operation_id=operation)
+                self.assertFalse(fresh)
+                self.assertEqual((row['operation_id'], row['state']), (self.operation, state))
+        with self.assertRaisesRegex(ActionConflict, 'new_customer_message_refresh_ticket'):
+            await self.reserve(operation_id=str(uuid.uuid4()), text='A distinct reply')
+        await Database(self.path).execute("UPDATE parsed_messages SET created_at='invalid' WHERE message_id='new-source'")
+        self.assertFalse((await self.reserve(operation_id=str(uuid.uuid4())))[1])
+        rows=await Database(self.path).fetch('SELECT * FROM console_action_intents')
+        self.assertEqual(len(rows), 1)
 
     async def test_two_concurrent_keys_reserve_only_one_semantic_action(self):
         results = await asyncio.gather(self.reserve(), self.reserve(operation_id=str(uuid.uuid4())))
@@ -71,7 +119,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             raise TimeoutError('ambiguous transport failure')
         fake.send_public_reply = send
         recorder = Mock(return_value=True)
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             first = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
             retry = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(first.status_code, 202)
@@ -91,7 +139,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             return {'status': 'sent'}
         fake.send_public_reply, fake._wait_for_delivery = send, read
         recorder = Mock(return_value=True)
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload | {'approve_learning': True,
                 'message_text': 'forged browser facts', 'ai_draft': 'forged browser draft'})
             self.assertEqual(response.status_code, 202)
@@ -115,7 +163,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             return {'ok': True, 'message': {'id': 101}}
         fake.post_internal_note = note
         recorder = Mock()
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             refused = await self.client.post('/dashboard/api/ticket/1/note', json=self.payload | {'confirmed': False})
             accepted = await self.client.post('/dashboard/api/ticket/1/note', json=self.payload | {'approve_learning': True})
         self.assertEqual(refused.status_code, 409)
@@ -131,10 +179,12 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_changed_server_draft_requires_fresh_owner_review(self):
         await Database(self.path).execute("UPDATE ticket_results SET draft_text='changed after review' WHERE message_id='source-1'")
-        with patch.object(app_module, '_GClient') as transport:
+        with patch.object(console_router, '_GClient') as transport:
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error'], 'draft_changed_refresh_ticket')
+        self.assertEqual(response.json()['operation_id'], self.operation)
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
         transport.assert_not_called()
 
     async def test_learning_failure_does_not_hide_send_and_is_recoverable_without_resend(self):
@@ -146,7 +196,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
             return {'ok': True, 'message_id': 99, 'delivery_status': 'sent'}
         fake.send_public_reply = send
         recorder = Mock(side_effect=[False, True])
-        with patch.object(app_module, '_GClient', return_value=fake), patch.object(app_module, '_record_lesson', recorder):
+        with patch.object(console_router, '_GClient', return_value=fake), patch.object(console_router, '_record_lesson', recorder):
             result = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload | {'approve_learning': True})
             retry = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload | {'approve_learning': True})
         self.assertEqual(result.status_code, 200)
@@ -156,25 +206,66 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_operation_or_confirmation_cannot_construct_transport(self):
         for body in (self.payload | {'operation_id': ''}, self.payload | {'confirmed': False}):
-            with patch.object(app_module, '_GClient') as client:
+            with patch.object(console_router, '_GClient') as client:
                 response = await self.client.post('/dashboard/api/ticket/1/send', json=body)
             self.assertIn(response.status_code, (400, 409))
             client.assert_not_called()
 
     async def test_preflight_refusals_allow_recovery_only_without_prior_intent(self):
-        with patch.object(app_module, '_GClient') as transport:
+        with patch.object(console_router, '_GClient') as transport:
             response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'draft_revision':'0'*64})
             self.assertEqual(response.json()['delivery_status'],'not_attempted')
+            self.assertEqual(response.json()['operation_id'],self.operation)
             self.assertIsNone(await self.store.get(self.operation))
             await self.reserve()
             for change in ({'confirmed':False},{'text':''},{'draft_revision':'0'*64}):
                 response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|change)
                 self.assertNotEqual(response.json().get('delivery_status'),'not_attempted')
+                self.assertNotIn('operation_id',response.json())
             transport.assert_not_called()
+
+    async def test_uppercase_operation_cannot_clear_prior_ambiguous_intent(self):
+        self.operation = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        self.payload['operation_id'] = self.operation
+        await self.reserve()
+        self.assertEqual((await self.store.get(self.operation.upper()))['operation_id'], self.operation)
+        with patch.object(console_router, '_GClient') as transport:
+            response = await self.client.post('/dashboard/api/ticket/1/send',
+                json=self.payload | {'operation_id':self.operation.upper(), 'confirmed':False})
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn('delivery_status', response.json())
+        self.assertNotIn('operation_id', response.json())
+        self.assertEqual((await self.store.get(self.operation))['state'], 'uncertain')
+        transport.assert_not_called()
+
+    async def test_fresh_uppercase_refusal_echoes_verified_canonical_operation(self):
+        operation = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        with patch.object(console_router, '_GClient') as transport:
+            response = await self.client.post('/dashboard/api/ticket/1/send',
+                json=self.payload | {'operation_id':operation.upper(), 'confirmed':False})
+        self.assertEqual(response.json()['operation_id'], operation)
+        self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        transport.assert_not_called()
+
+    async def test_preflight_lookup_failure_cannot_identify_a_definite_refusal(self):
+        with patch.object(IntentStore,'get',AsyncMock(side_effect=RuntimeError('synthetic lookup failure'))), \
+             patch.object(console_router,'_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'confirmed':False})
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.json(),{'ok':False,'error':'confirmation_required'})
+        transport.assert_not_called()
+
+    async def test_invalid_operation_is_never_echoed_as_a_known_refusal(self):
+        with patch.object(console_router,'_GClient') as transport:
+            response=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload|{'operation_id':'invalid'})
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(response.json()['error'],'valid_operation_id_required')
+        self.assertNotIn('operation_id',response.json())
+        transport.assert_not_called()
 
     async def test_unauthenticated_or_wrong_origin_cannot_send(self):
         self.client.cookies.clear()
-        with patch.object(app_module, '_GClient') as client:
+        with patch.object(console_router, '_GClient') as client:
             response = await self.client.post('/dashboard/api/ticket/1/send', json=self.payload)
         self.assertEqual(response.status_code, 401)
         client.assert_not_called()

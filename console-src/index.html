@@ -467,61 +467,7 @@ body.bb-console .attention-btn:not(button){grid-template-columns:auto minmax(0,1
 <script>
 const API="/console/api", KBAPI="/console/kbapi";
 let stats={},tickets=[],learn={},tab="overview";
-// ponytail: the inbox iframe IS the tickets tab — no legacy/inbox toggle,
-// Ticket navigation uses the standalone Inbox URL.
 let inboxNavView="all",inboxNavTicket=null;
-var bbArmed=false;
-try{bbArmed=new URLSearchParams(location.search).get("live")==="1";}catch(e){bbArmed=false;}
-// Console action helpers use the dashboard ticket records.
-function bbFindConsoleTicket(inboxId){
-var ids=String(inboxId||"").split(":").filter(Boolean);
-var ticketId=ids.length?ids[ids.length-1]:"";
-var rows=tickets.filter(function(t){return String(t.ticket_id)===String(ticketId);});
-var i;
-for(i=0;i<rows.length;i++){if(rows[i].draft_text) return rows[i];}
-return rows[0]||null;
-}
-function bbRewriteTicket(ticket,instruction){
-return fetch(API+"/ticket/"+ticket.ticket_id+"/rewrite",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({draft:ticket.draft_text||"",instruction:instruction,source_message_id:String(ticket.message_id)})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
-}
-function bbHashText(value){
-return crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(value||""))).then(function(bytes){return Array.from(new Uint8Array(bytes),function(x){return x.toString(16).padStart(2,"0");}).join("");},function(){throw new Error("This browser cannot hash the draft.");});
-}
-function bbNoteTicket(ticket,text){
-if(!ticket.draft_text){return Promise.reject(new Error("No current draft for this ticket - refresh the console data."));}
-return bbHashText(ticket.draft_text||"").then(function(revision){
-var opId=null;
-try{opId=crypto.randomUUID();}catch(e){throw new Error("This browser cannot mint an operation id.");}
-return fetch(API+"/ticket/"+ticket.ticket_id+"/note",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text,confirmed:true,operation_id:opId,source_message_id:String(ticket.message_id),draft_revision:revision,approve_learning:false})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
-});
-}
-function bbSendErrorText(code){
-if(code==="draft_changed_refresh_ticket") return "The draft changed - refresh the console data and review it again.";
-if(code==="recipient_unavailable") return "No recipient address on file for this ticket.";
-if(code==="previous_delivery_unresolved") return "A previous action is unresolved - check its status before sending again.";
-if(code==="source_message_not_in_console"||code==="ticket_not_in_console") return "That ticket is no longer in the console data - refresh to retry.";
-if(code==="delivery_unconfirmed") return "Delivery unconfirmed - check status before sending again. No automatic resend.";
-return "";
-}
-function bbSendTicket(ticket,text,approveLearning){
-if(!ticket.draft_text){return Promise.reject(new Error("No current draft for this ticket - refresh the console data."));}
-return bbHashText(ticket.draft_text||"").then(function(revision){
-var opId=null;
-try{opId=crypto.randomUUID();}catch(e){throw new Error("This browser cannot mint an operation id.");}
-return fetch(API+"/ticket/"+ticket.ticket_id+"/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text,confirmed:true,operation_id:opId,source_message_id:String(ticket.message_id),draft_revision:revision,approve_learning:!!approveLearning})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j};},function(){return {ok:false,status:r.status,body:null};});});
-});
-}
-function bbPerformWrite(kind,ticket,instruction){
-if(kind==="rewrite") return bbRewriteTicket(ticket,instruction);
-if(kind==="send"){
-if(!bbArmed){try{console.info("[dry-run] send validated for ticket "+ticket.ticket_id+" - nothing sent.");}catch(e){}return Promise.resolve({ok:true,dryRun:true});}
-var p=instruction||{};
-return bbSendTicket(ticket,String(p.text||""),!!p.approveLearning);
-}
-if(kind==="note"&&bbArmed) return bbNoteTicket(ticket,instruction);
-if(kind==="note"){try{console.info("[dry-run] note validated for ticket "+ticket.ticket_id+" - nothing posted.");}catch(e){}return Promise.resolve({ok:true,dryRun:true});}
-return Promise.resolve({ok:false,status:0,body:{error:"dry_run"}});
-}
 function bbStandaloneInboxSrc(viewOverride,ticketOverride){
 const q=new URLSearchParams();
 const view=viewOverride===undefined?inboxNavView:viewOverride;
@@ -929,7 +875,7 @@ function pollReindex(version=kbIndexVersion){
   if(s?.running){pollReindex(version);return;}
   kbReindexing=false;kbIndexError=!s?.ok;
   if(s?.ok){if(version===kbIndexVersion)kbNeedsIndex=false;kbMsg=kbNeedsIndex?"Search updated. Newer saved edits still need re-indexing.":"Search updated. Saved articles are ready for the agent.";}
-  else kbMsg=s?"Re-indexing failed. Your articles are saved; try re-indexing again.":"Could not confirm re-index status. Refresh before trying again.";
+  else kbMsg=s?(["Another re-index is already running.","No indexable content was found.","The staged index failed validation."].includes(s.reason)?s.reason:"Re-indexing failed. Your articles are saved; try re-indexing again."):"Could not confirm re-index status. Refresh before trying again.";
   if(tab==="kb")render();
  },3000);
 }
@@ -1069,8 +1015,10 @@ async function testWa(){
 async function unlinkWa(){
  if(!confirm("Unlink this WhatsApp? You'll need to scan a new QR to receive alerts again."))return;
  waMsg="Unlinking…";render();
- try{await fetch(WAAPI+"/logout",{method:"POST"});}catch(e){}
- waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadNotifications,1500);render();
+ try{const r=await fetch(WAAPI+"/logout",{method:"POST"});const data=await r.json();if(!r.ok||data?.ok!==true)throw new Error('Unlink unconfirmed');
+  waMsg="Unlinked — scan the new QR below to re-link.";waSig="";setTimeout(loadNotifications,1500);
+ }catch(e){waMsg="Could not confirm unlinking. WhatsApp may still be linked; try again.";}
+ render();
 }
 function localDateTimeValue(date){const p=n=>String(n).padStart(2,"0");return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;}
 function defaultNoticeDeadline(){return localDateTimeValue(new Date(Date.now()+24*60*60*1000));}

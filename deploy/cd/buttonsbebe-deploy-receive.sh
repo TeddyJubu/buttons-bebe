@@ -158,8 +158,8 @@ readiness_ok() (
       buttonsbebe-webhook)
         curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/ready >/dev/null || return 1 ;;
       helpdesk-inbox2)
-        curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8767/health |
-          python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("ok") is True and x.get("readOnly") is True' || return 1
+        curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8767/ready |
+          python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("status") == "ready" and x.get("readOnly") is True and x.get("checks") == {"storage":"ok","worker":"ok","ticketData":"fresh","projection":"fresh"}' || return 1
         curl --fail --silent --show-error --max-time 10 -X POST \
           http://127.0.0.1:8767/inbox/api/helpdesk -H 'content-type: application/json' \
           -d '{"tool":"helpdesk.capabilities","arguments":{}}' |
@@ -195,7 +195,7 @@ start_active_services() {
     fi
     systemctl start "$service" || return 1
   done
-  if [[ " ${active_timers[*]} " == *" buttonsbebe-inbox-projection.timer "* ]]; then
+  if [[ " ${active_timers[*]-} " == *" buttonsbebe-inbox-projection.timer "* ]]; then
     # Its timer stays paused until deployment succeeds. Build a fresh snapshot
     # using the selected source only after canonical schema startup is ready;
     # never activate an exporter that was not already scheduled by the operator.
@@ -220,7 +220,7 @@ stop_active_services() {
 }
 restore_timers() {
   local timer
-  for timer in "${active_timers[@]}"; do systemctl start "$timer" || return 1; done
+  for timer in ${active_timers[@]+"${active_timers[@]}"}; do systemctl start "$timer" || return 1; done
 }
 rollback() {
   local service failed=0

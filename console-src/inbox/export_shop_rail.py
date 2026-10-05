@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from contextlib import closing
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 import json
 import hashlib
 import os
@@ -22,6 +23,7 @@ from projection import DEFAULT_PATH as PROJECTION_PATH, connect as projection_co
 MAX_LOOKUPS = 25
 CACHE_HIT_SECONDS = 6 * 3600
 CACHE_MISS_SECONDS = 30 * 60
+PAYLOAD_VERSION = shop_rail.PAYLOAD_VERSION
 ORDER_RE = re.compile(r'(?i)(?:\border\s*#?\s*(\d{4,10})\b|#(\d{4,7})\b)')
 EMAIL_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9.-]{1,253}$")
 
@@ -89,8 +91,10 @@ def mint_token(env):
     )
     with opener.open(request, timeout=30) as response:
         payload = json.loads(response.read().decode())
+    if not isinstance(payload, dict):
+        raise RuntimeError('token response invalid')
     token = payload.get('access_token')
-    if not isinstance(token, str) or not token:
+    if not isinstance(token, str) or not token or any(char.isspace() for char in token):
         raise RuntimeError('token mint failed')
     return token
 
@@ -110,6 +114,8 @@ def graphql(env, token, document, variables):
     opener = build_opener(_RefuseRedirects())
     with opener.open(request, timeout=30) as response:
         payload = json.loads(response.read().decode())
+    if not isinstance(payload, dict):
+        raise RuntimeError('graphql response invalid')
     if payload.get('errors'):
         raise RuntimeError('graphql errors')
     data = payload.get('data')
@@ -128,15 +134,16 @@ query InboxCustomerByEmail($query: String!) {
 ORDER_BY_NAME = '''
 query InboxOrderByName($query: String!) {
   orders(first: 1, query: $query) {
+    pageInfo { hasNextPage }
     nodes {
       id name email createdAt displayFinancialStatus displayFulfillmentStatus returnStatus discountCodes
       currentTotalPriceSet { shopMoney { amount currencyCode } presentmentMoney { amount currencyCode } }
       billingAddress { name address1 address2 city province zip country }
       shippingAddress { name address1 address2 city province zip country }
-      lineItems(first: 50) { nodes { title sku quantity unfulfilledQuantity originalUnitPriceSet { shopMoney { amount currencyCode } } image { url altText } } }
+      lineItems(first: 50) { pageInfo { hasNextPage } nodes { title sku quantity unfulfilledQuantity originalUnitPriceSet { shopMoney { amount currencyCode } } image { url altText } } }
       fulfillments { displayStatus estimatedDeliveryAt trackingInfo { number url company } fulfillmentLineItems(first: 50) { nodes { quantity lineItem { title } } } }
-      returns(first: 5) { nodes { id name status createdAt totalQuantity
-        returnLineItems(first: 25) { nodes { __typename id quantity returnReasonDefinition { name } returnReasonNote
+      returns(first: 5) { pageInfo { hasNextPage } nodes { id name status createdAt totalQuantity
+        returnLineItems(first: 25) { pageInfo { hasNextPage } nodes { __typename id quantity returnReasonDefinition { name } returnReasonNote
           ... on ReturnLineItem { fulfillmentLineItem { lineItem { title } } } } }
         exchangeLineItems(first: 5) { nodes { id } } } }
       customer { id defaultEmailAddress { emailAddress } }
@@ -148,6 +155,7 @@ PAST_ORDERS = '''
 query InboxPastOrders($id: ID!) {
   customer(id: $id) {
     orders(first: 50, sortKey: CREATED_AT, reverse: true) {
+      pageInfo { hasNextPage }
       nodes { id name createdAt displayFulfillmentStatus currentTotalPriceSet { shopMoney { amount currencyCode } } }
     }
   }
@@ -155,16 +163,48 @@ query InboxPastOrders($id: ID!) {
 '''
 
 
+def _money(value):
+    if not isinstance(value, dict):
+        return None
+    amount = value.get('amount')
+    currency = value.get('currencyCode')
+    if isinstance(amount, bool) or amount is None or not isinstance(currency, str) or not re.fullmatch(r'[A-Z]{3}', currency):
+        return None
+    try:
+        parsed = Decimal(str(amount))
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite():
+        return None
+    return {'amount': str(amount), 'currencyCode': currency}
+
+
+def _price_set(value):
+    bag = value if isinstance(value, dict) else {}
+    observed = _money(bag.get('shopMoney'))
+    return {'shopMoney': observed} if observed else None
+
+
+def _page_flag(connection):
+    if not isinstance(connection, dict):
+        return None
+    page_info = connection.get('pageInfo')
+    if not isinstance(page_info, dict) or not isinstance(page_info.get('hasNextPage'), bool):
+        return None
+    return page_info['hasNextPage']
+
+
 def _clerk_customer(node):
     email = node.get('defaultEmailAddress') if isinstance(node.get('defaultEmailAddress'), dict) else None
-    spent = node.get('amountSpent') if isinstance(node.get('amountSpent'), dict) else None
+    count = node.get('numberOfOrders')
+    count = str(count) if not isinstance(count, bool) and count is not None and re.fullmatch(r'\d+', str(count)) else None
     return {
         'id': node.get('id'),
         'displayName': node.get('displayName'),
         'defaultEmailAddress': {'emailAddress': email['emailAddress']} if email and email.get('emailAddress') else None,
         'createdAt': node.get('createdAt'),
-        'numberOfOrders': str(node.get('numberOfOrders') or '0'),
-        'amountSpent': {'amount': str(spent.get('amount')), 'currencyCode': str(spent.get('currencyCode'))} if spent and 'amount' in spent and 'currencyCode' in spent else {'amount': '0.0', 'currencyCode': 'USD'},
+        'numberOfOrders': count,
+        'amountSpent': _money(node.get('amountSpent')),
         'tags': list(node.get('tags') or []),
         'giftCards': [],
     }
@@ -182,21 +222,19 @@ def _clerk_order(node):
             'trackingInfo': item.get('trackingInfo') or [],
             'fulfillmentLineItems': item.get('fulfillmentLineItems') or {'nodes': []},
         })
-    bag = node.get('currentTotalPriceSet') if isinstance(node.get('currentTotalPriceSet'), dict) else None
-    shop_money = (bag or {}).get('shopMoney') if isinstance((bag or {}).get('shopMoney'), dict) else {'amount': '0.0', 'currencyCode': 'USD'}
     return {
         'id': node.get('id'),
         'name': node.get('name'),
         'createdAt': node.get('createdAt'),
         'displayFinancialStatus': node.get('displayFinancialStatus'),
         'displayFulfillmentStatus': node.get('displayFulfillmentStatus'),
-        'currentTotalPriceSet': {'shopMoney': {'amount': str(shop_money.get('amount', '0.0')), 'currencyCode': str(shop_money.get('currencyCode', 'USD'))}},
+        'currentTotalPriceSet': _price_set(node.get('currentTotalPriceSet')),
         'billingAddress': node.get('billingAddress'),
         'shippingAddress': node.get('shippingAddress'),
         'lineItems': {'nodes': [{
             'title': line.get('title'), 'sku': line.get('sku'), 'quantity': line.get('quantity'),
             'unfulfilledQuantity': line.get('unfulfilledQuantity'),
-            'originalUnitPriceSet': line.get('originalUnitPriceSet') or {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}},
+            'originalUnitPriceSet': _price_set(line.get('originalUnitPriceSet')),
             'image': line.get('image'),
         } for line in lines if isinstance(line, dict)]},
         'fulfillments': fulfillments,
@@ -210,13 +248,10 @@ def _return_item(line):
     # verified rows (UnverifiedReturnLineItem carries no fulfillment link).
     fulfillment = line.get('fulfillmentLineItem') if isinstance(line.get('fulfillmentLineItem'), dict) else {}
     linked = fulfillment.get('lineItem') if isinstance(fulfillment.get('lineItem'), dict) else {}
-    price = line.get('withCodeDiscountedTotalPriceSet') if isinstance(line.get('withCodeDiscountedTotalPriceSet'), dict) else {}
-    shop_money = price.get('shopMoney') if isinstance(price.get('shopMoney'), dict) else {}
     reason = line.get('returnReasonDefinition') if isinstance(line.get('returnReasonDefinition'), dict) else {}
     return {
         'title': linked.get('title'),
         'quantity': line.get('quantity'),
-        'price': {'shopMoney': {'amount': shop_money.get('amount'), 'currencyCode': shop_money.get('currencyCode')}} if shop_money else None,
         'reason': reason.get('name'),
         'note': line.get('returnReasonNote'),
     }
@@ -232,8 +267,7 @@ def _clerk_returns(node):
         items = [_return_item(line) for line in items_connection.get('nodes') or [] if isinstance(line, dict)]
         # cubic: more line items than the page read is honest data the pane
         # must show, never a silently partial list.
-        page_info = items_connection.get('pageInfo') if isinstance(items_connection.get('pageInfo'), dict) else {}
-        items_truncated = bool(page_info.get('hasNextPage'))
+        items_truncated = _page_flag(items_connection)
         exchange_connection = item.get('exchangeLineItems') if isinstance(item.get('exchangeLineItems'), dict) else {}
         exchanges = len(exchange_connection.get('nodes') or [])
         # #46: Gorgias's "return type" — a return with exchange line items is
@@ -256,12 +290,10 @@ def _clerk_history(nodes):
     for node in nodes or []:
         if not isinstance(node, dict) or not node.get('id'):
             continue
-        bag = node.get('currentTotalPriceSet') if isinstance(node.get('currentTotalPriceSet'), dict) else {}
-        money = bag.get('shopMoney') if isinstance(bag.get('shopMoney'), dict) else {'amount': '0.0', 'currencyCode': 'USD'}
         rows.append({
             'id': node['id'], 'name': node.get('name'), 'createdAt': node.get('createdAt'),
             'displayFulfillmentStatus': node.get('displayFulfillmentStatus'),
-            'currentTotalPriceSet': {'shopMoney': {'amount': str(money.get('amount', '0.0')), 'currencyCode': str(money.get('currencyCode', 'USD'))}},
+            'currentTotalPriceSet': _price_set(node.get('currentTotalPriceSet')),
         })
     return rows
 
@@ -309,12 +341,23 @@ def load_cache(path):
 
 
 def fresh(entry, now):
-    if not entry:
+    if (not entry or not isinstance(entry.get('payload'), dict)
+            or entry['payload'].get('payloadVersion') != PAYLOAD_VERSION):
         return False
+    if entry['payload'].get('refreshError'):
+        return now < entry['payload'].get('retryAt', 0)
     age = now - entry['updated_at']
     status = (entry['payload'] or {}).get('status')
     limit = CACHE_HIT_SECONDS if status == 'found' else CACHE_MISS_SECONDS
     return age < limit
+
+
+def known_store_mismatch(payload, env):
+    # Invalid cache rows cannot establish a safe store binding either.
+    if not isinstance(payload, dict):
+        return True
+    observed, configured = payload.get('shop'), env.get('SHOPIFY_SHOP')
+    return bool(observed and configured and observed != configured)
 
 
 class LookupBudgetExceeded(Exception):
@@ -335,6 +378,8 @@ def lookup_ticket(env, token, ticket, caches):
     email, order_names = ticket_keys(ticket)
     customer = None
     order = None
+    order_search = False
+    page_flags = caches.setdefault('pageInfo', {})
     # Without a consistent ticket identity, never join an order mentioned in text.
     if email:
         key = email.casefold()
@@ -348,8 +393,12 @@ def lookup_ticket(env, token, ticket, caches):
         for name in order_names:
             if name not in caches['orders']:
                 data = fetch(ORDER_BY_NAME, {'query': f'name:"{name}"'})
-                nodes = ((data.get('orders') or {}).get('nodes') or [])
+                connection = data.get('orders') or {}
+                nodes = connection.get('nodes') or []
                 caches['orders'][name] = next((node for node in nodes if str(node.get('name', '')).lstrip('#') == name), None)
+                page_flags[('order', name)] = _page_flag(connection)
+            flag = page_flags.get(('order', name))
+            order_search = True if order_search is True or flag is True else None if order_search is None or flag is None else False
             node = caches['orders'][name]
             if not node:
                 continue
@@ -364,9 +413,12 @@ def lookup_ticket(env, token, ticket, caches):
     if customer_id:
         if customer_id not in caches['history']:
             data = fetch(PAST_ORDERS, {'id': customer_id})
-            caches['history'][customer_id] = _clerk_history((((data.get('customer') or {}).get('orders') or {}).get('nodes')))
+            connection = ((data.get('customer') or {}).get('orders') or {})
+            caches['history'][customer_id] = _clerk_history(connection.get('nodes'))
+            page_flags[('history', customer_id)] = _page_flag(connection)
         history = caches['history'][customer_id]
     payload = {
+        'payloadVersion': PAYLOAD_VERSION,
         'status': 'found' if customer or order else 'missing',
         'email': email, 'customerId': customer_id,
         'orderId': (order or {}).get('id'),
@@ -377,6 +429,12 @@ def lookup_ticket(env, token, ticket, caches):
         'order': _clerk_order(order) if order else None,
         'returns': _clerk_returns(order) if order else None,
         'history': history,
+        'partial': {
+            'orderSearch': order_search,
+            'orderItems': _page_flag(order.get('lineItems')) if order else False,
+            'returns': _page_flag(order.get('returns')) if order else False,
+            'history': page_flags.get(('history', customer_id)) if customer_id else False,
+        },
         'keysHash': keys_hash(ticket),
     }
     return payload, caches['lookups'] >= MAX_LOOKUPS
@@ -392,6 +450,7 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
     cache = load_cache(destination)
     env = load_shopify_env(env_file)
     token = None
+    mint_failed = False
     caches = {'customers': {}, 'orders': {}, 'history': {}, 'lookups': 0, 'graphql': graphql_call or graphql}
     mint_fn = mint or mint_token
     payloads = {}
@@ -401,6 +460,10 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
         if not ticket_id:
             continue
         entry = cache.get(ticket_id)
+        if entry and known_store_mismatch(entry['payload'], env):
+            # An invalid or known different store cannot supply cached details, even
+            # while reads fail or the lookup budget is exhausted.
+            entry = None
         if entry and entry['payload'].get('keysHash') != keys_hash(ticket):
             entry = None
         if entry:
@@ -408,14 +471,19 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
         if fresh(entry, now):
             payloads[ticket_id] = entry['payload']
             continue
-        if caches['lookups'] >= MAX_LOOKUPS:
+        if mint_failed or caches['lookups'] >= MAX_LOOKUPS:
             if entry:
                 payloads[ticket_id] = entry['payload']
             continue
-        if token is None:
-            token = mint_fn(env)
         try:
-            payload, _ = lookup_ticket(env, token, ticket, caches)
+            if token is None:
+                token = mint_fn(env)
+            try:
+                payload, _ = lookup_ticket(env, token, ticket, caches)
+            except (AttributeError, TypeError, KeyError):
+                # Malformed nested provider data must still publish the filtered
+                # fallback rather than leave rejected old-store data on disk.
+                raise RuntimeError('Shopify response shape invalid') from None
             payload['fetchedAt'] = datetime.fromtimestamp(now, timezone.utc).isoformat()
             payload['fetchedAtEpoch'] = now
             timestamps[ticket_id] = now
@@ -423,11 +491,20 @@ def export(projection_path, destination, env_file, *, now=None, graphql_call=Non
             if entry:
                 payloads[ticket_id] = entry['payload']
             continue
-        except (HTTPError, URLError, TimeoutError, RuntimeError, json.JSONDecodeError):
+        except (HTTPError, URLError, TimeoutError, RuntimeError, json.JSONDecodeError, UnicodeDecodeError):
             # cubic: the fallback a failed refresh writes must still name the
             # store scope — every exported snapshot names the one store.
-            payload = dict((entry or {}).get('payload') or {'status': 'error', 'email': ticket_keys(ticket)[0], 'keysHash': keys_hash(ticket), 'shop': env.get('SHOPIFY_SHOP') or None})
-            payload['refreshError'] = True
+            old = (entry or {}).get('payload')
+            payload = dict(shop_rail.display_payload(old)) if old else {
+                'status': 'error', 'email': ticket_keys(ticket)[0],
+                'keysHash': keys_hash(ticket), 'shop': env.get('SHOPIFY_SHOP') or None}
+            payload['shop'] = env.get('SHOPIFY_SHOP') or payload.get('shop')
+            # The failed attempt gets its own bounded retry clock. The retained
+            # snapshot's observation time and unverified legacy prices stay honest.
+            payload.update(payloadVersion=PAYLOAD_VERSION, refreshError=True,
+                           retryAt=now + CACHE_MISS_SECONDS)
+            if token is None:
+                mint_failed = True
         payloads[ticket_id] = payload
     fd, name = tempfile.mkstemp(prefix='.shop-rail-', suffix='.sqlite3', dir=directory)
     os.close(fd)

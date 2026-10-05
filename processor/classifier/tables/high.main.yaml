@@ -1,6 +1,6 @@
 [
   {
-    "pattern": "\\burgent\\b",
+    "pattern": "\\burgent(?:ly)?\\b",
     "exemplar": "This order is urgent and I need help.",
     "tier": "high",
     "view": "unfiltered"

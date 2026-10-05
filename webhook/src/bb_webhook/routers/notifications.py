@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from .. import deps
+from .. import database, deps
 from ..notifications import dashboard_notifications
 
 router = APIRouter(prefix="/dashboard/api")
@@ -39,10 +39,10 @@ def _read_notification_state(raw_state: str) -> dict[str, str]:
 
 
 async def _current_notifications() -> tuple[list[dict[str, Any]], dict[str, str]]:
-    tickets = await deps.database_function("get_dashboard_tickets")(limit=100)
+    tickets = await database.get_dashboard_tickets(limit=100)
     notifications = dashboard_notifications(tickets)
     read_state = _read_notification_state(
-        await deps.database_function("get_setting")(_NOTIFICATION_READ_STATE_KEY, "{}")
+        await database.get_setting(_NOTIFICATION_READ_STATE_KEY, "{}")
     )
     # ids gained a :{ticket_id} suffix to stay unique per ticket; an ack
     # recorded under the old unsuffixed key still covers the message, so honor
@@ -110,7 +110,7 @@ async def mark_dashboard_notifications_read(request: Request) -> JSONResponse:
             next_read_state[notification["id"]] = now
     for notification_id in ids_to_mark:
         next_read_state[notification_id] = now
-    await deps.database_function("set_setting")(
+    await database.set_setting(
         _NOTIFICATION_READ_STATE_KEY,
         json.dumps(next_read_state, separators=(",", ":")),
     )

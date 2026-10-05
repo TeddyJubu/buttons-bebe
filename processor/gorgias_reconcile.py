@@ -1,6 +1,6 @@
 """Recover customer draft jobs when Gorgias webhook delivery is interrupted.
 
-Only the two read-only Gorgias MCP tools below are used. Recovered messages go
+Only the three read-only Gorgias MCP tools below are used. Recovered messages go
 through the same durable intake and Hermes queue as signed webhook messages;
 there is no provider write or automatic customer reply.
 """
@@ -8,17 +8,19 @@ there is no provider write or automatic customer reply.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
-from typing import Any
 
 import httpx
 
 from bb_webhook.database import ingest_event
 from bb_webhook.db import Database
 from bb_webhook.message_content import message_text
+from bb_webhook.message_times import normalize_timestamp, utc_microseconds, SOURCE_TIME_SQL
 from logging_setup import get_logger, log_event
 
 logger = get_logger(__name__)
@@ -28,13 +30,6 @@ MAX_DETAILS = 5
 MAX_ACTIVE_JOBS = 5
 SCAN_SECONDS = 60
 LOOKBACK_DAYS = 90  # The Inbox draft projection has the same window.
-
-
-def epoch(value: Any) -> float:
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-    except (TypeError, ValueError, OverflowError):
-        return 0
 
 
 class ReadOnlyMCP:
@@ -107,7 +102,7 @@ class ReadOnlyMCP:
         return result.get("result") or {}
 
     async def call(self, tool: str, arguments: dict) -> dict:
-        if tool not in {"list_inbox_tickets", "get_ticket_messages"}:
+        if tool not in {"list_inbox_tickets", "get_ticket", "get_ticket_messages"}:
             raise ValueError("Non-read Gorgias tool refused")
         result = await self.rpc("tools/call", {"name": tool, "arguments": arguments})
         if result.get("isError"):
@@ -121,19 +116,35 @@ class ReadOnlyMCP:
         return data
 
 
-def _candidate(ticket: dict, cutoff: float) -> bool:
+def _candidate(ticket: dict, cutoff: int) -> bool:
     if type(ticket.get("id")) is not int or ticket["id"] <= 0:
         return False
     if ticket.get("status") != "open" or ticket.get("spam") or ticket.get("trashed_datetime"):
         return False
-    return epoch(ticket.get("last_received_message_datetime")) >= cutoff
+    received = utc_microseconds(ticket.get("last_received_message_datetime"))
+    return received is not None and received >= cutoff
 
 
 def _latest_public(messages: list[dict]) -> dict | None:
     public = [m for m in messages if isinstance(m, dict) and m.get("public") is not False
-              and m.get("channel") != "internal-note" and epoch(m.get("created_datetime"))]
-    return max(public, key=lambda m: (epoch(m.get("created_datetime")), str(m.get("id") or "")),
+              and m.get("channel") != "internal-note" and utc_microseconds(m.get("created_datetime")) is not None]
+    return max(public, key=lambda m: (utc_microseconds(m.get("created_datetime")), str(m.get("id") or "")),
                default=None)
+
+
+def _detail_page_is_missing(message: dict | None) -> bool:
+    return message is None
+
+
+def _detail_page_matches_ticket(message: dict, ticket_id: int) -> bool:
+    return message.get("ticket_id") == ticket_id
+
+
+def _detail_page_lags_summary(message: dict, ticket: dict) -> bool:
+    return (
+        utc_microseconds(message.get("created_datetime"))
+        < utc_microseconds(ticket["last_received_message_datetime"])
+    )
 
 
 def _event(ticket: dict, message: dict, tenant: str) -> tuple[dict, str] | None:
@@ -152,7 +163,9 @@ def _event(ticket: dict, message: dict, tenant: str) -> tuple[dict, str] | None:
     tags = [x.get("name", "") if isinstance(x, dict) else str(x) for x in raw_tags]
     intents = [{"name": str(x.get("name"))[:80]} for x in message.get("intents") or []
                if isinstance(x, dict) and x.get("name")][:10]
-    created_at = message["created_datetime"]
+    created_at = normalize_timestamp(message.get("created_datetime"))
+    if created_at is None:
+        return None
     event = {"tenant_id": tenant, "ticket_id": ticket["id"], "message_id": message["id"],
              "event_type": "ticket-message-created", "author_type": "customer",
              "author_email": author_email, "channel": message.get("channel") or ticket.get("channel"),
@@ -192,104 +205,148 @@ async def _mark_seen(db: Database, ticket: dict, outcome: str) -> None:
          datetime.now(timezone.utc).isoformat(), outcome), operation="gorgias_reconcile_seen")
 
 
-async def reconcile_page(db_path: Path, tenant: str, cursor: str | None = None,
+@dataclass
+class PageBatch:
+    remaining: deque[dict]
+    next_cursor: str | None
+
+
+@dataclass
+class SweepPosition:
+    cursor: str | None = None
+    batch: PageBatch | None = None
+
+    def advance(self):
+        self.cursor = self.batch.next_cursor
+        self.batch = None
+
+
+async def reconcile_page(db_path: Path, tenant: str, position: SweepPosition,
                          *, client_factory=ReadOnlyMCP, max_details: int = MAX_DETAILS,
                          max_active_jobs: int = MAX_ACTIVE_JOBS,
                          now: float | None = None) -> tuple[str | None, int]:
-    """Inspect one Gorgias page; return next cursor and count of new jobs."""
     db = Database(db_path)
     active_rows = await db.fetch(
         "SELECT COUNT(*) AS n FROM job_queue WHERE is_customer_message=1 AND status IN ('pending','processing')",
         operation="gorgias_reconcile_capacity")
     slots = max(0, max_active_jobs - int(active_rows[0]["n"]))
     if not slots:
-        return cursor, 0
-    cutoff = (now or time.time()) - timedelta(days=LOOKBACK_DAYS).total_seconds()
+        return position.cursor, 0
+    cutoff = int((now if now is not None else time.time()) * 1_000_000) - LOOKBACK_DAYS * 86400 * 1_000_000
+    deferred = position.batch is not None
     async with client_factory() as client:
-        page = await client.call("list_inbox_tickets", {"limit": PAGE_SIZE,
-                              **({"cursor": cursor} if cursor else {})})
-        tickets = page.get("data")
-        if not isinstance(tickets, list):
-            raise ValueError("Gorgias ticket page unavailable")
-        next_cursor = (page.get("meta") or {}).get("next_cursor")
-        candidates = [t for t in tickets if isinstance(t, dict) and _candidate(t, cutoff)]
-        if not candidates:
-            return next_cursor if next_cursor != cursor else None, 0
-        ids = tuple(t["id"] for t in candidates)
+        if position.batch is None:
+            page = await client.call("list_inbox_tickets", {"limit": PAGE_SIZE,
+                                  **({"cursor": position.cursor} if position.cursor else {})})
+            tickets = page.get("data")
+            if not isinstance(tickets, list):
+                raise ValueError("Gorgias ticket page unavailable")
+            next_cursor = (page.get("meta") or {}).get("next_cursor")
+            if next_cursor is not None and not isinstance(next_cursor, str):
+                raise ValueError("Gorgias ticket cursor unavailable")
+            if next_cursor == position.cursor:
+                next_cursor = None
+            candidates = deque(dict(t) for t in tickets[:PAGE_SIZE]
+                               if isinstance(t, dict) and _candidate(t, cutoff))
+            position.batch = PageBatch(candidates, next_cursor)
+        if not position.batch.remaining:
+            position.advance()
+            return position.cursor, 0
+        ids = tuple(t["id"] for t in position.batch.remaining)
         placeholders = ",".join("?" for _ in ids)
         seen_rows = await db.fetch(
             f"SELECT ticket_id,updated_at FROM gorgias_reconcile_seen WHERE ticket_id IN ({placeholders})",
             ids, operation="gorgias_reconcile_seen_read")
         seen = {row["ticket_id"]: row["updated_at"] for row in seen_rows}
         parsed_rows = await db.fetch(
-            f"SELECT ticket_id,MAX(created_at) AS newest FROM parsed_messages "
+            f"SELECT ticket_id,MAX({SOURCE_TIME_SQL}) AS newest, "
+            f"MAX({SOURCE_TIME_SQL} IS NULL OR utc_microseconds(received_at) IS NULL) AS chronology_invalid FROM parsed_messages "
             f"WHERE is_customer_message=1 AND ticket_id IN ({placeholders}) GROUP BY ticket_id",
             ids, operation="gorgias_reconcile_parsed_read")
-        parsed = {row["ticket_id"]: epoch(row["newest"]) for row in parsed_rows}
-        unchecked = [t for t in candidates
-                     if seen.get(t["id"]) != (t.get("updated_datetime") or "")
-                     and parsed.get(t["id"], 0) < epoch(t["last_received_message_datetime"])]
-        if not unchecked:
-            return next_cursor if next_cursor != cursor else None, 0
+        parsed = {row["ticket_id"]: row["newest"] if not row["chronology_invalid"] else None for row in parsed_rows}
         enqueued = 0
         checked = 0
-        for ticket in unchecked:
-            if checked >= max_details or slots <= 0:
-                break
-            checked += 1
+        detail_reads = 0
+        detail_limit = min(MAX_DETAILS, max_details)
+        while position.batch.remaining and checked < detail_limit and detail_reads < 2 * detail_limit and slots > 0:
+            ticket = position.batch.remaining.popleft()
+            if not _candidate(ticket, cutoff):
+                continue
+            if deferred:
+                checked += 1
+                detail_reads += 1
+                try:
+                    current = await client.call("get_ticket", {"ticket_id": ticket["id"]})
+                    if not isinstance(current, dict) or current.get("id") != ticket["id"]:
+                        raise ValueError("Gorgias ticket state unavailable")
+                except Exception as exc:
+                    log_event(logger, "WARNING", "Gorgias deferred ticket state unavailable",
+                              ticket_id=ticket["id"], error=type(exc).__name__)
+                    continue
+                if not _candidate(current, cutoff):
+                    continue
+                ticket = current
+            if (seen.get(ticket["id"]) == (ticket.get("updated_datetime") or "")
+                    or (parsed.get(ticket["id"]) is not None
+                        and parsed[ticket["id"]] >= utc_microseconds(ticket["last_received_message_datetime"]))):
+                continue
+            if not deferred:
+                checked += 1
+            detail_reads += 1
             try:
                 detail = await client.call("get_ticket_messages", {"ticket_id": ticket["id"], "limit": 50})
                 messages = detail.get("data")
                 if not isinstance(messages, list):
                     raise ValueError("Gorgias messages unavailable")
-                latest = _latest_public(messages)
-                if latest is None:
-                    continue  # Incomplete page: retry after Gorgias catches up.
-                if latest.get("ticket_id") != ticket["id"]:
-                    continue  # Never attribute another ticket's message to this customer.
-                if latest.get("from_agent") is True:
-                    await _mark_seen(db, ticket, "agent_replied")
-                    continue
-                if latest.get("from_agent") is not False:
-                    continue
-                if epoch(latest.get("created_datetime")) < epoch(ticket["last_received_message_datetime"]):
-                    continue  # The ticket summary is ahead of the message page.
-                normalized = _event(ticket, latest, tenant)
-                if normalized is None:
-                    await _mark_seen(db, ticket, "content_unavailable")
-                    continue
-                event, raw = normalized
-                job_id = await ingest_event(event, raw, db_path)
-                await _mark_seen(db, ticket, "queued" if job_id else "duplicate")
-                if job_id is not None:
-                    enqueued += 1
-                    slots -= 1
-                    log_event(logger, "INFO", "Recovered customer message for Hermes",
-                              ticket_id=ticket["id"], message_id=latest["id"], job_id=job_id)
-            except (httpx.HTTPError, ValueError) as exc:
+            except Exception as exc:
                 log_event(logger, "WARNING", "Gorgias draft recovery read failed",
                           ticket_id=ticket["id"], error=type(exc).__name__)
-        has_more_on_page = len(unchecked) > checked
-        return (cursor if has_more_on_page else (next_cursor if next_cursor != cursor else None)), enqueued
+                continue
+            latest = _latest_public(messages)
+            if _detail_page_is_missing(latest):
+                continue
+            if not _detail_page_matches_ticket(latest, ticket["id"]):
+                continue
+            if latest.get("from_agent") is True:
+                await _mark_seen(db, ticket, "agent_replied")
+                continue
+            if latest.get("from_agent") is not False:
+                continue
+            if _detail_page_lags_summary(latest, ticket):
+                continue
+            normalized = _event(ticket, latest, tenant)
+            if normalized is None:
+                await _mark_seen(db, ticket, "content_unavailable")
+                continue
+            event, raw = normalized
+            job_id = await ingest_event(event, raw, db_path)
+            await _mark_seen(db, ticket, "queued" if job_id else "duplicate")
+            if job_id is not None:
+                enqueued += 1
+                slots -= 1
+                log_event(logger, "INFO", "Recovered customer message for Hermes",
+                          ticket_id=ticket["id"], message_id=latest["id"], job_id=job_id)
+        if not position.batch.remaining:
+            position.advance()
+        return position.cursor, enqueued
 
 
-async def reconcile_loop(db_path: Path, tenant: str) -> None:
+async def reconcile_loop(db_path: Path, tenant: str, *, client_factory=ReadOnlyMCP) -> None:
     """Keep webhook-free reads as a bounded, idempotent safety net."""
-    cursor = None
+    position = SweepPosition()
     sweep = 0
     while True:
+        refresh_head = sweep > 0 and sweep % 5 == 0
         try:
-            # Check the newest tickets regularly while older pages are scanned.
-            if sweep % 5 == 0:
-                cursor = None
-            cursor, enqueued = await reconcile_page(db_path, tenant, cursor)
+            turn = SweepPosition() if refresh_head else position
+            _, enqueued = await reconcile_page(db_path, tenant, turn, client_factory=client_factory)
             if enqueued:
                 log_event(logger, "INFO", "Gorgias draft recovery queued jobs", count=enqueued)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            cursor = None
-            log_event(logger, "WARNING", "Gorgias draft recovery unavailable",
-                      error=type(exc).__name__)
+            if not refresh_head:
+                position = SweepPosition()
+            log_event(logger, "WARNING", "Gorgias draft recovery unavailable", error=type(exc).__name__)
         sweep += 1
         await asyncio.sleep(SCAN_SECONDS)

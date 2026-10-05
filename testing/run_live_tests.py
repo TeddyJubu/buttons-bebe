@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 from qa_harness import Harness, atomic_json
+from qa_receipt import check_run_integrity, hermes_identity, kb_snapshot, model_runtime_identity, run_receipt, source_fingerprint
 from qa_safety import scenario_fixture
 
 
@@ -49,13 +50,26 @@ def main():
                         hermes_source=args.hermes_source,kb_mode=args.kb_mode,timeout=args.timeout,base_port=args.base_port,
                         product_manifest=args.product_manifest,product_manifest_sha256=args.product_manifest_sha256,
                         policy_overlay=args.policy_overlay,policy_overlay_sha256=args.policy_overlay_sha256)
+        def bindings():
+            return {"source":source_fingerprint(),"hermes":hermes_identity(harness.hermes,harness.hermes_source),
+                    "model_runtime":model_runtime_identity(harness.home/".hermes"/"config.yaml",harness.hermes_python),
+                    "kb_snapshot":kb_snapshot(args.kb_mode,args.product_manifest,args.product_manifest_sha256,
+                                              args.policy_overlay,args.policy_overlay_sha256)}
+        before=bindings()
         harness.start(scenario_fixture(indexed[0][1],indexed[0][0]))
         results=[]
         for ordinal,scenario in indexed:
             print(f"QA {scenario['id']} ({len(results)+1}/{len(indexed)})",flush=True)
             results.append(harness.run(scenario,ordinal))
             atomic_json(harness.output/"results.json",results)
-        print(f"Captured {len(results)} synthetic cases; human grading remains required.")
+        receipt=run_receipt(args.suite,[s["id"] for _,s in indexed],results,before,bindings())
+        atomic_json(harness.output/"run.json",receipt)
+        try:
+            check_run_integrity(receipt)
+        except ValueError as error:
+            print(f"{error}; this evidence cannot be reviewed for release.",file=sys.stderr)
+            return 1
+        print(f"Captured {len(results)} synthetic cases ({'full' if receipt['complete'] else 'partial'} suite); human grading remains required.")
         return 0
     except Exception as exc:
         # Deliberately omit exception text: transport/provider errors may contain

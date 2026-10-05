@@ -91,6 +91,40 @@ class TestNotices(unittest.TestCase):
         self.assertEqual(notices_lib.purge_expired(now), 1)
         self.assertEqual([n["id"] for n in notices_lib.load_all()], ["n_live"])
 
+    def test_strict_snapshot_missing_and_empty_are_available(self) -> None:
+        self.assertEqual(notices_lib.active_notice_snapshot(), [])
+        notice = notices_lib.add_notice("Current owner guidance")
+        self.assertEqual(notices_lib.active_notice_snapshot(), [notice])
+        self.notices_file.write_text("[]")
+        self.assertEqual(notices_lib.active_notice_snapshot(), [])
+
+    def test_strict_snapshot_refuses_corrupt_or_malformed_stores(self) -> None:
+        self.notices_dir.mkdir(parents=True)
+        for contents in ("{broken", "{}", '[{"id":"bad"}]'):
+            with self.subTest(contents=contents):
+                self.notices_file.write_text(contents)
+                with self.assertRaises(ValueError):
+                    notices_lib.active_notice_snapshot()
+
+    def test_strict_snapshot_does_not_hide_permission_error(self) -> None:
+        with patch("builtins.open", side_effect=PermissionError("synthetic-private")):
+            with self.assertRaises(PermissionError):
+                notices_lib.active_notice_snapshot()
+
+    def test_notice_results_use_one_strict_snapshot_and_timestamp(self) -> None:
+        now = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        items = [
+            {"id": "expired", "text": "Expired", "expires_at": now.isoformat()},
+            {"id": "active", "text": "Current policy", "expires_at": "2026-01-03T00:00:00+00:00"},
+            {"id": "indefinite", "text": "Owner wording", "expires_at": None},
+        ]
+        with patch.object(notices_lib, "_read_items", return_value=items) as read, \
+                patch.object(notices_lib, "_now", side_effect=[now]):
+            results = notices_lib.as_search_results()
+        self.assertEqual([r["text"].split("\n")[-1] for r in results], ["Current policy", "Owner wording"])
+        self.assertEqual([(r["source"], r["tags"]) for r in results], [("owner", "notice, owner-override")] * 2)
+        read.assert_called_once_with(strict=True)
+
 
 if __name__ == "__main__":
     unittest.main()

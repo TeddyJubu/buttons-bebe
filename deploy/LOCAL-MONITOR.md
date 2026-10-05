@@ -3,8 +3,20 @@
 The webhook's public `/health` is process liveness. Its `/ready` checks local
 DB/schema/configuration and queue diagnostics; it intentionally makes no provider
 or model calls. Neither endpoint establishes that the entire draft pipeline is
-healthy. Inbox `/ready` additionally requires its stored data and fresh read-only
-projection. Keep those distinctions when configuring uptime checks.
+healthy. Inbox `/ready` additionally requires readable SQLite schema/metadata, a
+completed initial ticket cycle, a progressing sync worker, and a fresh read-only
+draft projection. It opens snapshots read-only and makes no provider requests.
+A partial first scan is unusable. A later full backfill can remain ready while
+its head and page progress stay fresh. Stale data or a failed/stuck worker returns
+503; readable retained rows remain available to staff. `/health` remains liveness.
+
+Ticket completion/head/page freshness is bounded at 120 seconds; draft projection
+freshness is 180 seconds. Worker progress uses a monotonic clock, with separate
+limits for transport, writes, scanning, sleeping and retry backoff. A new phase
+alone cannot hide more than 120 seconds without page progress during active work.
+The monitor labels a readable degraded Inbox as attention and an unusable or
+malformed readiness response as unavailable. Shopify enrichment is optional for
+readiness. Keep these distinctions when configuring uptime checks.
 
 `tools/ops/monitor.py` adds a separate read-only operations view. It checks critical
 service/timer activity, localhost MCP/WhatsApp/KB-admin socket availability,

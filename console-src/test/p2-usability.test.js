@@ -1,21 +1,14 @@
 const assert = require('node:assert/strict');
-const { existsSync, readFileSync } = require('node:fs');
+const { readFileSync } = require('node:fs');
 const test = require('node:test');
+const { chromium } = require('playwright');
 
 const source = readFileSync(new URL('../index.html', `file://${__filename}`), 'utf8');
-const chrome = [process.env.INBOX_TEST_BROWSER,
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
-].filter(Boolean).find(existsSync);
 const title = 'Intent 1 — First-time customer asks for help choosing between two sizes for a winter coat';
+const intentionallyMismatchedGenerationSuccessCount = 37;
 
 async function openConsole(t, width = 1340) {
-  let chromium;
-  try { ({ chromium } = require('playwright')); } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND' || !error.message.startsWith("Cannot find module 'playwright'")) throw error;
-  }
-  if (!chrome || !chromium) { t.skip('local Chrome and playwright required'); return; }
-  const browser = await chromium.launch({ executablePath: chrome, headless: true });
+  const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 844 }, reducedMotion: 'reduce' });
   const writes = [];
@@ -23,7 +16,10 @@ async function openConsole(t, width = 1340) {
     const req = route.request(), path = new URL(req.url()).pathname;
     if (req.method() !== 'GET') { writes.push(path); return route.abort(); }
     const data = {
-      '/console/api/stats': { drafted: 80, sensitive_draft: 10, no_kb_match: 2, owner_alerts_need_attention: 51 },
+      '/console/api/stats': {
+        drafted: 80, sensitive_draft: 10, no_kb_match: 2,
+        generation_succeeded: intentionallyMismatchedGenerationSuccessCount, owner_alerts_need_attention: 51,
+      },
       '/console/api/tickets': [], '/console/api/learning': {}, '/console/api/ops': { status: 'missing' },
       '/console/kbapi/health': { ok: true, folders: {}, products: {} },
       '/console/waapi/status': { state: 'connected', owner: '15555550100@s.whatsapp.net', notify: { mode: 'linked', number: '' } },
@@ -54,16 +50,17 @@ async function selectTab(page, tab) {
   await page.locator(`.nav [data-tab="${tab}"]`).click();
 }
 
-test('UI-05: cumulative draft output is not described as pending review', async t => {
-  const fixture = await openConsole(t); if (!fixture) return;
-  const text = await fixture.page.locator('.kpi').filter({ hasText: 'AI drafts written' }).innerText();
-  assert.match(text.replace(/\s/g, ''), /92/);
-  assert.match(text, /all.time/i);
+test('UI-05: completed generations show the recorded success counter, not pending review', async t => {
+  const fixture = await openConsole(t);
+  const kpi = fixture.page.locator('.kpi').filter({ hasText: 'AI generations completed' });
+  const text = await kpi.innerText();
+  assert.equal((await kpi.locator('.v').innerText()).replace(/\s/g, ''), String(intentionallyMismatchedGenerationSuccessCount));
+  assert.match(text, /recorded successful attempts/);
   assert.doesNotMatch(text, /ready for review/i);
 });
 
 test('UI-08: owner-attempt inspection paginates and opens tickets without acknowledging or resending', async t => {
-  const fixture = await openConsole(t); if (!fixture) return;
+  const fixture = await openConsole(t);
   const { page, writes } = fixture;
   assert.match(await page.locator('.owner-alert-warning').innerText(), /attempts/);
   await page.getByRole('button', { name: 'Inspect owner-alert attempts', exact: true }).click();
@@ -83,7 +80,7 @@ test('UI-08: owner-attempt inspection paginates and opens tickets without acknow
 });
 
 test('UI-08: ticket-feed failure leaves owner-alert inspection available', async t => {
-  const fixture = await openConsole(t); if (!fixture) return;
+  const fixture = await openConsole(t);
   const { page, writes } = fixture;
   await page.route('**/console/api/tickets?*', route => route.fulfill({ status: 503, json: { error: 'unavailable' } }));
   await page.getByRole('button', { name: 'Refresh dashboard data', exact: true }).click();
@@ -103,7 +100,7 @@ test('UI-08: ticket-feed failure leaves owner-alert inspection available', async
 });
 
 test('UI-08: malformed attempt rows show a recoverable error rather than poisoning Overview', async t => {
-  const fixture = await openConsole(t); if (!fixture) return;
+  const fixture = await openConsole(t);
   const { page, writes } = fixture;
   let fail = true;
   await page.route('**/owner-alerts?*', route => fail
@@ -121,7 +118,7 @@ test('UI-08: malformed attempt rows show a recoverable error rather than poisoni
 
 for (const width of [1340, 390]) {
   test(`UI-06: delivery configuration precedes a long unread backlog at ${width}px`, async t => {
-    const fixture = await openConsole(t, width); if (!fixture) return;
+    const fixture = await openConsole(t, width);
     const { page, writes } = fixture;
     await selectTab(page, 'notif');
     await page.locator('#wa-save').waitFor();
@@ -135,7 +132,7 @@ for (const width of [1340, 390]) {
   });
 
   test(`UI-09/10: full document title is readable and editor is named at ${width}px`, async t => {
-    const fixture = await openConsole(t, width); if (!fixture) return;
+    const fixture = await openConsole(t, width);
     const { page, writes } = fixture;
     await selectTab(page, 'kb');
     const item = page.locator('.kbitem');
@@ -158,7 +155,7 @@ for (const width of [1340, 390]) {
 }
 
 test('Tickets navigation opens standalone Inbox without an embedded legacy page', async t => {
-  const fixture = await openConsole(t); if (!fixture) return;
+  const fixture = await openConsole(t);
   const { page, writes } = fixture;
   await selectTab(page, 'tickets');
   await page.waitForURL('**/inbox/');

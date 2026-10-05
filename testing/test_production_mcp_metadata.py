@@ -20,7 +20,7 @@ common=types.ModuleType('_common');common.load_env=lambda:{};common._clean=lambd
 requests=types.ModuleType('requests')
 def forbidden(*a,**k):raise AssertionError('No provider call allowed in discovery test')
 requests.get=forbidden;requests.post=forbidden
-search=types.ModuleType('search_kb');search.search=forbidden
+search=types.ModuleType('search_kb');search.search=forbidden;search.SearchOutcome=dict
 kb=types.ModuleType('kb_lib');kb.CATEGORY_WEIGHT={'policies':1};kb.CONTENT_FOLDERS=['policies'];kb._get_model=forbidden
 sys.modules.update({'_common':common,'requests':requests,'search_kb':search,'kb_lib':kb})
 spec=importlib.util.spec_from_file_location('qa_actual_mcp',root/relative)

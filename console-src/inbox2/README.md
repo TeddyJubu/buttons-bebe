@@ -22,7 +22,9 @@ creation and Shopify remain read-only. No background process acquires send acces
 
 Pending or uncertain delivery keeps the draft and blocks a new reply. Check status
 uses the existing read-only action-status route and never resends. Confirmed
-success alone clears the matching submitted draft; newer edits are preserved.
+success clears only the matching operation and submitted draft revision; newer
+edits are preserved even when their text matches an older draft. Same-ticket
+refreshes keep the textarea connected, preserving selection, undo and composition.
 The additive `inbox_send_grants` table is created on first enable. Expired grants
 are cleaned up on subsequent enable; grants and action records are runtime data.
 
@@ -67,6 +69,11 @@ is preserved; choose Use draft after reviewing the updated suggestion.
   editor. Loading, missing-customer and retry states remain visible. Order history
   can load even when the ticket has no linked order number.
 
+Shopify amounts require an observed amount and currency; missing values display
+as unavailable. Every fixed-size order, item, return and history list records
+whether more results exist or completeness is unknown. Older cached prices are
+hidden until the versioned snapshot is refreshed. No lookup mutates Shopify.
+
 Customer requests are generated from the opened Gorgias ticket, not from arbitrary
 browser-supplied customer identifiers. Runtime databases and credentials stay
 outside this source tree.
@@ -104,7 +111,8 @@ backups outside the repository.
 ## Verification
 
 Run `bash tools/verify_release.sh` from the repository root with the required Python
-environments available. It includes the Inbox backend tests and JS syntax checks.
+environments available. It includes backend checks and all six Inbox browser
+suites using the locked Playwright version and its bundled Chromium.
 For focused checks:
 
 ```sh
@@ -119,14 +127,20 @@ supply a synthetic read-only API:
 
     python3 skills/buttonsbebe-support-webapp/scripts/serve_inbox_preview.py --port 8878
 
+Install declared test dependencies with `npm ci --prefix console-src` and
+`console-src/node_modules/.bin/playwright install chromium` before verification.
+The release gate installs nothing and fails if these are missing.
+
 Then run node console-src/inbox2/tests/layout.mjs and
 node console-src/inbox2/tests/customer-loading.mjs. Run
 node console-src/inbox2/tests/rewrite-draft.mjs for mocked AI editing, retry,
 cancellation and stale-response handling. Run
 node console-src/inbox2/tests/send-access.mjs for the mocked manual-send flow and
 `PYTHONPATH=webhook/src python -m unittest webhook.test_inbox_send_access` for
-server authorization. These tests do not send real customer messages. Install Playwright and its
-Chromium browser first, or set PLAYWRIGHT_MODULE to an existing Playwright
-module. Screenshots are saved to temporary directories, never the repository.
+server authorization. Run `draft-recovery.mjs` for failure/retry states and
+`conversation-state.mjs` for history races, typing, selection, undo and composition.
+These tests use intercepted responses and do not send real customer messages.
+The release gate rejects alternate browser/module overrides. Screenshots are
+saved to temporary directories, never the repository.
 The plain console-src static-server command no longer works for /inbox/ because
 the retired console-src/inbox/index.html was removed.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 from fastapi.responses import JSONResponse
 
@@ -43,12 +44,16 @@ async def preflight_refusal(status, error, body):
     payload={'ok':False,'error':error}
     operation_id=body.get('operation_id') if isinstance(body,dict) else None
     if valid_operation(operation_id):
+        operation_id = str(uuid.UUID(operation_id))
         try:
             existing=await IntentStore(deps.get_db()).get(operation_id)
         except Exception:
             return JSONResponse(status_code=status,content=payload)
         if existing is not None:
             return JSONResponse(status_code=status,content=payload)
+        # Identify a definite refusal only after proving this operation has no
+        # prior intent. Existing or unreadable intents must remain uncertain.
+        payload['operation_id']=operation_id
     payload['delivery_status']='not_attempted'
     return JSONResponse(status_code=status,content=payload)
 
@@ -74,7 +79,7 @@ async def execute_action(kind, ticket_id, request, body, text, client_factory, r
                                          text=text, draft_revision=body.get('draft_revision'), approve_learning=kind == 'send' and body.get('approve_learning') is True,
                                          expected_recipient=body.get('expected_recipient'), expected_context_id=body.get('context_id'))
     except ActionConflict as exc:
-        if exc.error in {'valid_operation_id_required','source_message_id_required','draft_revision_required','source_message_not_in_console','recipient_unavailable','draft_changed_refresh_ticket','recipient_changed_refresh_ticket','review_changed_refresh_ticket'}:
+        if exc.error in {'valid_operation_id_required','source_message_id_required','draft_revision_required','source_message_not_in_console','recipient_unavailable','draft_changed_refresh_ticket','recipient_changed_refresh_ticket','review_changed_refresh_ticket','new_customer_message_refresh_ticket','message_chronology_unavailable'}:
             return await preflight_refusal(exc.status,exc.error,body)
         return JSONResponse(status_code=exc.status, content={'error': exc.error,
             'message': {'previous_delivery_unresolved': 'An earlier action is unresolved. Check its status before sending again.',

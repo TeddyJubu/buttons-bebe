@@ -14,9 +14,7 @@ the same JSON, so keep the schema below stable:
       "created_by": "owner"
     }
 
-Nothing here ever raises out to the search path: callers wrap use in try/except,
-and the readers below already degrade to an empty board on any error, so a
-missing or corrupt file can never break customer search.
+Search uses a strict snapshot so a broken board differs from an empty board.
 """
 from __future__ import annotations
 
@@ -148,6 +146,15 @@ def active_notices(now: datetime | None = None) -> list[dict]:
     return [n for n in load_all() if is_active(n, now)]
 
 
+def active_notice_snapshot(now: datetime | None = None) -> list[dict]:
+    now = now or _now()
+    try:
+        items = _read_items(strict=True)
+    except FileNotFoundError:
+        items = []
+    return [n for n in items if is_active(n, now)]
+
+
 def add_notice(text: str, expires_at=None, created_by: str = "owner") -> dict:
     text = (text or "").strip()
     if not text:
@@ -196,7 +203,7 @@ def as_search_results(now: datetime | None = None) -> list[dict]:
     """Active notices shaped exactly like `search_kb` results and marked as the
     owner override. A very high score keeps them first if anything re-sorts."""
     results: list[dict] = []
-    for n in active_notices(now):
+    for n in active_notice_snapshot(now):
         results.append(
             dict(
                 score=999.0,
@@ -204,6 +211,8 @@ def as_search_results(now: datetime | None = None) -> list[dict]:
                 title="NOTICE BOARD",
                 category="notices",
                 status="confirmed",
+                source="owner",
+                tags="notice, owner-override",
                 sensitive=False,
                 heading="Owner override",
                 text=f"{OVERRIDE_PREFIX}\n{n['text']}",

@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .hermes_permissions import canonical_toolsets
+
 # Load .env from the project root (consolidated 2026-07-08).
 # Previously loaded from webhook/.env; now all components share the single
 # main .env at /root/Buttonsbebe Agent/.env
@@ -147,8 +149,10 @@ class Settings(BaseSettings):
             errors.append("FEEDBACK_KB_ROOT must be the approved demo KB directory")
         if self.hermes_profile != "cutethingsdemo":
             errors.append("HERMES_PROFILE must be cutethingsdemo")
-        if self.hermes_rewrite_toolsets.strip().lower() == "todo":
-            errors.append("HERMES_REWRITE_TOOLSETS must not be the retired 'todo' placeholder")
+        try:
+            self.hermes_rewrite_toolsets = canonical_toolsets(self.hermes_rewrite_toolsets)
+        except ValueError:
+            errors.append("HERMES_REWRITE_TOOLSETS must be exactly the three approved read-only toolsets")
         if not self.hermes_ignore_rules:
             errors.append("HERMES_IGNORE_RULES must be enabled in demo mode")
         if self.support_store_name != "Cute Things":

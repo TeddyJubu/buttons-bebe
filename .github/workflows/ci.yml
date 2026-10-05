@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: console-src/package-lock.json
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.22"
@@ -42,6 +44,10 @@ jobs:
           PYTHONPATH=testing .tools-venv/bin/python -m unittest testing/test_production_mcp_metadata.py -v
       - name: Install ripgrep (required by the release gate)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep caddy
+      - name: Install locked browser test dependencies and bundled Chromium
+        run: |
+          npm ci --prefix console-src
+          console-src/node_modules/.bin/playwright install --with-deps chromium
       - name: Run offline release gate
         env:
           PYTHON: .gate-venv/bin/python

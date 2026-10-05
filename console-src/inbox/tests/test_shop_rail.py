@@ -1,34 +1,40 @@
 """Rail lookup contracts: ownership, retained data, bounded reads and refresh."""
 import copy
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import export_shop_rail as exporter
-from shop_rail import attach
+from shop_rail import attach, display_payload
 
 CUSTOMER = {'id': 'gid://shopify/Customer/1', 'displayName': 'Test Customer',
-            'defaultEmailAddress': {'emailAddress': 'qa@example.com'}, 'numberOfOrders': '2'}
+            'defaultEmailAddress': {'emailAddress': 'qa@example.com'}, 'numberOfOrders': 2,
+            'amountSpent': {'amount': '0.00', 'currencyCode': 'CAD'}}
 ORDER = {'id': 'gid://shopify/Order/2', 'name': '#10319148', 'email': 'qa@example.com',
-         'customer': CUSTOMER, 'lineItems': {'nodes': []},
-         'returns': {'nodes': [{'id': 'r1', 'status': 'OPEN', 'totalQuantity': 1}]}}
+         'customer': CUSTOMER, 'currentTotalPriceSet': {'shopMoney': {'amount': '0.00', 'currencyCode': 'CAD'}},
+         'lineItems': {'nodes': [], 'pageInfo': {'hasNextPage': False}},
+         'returns': {'nodes': [{'id': 'r1', 'status': 'OPEN', 'totalQuantity': 1,
+                               'returnLineItems': {'nodes': [], 'pageInfo': {'hasNextPage': False}},
+                               'exchangeLineItems': {'nodes': []}}],
+                     'pageInfo': {'hasNextPage': False}}}
 TICKET = {'id': 'gorgias:1', 'subject': 'Re: Order 10319148', 'fromEmail': 'qa@example.com'}
 
 
 class ShopRailTests(unittest.TestCase):
-    def caches(self, customer=CUSTOMER, order=ORDER):
+    def caches(self, customer=CUSTOMER, order=ORDER, history=None, order_page=False, history_page=False):
         self.calls = []
         def graphql(env, token, document, variables):
             self.calls.append((document, variables))
             if document == exporter.CUSTOMER_BY_EMAIL:
                 return {'customers': {'nodes': [customer] if customer else []}}
             if document == exporter.ORDER_BY_NAME:
-                return {'orders': {'nodes': [order] if order else []}}
-            return {'customer': {'orders': {'nodes': []}}}
+                return {'orders': {'nodes': [order] if order else [], 'pageInfo': {'hasNextPage': order_page}}}
+            return {'customer': {'orders': {'nodes': history or [], 'pageInfo': {'hasNextPage': history_page}}}}
         return {'graphql': graphql, 'customers': {}, 'orders': {}, 'history': {}, 'lookups': 0}
 
     def test_exact_order_is_retained_with_returns_and_customer(self):
@@ -44,10 +50,7 @@ class ShopRailTests(unittest.TestCase):
         result, _ = exporter.lookup_ticket({'SHOPIFY_SHOP': 'buttons-bebe.myshopify.com'}, '', TICKET, self.caches())
         self.assertEqual(result['shop'], 'buttons-bebe.myshopify.com')
 
-    def test_returns_export_items_prices_reason_created_and_exchanges(self):
-        """#46: the returns pane needs per-item prices, reason, created date
-        and the return/exchange distinction — all from the read-only
-        snapshot channel (Admin GraphQL Return fields)."""
+    def test_returns_export_queried_item_details_and_exchanges(self):
         order = {**ORDER, 'returns': {'nodes': [{
             'id': 'r1', 'name': '#1001-1', 'status': 'OPEN', 'totalQuantity': 2,
             'createdAt': '2026-09-01T00:00:00Z',
@@ -55,51 +58,104 @@ class ShopRailTests(unittest.TestCase):
                 '__typename': 'ReturnLineItem', 'id': 'rli1', 'quantity': 2,
                 'returnReasonDefinition': {'name': 'Wrong size'},
                 'returnReasonNote': 'too small',
-                'withCodeDiscountedTotalPriceSet': {'shopMoney': {'amount': '24.00', 'currencyCode': 'USD'}},
                 'fulfillmentLineItem': {'lineItem': {'title': 'Teal button 2-pack'}},
-            }]},
+            }], 'pageInfo': {'hasNextPage': False}},
             'exchangeLineItems': {'nodes': []},
-        }]}}
+        }], 'pageInfo': {'hasNextPage': False}}}
         result, _ = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order))
         exported = result['returns']['returns']['nodes'][0]
         self.assertEqual(exported['createdAt'], '2026-09-01T00:00:00Z')
         self.assertEqual(exported['returnType'], 'RETURN')
         self.assertEqual(exported['items'][0]['title'], 'Teal button 2-pack')
         self.assertEqual(exported['items'][0]['quantity'], 2)
-        self.assertEqual(exported['items'][0]['price'], {'shopMoney': {'amount': '24.00', 'currencyCode': 'USD'}})
+        self.assertNotIn('price', exported['items'][0])
         self.assertEqual(exported['items'][0]['reason'], 'Wrong size')
         self.assertEqual(exported['items'][0]['note'], 'too small')
         # An exchange shows as an exchange, not a plain return.
         order_exchange = {**ORDER, 'returns': {'nodes': [{
             'id': 'r1', 'status': 'OPEN', 'totalQuantity': 1, 'createdAt': None,
-            'returnLineItems': {'nodes': []}, 'exchangeLineItems': {'nodes': [{'id': 'x1'}, {'id': 'x2'}]},
-        }]}}
+            'returnLineItems': {'nodes': [], 'pageInfo': {'hasNextPage': False}},
+            'exchangeLineItems': {'nodes': [{'id': 'x1'}, {'id': 'x2'}]},
+        }], 'pageInfo': {'hasNextPage': False}}}
         exchanged = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order_exchange))[0]['returns']['returns']['nodes'][0]
         self.assertEqual(exchanged['returnType'], 'EXCHANGE')
         self.assertEqual(exchanged['items'], [])
 
     def test_returns_export_marks_truncated_item_lists(self):
-        """cubic: a return with more line items than the exporter reads must
-        say so — the pane never renders a partial list as complete."""
-        # A paged connection like Shopify returns: 25 nodes, another page
-        # behind hasNextPage.
         page = [{'__typename': 'ReturnLineItem', 'id': f'rli{i}'} for i in range(25)]
         order = {**ORDER, 'returns': {'nodes': [{
             'id': 'r1', 'status': 'OPEN', 'totalQuantity': 31, 'createdAt': None,
             'returnLineItems': {'nodes': page, 'pageInfo': {'hasNextPage': True}},
             'exchangeLineItems': {'nodes': []},
-        }]}}
+        }], 'pageInfo': {'hasNextPage': False}}}
         exported = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order))[0]['returns']['returns']['nodes'][0]
         self.assertEqual(len(exported['items']), 25)
         self.assertTrue(exported['itemsTruncated'])
-        # Under the page cap the flag stays absent/false — no invented cuts.
         order_full = {**ORDER, 'returns': {'nodes': [{
             'id': 'r1', 'status': 'OPEN', 'totalQuantity': 2, 'createdAt': None,
             'returnLineItems': {'nodes': page[:2], 'pageInfo': {'hasNextPage': False}},
             'exchangeLineItems': {'nodes': []},
-        }]}}
+        }], 'pageInfo': {'hasNextPage': False}}}
         full = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order_full))[0]['returns']['returns']['nodes'][0]
         self.assertFalse(full['itemsTruncated'])
+        order_unknown = {**ORDER, 'returns': {'nodes': [{
+            'id': 'r1', 'status': 'OPEN', 'totalQuantity': 2,
+            'returnLineItems': {'nodes': page[:2]}, 'exchangeLineItems': {'nodes': []},
+        }], 'pageInfo': {'hasNextPage': False}}}
+        unknown = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order_unknown))[0]['returns']['returns']['nodes'][0]
+        self.assertIsNone(unknown['itemsTruncated'])
+
+    def test_money_requires_observed_amount_and_currency_and_keeps_real_zero(self):
+        history = [{'id': 'history', 'name': '#1000',
+                    'currentTotalPriceSet': {'shopMoney': {'amount': '0', 'currencyCode': 'CAD'}}}]
+        order = {
+            **ORDER,
+            'lineItems': {'nodes': [
+                {'title': 'Observed zero', 'originalUnitPriceSet': {'shopMoney': {'amount': 0, 'currencyCode': 'CAD'}}},
+                {'title': 'Missing currency', 'originalUnitPriceSet': {'shopMoney': {'amount': '4.00'}}},
+            ], 'pageInfo': {'hasNextPage': False}},
+        }
+        payload = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order, history=history))[0]
+        self.assertEqual(payload['customer']['amountSpent'], {'amount': '0.00', 'currencyCode': 'CAD'})
+        self.assertEqual(payload['order']['currentTotalPriceSet'], {'shopMoney': {'amount': '0.00', 'currencyCode': 'CAD'}})
+        self.assertEqual(payload['order']['lineItems']['nodes'][0]['originalUnitPriceSet'], {'shopMoney': {'amount': '0', 'currencyCode': 'CAD'}})
+        self.assertIsNone(payload['order']['lineItems']['nodes'][1]['originalUnitPriceSet'])
+        self.assertEqual(payload['history'][0]['currentTotalPriceSet'], {'shopMoney': {'amount': '0', 'currencyCode': 'CAD'}})
+
+        missing_customer = {**CUSTOMER, 'numberOfOrders': None, 'amountSpent': {'amount': 'invalid', 'currencyCode': 'USD'}}
+        missing_order = {
+            **ORDER,
+            'currentTotalPriceSet': {'shopMoney': {'currencyCode': 'USD'}},
+            'lineItems': {'nodes': [{'title': 'No price'}], 'pageInfo': {'hasNextPage': False}},
+        }
+        missing_history = [{'id': 'history', 'currentTotalPriceSet': {'shopMoney': {'amount': '3.00'}}}]
+        missing = exporter.lookup_ticket({}, '', TICKET, self.caches(
+            customer=missing_customer, order=missing_order, history=missing_history))[0]
+        self.assertIsNone(missing['customer']['numberOfOrders'])
+        self.assertIsNone(missing['customer']['amountSpent'])
+        self.assertIsNone(missing['order']['currentTotalPriceSet'])
+        self.assertIsNone(missing['order']['lineItems']['nodes'][0]['originalUnitPriceSet'])
+        self.assertIsNone(missing['history'][0]['currentTotalPriceSet'])
+
+    def test_partial_flags_preserve_true_false_and_unknown(self):
+        order = {
+            **ORDER,
+            'lineItems': {'nodes': [], 'pageInfo': {'hasNextPage': True}},
+            'returns': {'nodes': [], 'pageInfo': {'hasNextPage': False}},
+        }
+        payload = exporter.lookup_ticket({}, '', TICKET, self.caches(
+            order=order, history=[], order_page=True, history_page=False))[0]
+        self.assertEqual(payload['partial'], {
+            'orderSearch': True,
+            'orderItems': True,
+            'returns': False,
+            'history': False,
+        })
+        unknown_order = {**order, 'lineItems': {'nodes': []}, 'returns': {'nodes': []}}
+        unknown = exporter.lookup_ticket({}, '', TICKET, self.caches(
+            order=unknown_order, history=[], order_page=False, history_page=False))[0]
+        self.assertIsNone(unknown['partial']['orderItems'])
+        self.assertIsNone(unknown['partial']['returns'])
 
     def test_the_order_query_caps_return_fan_out(self):
         """cubic: 20 returns x 50 nested line items inflates the Admin GraphQL
@@ -109,6 +165,19 @@ class ShopRailTests(unittest.TestCase):
             self.assertNotIn(banned, exporter.ORDER_BY_NAME)
         for capped in ('returns(first: 5)', 'returnLineItems(first: 25)', 'exchangeLineItems(first: 5)'):
             self.assertIn(capped, exporter.ORDER_BY_NAME)
+        self.assertIn('orders(first: 1, query: $query) {\n    pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
+        self.assertIn('lineItems(first: 50) { pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
+
+    def test_wrong_owner_or_missing_first_match_still_reports_incomplete_search(self):
+        wrong = {**ORDER, 'email':'other@example.com', 'customer':{'id':'other'}}
+        for order in (wrong, None):
+            with self.subTest(order=order):
+                payload = exporter.lookup_ticket({}, '', TICKET, self.caches(order=order, order_page=True))[0]
+                self.assertIsNone(payload['order'])
+                self.assertTrue(payload['partial']['orderSearch'])
+        self.assertIn('returns(first: 5) { pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
+        self.assertIn('returnLineItems(first: 25) { pageInfo { hasNextPage }', exporter.ORDER_BY_NAME)
+        self.assertIn('orders(first: 50, sortKey: CREATED_AT, reverse: true) {\n      pageInfo { hasNextPage }', exporter.PAST_ORDERS)
 
     def test_the_upstream_error_fallback_still_names_the_store_scope(self):
         """cubic: every exported snapshot names the store, including the
@@ -174,6 +243,113 @@ class ShopRailTests(unittest.TestCase):
                 changed = {**TICKET, 'fromEmail': 'other@example.com'}
                 self.assertNotIn('shopifyRail', attach(changed, dest))
 
+    def test_legacy_snapshot_hides_unverified_money_and_refreshes_with_current_version(self):
+        legacy = {
+            'status': 'found', 'email': TICKET['fromEmail'], 'keysHash': exporter.keys_hash(TICKET),
+            'fetchedAtEpoch': 1000,
+            'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+            'order': {**ORDER, 'currentTotalPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}},
+                      'lineItems': {'nodes': [{'originalUnitPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}}}]}},
+            'history': [{'id': 'old', 'currentTotalPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}}}],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / 'rail.sqlite3'
+            with closing(sqlite3.connect(dest)) as db, db:
+                db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+            displayed = attach(copy.deepcopy(TICKET), dest)['shopifyRail']
+            self.assertTrue(displayed['legacyMoneyUnverified'])
+            self.assertIsNone(displayed['customer']['amountSpent'])
+            self.assertIsNone(displayed['order']['currentTotalPriceSet'])
+            self.assertIsNone(displayed['order']['lineItems']['nodes'][0]['originalUnitPriceSet'])
+            self.assertIsNone(displayed['history'][0]['currentTotalPriceSet'])
+
+            with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                 patch.object(exporter, 'load_shopify_env', return_value={}):
+                cache = self.caches()
+                exporter.export('', dest, '', now=1100, graphql_call=cache['graphql'], mint=lambda _: '')
+            refreshed = exporter.load_cache(dest)[TICKET['id']]['payload']
+            self.assertEqual(refreshed['payloadVersion'], exporter.PAYLOAD_VERSION)
+            self.assertEqual(len(self.calls), 3)
+
+    def test_legacy_malformed_collections_withhold_unknown_data_without_attachment_failure(self):
+        for invalid in (7, 'not-a-list', {'unexpected':'object'}, [None, 7]):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temp:
+                legacy = {'status':'found', 'email':TICKET['fromEmail'],
+                    'customer':CUSTOMER, 'order':{**ORDER, 'lineItems':{'nodes':invalid}},
+                    'history':invalid, 'returns':{'returns':{'nodes':invalid}}}
+                dest = Path(temp) / 'rail.sqlite3'
+                with closing(sqlite3.connect(dest)) as db, db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                rail = attach(dict(TICKET), dest)['shopifyRail']
+                self.assertFalse(rail['history'])
+                self.assertFalse(rail['order']['lineItems']['nodes'])
+                self.assertFalse(rail['returns']['returns']['nodes'])
+                self.assertTrue(rail['legacyMoneyUnverified'])
+                self.assertTrue(all(flag is None for flag in rail['partial'].values()))
+                self.assertIsNone(rail['order']['currentTotalPriceSet'])
+
+    def test_legacy_return_prices_are_hidden_and_malformed_items_are_withheld(self):
+        legacy = {'returns':{'returns':{'nodes':[
+            {'id':'retained', 'items':[{'title':'Button', 'price':{'amount':'0.0', 'currencyCode':'USD'}}, None]},
+            {'id':'unknown', 'items':7}]}}}
+        displayed = display_payload(legacy)
+        returned = displayed['returns']['returns']['nodes']
+        self.assertEqual(returned[0]['id'], 'retained')
+        self.assertEqual(returned[0]['items'], [{'title':'Button', 'price':None}])
+        self.assertIsNone(returned[1]['items'])
+        self.assertEqual(legacy['returns']['returns']['nodes'][0]['items'][0]['price']['currencyCode'], 'USD')
+
+    def test_failed_legacy_refresh_caches_attempt_without_trusting_old_money(self):
+        legacy = {
+            'status': 'found', 'email': TICKET['fromEmail'], 'keysHash': exporter.keys_hash(TICKET),
+            'fetchedAt': '2026-09-01T00:00:00Z', 'fetchedAtEpoch': 1000,
+            'customer': CUSTOMER, 'order': ORDER,
+            'history': [{'id': 'old', 'currentTotalPriceSet': ORDER['currentTotalPriceSet']}],
+            'returns': {'returns': {'nodes': [{'id': 'old-return', 'items': [
+                {'title': 'Old item', 'price': {'amount': '0', 'currencyCode': 'USD'}}]}]}},
+        }
+        calls = []
+        def failed(*args):
+            calls.append(args)
+            raise TimeoutError('synthetic outage')
+        with tempfile.TemporaryDirectory() as temp:
+            dest = Path(temp) / 'rail.sqlite3'
+            with closing(sqlite3.connect(dest)) as db, db:
+                db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+            with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                 patch.object(exporter, 'load_shopify_env', return_value={}):
+                exporter.export('', dest, '', now=23000, graphql_call=failed, mint=lambda _: '')
+                entry = exporter.load_cache(dest)[TICKET['id']]
+                payload = entry['payload']
+                self.assertEqual(payload['payloadVersion'], exporter.PAYLOAD_VERSION)
+                self.assertEqual(entry['updated_at'], 1000)
+                self.assertEqual(payload['fetchedAt'], legacy['fetchedAt'])
+                self.assertEqual(payload['fetchedAtEpoch'], 1000)
+                self.assertEqual(payload['history'][0]['id'], 'old')
+                self.assertIsNone(payload['customer']['amountSpent'])
+                self.assertIsNone(payload['order']['currentTotalPriceSet'])
+                self.assertIsNone(payload['history'][0]['currentTotalPriceSet'])
+                self.assertIsNone(payload['returns']['returns']['nodes'][0]['items'][0]['price'])
+                self.assertTrue(payload['legacyMoneyUnverified'])
+                self.assertTrue(all(value is None for value in payload['partial'].values()))
+                self.assertTrue(attach(dict(TICKET), dest)['shopifyRail']['stale'])
+                retry_at = 23000 + exporter.CACHE_MISS_SECONDS
+                self.assertEqual(payload['retryAt'], retry_at)
+                exporter.export('', dest, '', now=retry_at - 1, graphql_call=failed, mint=lambda _: '')
+                self.assertEqual(len(calls), 1)
+                exporter.export('', dest, '', now=retry_at, graphql_call=failed, mint=lambda _: '')
+                self.assertEqual(len(calls), 2)
+                # A successful refresh replaces the failure and legacy warnings.
+                exporter.export('', dest, '', now=retry_at + exporter.CACHE_MISS_SECONDS,
+                                graphql_call=self.caches()['graphql'], mint=lambda _: '')
+                refreshed = exporter.load_cache(dest)[TICKET['id']]['payload']
+                self.assertNotIn('refreshError', refreshed)
+                self.assertNotIn('legacyMoneyUnverified', refreshed)
+                self.assertEqual(refreshed['customer']['amountSpent'], CUSTOMER['amountSpent'])
+
     def test_upstream_failure_keeps_previous_details_and_marks_refresh_error(self):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / 'rail.sqlite3'
@@ -189,12 +365,283 @@ class ShopRailTests(unittest.TestCase):
                 self.assertTrue(entry['payload']['refreshError'])
                 self.assertTrue(attach(dict(TICKET), dest)['shopifyRail']['stale'])
 
+    def test_failed_legacy_refresh_names_current_store_or_retains_known_store(self):
+        current_shop = 'current-synthetic.myshopify.com'
+        old_shop = 'old-synthetic.myshopify.com'
+        for old_value, env, expected in (
+            (None, {'SHOPIFY_SHOP': current_shop}, current_shop),
+            (old_shop, {}, old_shop),
+        ):
+            with self.subTest(old_shop=old_value, env=env), tempfile.TemporaryDirectory() as temp:
+                legacy = {'status': 'found', 'email': TICKET['fromEmail'],
+                          'keysHash': exporter.keys_hash(TICKET), 'customer': CUSTOMER}
+                if old_value:
+                    legacy['shop'] = old_value
+                dest = Path(temp) / 'rail.sqlite3'
+                with closing(sqlite3.connect(dest)) as db, db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                def failed(*args):
+                    raise TimeoutError('synthetic outage')
+                with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                     patch.object(exporter, 'load_shopify_env', return_value=env):
+                    exporter.export('', dest, '', now=23000, graphql_call=failed, mint=lambda _: '')
+                payload = exporter.load_cache(dest)[TICKET['id']]['payload']
+                self.assertEqual(payload['shop'], expected)
+                self.assertIsNone(payload['customer']['amountSpent'])
+                self.assertEqual(payload['payloadVersion'], exporter.PAYLOAD_VERSION)
+                self.assertEqual(payload['retryAt'], 23000 + exporter.CACHE_MISS_SECONDS)
+
+    def test_known_other_store_cache_is_rejected_before_every_reuse_path(self):
+        old_shop, current_shop = 'old-synthetic.myshopify.com', 'current-synthetic.myshopify.com'
+        old_payload = {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'found',
+                       'email': TICKET['fromEmail'], 'keysHash': exporter.keys_hash(TICKET),
+                       'shop': old_shop, 'customer': CUSTOMER, 'order': ORDER,
+                       'history': [{'id': 'old-shop-history'}],
+                       'returns': {'returns': {'nodes': [{'id': 'old-shop-return'}]}}}
+        for mode, now in (('fresh', 1100), ('failed_refresh', 23000),
+                          ('budget_exhausted', 23000), ('lookup_budget_exceeded', 23000)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                dest = Path(temp) / 'rail.sqlite3'
+                with closing(sqlite3.connect(dest)) as db, db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(old_payload), 1000))
+                prior = {**TICKET, 'id': 'gorgias:prior'}
+                tickets = [prior, TICKET] if mode == 'budget_exhausted' else [TICKET]
+                calls = []
+                def lookup(env, token, ticket, caches):
+                    calls.append(ticket['id'])
+                    if mode == 'budget_exhausted':
+                        caches['lookups'] = exporter.MAX_LOOKUPS
+                        return {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'missing',
+                                'shop': current_shop}, True
+                    if mode == 'lookup_budget_exceeded':
+                        raise exporter.LookupBudgetExceeded()
+                    raise TimeoutError('synthetic outage')
+                with patch.object(exporter, 'read_projection_tickets', return_value=tickets), \
+                     patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current_shop}), \
+                     patch.object(exporter, 'lookup_ticket', side_effect=lookup):
+                    exporter.export('', dest, '', now=now, mint=lambda _: '')
+                cache = exporter.load_cache(dest)
+                if mode in ('budget_exhausted', 'lookup_budget_exceeded'):
+                    self.assertNotIn(TICKET['id'], cache)
+                else:
+                    self.assertEqual(calls, [TICKET['id']])
+                    payload = cache[TICKET['id']]['payload']
+                    self.assertEqual(payload['shop'], current_shop)
+                    self.assertEqual(payload['status'], 'error')
+                    self.assertTrue(payload['refreshError'])
+                    for field in ('customer', 'order', 'history', 'returns'):
+                        self.assertNotIn(field, payload)
+
     def test_bad_or_absent_snapshot_is_nonfatal(self):
         with tempfile.TemporaryDirectory() as temp:
             dest = Path(temp) / 'rail.sqlite3'
             self.assertNotIn('shopifyRail', attach(dict(TICKET), dest))
             dest.write_text('corrupt')
             self.assertNotIn('shopifyRail', attach(dict(TICKET), dest))
+
+    def test_mint_failure_publishes_safe_fallback_and_drops_known_other_store(self):
+        current = 'current-synthetic.myshopify.com'
+        for stored_shop in (current, 'old-synthetic.myshopify.com'):
+            with self.subTest(stored_shop=stored_shop), tempfile.TemporaryDirectory() as temp:
+                legacy = {'status': 'found', 'email': TICKET['fromEmail'],
+                          'keysHash': exporter.keys_hash(TICKET), 'shop': stored_shop,
+                          'customer': CUSTOMER, 'order': ORDER, 'fetchedAtEpoch': 1000}
+                dest = Path(temp) / 'rail.sqlite3'
+                with closing(sqlite3.connect(dest)) as db, db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                calls = []
+                def failed_mint(env):
+                    calls.append(env)
+                    raise exporter.HTTPError('https://synthetic.invalid/token', 503, 'synthetic outage', {}, None)
+                with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                     patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current}), \
+                     patch.object(exporter, 'lookup_ticket', side_effect=AssertionError('No lookup without token')):
+                    exporter.export('', dest, '', now=23000, mint=failed_mint)
+                    payload = exporter.load_cache(dest)[TICKET['id']]['payload']
+                    self.assertEqual(payload['shop'], current)
+                    self.assertTrue(payload['refreshError'])
+                    self.assertEqual(payload['retryAt'], 23000 + exporter.CACHE_MISS_SECONDS)
+                    if stored_shop == current:
+                        self.assertEqual(payload['customer']['id'], CUSTOMER['id'])
+                        self.assertIsNone(payload['customer']['amountSpent'])
+                        self.assertIsNone(payload['order']['currentTotalPriceSet'])
+                        self.assertEqual(payload['fetchedAtEpoch'], 1000)
+                    else:
+                        self.assertEqual(payload['status'], 'error')
+                        for field in ('customer', 'order', 'history', 'returns', 'fetchedAtEpoch'):
+                            self.assertNotIn(field, payload)
+                    exporter.export('', dest, '', now=23001, mint=failed_mint)
+                    self.assertEqual(len(calls), 1)
+
+    def test_invalid_json_cache_payloads_are_rejected_before_budget_and_failures(self):
+        current = 'current-synthetic.myshopify.com'
+        for invalid in ([], None, 7, 'invalid', True):
+            for mode in ('mint_failure', 'lookup_failure', 'spent_budget'):
+                with self.subTest(invalid=invalid, mode=mode), tempfile.TemporaryDirectory() as temp:
+                    dest = Path(temp) / 'rail.sqlite3'
+                    with closing(sqlite3.connect(dest)) as db, db:
+                        db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                        db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(invalid), 1000))
+                    self.assertFalse(exporter.fresh(exporter.load_cache(dest)[TICKET['id']], 1100))
+                    prior = {**TICKET, 'id': 'gorgias:prior'}
+                    tickets = [prior, TICKET] if mode == 'spent_budget' else [TICKET]
+                    def mint(env):
+                        if mode == 'mint_failure':
+                            raise exporter.URLError('synthetic outage')
+                        return 'synthetic token'
+                    def lookup(env, token, ticket, caches):
+                        if mode == 'spent_budget':
+                            caches['lookups'] = exporter.MAX_LOOKUPS
+                            return {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'missing', 'shop': current}, True
+                        raise TimeoutError('synthetic outage')
+                    with patch.object(exporter, 'read_projection_tickets', return_value=tickets), \
+                         patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current}), \
+                         patch.object(exporter, 'lookup_ticket', side_effect=lookup):
+                        exporter.export('', dest, '', now=1100, mint=mint)
+                    cache = exporter.load_cache(dest)
+                    if mode == 'spent_budget':
+                        self.assertNotIn(TICKET['id'], cache)
+                    else:
+                        payload = cache[TICKET['id']]['payload']
+                        self.assertEqual(payload['shop'], current)
+                        self.assertEqual(payload['status'], 'error')
+                        self.assertTrue(payload['refreshError'])
+                        for field in ('customer', 'order', 'history', 'returns'):
+                            self.assertNotIn(field, payload)
+
+    def test_malformed_provider_json_shapes_fail_as_caught_runtime_errors(self):
+        env = {'SHOPIFY_SHOP': 'synthetic.myshopify.com', 'SHOPIFY_CLIENT_ID': 'synthetic',
+               'SHOPIFY_CLIENT_SECRET': 'synthetic', 'SHOPIFY_API_VERSION': 'synthetic'}
+        for invalid in ([], None, 7, 'invalid', True):
+            with self.subTest(invalid=invalid):
+                opener = MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = json.dumps(invalid).encode()
+                with patch.object(exporter, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(RuntimeError, 'token response invalid'):
+                        exporter.mint_token(env)
+                    with self.assertRaisesRegex(RuntimeError, 'graphql response invalid'):
+                        exporter.graphql(env, 'synthetic', exporter.CUSTOMER_BY_EMAIL, {})
+
+    def test_token_response_rejects_missing_empty_or_nonstring_token(self):
+        env = {'SHOPIFY_SHOP': 'synthetic.myshopify.com', 'SHOPIFY_CLIENT_ID': 'synthetic',
+               'SHOPIFY_CLIENT_SECRET': 'synthetic'}
+        for token in (None, '', ' ', ' abc', 'a b', 'a\nb', 'a\r\nb', 'a\tb', 7, False, [], {}):
+            with self.subTest(token=token):
+                opener = MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = json.dumps({'access_token': token}).encode()
+                with patch.object(exporter, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(RuntimeError, 'token mint failed'):
+                        exporter.mint_token(env)
+
+    def test_invalid_provider_bytes_use_the_caught_decoding_error_types(self):
+        env = {'SHOPIFY_SHOP': 'synthetic.myshopify.com', 'SHOPIFY_CLIENT_ID': 'synthetic',
+               'SHOPIFY_CLIENT_SECRET': 'synthetic', 'SHOPIFY_API_VERSION': 'synthetic'}
+        for body, error in ((b'\xff', UnicodeDecodeError), (b'{', json.JSONDecodeError)):
+            with self.subTest(error=error.__name__):
+                opener = MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = body
+                with patch.object(exporter, 'build_opener', return_value=opener):
+                    with self.assertRaises(error):
+                        exporter.mint_token(env)
+                    with self.assertRaises(error):
+                        exporter.graphql(env, 'synthetic', exporter.CUSTOMER_BY_EMAIL, {})
+
+    def test_mint_failure_is_attempted_once_while_all_other_store_and_invalid_rows_are_removed(self):
+        current = 'current-synthetic.myshopify.com'
+        tickets = [{**TICKET, 'id': f'gorgias:{kind}'} for kind in ('first', 'invalid', 'other', 'matching')]
+        matching = {'status': 'found', 'shop': current, 'email': TICKET['fromEmail'],
+                    'keysHash': exporter.keys_hash(TICKET), 'customer': CUSTOMER, 'fetchedAtEpoch': 1000}
+        mismatched = {**matching, 'shop': 'old-synthetic.myshopify.com'}
+        for failure in (exporter.HTTPError('https://synthetic.invalid/token', 503, 'outage', {}, None),
+                        json.JSONDecodeError('synthetic', '', 0),
+                        UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'synthetic')):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as temp:
+                dest = Path(temp) / 'rail.sqlite3'
+                with closing(sqlite3.connect(dest)) as db, db:
+                    db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                    for ticket, payload in zip(tickets, (mismatched, [], mismatched, matching)):
+                        db.execute('INSERT INTO rail VALUES(?,?,?)', (ticket['id'], json.dumps(payload), 1000))
+                calls = []
+                def mint(env):
+                    calls.append(env)
+                    raise failure
+                with patch.object(exporter, 'read_projection_tickets', return_value=tickets), \
+                     patch.object(exporter, 'load_shopify_env', return_value={'SHOPIFY_SHOP': current}), \
+                     patch.object(exporter, 'lookup_ticket', side_effect=AssertionError('No lookup without token')):
+                    receipt = exporter.export('', dest, '', now=23000, mint=mint)
+                self.assertEqual(receipt['lookups'], 0)
+                cache = exporter.load_cache(dest)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(set(cache), {'gorgias:first', 'gorgias:matching'})
+                self.assertEqual(cache['gorgias:first']['payload']['status'], 'error')
+                self.assertNotIn('customer', cache['gorgias:first']['payload'])
+                # Unattempted same-store legacy data is unchanged on disk and
+                # remains honestly redacted by the normal snapshot reader.
+                self.assertEqual(cache['gorgias:matching']['payload'], matching)
+                displayed = attach({**TICKET, 'id': 'gorgias:matching'}, dest)['shopifyRail']
+                self.assertIsNone(displayed['customer']['amountSpent'])
+                self.assertTrue(displayed['legacyMoneyUnverified'])
+
+    def test_malformed_nested_graphql_keeps_only_safe_same_store_fallback(self):
+        current = 'current-synthetic.myshopify.com'
+        env = {'SHOPIFY_SHOP': current, 'SHOPIFY_API_VERSION': 'synthetic'}
+        malformed = {
+            'customers_connection_list': {'customers': [{'nodes': []}]},
+            'customer_nodes_scalar': {'customers': {'nodes': 7}},
+            'customer_nodes_object': {'customers': {'nodes': {'id': 'invalid'}}},
+            'order_node_scalar': {'customers': {'nodes': []}, 'orders': {'nodes': [7]}},
+        }
+        for name, data in malformed.items():
+            for stored_shop in (current, 'old-synthetic.myshopify.com'):
+                with self.subTest(shape=name, stored_shop=stored_shop), tempfile.TemporaryDirectory() as temp:
+                    legacy = {'status': 'found', 'shop': stored_shop, 'email': TICKET['fromEmail'],
+                              'keysHash': exporter.keys_hash(TICKET), 'customer': CUSTOMER, 'order': ORDER,
+                              'history': [{'id': 'old-history', 'currentTotalPriceSet': ORDER['currentTotalPriceSet']}],
+                              'returns': {'returns': {'nodes': [{'id': 'old-return', 'items': [
+                                  {'title': 'Old item', 'price': {'amount': '0', 'currencyCode': 'USD'}}]}]}},
+                              'fetchedAt': '2026-09-01T00:00:00Z', 'fetchedAtEpoch': 1000}
+                    dest = Path(temp) / 'rail.sqlite3'
+                    with closing(sqlite3.connect(dest)) as db, db:
+                        db.execute('CREATE TABLE rail(ticket_id TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
+                        db.execute('INSERT INTO rail VALUES(?,?,?)', (TICKET['id'], json.dumps(legacy), 1000))
+                    opener = MagicMock()
+                    opener.open.return_value.__enter__.return_value.read.return_value = json.dumps({'data': data}).encode()
+                    with patch.object(exporter, 'read_projection_tickets', return_value=[TICKET]), \
+                         patch.object(exporter, 'load_shopify_env', return_value=env), \
+                         patch.object(exporter, 'build_opener', return_value=opener):
+                        exporter.export('', dest, '', now=23000, graphql_call=exporter.graphql,
+                                        mint=lambda _: 'synthetic token')
+                        entry = exporter.load_cache(dest)[TICKET['id']]
+                        payload = entry['payload']
+                        self.assertEqual(payload['shop'], current)
+                        self.assertEqual(payload['payloadVersion'], exporter.PAYLOAD_VERSION)
+                        self.assertTrue(payload['refreshError'])
+                        self.assertEqual(payload['retryAt'], 23000 + exporter.CACHE_MISS_SECONDS)
+                        if stored_shop == current:
+                            self.assertEqual(entry['updated_at'], 1000)
+                            self.assertEqual(payload['customer']['id'], CUSTOMER['id'])
+                            self.assertEqual(payload['order']['id'], ORDER['id'])
+                            self.assertEqual(payload['history'][0]['id'], 'old-history')
+                            self.assertIsNone(payload['customer']['amountSpent'])
+                            self.assertIsNone(payload['order']['currentTotalPriceSet'])
+                            self.assertIsNone(payload['history'][0]['currentTotalPriceSet'])
+                            self.assertIsNone(payload['returns']['returns']['nodes'][0]['items'][0]['price'])
+                            self.assertEqual(payload['fetchedAt'], legacy['fetchedAt'])
+                            self.assertEqual(payload['fetchedAtEpoch'], 1000)
+                            self.assertTrue(payload['legacyMoneyUnverified'])
+                        else:
+                            self.assertEqual(entry['updated_at'], 23000)
+                            self.assertEqual(payload['status'], 'error')
+                            for field in ('customer', 'order', 'history', 'returns', 'fetchedAt', 'fetchedAtEpoch'):
+                                self.assertNotIn(field, payload)
+                        reads = opener.open.call_count
+                        self.assertGreater(reads, 0)
+                        exporter.export('', dest, '', now=23001, graphql_call=exporter.graphql,
+                                        mint=lambda _: 'synthetic token')
+                        self.assertEqual(opener.open.call_count, reads)
 
 
 if __name__ == '__main__':

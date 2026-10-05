@@ -1,4 +1,11 @@
-# Gorgias HTTP Integration body — ticket state fields
+# Historical Inbox1 projection — ticket state fields
+
+This document records the retired Inbox1 views and operator-identity setup.
+The active Inbox reads ticket state through the read-only Gorgias MCP and uses
+`helpdesk-inbox2` on port 8767. Do not run the old service, restart or fingerprint
+commands below. Existing webhook payload fields can still supply projection
+context; this historical procedure is not a requirement for active Inbox views.
+See [the current operator runbook](PRODUCTION-OPERATOR-RUNBOOK.md).
 
 The inbox at `https://support.buttonsbebe.com/inbox/` can only show a ticket's
 status and assignment when the Gorgias webhook that created the observed event

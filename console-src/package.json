@@ -1,0 +1,9 @@
+{
+  "name": "buttonsbebe-console-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser test dependencies for the console and Inbox; not deployed.",
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -17,6 +17,7 @@ from typing import Any
 from .message_content import message_text as retained_message_text
 from .config import get_settings
 from .logging_utils import get_logger, log_event
+from .message_times import normalize_timestamp as _normalize_timestamp
 
 logger = get_logger(__name__)
 
@@ -101,20 +102,6 @@ def _extract_email(val: Any) -> str | None:
         if "@" in parsed and "{" not in parsed:
             return parsed.strip()
     return None
-
-
-def _normalize_timestamp(val: Any) -> str | None:
-    """Return a validated, timezone-aware ISO timestamp string."""
-    if not isinstance(val, str) or not val.strip():
-        return None
-    ts = val.strip()
-    try:
-        parsed = datetime.fromisoformat(ts)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.isoformat()
 
 
 def _normalize_ticket_status(val: Any) -> str | None:
@@ -321,7 +308,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             author_type: str,          # customer | agent | system
             author_email: str | None,
             channel: str | None,
-            created_at: str,            # ISO 8601 timestamp from the event
+            created_at: str | None,     # message timestamp, unavailable if unknown
             message_text: str | None,
             ticket_subject: str | None,
             ticket_status: str | None,
@@ -420,12 +407,15 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
             or _normalize_timestamp(message.get("created_at"))
             or _normalize_timestamp(message.get("received_at"))
         )
-    if not created_at and ticket:
+    if not message and ticket:
         created_at = _normalize_timestamp(ticket.get("created_datetime")) \
             or _normalize_timestamp(ticket.get("created_at"))
     if not created_at:
         log_event(logger, "WARNING", "Webhook timestamp is missing or invalid")
-        return None
+        if not message:
+            return None
+        # Retain the message with unavailable chronology. Dropping it or using
+        # the older ticket time would leave a previous draft eligible to send.
 
     # ── Message text ───────────────────────────────────────
     message_text = None

@@ -5,6 +5,9 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
+const { EventEmitter } = require("node:events");
+const { PassThrough } = require("node:stream");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SERVER = path.join(ROOT, "kb-admin", "server.js");
@@ -58,6 +61,72 @@ async function startServer(t) {
   });
   return { kb, baseUrl };
 }
+
+async function completedReindex(baseUrl) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const state = await (await fetch(`${baseUrl}/reindex-status`)).json();
+    if (!state.running) return state;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error("synthetic reindex did not settle");
+}
+
+test("reindex drains large child streams and exposes only fixed failure reasons", async t => {
+  const { kb, baseUrl } = await startServer(t);
+  const script = path.join(kb, "update.sh");
+  fs.writeFileSync(script, "#!/bin/bash\nhead -c 250000 /dev/zero | tr '\\000' x\nhead -c 250000 /dev/zero | tr '\\000' y >&2\nprintf '\\nsynthetic-customer@example.test private-token customer-text\\nstaged index content mismatch: synthetic-private-details\\n' >&2\nexit 9\n");
+  assert.equal((await (await fetch(`${baseUrl}/reindex`, { method: "POST" })).json()).started, true);
+  const failed = await completedReindex(baseUrl);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, "The staged index failed validation.");
+  assert.doesNotMatch(JSON.stringify(failed), /synthetic-customer|private-token|customer-text|synthetic-private-details/);
+  fs.writeFileSync(script, "#!/bin/bash\nsleep 0.1\nexit 0\n");
+  await fetch(`${baseUrl}/reindex`, { method: "POST" });
+  const running = await (await fetch(`${baseUrl}/reindex-status`)).json();
+  assert.equal(running.running, true);
+  assert.equal(running.reason, null);
+  const passed = await completedReindex(baseUrl);
+  assert.equal(passed.ok, true);
+  assert.equal(passed.reason, null);
+});
+
+test("child error and late close settle an attempt once without changing a later result", () => {
+  const source = fs.readFileSync(SERVER, "utf8");
+  const reasonStart = source.indexOf("function reindexFailureReason("), reasonEnd = source.indexOf("\nfunction safePath", reasonStart);
+  const routeStart = source.indexOf('  if (req.method === "POST" && p === "/reindex")'),
+    routeEnd = source.indexOf('  if (req.method === "GET" && p === "/reindex-status")', routeStart);
+  const children = [];
+  const context = vm.createContext({ Buffer, Date, path, KB: "/synthetic", REINDEX_TAIL_BYTES: 16384,
+    reindex: { running: false, ok: null, at: null, reason: null }, _healthCache: null,
+    spawn: () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough(); child.stderr = new PassThrough(); children.push(child); return child;
+    }, send: (_res, status, value) => ({ status, value }) });
+  vm.runInContext(source.slice(reasonStart, reasonEnd) + `\nthis.start = () => {const req={method:'POST'}, p='/reindex',res={};${source.slice(routeStart, routeEnd)}}`, context);
+  assert.equal(context.start().value.started, true);
+  children[0].emit("error", new Error("synthetic-private-error"));
+  assert.equal(context.reindex.reason, "Re-indexing failed. Your articles are saved; try re-indexing again.");
+  assert.equal(context.start().value.started, true);
+  children[0].emit("close", 0);
+  assert.equal(context.reindex.running, true);
+  children[1].stderr.write("\nindex rebuild already running: synthetic-private-error\n");
+  children[1].emit("close", 1);
+  assert.equal(context.reindex.reason, "Another re-index is already running.");
+  children[1].emit("close", 0);
+  assert.equal(context.reindex.ok, false);
+  assert.equal(context.start().value.started, true);
+  children[2].stderr.write("\nNo content found; refusing to replace the last-known-good index.\n");
+  children[2].emit("close", 1);
+  assert.equal(context.reindex.reason, "No indexable content was found.");
+  assert.equal(context.start().value.started, true);
+  children[3].emit("close", 0);
+  assert.equal(context.reindex.reason, null);
+  assert.equal(context.reindex.ok, true);
+  assert.equal(context.start().value.started, true);
+  children[4].stdout.write("\nindex rebuild already running\n" + "x".repeat(100000));
+  children[4].emit("close", 1);
+  assert.equal(context.reindex.reason, "Re-indexing failed. Your articles are saved; try re-indexing again.");
+});
 
 test("health reports live file counts and product freshness", async (t) => {
   const { baseUrl } = await startServer(t);

@@ -17,8 +17,12 @@ import live_api
 
 TICKET = {'id': 'gorgias:123', 'fromEmail': 'person@example.com', 'subject': 'Order #10312345',
           'messages': [{'body': 'Please check order #10312345.'}]}
-CUSTOMER = {'id': 'gid://shopify/Customer/1', 'defaultEmailAddress': {'emailAddress': 'person@example.com'}, 'displayName': 'Example Customer'}
-ORDER = {'id': 'gid://shopify/Order/1', 'name': '#10312345', 'customer': CUSTOMER, 'email': 'person@example.com', 'returns': {'nodes': []}}
+CUSTOMER = {'id': 'gid://shopify/Customer/1', 'defaultEmailAddress': {'emailAddress': 'person@example.com'},
+            'displayName': 'Example Customer', 'amountSpent': {'amount': '0.00', 'currencyCode': 'CAD'}}
+ORDER = {'id': 'gid://shopify/Order/1', 'name': '#10312345', 'customer': CUSTOMER,
+         'email': 'person@example.com', 'currentTotalPriceSet': {'shopMoney': {'amount': '0.00', 'currencyCode': 'CAD'}},
+         'lineItems': {'nodes': [], 'pageInfo': {'hasNextPage': False}},
+         'returns': {'nodes': [], 'pageInfo': {'hasNextPage': False}}}
 
 
 class DetailsTests(unittest.TestCase):
@@ -39,9 +43,9 @@ class DetailsTests(unittest.TestCase):
         if document == exporter.CUSTOMER_BY_EMAIL:
             return {'customers': {'nodes': [CUSTOMER]}}
         if document == exporter.ORDER_BY_NAME:
-            return {'orders': {'nodes': [ORDER]}}
+            return {'orders': {'nodes': [ORDER], 'pageInfo': {'hasNextPage': False}}}
         if document == exporter.PAST_ORDERS:
-            return {'customer': {'orders': {'nodes': [ORDER]}}}
+            return {'customer': {'orders': {'nodes': [ORDER], 'pageInfo': {'hasNextPage': False}}}}
         raise AssertionError('Only allowlisted read queries are permitted')
 
     def worker(self, **kwargs):
@@ -73,11 +77,91 @@ class DetailsTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 3)
 
     def test_legacy_customer_only_snapshot_does_not_skip_live_order_lookup(self):
-        ticket = {**TICKET, 'shopifyRail': {'status': 'found', 'customer': CUSTOMER, 'stale': False}}
+        ticket = {**TICKET, 'shopifyRail': {'status': 'found',
+                  'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+                  'stale': False}}
         rail = self.enqueue(ticket)['shopifyRail']
         self.assertTrue(rail['refreshing'])
+        self.assertTrue(rail['legacyMoneyUnverified'])
+        self.assertIsNone(rail['customer']['amountSpent'])
         self.worker().process(shop_worker.read_requests(self.queue))
         self.assertEqual(self.enqueue(ticket)['shopifyRail']['order']['id'], ORDER['id'])
+
+    def test_saved_worker_snapshot_version_invalidates_and_refreshes(self):
+        now = time.time()
+        request = details.request_ticket(TICKET)
+        key = details.request_key(request)
+        legacy = {
+            'status': 'found', 'email': TICKET['fromEmail'], 'requestKey': key,
+            'fetchedAtEpoch': now, 'attemptedAt': now - 1,
+            'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+            'order': {**ORDER, 'currentTotalPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}}},
+            'history': [],
+        }
+        shop_worker.publish({TICKET['id']: {'payload': legacy, 'updated_at': now}}, self.snapshot)
+        rail = self.enqueue(now=now)['shopifyRail']
+        self.assertTrue(rail['refreshing'])
+        self.assertTrue(rail['legacyMoneyUnverified'])
+        self.assertIsNone(rail['customer']['amountSpent'])
+        worker = self.worker()
+        self.assertEqual(worker.process(shop_worker.read_requests(self.queue), now=now + 1), 1)
+        refreshed = self.enqueue(now=now + 2)['shopifyRail']
+        self.assertEqual(refreshed['payloadVersion'], exporter.PAYLOAD_VERSION)
+        self.assertEqual(refreshed['customer']['amountSpent'], {'amount': '0.00', 'currencyCode': 'CAD'})
+
+    def test_failed_legacy_refresh_preserves_backoff_across_inbox_polls(self):
+        for offset, version in enumerate((None, 'older-version')):
+            with self.subTest(version=version):
+                start = time.time() + offset * 1000
+                request = details.request_ticket(TICKET)
+                key = details.request_key(request)
+                legacy = {
+                    'status': 'found', 'email': TICKET['fromEmail'], 'requestKey': key,
+                    'fetchedAtEpoch': start - 22000, 'attemptedAt': start - 1,
+                    'refreshError': True, 'failures': 2, 'retryAt': start - 1,
+                    'customer': {**CUSTOMER, 'amountSpent': {'amount': '0.0', 'currencyCode': 'USD'}},
+                    'order': {**ORDER, 'currentTotalPriceSet': {'shopMoney': {'amount': '0.0', 'currencyCode': 'USD'}}},
+                    'history': [copy.deepcopy(ORDER)],
+                }
+                if version is not None:
+                    legacy['payloadVersion'] = version
+                shop_worker.publish({TICKET['id']: {'payload': legacy, 'updated_at': start}}, self.snapshot)
+                self.enqueue(now=start)
+                calls = []
+
+                def unavailable(*args):
+                    calls.append(args)
+                    raise RuntimeError('Shopify unavailable')
+
+                worker = shop_worker.Worker({'SHOPIFY_SHOP': 'current-synthetic.myshopify.com'},
+                                           self.snapshot, graphql=unavailable, mint=lambda _: 'test-token')
+                self.assertEqual(worker.process(shop_worker.read_requests(self.queue), now=start + 1), 1)
+                failed = details.read_snapshot(TICKET['id'], self.snapshot)
+                self.assertEqual(failed['payloadVersion'], exporter.PAYLOAD_VERSION)
+                self.assertEqual(failed['failures'], 3)
+                self.assertEqual(failed['retryAt'], start + 121)
+                self.assertEqual(failed['attemptedAt'], start + 1)
+                self.assertTrue(failed['refreshError'])
+                self.assertEqual(failed['shop'], 'current-synthetic.myshopify.com')
+                self.assertEqual(failed['fetchedAtEpoch'], legacy['fetchedAtEpoch'])
+                self.assertEqual(failed['customer']['id'], CUSTOMER['id'])
+                self.assertEqual(failed['order']['id'], ORDER['id'])
+                self.assertEqual(failed['history'][0]['id'], ORDER['id'])
+                self.assertTrue(failed['legacyMoneyUnverified'])
+                self.assertIsNone(failed['customer']['amountSpent'])
+                self.assertIsNone(failed['order']['currentTotalPriceSet'])
+                self.assertIsNone(failed['history'][0]['currentTotalPriceSet'])
+                for poll in (31, 61, 91):
+                    rail = self.enqueue(now=start + poll)['shopifyRail']
+                    self.assertTrue(rail['refreshError'])
+                    requests = shop_worker.read_requests(self.queue)
+                    self.assertEqual(requests[0][2], start)
+                    self.assertEqual(worker.process(requests, now=start + poll), 0)
+                self.assertEqual(len(calls), 1)
+                self.enqueue(now=failed['retryAt'] + 1)
+                self.assertEqual(worker.process(shop_worker.read_requests(self.queue), now=failed['retryAt'] + 1), 1)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(details.read_snapshot(TICKET['id'], self.snapshot)['failures'], 4)
 
     def test_identity_change_never_reuses_prior_customer(self):
         self.enqueue()
@@ -145,6 +229,188 @@ class DetailsTests(unittest.TestCase):
         worker.window_at = time.time()
         worker.caches['lookups'] = exporter.MAX_LOOKUPS
         self.assertEqual(worker.process(shop_worker.read_requests(self.queue)), 0)
+        self.assertEqual(self.calls, [])
+
+    def store_snapshot(self, shop, now):
+        request = details.request_ticket(TICKET)
+        payload = {'payloadVersion': exporter.PAYLOAD_VERSION, 'status': 'found',
+                   'email': TICKET['fromEmail'], 'requestKey': details.request_key(request),
+                   'fetchedAtEpoch': now, 'attemptedAt': now + 100,
+                   'customer': copy.deepcopy(CUSTOMER), 'order': copy.deepcopy(ORDER),
+                   'history': [{'id': 'prior-history'}],
+                   'returns': {'returns': {'nodes': [{'id': 'prior-return'}]}}}
+        if shop:
+            payload['shop'] = shop
+        return {'payload': payload, 'updated_at': now}
+
+    def test_worker_startup_removes_other_store_and_keeps_matching_and_legacy_rows(self):
+        now = time.time()
+        current = 'current-synthetic.myshopify.com'
+        old = self.store_snapshot('old-synthetic.myshopify.com', now)
+        matching = self.store_snapshot(current, now)
+        legacy = self.store_snapshot(None, now)
+        shop_worker.publish({TICKET['id']: old, 'gorgias:matching': matching,
+                             'gorgias:legacy': legacy}, self.snapshot)
+        worker = shop_worker.Worker({'SHOPIFY_SHOP': current}, self.snapshot,
+                                   graphql=self.graphql, mint=lambda _: 'test-token')
+        self.assertNotIn(TICKET['id'], worker.cache)
+        self.assertIsNone(details.read_snapshot(TICKET['id'], self.snapshot))
+        self.assertEqual(details.read_snapshot('gorgias:matching', self.snapshot), matching['payload'])
+        self.assertEqual(details.read_snapshot('gorgias:legacy', self.snapshot), legacy['payload'])
+        self.assertEqual(worker.process([], now=now), 0)
+        self.assertEqual(self.calls, [])
+
+    def test_old_store_startup_removal_does_not_require_available_lookup_budget(self):
+        now = time.time()
+        shop_worker.publish({TICKET['id']: self.store_snapshot('old-synthetic.myshopify.com', now)}, self.snapshot)
+        worker = shop_worker.Worker({'SHOPIFY_SHOP': 'current-synthetic.myshopify.com'}, self.snapshot,
+                                   graphql=self.graphql, mint=lambda _: 'test-token')
+        self.assertIsNone(details.read_snapshot(TICKET['id'], self.snapshot))
+        worker.window_at = now
+        worker.caches['lookups'] = exporter.MAX_LOOKUPS
+        request = details.request_ticket(TICKET)
+        self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now), 0)
+        self.assertIsNone(details.read_snapshot(TICKET['id'], self.snapshot))
+        self.assertEqual(self.calls, [])
+
+    def test_matching_store_fresh_snapshot_is_retained_without_lookup_or_republication(self):
+        now = time.time()
+        current = 'current-synthetic.myshopify.com'
+        original = self.store_snapshot(current, now)
+        shop_worker.publish({TICKET['id']: original}, self.snapshot)
+        with patch.object(shop_worker, 'publish', wraps=shop_worker.publish) as publish:
+            worker = shop_worker.Worker({'SHOPIFY_SHOP': current}, self.snapshot,
+                                       graphql=self.graphql, mint=lambda _: 'test-token')
+            request = details.request_ticket(TICKET)
+            self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now), 0)
+            publish.assert_not_called()
+        self.assertEqual(details.read_snapshot(TICKET['id'], self.snapshot), original['payload'])
+        self.assertEqual(self.calls, [])
+
+    def test_old_store_fresh_snapshot_cannot_survive_outage_as_current_store_data(self):
+        now = time.time()
+        current = 'current-synthetic.myshopify.com'
+        shop_worker.publish({TICKET['id']: self.store_snapshot('old-synthetic.myshopify.com', now)}, self.snapshot)
+        calls = []
+        def unavailable(*args):
+            calls.append(args)
+            raise TimeoutError('synthetic outage')
+        worker = shop_worker.Worker({'SHOPIFY_SHOP': current}, self.snapshot,
+                                   graphql=unavailable, mint=lambda _: 'test-token')
+        self.assertIsNone(details.read_snapshot(TICKET['id'], self.snapshot))
+        request = details.request_ticket(TICKET)
+        self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now), 1)
+        payload = details.read_snapshot(TICKET['id'], self.snapshot)
+        self.assertEqual(payload['shop'], current)
+        self.assertEqual(payload['status'], 'error')
+        self.assertTrue(payload['refreshError'])
+        self.assertEqual(payload['failures'], 1)
+        self.assertEqual(payload['retryAt'], now + 30)
+        for field in ('customer', 'order', 'history', 'returns', 'fetchedAtEpoch'):
+            self.assertNotIn(field, payload)
+        self.assertEqual(len(calls), 1)
+
+    def test_process_rejects_reintroduced_other_store_before_freshness_or_budget(self):
+        for exhausted in (False, True):
+            with self.subTest(exhausted=exhausted):
+                now = time.time()
+                calls = []
+                def unavailable(*args):
+                    calls.append(args)
+                    raise TimeoutError('synthetic outage')
+                worker = shop_worker.Worker({'SHOPIFY_SHOP': 'current-synthetic.myshopify.com'}, self.snapshot,
+                                           graphql=unavailable, mint=lambda _: 'test-token')
+                # Exercise the per-request guard independently of startup.
+                worker.cache[TICKET['id']] = self.store_snapshot('old-synthetic.myshopify.com', now)
+                shop_worker.publish(worker.cache, self.snapshot)
+                worker.window_at = now
+                if exhausted:
+                    worker.caches['lookups'] = exporter.MAX_LOOKUPS
+                request = details.request_ticket(TICKET)
+                self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now),
+                                 0 if exhausted else 1)
+                payload = details.read_snapshot(TICKET['id'], self.snapshot)
+                if exhausted:
+                    self.assertIsNone(payload)
+                    self.assertEqual(calls, [])
+                else:
+                    self.assertEqual(payload['shop'], 'current-synthetic.myshopify.com')
+                    self.assertEqual(payload['status'], 'error')
+                    for field in ('customer', 'order', 'history', 'returns'):
+                        self.assertNotIn(field, payload)
+                    self.assertEqual(len(calls), 1)
+
+    def test_worker_startup_atomically_removes_invalid_json_payload_rows(self):
+        now = time.time()
+        current = 'current-synthetic.myshopify.com'
+        valid = self.store_snapshot(current, now)
+        cache = {f'gorgias:invalid-{index}': {'payload': invalid, 'updated_at': now}
+                 for index, invalid in enumerate(([], None, 7, 'invalid', True))}
+        cache[TICKET['id']] = valid
+        shop_worker.publish(cache, self.snapshot)
+        worker = shop_worker.Worker({'SHOPIFY_SHOP': current}, self.snapshot,
+                                   graphql=self.graphql, mint=lambda _: 'test-token')
+        self.assertEqual(worker.cache, {TICKET['id']: valid})
+        self.assertEqual(exporter.load_cache(self.snapshot), {TICKET['id']: valid})
+        self.assertEqual(worker.process([], now=now), 0)
+        worker.window_at = now
+        worker.caches['lookups'] = exporter.MAX_LOOKUPS
+        request = details.request_ticket(TICKET)
+        self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now), 0)
+        self.assertEqual(self.calls, [])
+        with sqlite3.connect(self.snapshot) as db:
+            self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
+
+    def test_process_purges_invalid_payload_before_budget_or_token_failure(self):
+        current = 'current-synthetic.myshopify.com'
+        for invalid in ([], None, 7, 'invalid', True):
+            for exhausted in (False, True):
+                with self.subTest(invalid=invalid, exhausted=exhausted):
+                    now = time.time()
+                    mint_calls = []
+                    def mint(env):
+                        mint_calls.append(env)
+                        raise exporter.HTTPError('https://synthetic.invalid/token', 503, 'synthetic outage', {}, None)
+                    worker = shop_worker.Worker({'SHOPIFY_SHOP': current}, self.snapshot,
+                                               graphql=self.graphql, mint=mint)
+                    worker.cache[TICKET['id']] = {'payload': invalid, 'updated_at': now}
+                    shop_worker.publish(worker.cache, self.snapshot)
+                    worker.window_at = now
+                    if exhausted:
+                        worker.caches['lookups'] = exporter.MAX_LOOKUPS
+                    request = details.request_ticket(TICKET)
+                    self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now),
+                                     0 if exhausted else 1)
+                    payload = details.read_snapshot(TICKET['id'], self.snapshot)
+                    if exhausted:
+                        self.assertIsNone(payload)
+                        self.assertEqual(mint_calls, [])
+                    else:
+                        self.assertEqual(payload['shop'], current)
+                        self.assertEqual(payload['status'], 'error')
+                        self.assertTrue(payload['refreshError'])
+                        for field in ('customer', 'order', 'history', 'returns'):
+                            self.assertNotIn(field, payload)
+                        self.assertEqual(len(mint_calls), 1)
+                        self.assertEqual(worker.caches['lookups'], exporter.MAX_LOOKUPS)
+        self.assertEqual(self.calls, [])
+
+    def test_old_store_startup_remains_purged_when_token_mint_fails(self):
+        now = time.time()
+        current = 'current-synthetic.myshopify.com'
+        shop_worker.publish({TICKET['id']: self.store_snapshot('old-synthetic.myshopify.com', now)}, self.snapshot)
+        def mint(env):
+            raise exporter.HTTPError('https://synthetic.invalid/token', 503, 'synthetic outage', {}, None)
+        worker = shop_worker.Worker({'SHOPIFY_SHOP': current}, self.snapshot,
+                                   graphql=self.graphql, mint=mint)
+        self.assertIsNone(details.read_snapshot(TICKET['id'], self.snapshot))
+        request = details.request_ticket(TICKET)
+        self.assertEqual(worker.process([(request, details.request_key(request), now)], now=now), 1)
+        payload = details.read_snapshot(TICKET['id'], self.snapshot)
+        self.assertEqual(payload['shop'], current)
+        self.assertEqual(payload['status'], 'error')
+        for field in ('customer', 'order', 'history', 'returns'):
+            self.assertNotIn(field, payload)
         self.assertEqual(self.calls, [])
 
     def test_cached_gorgias_detail_reads_new_snapshot_without_refetch(self):

@@ -1,5 +1,6 @@
 """Read-only Shopify rail snapshot for the isolated inbox. No network."""
 from __future__ import annotations
+import copy
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,50 @@ import time
 from contextlib import closing
 
 DEFAULT_PATH = '/var/lib/buttonsbebe-inbox-projection/shop-rail.sqlite3'
+PAYLOAD_VERSION = 2
+
+
+def display_payload(payload):
+    if payload.get('payloadVersion') == PAYLOAD_VERSION:
+        return payload
+    payload = copy.deepcopy(payload)
+    def records(value):
+        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else None
+
+    customer = payload.get('customer')
+    if isinstance(customer, dict):
+        customer['amountSpent'] = None
+    else:
+        payload['customer'] = None
+    order = payload.get('order')
+    if isinstance(order, dict):
+        order['currentTotalPriceSet'] = None
+        connection = order.get('lineItems')
+        if isinstance(connection, dict):
+            connection['nodes'] = records(connection.get('nodes'))
+            for line in connection['nodes'] or []:
+                line['originalUnitPriceSet'] = None
+        else:
+            order['lineItems'] = None
+    else:
+        payload['order'] = None
+    payload['history'] = records(payload.get('history'))
+    for history in payload['history'] or []:
+        history['currentTotalPriceSet'] = None
+    returns = payload.get('returns')
+    connection = returns.get('returns') if isinstance(returns, dict) else None
+    if isinstance(connection, dict):
+        connection['nodes'] = records(connection.get('nodes'))
+        for returned in connection['nodes'] or []:
+            returned['items'] = records(returned.get('items'))
+            for item in returned['items'] or []:
+                item['price'] = None
+    else:
+        payload['returns'] = None
+    # Older snapshots did not prove list completeness, including filtered rows.
+    payload['partial'] = dict.fromkeys(('orderSearch', 'orderItems', 'returns', 'history'))
+    payload['legacyMoneyUnverified'] = True
+    return payload
 
 
 def connect(path):
@@ -49,6 +94,7 @@ def attach(ticket, path=None):
         return ticket
     if not isinstance(payload, dict):
         return ticket
+    payload = display_payload(payload)
     context = ticket.get('customerContext') or {}
     identity = context.get('identity') or {}
     email = identity.get('email') or ticket.get('fromEmail') or ticket.get('customerName')

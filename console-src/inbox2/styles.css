@@ -2062,6 +2062,9 @@ dialog textarea {
 }
 
 @media (max-width: 340px) {
+  .app-header {
+    column-gap: 4px;
+  }
   .brand-logo {
     width: 110px;
   }

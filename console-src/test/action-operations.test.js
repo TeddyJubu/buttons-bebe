@@ -10,21 +10,6 @@ test('tickets use the standalone inbox with no legacy frame or message bridge',(
  assert.match(html, /location.assign\(bbStandaloneInboxSrc/);
  assert.match(html, /return "\/inbox\/"\+/);
 });
-test('bridge routes rewrite/note/send to the console API with operation payloads',()=>{
- for(const fn of ['function bbFindConsoleTicket(','function bbRewriteTicket(','function bbNoteTicket(','function bbSendTicket(','function bbPerformWrite('])assert.ok(html.includes(fn),`missing ${fn}`);
- assert.match(html,/approve_learning:!!approveLearning/);
- assert.match(html,/operation_id:opId/);
- assert.match(html,/draft_revision:revision/);
-});
-test('dry-run stays default: unarmed note/send validate without posting',()=>{
- const src='var bbArmed=false;'+slice('function bbPerformWrite(','function bbStandaloneInboxSrc(');
- const context=vm.createContext({console:{info(){}},crypto:{},fetch(){throw new Error('must not fetch in dry-run');}});
- vm.runInContext(src+';this.perform=bbPerformWrite;',context);
- return Promise.all([
-  context.perform('note',{ticket_id:1},'x').then(r=>assert.equal(r.dryRun,true)),
-  context.perform('send',{ticket_id:1},{text:'x'}).then(r=>assert.equal(r.dryRun,true)),
- ]);
-});
 test('uncertain owner alerts remain visible without a retry control',()=>{
  const start=html.indexOf('function ownerAlertWarning('),end=html.indexOf('function overview(){',start);
  const context=vm.createContext({ownerAlertOpen:false});vm.runInContext(html.slice(start,end),context);

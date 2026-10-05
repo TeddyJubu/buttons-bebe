@@ -32,7 +32,9 @@ def classify(
     raw_subject_text = str(payload.get("ticket_subject") or "")
     raw_message_text = str(payload.get("message_text") or "")
     from draft_cleaner import should_draft
-    if not should_draft(raw_message_text, raw_subject_text).ok:
+    latest_customer_text = _views._unquoted_customer_text(raw_message_text)
+    if ((raw_message_text.strip() and not latest_customer_text)
+            or not should_draft(latest_customer_text, raw_subject_text).ok):
         return {'priority': NORMAL, 'sensitive': False, 'should_notify_owner': False,
                 'reason': 'No new request in the latest acknowledgment', 'matched': [],
                 'should_draft': False, 'source': 'deterministic'}
@@ -47,7 +49,8 @@ def classify(
     raw_subject = _views._normalise_text(classification_subject)
     message_text = raw_message.lower()
     ticket_subject = raw_subject.lower()
-    combined_text = f"{ticket_subject} {_views._drop_store_boilerplate(message_text)}"
+    customer_message_text = _views._drop_store_boilerplate(message_text)
+    combined_text = f"{ticket_subject} {customer_message_text}"
 
     raw_intents = payload.get("intents", [])
     intent_names: set[str] = set()
@@ -150,10 +153,61 @@ def classify(
     high_hits = len(high_matches)
     high_intent_hit = bool(intent_names & _data._HIGH_INTENTS)
     followup_match = _matching._search_any(main_views, _patterns._FOLLOWUP_PATTERN)
-    if high_hits > 0 or high_intent_hit or followup_match or exclaiming or shouting:
+    post_wash_shrinkage_match = None
+    defect_text = _views._unquoted_customer_text(raw_message)
+    for match in _patterns._POST_WASH_SHRINKAGE_RE.finditer(defect_text):
+        clause_prefix = re.split(
+            r"[.!?;,]", defect_text[:match.start()]
+        )[-1]
+        # A contrast or request lead-in does not make a later factual claim
+        # conditional ("I don't know if I washed it right, but it shrank").
+        event_context = re.split(
+            r"\b(?:but|however|because)\b|\bif\s+it\s+helps\s*:",
+            clause_prefix + match.group(0), flags=re.IGNORECASE,
+        )[-1]
+        if re.match(
+            r"\A\s*(?:(?:what\s+)?if\b(?!\s+it\s+helps\b)|hypothetically\b)",
+            clause_prefix + match.group(0), flags=re.IGNORECASE,
+        ):
+            event_context = clause_prefix + match.group(0)
+        if (
+            not _patterns._SHRINKAGE_NONREPORT_RE.search(event_context)
+            and not _patterns._SHRINKAGE_CONDITIONAL_CONTEXT_RE.search(
+                event_context
+            )
+            and not _patterns._SHRINKAGE_MODAL_EVENT_RE.search(event_context)
+        ):
+            post_wash_shrinkage_match = match
+            break
+    received_item_color_match = None
+    for match in _patterns._RECEIVED_ITEM_COLOR_PHOTO_MISMATCH_RE.finditer(
+        defect_text
+    ):
+        preceding = defect_text[max(0, match.start() - 120):match.start()]
+        clauses = re.split(r"[.!?;]", preceding)
+        # At most one adjacent sentence may attach through "It/They/the color";
+        # the attachment grammar rejects a different product or longer history.
+        attached_context = ".".join(clauses[-2:])
+        attached_to_received_item = any(
+            _patterns._COLOR_COMPARISON_ATTACHMENT_RE.fullmatch(
+                attached_context[anchor.end():]
+            )
+            for anchor in _patterns._RECEIVED_ITEM_ANCHOR_RE.finditer(attached_context)
+        )
+        if attached_to_received_item and not _patterns._COLOR_COMPARISON_NONREPORT_RE.search(
+            attached_context
+        ):
+            received_item_color_match = match
+            break
+    if (high_hits > 0 or high_intent_hit or followup_match or exclaiming or shouting
+            or post_wash_shrinkage_match or received_item_color_match):
         high_sensitive = bool(intent_names & _data._HIGH_SENSITIVE_INTENTS) or bool(
             _matching._search_any(main_views, _patterns._MAIN_HIGH_SENSITIVE_PATTERN)
-        ) or bool(_patterns._HIGH_SENSITIVE_PATTERN.search(combined_text))
+        ) or bool(_patterns._HIGH_SENSITIVE_PATTERN.search(combined_text)) or bool(
+            post_wash_shrinkage_match
+        ) or bool(
+            received_item_color_match
+        )
         reason_parts = []
         matched = list(high_matches)
         if high_hits > 0:
@@ -163,6 +217,12 @@ def classify(
         if followup_match:
             reason_parts.append("follow-up pattern detected")
             matched.append(" ".join(followup_match.group(0).split()))
+        if post_wash_shrinkage_match:
+            reason_parts.append("reported shrinkage after washing")
+            matched.append(" ".join(post_wash_shrinkage_match.group(0).split()))
+        if received_item_color_match:
+            reason_parts.append("received item materially differs from listing photos")
+            matched.append(" ".join(received_item_color_match.group(0).split()))
         if exclaiming:
             reason_parts.append("excessive exclamation (!!!)")
             matched.append("!!!")

@@ -89,8 +89,32 @@ multi-file switch. An active KB maintenance job aborts before source changes;
 active timers are paused and restored. No package downloads or index work occur
 inside the outage. Readiness is scoped to changed services. WhatsApp's connected
 business state is monitored separately and does not roll back unrelated code.
-Inbox readiness requires `/ready` with healthy storage/fresh projection and the
-exact locked Send response; static HTML or the early Send lock alone cannot pass.
+Inbox readiness requires `/ready` with `status: "ready"`, `readOnly: true`, and
+checks `storage: "ok"`, `worker: "ok"`, `ticketData: "fresh"`, `projection: "fresh"`.
+A separate read-only capability request must report `sendReply: false`.
+Static HTML, `/health`, or disabled Send alone cannot pass.
+
+Before the first source rollout on a fresh install, plan a separate bootstrap:
+start the read worker and projection exporter, let the first complete ticket
+scan finish, then verify the exact `/ready` record above. A large first scan can
+outlast the receiver's ten checks spaced three seconds apart. The receiver does
+not bootstrap an empty ticket store, and a fresh partial scan never qualifies as
+ready. Do not fabricate completion metadata or relax the check to fit this window.
+For an established installation, verify the same ready record before rollout.
+
+A failed read gets one retry after five seconds. Readiness keeps reporting the
+error until a sync completes. Consecutive failures then wait 60, 120, 240 and at
+most 300 seconds; a successful sync restores the normal 30-second interval and
+allows one quick retry for a later failure streak. A prolonged outage still fails
+the receiver's bounded checks and rolls back source.
+
+The receiver's stricter `/ready` check also runs after source rollback. Before
+installing it, establish and verify a recoverable source baseline that exposes
+this readiness contract. Otherwise restoring older source can succeed while its
+readiness verification reports incomplete recovery. Keep the reviewed previous
+receiver and source helper available for an explicitly planned bootstrap or
+rollback. Source deployment does not install either privileged file. This local
+implementation does not authorize production installation or a main push.
 
 On failure/INT/TERM, affected services stop, journaled source is restored, and
 previously active services restart and pass bounded readiness. A concurrent code

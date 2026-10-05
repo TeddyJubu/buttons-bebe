@@ -21,7 +21,17 @@ import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
-from feedback import config, pii  # noqa: E402
+from feedback import pii  # noqa: E402
+from feedback.learning_paths import resolve_learning_paths  # noqa: E402
+
+KB_ROOT = pathlib.Path(__file__).resolve().parents[1]
+PATHS = resolve_learning_paths(
+    None,
+    environ=os.environ,
+    repo_root=REPO_ROOT,
+    default_root=KB_ROOT,
+    corpus_root=KB_ROOT,
+)
 
 
 def _parse(path: pathlib.Path):
@@ -89,11 +99,11 @@ def _write_idempotent(path: pathlib.Path, content: str) -> bool:
 
 def _archive_without_replacing(path: pathlib.Path) -> pathlib.Path:
     """Move a raw lesson into the archive without replacing an earlier packet."""
-    candidate = config.ARCHIVE_DIR / path.name
+    candidate = PATHS.archive_dir / path.name
     for number in range(1, 1000):
         if not candidate.exists():
             return pathlib.Path(shutil.move(str(path), str(candidate)))
-        candidate = config.ARCHIVE_DIR / f"{path.stem}-{number + 1}{path.suffix}"
+        candidate = PATHS.archive_dir / f"{path.stem}-{number + 1}{path.suffix}"
     raise FileExistsError(f"could not allocate archive path for {path.name}")
 
 
@@ -135,14 +145,14 @@ def promote_one(path: pathlib.Path) -> bool:
     content = ("---\n"
                + yaml.safe_dump(ex_front, sort_keys=False, allow_unicode=True)
                + "---\n\n" + body)
-    config.TICKETS_DIR.mkdir(parents=True, exist_ok=True)
+    PATHS.tickets_dir.mkdir(parents=True, exist_ok=True)
     source_id = path.stem
     digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:12]
-    out = config.TICKETS_DIR / (
+    out = PATHS.tickets_dir / (
         f"exemplar-learned-{_safe_component(kind, 'sent')}-{digest}.md"
     )
     created = _write_idempotent(out, content)
-    config.ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    PATHS.archive_dir.mkdir(parents=True, exist_ok=True)
     try:
         _archive_without_replacing(path)
     except Exception:
@@ -155,7 +165,7 @@ def promote_one(path: pathlib.Path) -> bool:
 
 
 def main() -> int:
-    d = config.LEARNED_DIR
+    d = PATHS.learned_dir
     n = 0
     failures = 0
     if d.exists():
@@ -166,7 +176,7 @@ def main() -> int:
             except Exception as e:
                 failures += 1
                 print("promotion failed", p.name, type(e).__name__, file=sys.stderr)
-    print(f"promoted {n} lesson(s) into {config.TICKETS_DIR}")
+    print(f"promoted {n} lesson(s) into {PATHS.tickets_dir}")
     return 1 if failures else 0
 
 

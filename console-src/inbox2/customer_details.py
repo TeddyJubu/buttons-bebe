@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import sys
 import time
+
+INBOX_MODULES = Path(__file__).resolve().parent.parent / 'inbox'
+if not (INBOX_MODULES / 'shop_rail.py').is_file():
+    INBOX_MODULES = Path('/opt/buttonsbebe/inbox/console-src/inbox')
+sys.path.insert(0, str(INBOX_MODULES))
+from shop_rail import PAYLOAD_VERSION, display_payload
 
 SNAPSHOT = Path('/var/lib/buttonsbebe-inbox2-shop/rail.sqlite3')
 QUEUE = Path('/var/lib/buttonsbebe-inbox2/customer-requests.sqlite3')
@@ -49,7 +56,7 @@ def request_key(ticket):
 
 
 def fresh(payload, key, now):
-    if not payload or payload.get('requestKey') != key:
+    if not payload or payload.get('payloadVersion') != PAYLOAD_VERSION or payload.get('requestKey') != key:
         return False
     if payload.get('refreshError'):
         return now < payload.get('retryAt', 0)
@@ -76,6 +83,7 @@ def attach(ticket, database, path=SNAPSHOT, now=None):
     key = request_key(request)
     payload = read_snapshot(ticket['id'], path)
     if payload and payload.get('requestKey') == key and payload.get('email', '').casefold() == request['fromEmail']:
+        payload = display_payload(payload)
         payload['stale'] = bool(payload.get('refreshError')) or now - payload.get('fetchedAtEpoch', 0) > 6 * 3600
         ticket['shopifyRail'] = payload
         if fresh(payload, key, now):
@@ -84,7 +92,7 @@ def attach(ticket, database, path=SNAPSHOT, now=None):
         ticket.pop('shopifyRail', None)
     # Legacy snapshots may come from an older/partial conversation. Display them
     # while looking up the full live ticket, but do not use them to skip the queue.
-    legacy = ticket.get('shopifyRail', {})
+    legacy = display_payload(ticket.get('shopifyRail', {})) if ticket.get('shopifyRail') else {}
     with closing(database()) as db, db:
         db.execute('DELETE FROM shop_requests WHERE requested_at < ?', (now - 86400,))
         db.execute('''INSERT INTO shop_requests VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET

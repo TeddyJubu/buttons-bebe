@@ -3,7 +3,7 @@ import hashlib
 import unittest
 import uuid
 from unittest.mock import patch
-from bb_webhook import app as app_module
+from bb_webhook.routers import console as console_router
 from bb_webhook.db import Database
 from bb_webhook.send_intents import IntentStore
 from webhook.action_test_support import setup_action_case
@@ -17,7 +17,7 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         return await self.client.get(self.url,params={'source_message_id':'source-1',**params})
     async def test_context_is_readonly_exact_and_send_locked(self):
         before=self.path.read_bytes()
-        with patch.object(app_module,'_GClient') as transport:
+        with patch.object(console_router,'_GClient') as transport:
             response=await self.get()
         transport.assert_not_called()
         self.assertEqual(response.status_code,200)
@@ -42,11 +42,18 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.get(expected_recipient='changed@example.com')).json()['error'],'recipient_changed_refresh_ticket')
     async def test_new_customer_message_invalidates_previous_context(self):
         old=(await self.get()).json()['context']
-        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,received_at) VALUES('newer',1,'created','customer',1,'zz-later')")
+        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,created_at,received_at) VALUES('newer',1,'created','customer',1,'2026-09-26T01:00:01.5+00:00','2026-09-26T01:00:02+00:00')")
         response=await self.get()
         self.assertEqual(response.status_code,409)
         self.assertEqual(response.json()['error'],'new_customer_message_refresh_ticket')
         self.assertFalse(old['sendEnabled'])
+    async def test_unknown_new_message_time_blocks_previous_context(self):
+        await Database(self.path).execute("INSERT INTO parsed_messages(message_id,ticket_id,event_type,author_type,is_customer_message,received_at) VALUES('unknown-time',1,'created','customer',1,'2026-09-26T01:00:02+00:00')")
+        with patch.object(console_router,'_GClient') as transport:
+            response=await self.get()
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.json()['error'],'message_chronology_unavailable')
+        transport.assert_not_called()
     async def test_existing_console_operation_can_be_resumed_without_new_intent(self):
         store=IntentStore(self.path);operation=str(uuid.uuid4())
         await store.reserve(operation_id=operation,actor_id='owner:owner',kind='send',ticket_id=1,

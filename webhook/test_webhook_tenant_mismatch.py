@@ -8,6 +8,9 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 from bb_webhook import app as app_module
+from bb_webhook.routers import webhook as webhook_router
+from bb_webhook.middleware import rate_limit
+from bb_webhook import database
 
 
 class WebhookTenantMismatchTests(unittest.IsolatedAsyncioTestCase):
@@ -17,10 +20,10 @@ class WebhookTenantMismatchTests(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=app_module.app),
             base_url="http://demo.test",
         ) as client:
-            app_module._rate_window.clear()
+            rate_limit._rate_window.clear()
             with (
-                patch.object(app_module, "verify_signature", lambda *_args: True),
-                patch.object(app_module, "parse_event", lambda _raw: event),
+                patch.object(webhook_router, "verify_signature", lambda *_args: True),
+                patch.object(webhook_router, "parse_event", lambda _raw: event),
             ):
                 response = await client.post(
                     "/webhook/gorgias/tenant-from-url",
@@ -31,7 +34,7 @@ class WebhookTenantMismatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"error": "tenant_not_found"})
 
-    async def test_app_level_replay_checker_patch_remains_effective(self) -> None:
+    async def test_expired_replay_returns_410_before_persistence(self) -> None:
         event = {
             "tenant_id": "demo",
             "ticket_id": 1,
@@ -46,12 +49,12 @@ class WebhookTenantMismatchTests(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=app_module.app),
             base_url="http://demo.test",
         ) as client:
-            app_module._rate_window.clear()
+            rate_limit._rate_window.clear()
             with (
-                patch.object(app_module, "verify_signature", lambda *_args: True),
-                patch.object(app_module, "parse_event", lambda _raw: event),
-                patch.object(app_module, "is_duplicate", AsyncMock(return_value=False)),
-                patch.object(app_module, "is_event_too_old", lambda _created: True),
+                patch.object(webhook_router, "verify_signature", lambda *_args: True),
+                patch.object(webhook_router, "parse_event", lambda _raw: event),
+                patch.object(database, "is_duplicate", AsyncMock(return_value=False)),
+                patch.object(webhook_router, "is_event_too_old", lambda _created: True),
             ):
                 response = await client.post(
                     "/webhook/gorgias/demo",

@@ -8,6 +8,7 @@ import httpx
 from bb_webhook import app as app_module, database, session_store
 from bb_webhook.console_auth import build_session_token, session_claims
 from bb_webhook.db import Database
+from bb_webhook.draft_generation import begin_attempt, finish_attempt
 
 
 async def setup_action_case(case):
@@ -18,14 +19,22 @@ async def setup_action_case(case):
     await session_store.initialize(case.path)
     case.settings = SimpleNamespace(db_path_absolute=case.path, console_session_secret='test-action-secret',
                                     console_username='owner', demo_mode=False)
-    for target in ('bb_webhook.app.get_settings', 'bb_webhook.db.get_settings'):
+    for target in ('bb_webhook.deps.get_settings', 'bb_webhook.db.get_settings',
+                   'bb_webhook.middleware.console_session.get_settings'):
         patched = patch(target, return_value=case.settings)
         patched.start()
         case.addCleanup(patched.stop)
-    await Database(case.path).execute('''INSERT INTO parsed_messages
-        (message_id,ticket_id,event_type,author_type,customer_email,message_text,is_customer_message,received_at)
-        VALUES ('source-1',1,'ticket.message.created','customer','customer@example.com','Where is my parcel?',1,'now')''')
-    await Database(case.path).execute("INSERT INTO ticket_results(ticket_id,message_id,draft_text,processed_at) VALUES(1,'source-1','I can help check that.','now')")
+    case.job_id = await database.ingest_event(dict(tenant_id='test', ticket_id=1,
+        message_id='source-1', event_type='ticket.message.created', author_type='customer',
+        customer_email='customer@example.com', message_text='Where is my parcel?',
+        is_customer_message=True, created_at='2026-09-26T01:00:00+00:00'), '{}', case.path)
+    await Database(case.path).execute("UPDATE parsed_messages SET received_at='2026-09-26T01:00:01+00:00' WHERE message_id='source-1'")
+    await database.claim_job(case.job_id, case.path)
+    attempt = await begin_attempt(case.job_id, case.path)
+    await finish_attempt(dict(ticket_id=1, message_id='source-1', job_id=case.job_id,
+        generation_attempt_id=attempt, generation_state='ready', priority='normal',
+        action='drafted', draft_text='I can help check that.'), case.path)
+    await database.complete_job(case.job_id, db_path=case.path, require_result=True)
     token = build_session_token('owner', 'test-action-secret')
     await session_store.register(session_claims(token, 'test-action-secret'), case.path)
     case.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app_module.app),

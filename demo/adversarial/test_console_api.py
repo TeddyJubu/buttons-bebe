@@ -2,9 +2,11 @@
 
 The tests use the production ``bb_webhook.app`` routes through an ASGI
 transport, but every test gets a throwaway SQLite database.  Gorgias and
-Hermes are replaced only at the app's external transport boundaries:
-``_GClient`` and ``create_subprocess_exec``.  No real network or model call is
-permitted.
+Hermes are replaced only at their owners' external transport boundaries: the
+console router's ``_GClient`` and the rewrite runner's
+``create_subprocess_exec``.  No real network or model call is permitted.
+Results are seeded through the processor's real claim and generation-attempt
+lifecycle, never by writing result rows directly.
 
 Some tests deliberately document currently observable weaknesses.  They
 assert the behavior so a future hardening change turns into a visible test
@@ -13,12 +15,13 @@ failure rather than silently changing the threat model.
 
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import json
 import os
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -38,17 +41,26 @@ os.environ["WEBHOOK_SECRET"] = "demo-console-adversarial-secret"
 os.environ["GORGIAS_SUBDOMAIN"] = "demo-local-only"
 os.environ["GORGIAS_API_EMAIL"] = ""
 os.environ["GORGIAS_API_KEY"] = ""
+os.environ["CONSOLE_USERNAME"] = "demo-owner"
+os.environ["CONSOLE_SESSION_SECRET"] = "demo-console-session-secret"
+os.environ["PROCESSOR_RESULT_SECRET"] = "demo-processor-result-secret-0123456789"
+ORIGIN = "https://support.buttonsbebe.com"
+sys.path.append(str(ROOT))
 
-from bb_webhook import app as app_module  # noqa: E402
-from bb_webhook.config import get_settings  # noqa: E402
-from bb_webhook.database import (  # noqa: E402
-    complete_job,
-    enqueue_job,
-    fail_job,
-    init_db,
-    record_parsed_message,
-    record_ticket_result,
-)
+from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
+
+with without_root_dotenv():
+    from bb_webhook import app as app_module, rewrite_runner, session_store  # noqa: E402
+    from bb_webhook.config import get_settings  # noqa: E402
+    from bb_webhook.console_auth import build_session_token, session_claims  # noqa: E402
+    from bb_webhook.database import (  # noqa: E402
+        claim_job,
+        complete_job,
+        ingest_event,
+        init_db,
+    )
+    from bb_webhook.draft_generation import begin_attempt, finish_attempt  # noqa: E402
+    from bb_webhook.routers import console as console_router  # noqa: E402
 
 
 class RecordingGorgias:
@@ -60,21 +72,32 @@ class RecordingGorgias:
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
 
-    async def send_public_reply(self, ticket_id: int, body_text: str) -> dict[str, Any]:
+    async def send_public_reply(self, ticket_id: int, body_text: str, *, expected_recipient: str,
+                                expected_source_message_id: str, on_created: Any) -> dict[str, Any]:
         self.calls.append(("send", ticket_id, body_text))
-        return dict(self.result)
+        if not self.result["ok"]:
+            return dict(self.result)
+        await on_created(7000 + len(self.calls))
+        return {**self.result, "delivery_status": "sent"}
 
-    async def post_internal_note(self, ticket_id: int, body_text: str) -> dict[str, Any]:
+    async def post_internal_note(self, ticket_id: int, body_text: str, *, on_created: Any) -> dict[str, Any]:
         self.calls.append(("note", ticket_id, body_text))
-        return dict(self.result)
+        if not self.result["ok"]:
+            return dict(self.result)
+        await on_created(7000 + len(self.calls))
+        return {**self.result, "message": {"id": 7000 + len(self.calls)}}
 
 
-class FakeProcess:
-    def __init__(self, output: bytes = b"A safe rewritten reply.") -> None:
-        self.output = output
+REAL_EXEC = rewrite_runner.asyncio.create_subprocess_exec
+FAKE_MODEL = ("import re,sys;t=re.search(r'<DRAFT:([a-f0-9]+)>',sys.argv[-1]).group(1);"
+              "print(f'<DRAFT:{t}>{sys.argv[1]}</DRAFT:{t}>')")
 
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return self.output, b""
+
+def fake_model(calls: list, reply: str):
+    async def fake_exec(*args: Any, **kwargs: Any):
+        calls.append(args)
+        return await REAL_EXEC(sys.executable, "-c", FAKE_MODEL, reply, args[-1], **kwargs)
+    return fake_exec
 
 
 class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
@@ -86,17 +109,25 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         os.environ["WEBHOOK_DB_PATH"] = str(self.db_path)
         get_settings.cache_clear()
         await init_db(self.db_path)
+        await session_store.initialize(self.db_path)
+        secret = os.environ["CONSOLE_SESSION_SECRET"]
+        token = build_session_token(os.environ["CONSOLE_USERNAME"], secret)
+        await session_store.register(session_claims(token, secret), self.db_path)
 
+        transport = httpx.ASGITransport(app=app_module.app, raise_app_exceptions=False)
         self.client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(
-                app=app_module.app,
-                raise_app_exceptions=False,
-            ),
-            base_url="http://demo.test",
+            transport=transport, base_url="http://demo.test",
+            headers={"Origin": ORIGIN}, cookies={"bb_console_session": token},
+        )
+        self.processor = httpx.AsyncClient(
+            transport=transport, base_url="http://demo.test",
+            headers={"Authorization": "Bearer " + os.environ["PROCESSOR_RESULT_SECRET"]},
         )
         RecordingGorgias.calls = []
         RecordingGorgias.result = {"ok": True}
-        self._lesson_patch = patch.object(app_module, "_record_lesson", lambda *a, **k: True)
+        self.drafts: dict[str, str] = {}
+        self.attempts: dict[str, tuple[int, int]] = {}
+        self._lesson_patch = patch.object(console_router, "_record_lesson", lambda *a, **k: True)
         self._lesson_patch.start()
 
         await self._seed_demo_rows()
@@ -104,6 +135,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         self._lesson_patch.stop()
         await self.client.aclose()
+        await self.processor.aclose()
         get_settings.cache_clear()
         self._tmp.cleanup()
 
@@ -116,50 +148,53 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         text: str,
         priority: str = "normal",
         action: str = "drafted",
-        status: str = "done",
+        state: str = "ready",
+        error: str | None = None,
+        publish: bool = True,
     ) -> None:
-        await record_parsed_message(
-            message_id=message_id,
-            ticket_id=ticket_id,
-            event_type="ticket.message.created",
-            author_type="customer",
-            author_email=f"{message_id}@example.com",
-            channel="email",
-            customer_email=f"{message_id}@example.com",
-            ticket_subject=subject,
-            message_text=text,
-            intents=[{"name": "order_status"}],
-            is_customer_message=True,
-            created_at="2026-08-23T00:00:00+00:00",
-            db_path=self.db_path,
+        event = {
+            "tenant_id": "cute-things-demo",
+            "ticket_id": ticket_id,
+            "message_id": message_id,
+            "event_type": "ticket.message.created",
+            "author_type": "customer",
+            "author_email": f"{message_id}@example.com",
+            "channel": "email",
+            "customer_email": f"{message_id}@example.com",
+            "ticket_subject": subject,
+            "message_text": text,
+            "intents": [{"name": "order_status"}],
+            "is_customer_message": True,
+            "created_at": "2026-08-23T00:00:00+00:00",
+        }
+        job_id = await ingest_event(event, json.dumps(event), db_path=self.db_path)
+        self.assertIsNone(await ingest_event(event, json.dumps(event), db_path=self.db_path))
+        self.assertTrue(await claim_job(job_id, db_path=self.db_path))
+        attempt_id = await begin_attempt(job_id, self.db_path)
+        self.assertIsNotNone(attempt_id)
+        self.attempts[message_id] = (job_id, attempt_id)
+        if not publish:
+            return
+        draft = f"Draft for {message_id}" if state in {"ready", "needs_review"} else ""
+        stored = await finish_attempt(
+            {
+                "ticket_id": ticket_id,
+                "message_id": message_id,
+                "job_id": job_id,
+                "generation_attempt_id": attempt_id,
+                "generation_state": state,
+                "generation_error": error,
+                "priority": priority,
+                "action": action,
+                "reason": f"reason for {message_id}",
+                "notify_owner": priority in {"high", "critical"},
+                "draft_text": draft,
+            },
+            self.db_path,
         )
-        job_id = await enqueue_job(
-            tenant_id="cute-things-demo",
-            ticket_id=ticket_id,
-            message_id=message_id,
-            event_type="ticket.message.created",
-            author_type="customer",
-            is_customer_message=True,
-            payload={"demo": True, "message_id": message_id},
-            db_path=self.db_path,
-        )
-        if status == "done":
-            await complete_job(job_id, db_path=self.db_path)
-        elif status == "failed":
-            await fail_job(job_id, "synthetic processor failure", db_path=self.db_path)
-        await record_ticket_result(
-            ticket_id=ticket_id,
-            message_id=message_id,
-            job_id=job_id,
-            priority=priority,
-            action=action,
-            reason=f"reason for {message_id}",
-            notify_owner=priority in {"high", "critical"},
-            gorgias_priority_set=False,
-            note_posted=False,
-            draft_text=f"Draft for {message_id}",
-            db_path=self.db_path,
-        )
+        self.assertEqual(stored, state)
+        self.assertTrue(await complete_job(job_id, db_path=self.db_path, require_result=True))
+        self.drafts[message_id] = draft
 
     async def _seed_demo_rows(self) -> None:
         await self._seed_message(
@@ -176,7 +211,8 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             text="I need a refund.",
             priority="critical",
             action="escalated",
-            status="failed",
+            state="failed",
+            error="authentication",
         )
         await self._seed_message(
             "m-normal",
@@ -195,10 +231,24 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
     async def _get(self, path: str) -> httpx.Response:
         return await self.client.get(path)
 
-    async def _post(self, path: str, payload: Any = None, *, content: str | None = None) -> httpx.Response:
+    async def _post(self, path: str, payload: Any = None, *, content: str | None = None,
+                    client: httpx.AsyncClient | None = None) -> httpx.Response:
+        client = client or self.client
         if content is not None:
-            return await self.client.post(path, content=content, headers={"content-type": "application/json"})
-        return await self.client.post(path, json=payload)
+            return await client.post(path, content=content, headers={"content-type": "application/json"})
+        return await client.post(path, json=payload)
+
+    def _action(self, message_id: str, text: str, **extra: Any) -> dict[str, Any]:
+        revision = hashlib.sha256(self.drafts[message_id].encode()).hexdigest()
+        return {"operation_id": str(uuid.uuid4()), "source_message_id": message_id, "text": text,
+                "draft_revision": revision, "confirmed": True, **extra}
+
+    async def _post_result(self, payload: Any = None, *, content: str | None = None) -> httpx.Response:
+        return await self._post("/dashboard/api/results", payload, content=content, client=self.processor)
+
+    async def _ticket_row(self, ticket_id: int) -> dict[str, Any]:
+        rows = (await self._get("/dashboard/api/tickets?limit=20")).json()
+        return next(row for row in rows if row["ticket_id"] == ticket_id)
 
     async def test_real_list_stats_tickets_and_notifications_endpoints(self) -> None:
         messages = await self._get("/dashboard/api/messages?limit=20&customer_only=true")
@@ -243,23 +293,33 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(all_read.json()["unread_count"], 0)
 
     async def test_invalid_result_writes_fail_closed_for_missing_fields_and_json(self) -> None:
-        missing = await self._post(
-            "/dashboard/api/results",
-            {"ticket_id": 999, "message_id": "bad"},
-        )
+        missing = await self._post_result({"ticket_id": 999, "message_id": "bad"})
         self.assertEqual(missing.status_code, 400)
         self.assertEqual(missing.json()["error"], "missing_fields")
 
-        malformed = await self._post("/dashboard/api/results", content="{not-json")
+        malformed = await self._post_result(content="{not-json")
         self.assertEqual(malformed.status_code, 400)
         self.assertEqual(malformed.json()["error"], "invalid_json")
 
+        job_id, _attempt_id = self.attempts["m-high"]
+        legacy = await self._post_result(
+            {"ticket_id": 1001, "message_id": "m-high", "job_id": job_id,
+             "priority": "normal", "action": "drafted", "draft_text": "Overwrite"},
+        )
+        self.assertEqual(legacy.status_code, 400)
+        self.assertEqual(legacy.json()["error"], "missing_fields")
+        self.assertIn("generation_attempt_id", legacy.json()["required"])
+        self.assertIn("generation_state", legacy.json()["required"])
+        self.assertEqual((await self._ticket_row(1001))["draft_text"], "Draft for m-high")
+
     async def test_result_endpoint_rejects_wrong_identity_types(self) -> None:
-        response = await self._post(
-            "/dashboard/api/results",
+        response = await self._post_result(
             {
                 "ticket_id": "not-an-integer",
                 "message_id": {"not": "a string"},
+                "job_id": 1,
+                "generation_attempt_id": 1,
+                "generation_state": "ready",
                 "priority": "normal",
                 "action": "drafted",
             },
@@ -268,11 +328,13 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["error"], "invalid_ticket_id")
 
     async def test_result_endpoint_rejects_list_values_without_server_error(self) -> None:
-        response = await self._post(
-            "/dashboard/api/results",
+        response = await self._post_result(
             {
                 "ticket_id": 2001,
                 "message_id": "m-invalid-list",
+                "job_id": 1,
+                "generation_attempt_id": 1,
+                "generation_state": "ready",
                 "priority": ["high"],
                 "action": "drafted",
             },
@@ -281,11 +343,15 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["error"], "invalid_priority")
 
     async def test_result_endpoint_persists_processor_no_draft_outcome(self) -> None:
-        response = await self._post(
-            "/dashboard/api/results",
+        await self._seed_message("m-thanks", 1005, subject="Thanks", text="Thank you!", publish=False)
+        job_id, attempt_id = self.attempts["m-thanks"]
+        response = await self._post_result(
             {
-                "ticket_id": 1003,
-                "message_id": "m-normal",
+                "ticket_id": 1005,
+                "message_id": "m-thanks",
+                "job_id": job_id,
+                "generation_attempt_id": attempt_id,
+                "generation_state": "no_reply",
                 "priority": "low",
                 "action": "no_draft_needed",
                 "reason": "acknowledgement-only message",
@@ -293,61 +359,119 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "generation_state": "no_reply"})
 
-        tickets = (await self._get("/dashboard/api/tickets?limit=20")).json()
-        persisted = next(row for row in tickets if row["ticket_id"] == 1003)
+        persisted = await self._ticket_row(1005)
         self.assertEqual(persisted["action"], "no_draft_needed")
-        self.assertIsNone(persisted["draft_text"])
+        self.assertEqual(persisted["generation_state"], "no_reply")
+        self.assertEqual(persisted["draft_text"], "")
 
-    async def test_send_requires_server_confirmation_and_note_remains_internal(self) -> None:
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+    async def test_result_publication_is_first_result_wins_with_read_only_replay(self) -> None:
+        await self._seed_message("m-order", 1006, subject="Order", text="Where is order #1006?", publish=False)
+        job_id, attempt_id = self.attempts["m-order"]
+        identity = {"ticket_id": 1006, "message_id": "m-order", "job_id": job_id,
+                    "generation_attempt_id": attempt_id}
+        first = {**identity, "generation_state": "ready", "priority": "normal", "action": "drafted",
+                 "reason": "first", "draft_text": "First reviewed draft"}
+        self.assertEqual((await self._post_result(first)).json(),
+                         {"status": "ok", "generation_state": "ready"})
+        self.assertTrue(await complete_job(job_id, db_path=self.db_path, require_result=True))
+
+        replay = await self._post_result(first)
+        self.assertEqual((replay.status_code, replay.json()["generation_state"]), (200, "ready"))
+        rival = await self._post_result({**first, "draft_text": "Rival overwrite", "priority": "critical"})
+        self.assertEqual((rival.status_code, rival.json()["generation_state"]), (200, "ready"))
+        row = await self._ticket_row(1006)
+        self.assertEqual((row["draft_text"], row["priority"]), ("First reviewed draft", "normal"))
+
+        self.assertIsNone(await begin_attempt(job_id, self.db_path))
+
+        other_job, other_attempt = self.attempts["m-high"]
+        for label, forged, status, error in (
+            ("other-attempt", {**first, "generation_attempt_id": other_attempt}, 409, "generation_attempt_mismatch"),
+            ("other-job", {**first, "job_id": other_job}, 409, "generation_attempt_mismatch"),
+            ("other-message", {**first, "message_id": "m-high"}, 409, "generation_attempt_mismatch"),
+            ("unknown-attempt", {**first, "generation_attempt_id": 999_999}, 409, "generation_attempt_mismatch"),
+            ("zero-attempt", {**first, "generation_attempt_id": 0}, 400, "invalid_generation_attempt_id"),
+            ("string-attempt", {**first, "generation_attempt_id": str(attempt_id)}, 400,
+             "invalid_generation_attempt_id"),
+            ("string-job", {**first, "job_id": str(job_id)}, 400, "invalid_job_id"),
+            ("unknown-state", {**first, "generation_state": "sent"}, 400, "invalid_generation_state"),
+            ("failed-without-error", {**first, "generation_state": "failed"}, 400, "invalid_request"),
+        ):
+            with self.subTest(label=label):
+                response = await self._post_result(forged)
+                self.assertEqual((response.status_code, response.json()["error"]), (status, error))
+        self.assertEqual((await self._ticket_row(1006))["draft_text"], "First reviewed draft")
+        self.assertEqual((await self._ticket_row(1001))["draft_text"], "Draft for m-high")
+
+    async def test_result_publication_requires_the_processor_credential(self) -> None:
+        await self._seed_message("m-auth", 1007, subject="Order", text="Where is order #1007?", publish=False)
+        job_id, attempt_id = self.attempts["m-auth"]
+        payload = {"ticket_id": 1007, "message_id": "m-auth", "job_id": job_id,
+                   "generation_attempt_id": attempt_id, "generation_state": "ready",
+                   "priority": "normal", "action": "drafted", "draft_text": "Unauthenticated draft"}
+        owner = await self._post("/dashboard/api/results", payload)
+        wrong = await self.processor.post("/dashboard/api/results", json=payload,
+                                          headers={"Authorization": "Bearer " + "x" * 40})
+        self.assertNotEqual(owner.status_code, 200)
+        self.assertNotEqual(wrong.status_code, 200)
+        self.assertIsNone((await self._ticket_row(1007))["generation_state"])
+
+    async def test_send_and_note_require_server_confirmation_and_note_remains_internal(self) -> None:
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             unconfirmed_send = await self._post(
                 "/dashboard/api/ticket/1001/send",
-                {"text": "Send without confirmation token"},
+                self._action("m-high", "Send without confirmation token", confirmed=False),
+            )
+            unconfirmed_note = await self._post(
+                "/dashboard/api/ticket/1002/note",
+                self._action("m-failed", "Note without confirmation token", confirmed=False),
             )
             note = await self._post(
-                "/dashboard/api/ticket/1002/note",
-                {"text": "Note without confirmation token"},
+                "/dashboard/api/ticket/1002/note", self._action("m-failed", "Internal note")
             )
             confirmed_send = await self._post(
-                "/dashboard/api/ticket/1001/send",
-                {"text": "Send after confirmation", "confirmed": True},
+                "/dashboard/api/ticket/1001/send", self._action("m-high", "Send after confirmation")
             )
 
-        self.assertEqual(unconfirmed_send.status_code, 409)
-        self.assertEqual(unconfirmed_send.json()["error"], "confirmation_required")
-        self.assertEqual(note.status_code, 200)
-        self.assertEqual(confirmed_send.status_code, 200)
+        for refused in (unconfirmed_send, unconfirmed_note):
+            self.assertEqual(refused.status_code, 409)
+            self.assertEqual(refused.json()["error"], "confirmation_required")
+        self.assertEqual((note.status_code, note.json()["delivery_status"]), (200, "recorded"))
+        self.assertEqual((confirmed_send.status_code, confirmed_send.json()["delivery_status"]), (200, "sent"))
         self.assertEqual(
             RecordingGorgias.calls,
             [
-                ("note", 1002, "Note without confirmation token"),
+                ("note", 1002, "Internal note"),
                 ("send", 1001, "Send after confirmation"),
             ],
         )
 
-        empty_send = await self._post(
-            "/dashboard/api/ticket/1001/send", {"text": "  ", "confirmed": True}
-        )
-        empty_note = await self._post("/dashboard/api/ticket/1002/note", {"text": ""})
+        empty_send = await self._post("/dashboard/api/ticket/1001/send", self._action("m-high", "  "))
+        empty_note = await self._post("/dashboard/api/ticket/1002/note", self._action("m-failed", ""))
         self.assertEqual(empty_send.status_code, 400)
         self.assertEqual(empty_note.status_code, 400)
 
     async def test_send_and_note_transport_failures_are_not_reported_as_success(self) -> None:
-        RecordingGorgias.result = {"ok": False, "error": "ticket not found"}
-        with patch.object(app_module, "_GClient", RecordingGorgias):
-            send = await self._post(
-                "/dashboard/api/ticket/1001/send", {"text": "hello", "confirmed": True}
-            )
-            note = await self._post("/dashboard/api/ticket/1002/note", {"text": "hello"})
+        RecordingGorgias.result = {"ok": False, "delivery_status": "not_attempted", "error": "ticket not found"}
+        with patch.object(console_router, "_GClient", RecordingGorgias):
+            send = await self._post("/dashboard/api/ticket/1001/send", self._action("m-high", "hello"))
+            note = await self._post("/dashboard/api/ticket/1002/note", self._action("m-failed", "hello"))
 
-        self.assertEqual(send.status_code, 502)
-        self.assertEqual(note.status_code, 502)
-        self.assertEqual(send.json()["error"], "ticket not found")
-        self.assertEqual(note.json()["error"], "ticket not found")
+        self.assertEqual(send.status_code, 409)
+        self.assertEqual(
+            {key: send.json()[key] for key in ("ok", "delivery_status", "error")},
+            {"ok": False, "delivery_status": "not_attempted", "error": "ticket not found"},
+        )
+        self.assertEqual(note.status_code, 202)
+        self.assertEqual(
+            {key: note.json()[key] for key in ("ok", "delivery_status", "error")},
+            {"ok": False, "delivery_status": "unknown", "error": "delivery_unconfirmed"},
+        )
 
     async def test_send_and_note_list_bodies_fail_closed_without_500(self) -> None:
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             send = await self._post("/dashboard/api/ticket/1001/send", ["hello"])
             note = await self._post("/dashboard/api/ticket/1002/note", ["hello"])
         self.assertEqual(send.status_code, 400)
@@ -355,12 +479,6 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rewrite_uses_patched_model_boundary_and_validates_instruction(self) -> None:
         calls: list[tuple[Any, ...]] = []
-
-        async def fake_exec(*args: Any, **kwargs: Any) -> FakeProcess:
-            calls.append(args)
-            self.assertIn("rewrite", str(args[-1]).lower())
-            return FakeProcess()
-
         missing_instruction = await self._post(
             "/dashboard/api/ticket/1001/rewrite",
             {"draft": "draft", "message_text": "customer"},
@@ -369,8 +487,8 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(missing_instruction.json()["error"], "no instruction")
 
         with (
-            patch.object(app_module._asyncio, "create_subprocess_exec", fake_exec),
-            patch.object(app_module, "_HERMES_IGNORE_RULES", True),
+            patch.object(rewrite_runner.asyncio, "create_subprocess_exec", fake_model(calls, "A safe rewritten reply.")),
+            patch.object(console_router, "_HERMES_IGNORE_RULES", True),
         ):
             rewritten = await self._post(
                 "/dashboard/api/ticket/1001/rewrite",
@@ -378,26 +496,29 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
                     "draft": "Draft",
                     "instruction": "Make it warmer",
                     "message_text": "Where is order #1001?",
+                    "source_message_id": "m-high",
                 },
             )
         self.assertEqual(rewritten.status_code, 200)
         self.assertEqual(rewritten.json(), {"ok": True, "draft": "A safe rewritten reply."})
         self.assertEqual(len(calls), 1)
-        self.assertIn("-t", calls[0])
-        self.assertEqual(calls[0][calls[0].index("-t") + 1], "todo")
+        self.assertIn("OWNER REWRITE INSTRUCTION:\nMake it warmer", calls[0][-1])
+        self.assertEqual(
+            calls[0][calls[0].index("-t") + 1],
+            "buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias",
+        )
         self.assertIn("--ignore-rules", calls[0])
 
     async def test_rewrite_rejects_a_ticket_missing_from_the_console(self) -> None:
-        async def fake_exec(*_args: Any, **_kwargs: Any) -> FakeProcess:
-            return FakeProcess(b"rewritten missing-ticket draft")
-
-        with patch.object(app_module._asyncio, "create_subprocess_exec", fake_exec):
+        calls: list[tuple[Any, ...]] = []
+        with patch.object(rewrite_runner.asyncio, "create_subprocess_exec", fake_model(calls, "missing-ticket draft")):
             response = await self._post(
                 "/dashboard/api/ticket/999999/rewrite",
-                {"draft": "old", "instruction": "rewrite it"},
+                {"draft": "old", "instruction": "rewrite it", "source_message_id": "m-high"},
             )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"], "ticket_not_in_console")
+        self.assertEqual(calls, [])
 
     async def test_html_and_script_payloads_remain_json_data_at_api_boundary(self) -> None:
         response = await self._get("/dashboard/api/tickets?limit=20")
@@ -408,10 +529,9 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("<script>", response.headers.get("content-type", ""))
 
         RecordingGorgias.calls = []
-        with patch.object(app_module, "_GClient", RecordingGorgias):
+        with patch.object(console_router, "_GClient", RecordingGorgias):
             sent = await self._post(
-                "/dashboard/api/ticket/1004/send",
-                {"text": '<script>alert("send")</script>', "confirmed": True},
+                "/dashboard/api/ticket/1004/send", self._action("m-xss", '<script>alert("send")</script>')
             )
         self.assertEqual(sent.status_code, 200)
         self.assertEqual(RecordingGorgias.calls[0][2], '<script>alert("send")</script>')
@@ -456,8 +576,8 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_ticket_path_is_422_before_any_external_transport(self) -> None:
         RecordingGorgias.calls = []
-        with patch.object(app_module, "_GClient", RecordingGorgias):
-            response = await self._post("/dashboard/api/ticket/not-an-int/send", {"text": "hello"})
+        with patch.object(console_router, "_GClient", RecordingGorgias):
+            response = await self._post("/dashboard/api/ticket/not-an-int/send", self._action("m-high", "hello"))
         self.assertEqual(response.status_code, 422)
         self.assertEqual(RecordingGorgias.calls, [])
 

@@ -265,7 +265,7 @@ _MAIN_IMMEDIATE_FROZEN = (
 )
 
 _MAIN_HIGH_FROZEN = (
-    '\\burgent\\b',
+    '\\burgent(?:ly)?\\b',
     '\\basap\\b',
     '\\brush\\b',
     '\\bexpress\\b',
@@ -351,11 +351,11 @@ class MainsRulesArePreservedTests(unittest.TestCase):
         self.assertEqual(_canonical_value("_MAIN_HIGH_SENSITIVE_PATTERN").pattern,
                          _MAIN_HIGH_SENSITIVE_FROZEN)
 
-    def test_the_high_table_is_mains_verbatim_but_for_the_followup_rule(self):
-        # ONE documented exception. Main's multi-follow-up rule carried a ".*"
-        # - the only super-linear pattern in main's whole table - and it moved
-        # to _FOLLOWUP_PATTERN, which has none. That is only safe if the
-        # replacement is a strict superset; the next test proves it is.
+    def test_the_high_table_preserves_its_urgency_alias_and_followup_rule(self):
+        # The urgent row covers its common adverbial form. Main's multi-follow-up
+        # rule carried a ".*" - the only super-linear pattern in main's table -
+        # and it moved to _FOLLOWUP_PATTERN, which has none. That replacement
+        # must remain a strict superset; the next test proves it is.
         main_high = _canonical_value("_MAIN_HIGH_KEYWORDS")
         missing = [p for p in _MAIN_HIGH_FROZEN if p not in main_high]
         self.assertEqual(missing, [_MAIN_FOLLOWUP_KEYWORD_FROZEN])
@@ -1429,9 +1429,94 @@ class QuotedHistoryTests(unittest.TestCase):
                 "chase it. This is ridiculous!!!")
         self.assertGreaterEqual(_RANK[_c(body)["priority"]], _RANK[HIGH])
 
-    def test_an_all_quoted_message_falls_back_to_the_whole_text(self):
+    def test_header_like_prefixes_with_actual_customer_prose_survive(self):
+        for body in (
+            'On the 3rd your team wrote: we will refund you. This is ridiculous!!!',
+            'Bob <bob@example.com> wrote: I need a refund for my damaged order.',
+            '-- Original message arrived damaged; please refund my order.',
+            'Begin forwarded message: I need a refund for my damaged order.',
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(_VIEWS._unquoted_customer_text(body), body)
+                got = _c(body)
+                self.assertGreaterEqual(_RANK[got['priority']], _RANK[HIGH])
+                self.assertTrue(got['sensitive'])
+                self.assertTrue(got['should_draft'])
+                self.assertTrue(got['should_notify_owner'])
+
+    def test_standalone_mail_headers_preserve_actual_reply_boundaries(self):
+        for header in (
+            'On Mon, Jul 20 2026 at 9:14 AM Support wrote:',
+            'Support <support@example.com> wrote:',
+            '-------- Original message --------',
+            '-------- Forwarded message --------',
+            'Begin forwarded message:',
+        ):
+            with self.subTest(header=header):
+                self.assertTrue(_VIEWS._QUOTE_HEADER_RE.match(header + '  '))
+                got = _c('Thanks!\n\n' + header + '\n> My order arrived damaged.')
+                self.assertEqual(got['priority'], NORMAL)
+                self.assertFalse(got['should_draft'])
+                self.assertFalse(got['should_notify_owner'])
+                current = 'My order arrived damaged; please refund it.'
+                body = header + '\n> Old message\n\n' + current
+                self.assertEqual(_VIEWS._unquoted_customer_text(body), current)
+                got = _c(body)
+                self.assertTrue(got['sensitive'])
+                self.assertTrue(got['should_draft'])
+                self.assertTrue(got['should_notify_owner'])
+
+    def test_an_all_quoted_message_has_no_new_request(self):
         body = "> I want a refund, my order arrived damaged"
-        self.assertEqual(_c(body)["priority"], IMMEDIATE)
+        self.assertEqual(_VIEWS._unquoted_customer_text(body), '')
+        got = _c(body)
+        self.assertEqual(got["priority"], NORMAL)
+        self.assertFalse(got["should_draft"])
+        self.assertFalse(got["should_notify_owner"])
+        # Existing structural-signal consumers retain their old fallback.
+        self.assertEqual(_VIEWS._strip_quoted_history(body), body)
+
+    def test_customer_complaints_with_promo_or_policy_words_survive_signoffs(self):
+        requests = [
+            "I used the 20% off code at checkout and the dress arrived damaged.",
+            "I used the 20% off code, but I need a refund for my damaged order.",
+            "Please cancel my order; your email said five working days.",
+        ]
+        for request in requests:
+            for signoff in ('Thanks!', 'Kind regards,\nSarah'):
+                body = request + '\n\n' + signoff
+                with self.subTest(body=body):
+                    self.assertEqual(_VIEWS._unquoted_customer_text(body), body)
+                    got = _c(body, subject='Re: Your order')
+                    self.assertGreaterEqual(_RANK[got['priority']], _RANK[HIGH])
+                    self.assertTrue(got['sensitive'])
+                    self.assertTrue(got['should_draft'])
+                    self.assertTrue(got['should_notify_owner'])
+
+    def test_thanks_with_a_quoted_complaint_has_no_new_request(self):
+        for quoted in (
+            '> My dress arrived damaged and I want a refund.',
+            'On Mon, Jul 20 2026 at 9:14 AM Support wrote:\n'
+            '> My dress arrived damaged and I want a refund.',
+        ):
+            with self.subTest(quoted=quoted):
+                got = _c('Thanks!\n\n' + quoted, subject='Re: Your order')
+                self.assertEqual(got['priority'], NORMAL)
+                self.assertFalse(got['should_draft'])
+                self.assertFalse(got['should_notify_owner'])
+
+    def test_all_quoted_body_does_not_reactivate_an_inherited_request_subject(self):
+        got = _c('> The dress arrived damaged.', subject='Re: Refund request')
+        self.assertEqual(got['priority'], NORMAL)
+        self.assertFalse(got['should_draft'])
+        self.assertFalse(got['should_notify_owner'])
+
+    def test_blank_body_keeps_actionable_subject_only_request(self):
+        got = _c('', subject='Please refund my damaged order')
+        self.assertEqual(got['priority'], IMMEDIATE)
+        self.assertTrue(got['sensitive'])
+        self.assertTrue(got['should_draft'])
+        self.assertTrue(got['should_notify_owner'])
 
 
 class BottomPostedTests(unittest.TestCase):

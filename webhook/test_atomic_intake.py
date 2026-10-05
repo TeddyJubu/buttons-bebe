@@ -11,6 +11,7 @@ import aiosqlite
 import httpx
 
 from bb_webhook import app as app_module, database
+from bb_webhook.routers import webhook as webhook_router
 from bb_webhook.db import Database
 
 
@@ -106,11 +107,11 @@ class AtomicIntakeTests(unittest.IsolatedAsyncioTestCase):
         real_db = Database
         with (
             patch.object(database, "Database", side_effect=lambda path=None: real_db(path or self.path)),
-            patch.object(app_module, "verify_signature", return_value=True),
-            patch.object(app_module, "parse_event", return_value=self.event),
-            patch.object(app_module, "is_event_too_old", return_value=False),
-            patch.object(app_module, "is_event_in_future", return_value=False),
-            patch.object(app_module, "_check_rate_limit", return_value=True),
+            patch.object(webhook_router, "verify_signature", return_value=True),
+            patch.object(webhook_router, "parse_event", return_value=self.event),
+            patch.object(webhook_router, "is_event_too_old", return_value=False),
+            patch.object(webhook_router, "is_event_in_future", return_value=False),
+            patch.object(webhook_router, "_check_rate_limit", return_value=True),
         ):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app_module.app, raise_app_exceptions=False),

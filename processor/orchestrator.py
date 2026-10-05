@@ -183,6 +183,11 @@ def _save_result_to_webhook(
     secret = configured_secret(get_settings())
     if not secret:
         raise RuntimeError("Result persistence credential is not configured")
+    attempt_id = hermes_result.get('generation_attempt_id')
+    if type(job_id) is not int or job_id <= 0 or type(attempt_id) is not int or attempt_id <= 0:
+        raise RuntimeError("Result publication requires job and generation attempt identity")
+    if hermes_result.get('generation_state') not in {'ready', 'needs_review', 'no_reply', 'failed'}:
+        raise RuntimeError("Result publication requires generation state")
     payload = json.dumps({
         "ticket_id": ticket_id,
         "message_id": str(message_id),
@@ -213,7 +218,9 @@ def _save_result_to_webhook(
         if not 200 <= resp.status < 300:
             raise RuntimeError(f"Result persistence HTTP status {resp.status}")
         acknowledgement = json.loads(resp.read(4097))
-        if not isinstance(acknowledgement, dict) or acknowledgement.get("status") != "ok":
+        if (not isinstance(acknowledgement, dict) or acknowledgement.get("status") != "ok"
+                or acknowledgement.get("generation_state") not in {
+                    'ready', 'needs_review', 'no_reply', 'failed', 'retry_wait', 'superseded'}):
             raise RuntimeError("Result persistence acknowledgement missing")
     log_event(logger, "DEBUG", "Result acknowledged by dashboard API", ticket_id=ticket_id)
 
@@ -745,17 +752,11 @@ async def _recover_stale_jobs(settings: Any) -> list[int]:
 
 
 async def _notify_recovered_result(job: dict, db_path: Path, *, owed: bool = False) -> None:
-    """An unavailable draft must not suppress an urgent request's owner alert.
-
-    ``owed`` alerts were durably recorded at recovery. A newer customer message
-    replaces the draft but not the urgent request, so they are still sent;
-    any other supersession means staff already acted.
-    """
     from bb_webhook.db import Database
-    from bb_webhook.draft_generation import SUPERSEDED_BY_CUSTOMER
+    from bb_webhook.draft_generation import UNANSWERED_SOURCE_ERRORS
     rows = await Database(db_path).fetch('SELECT * FROM job_queue WHERE id=?', (job['id'],))
-    superseded_by_customer = owed and rows and rows[0]['error'] == SUPERSEDED_BY_CUSTOMER
-    if not rows or (rows[0]['status'] == 'skipped' and not superseded_by_customer):
+    alert_still_owed = owed and rows and rows[0]['error'] in UNANSWERED_SOURCE_ERRORS
+    if not rows or (rows[0]['status'] == 'skipped' and not alert_still_owed):
         return
     saved = await get_job_result(job['id'], db_path)
     if saved and saved.get('notify_owner'):

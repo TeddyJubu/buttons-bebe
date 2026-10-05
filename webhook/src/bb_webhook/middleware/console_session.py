@@ -4,7 +4,8 @@ from __future__ import annotations
 import ipaddress
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
-from .. import deps, session_store
+from .. import session_store
+from ..config import get_settings
 from ..console_auth import session_claims
 from ..result_auth import configured_secret, authorized
 
@@ -28,7 +29,7 @@ def direct_loopback(request) -> bool:
 
 
 async def resolve_identity(request) -> dict | None:
-    settings = deps.get_settings()
+    settings = get_settings()
     claims = session_claims(request.cookies.get(COOKIE_NAME), settings.console_session_secret)
     if claims is None or claims.username != settings.console_username:
         return None
@@ -41,7 +42,7 @@ class ConsoleSessionMiddleware(BaseHTTPMiddleware):
         if path == "/dashboard/api/results":
             if not direct_loopback(request):
                 return JSONResponse({"error": "internal_endpoint"}, status_code=403)
-            secret = configured_secret(deps.get_settings())
+            secret = configured_secret(get_settings())
             if not secret:
                 return JSONResponse({"error": "result_authentication_unavailable"}, status_code=503)
             if not authorized(request.headers.get("authorization", ""), secret):

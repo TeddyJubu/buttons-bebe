@@ -5,12 +5,32 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
+from typing import Literal, TypedDict
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import StrictInt
-from qa_safety import GROUPS, audit, filter_policy_results, validate_fixture
+from qa_safety import GROUPS, audit, filter_search_outcome, validate_fixture
+
+HealthState = Literal["healthy", "degraded", "unavailable"]
+
+
+class RetrievalHealth(TypedDict):
+    state: HealthState
+    codes: list[str]
+
+
+class NoticeHealth(RetrievalHealth):
+    active_count: int | None
+    operator_action: str
+
+
+class SearchOutcome(TypedDict):
+    status: HealthState
+    notice_board: NoticeHealth
+    index: RetrievalHealth
+    results: list[dict]
 
 
 def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, allowlist: Path, kb_mode: str, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None):
@@ -98,12 +118,25 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
 
     else:
         @server.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
-        async def search_kb(query: str, k: int = 5) -> list[dict]:
+        async def search_kb(query: str, k: int = 5) -> SearchOutcome:
             value = state("search_kb")
             if not 1 <= k <= 25 or not query.strip() or len(query) > 1000:
                 raise ValueError("Invalid bounded QA search")
             if kb_mode == "fixture":
-                return [{"file":"policies/qa-fixture.md","category":"policies","status":"confirmed","text":"QA fixture: human review is required. Never claim a refund or order change was completed. Ask for missing information.","qa_fixture":True}]
+                fixture_outcome = {
+                    "status": "healthy",
+                    "notice_board": {"state": "healthy", "active_count": 0, "codes": [], "operator_action": ""},
+                    "index": {"state": "healthy", "codes": []},
+                    "results": [{"file":"policies/qa-fixture.md","category":"policies","status":"confirmed",
+                                 "text":"QA fixture: human review is required. Never claim a refund or order change was completed. Ask for missing information.",
+                                 "qa_fixture":True}],
+                }
+                allowed = set(json.loads(allowlist.read_text())) | {"policies/qa-fixture.md"}
+                safe, filtered = filter_search_outcome(fixture_outcome, allowed)
+                safe["results"] = [{**row, "qa_fixture": True} for row in safe["results"]]
+                audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], filtered=filtered,
+                      returned=len(safe["results"]), files=[row["file"] for row in safe["results"]], fixture=True)
+                return safe
             try:
                 # This fixed read-only endpoint is the only optional real-service
                 # connection anywhere in the QA MCP process.
@@ -115,20 +148,31 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
                 if result.isError:
                     raise ValueError("KB search failed")
                 structured = result.structuredContent
-                if isinstance(structured, dict) and isinstance(structured.get("result"), list):
-                    rows = structured["result"]
+                if structured is not None:
+                    outcome = structured
+                    # Some MCP SDK versions wrap a single structured tool return.
+                    if isinstance(structured, dict) and set(structured) == {"result"}:
+                        outcome = structured["result"]
                 else:
                     blocks = [block.text for block in result.content if getattr(block,"type",None) == "text"]
                     if len(blocks) != 1 or len(blocks[0]) > 2_000_000:
                         raise ValueError("Unexpected KB response")
-                    rows = json.loads(blocks[0])
-                safe, filtered = filter_policy_results(rows, set(json.loads(allowlist.read_text())))
+                    outcome = json.loads(blocks[0])
+                if len(json.dumps(outcome, ensure_ascii=False)) > 2_000_000:
+                    raise ValueError("Oversized KB response")
+                safe, filtered = filter_search_outcome(outcome, set(json.loads(allowlist.read_text())))
                 if overlay:
                     from qa_policy_overlay import replace_hits
-                    safe = replace_hits(safe, overlay)
+                    safe["results"] = replace_hits(safe["results"], overlay)
+                safe["results"] = safe["results"][:k]
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], filtered=filtered,
-                      returned=min(len(safe),k), files=[row["file"] for row in safe[:k]], proposed_policies=bool(overlay))
-                return safe[:k]
+                      returned=len(safe["results"]), files=[row["file"] for row in safe["results"]],
+                      proposed_policies=bool(overlay), status=safe["status"],
+                      notice_board_state=safe["notice_board"]["state"], index_state=safe["index"]["state"],
+                      notice_board_codes=safe["notice_board"]["codes"], index_codes=safe["index"]["codes"],
+                      headings=[row["heading"] for row in safe["results"]],
+                      content_sha256=[hashlib.sha256(row["text"].encode()).hexdigest() for row in safe["results"]])
+                return safe
             except Exception:
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], fatal=True)
                 raise ValueError("QA policy projection refused an invalid response") from None

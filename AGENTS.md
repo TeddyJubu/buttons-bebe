@@ -9,6 +9,13 @@
 > `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
 > commit or restore from it.
 
+This checkout also includes local, unreleased changes from 4 October 2026.
+They have not been pushed or deployed. The code contracts below describe this
+checkout; verify the installed version before treating them as VPS behavior.
+
+Local source improvements made after that live-system date have not been deployed.
+Repository tests do not verify installed production code or configuration.
+
 For support webapp run/edit tasks, use the project skill at
 skills/buttonsbebe-support-webapp/SKILL.md for the current file map and
 synthetic local preview. This AGENTS.md remains authoritative for safety and
@@ -70,21 +77,16 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    Authentication, invalid output and safety rejection require staff review.
    See docs/AI-REPLY-RELIABILITY.md for migrations and release checks.
 5. Jobs, results, alerts, and learning actions are all logged.
-6. The inbox's ticket-detail controls (status, priority, assignee, mark
-   read/unread, rename) are **first-party local state** — writes persist in
-   the operator's browser store only (`bb-inbox-*-v1` keys), visible in our
-   inbox, and never write Gorgias. The observed Gorgias values stay visible
-   beside any local override. Gorgias-side status/priority/assignment changes
-   remain Gorgias writes under (2)/(3): not implemented, and any future
-   exception needs the owner's sign-off plus an audit trail.
-7. The inbox's "New ticket" entry point creates a **local-only ticket**
-   (issue #38's model 1): the ticket lives in the operator's browser store
-   (`bb-inbox-local-tickets-v1`) with the same message shape as agent-side
-   intake, renders in our inbox only, and never writes Gorgias, never
-   notifies any customer. A real Gorgias-side create stays refused under
-   (2)/(3) until the owner names the exact write; a link-out "compose in
-   Gorgias" would be a UI-only change and still needs the owner's call. No
-   customer is notified without a human send under (3).
+6. The active Inbox displays observed status, priority and assignee without
+   edit controls. Rename is unavailable. Opening a ticket saves a browser-only
+   read marker under `bb-inbox-read-v1`; it never marks the ticket read in Gorgias.
+   Any future first-party overrides remain local. A provider-side status,
+   priority, assignment, rename or read-state write requires the owner's explicit
+   authorization and an audit trail.
+7. Ticket creation is unavailable in the active Inbox. The older local-ticket
+   prototype is historical. A future local-only ticket must remain browser-local
+   and notify nobody. Real Gorgias creation requires authorization for that exact
+   write. A customer reply still requires human review and confirmation under (3).
 
 ## 3. Where it runs
 
@@ -139,6 +141,8 @@ Gorgias webhook
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
 | `whatsapp-connect/` | Node + Baileys: QR pairing page, owner alerts, 2-way Hermes bridge (:8085). Lock changes deploy manually (`npm ci` runbook: `deploy/DEPENDENCY-READINESS.md`) — CD refuses dependency mutation. |
 | `console-src/index.html` | **THE** console SPA source (includes Notice Board tab); deployed to the web root by CD. |
+| `console-src/inbox2/` | Active `/inbox/` UI, credential-free read API and separate Shopify worker. |
+| `console-src/inbox/` | Required shared projection/Shopify modules and locked dependencies. No retired Inbox UI. |
 | ~~`dashboard/index.html`~~ | Deleted 2026-09-17 (Wave 2) — there is exactly one console surface now. |
 | `deploy/` | Only supported Caddy config (`caddy/Caddyfile.redacted`), CD receive script (`cd/`), systemd units, ENV-consolidation + heartbeat runbooks, tests. |
 | `testing/` | 48-scenario suite (`scenarios.json`), TEST-PLAN, judging rubric, HOW-TO-RUN. |
@@ -151,6 +155,9 @@ Gorgias webhook
 | Port | Service | systemd unit |
 |---|---|---|
 | 8000 | Webhook receiver + console API (uvicorn) | `buttonsbebe-webhook` |
+| 8767 | Active Inbox local read API | `helpdesk-inbox2` |
+| — | Separate Inbox customer enrichment worker | `buttonsbebe-inbox2-shop` |
+| — | AI snapshot export timer | `buttonsbebe-inbox-projection.timer` |
 | 8077 | KB MCP — `search_kb` | `buttonsbebe-kb-mcp` |
 | 8078 | Redo MCP | `buttonsbebe-redo-mcp` |
 | 8079 | Gorgias MCP | `buttonsbebe-gorgias-mcp` |
@@ -161,7 +168,7 @@ Gorgias webhook
 
 Caddy (`deploy/caddy/Caddyfile.redacted` is the only supported source;
 `webhook/Caddyfile` is marked RETIRED): session-protected console at
-`https://srv1766050.hstgr.cloud/console/` (`/console/*`, rewritten internally
+`https://support.buttonsbebe.com/console/` (`/console/*`, rewritten internally
 to `/dashboard/api/*`; `/console/kbapi` → :8087, `/console/waapi` → :8085).
 `/console/login` and `/console/api/auth/*` are the only public console
 bootstrap paths; all console data and mutation routes require the signed
@@ -210,7 +217,10 @@ Gate facts (each exists because something slipped once):
   when `node_modules` is absent) and kb-admin.
 - **Fails on any active `twilio` reference** — escalation is the local
   WhatsApp bridge now; do not reintroduce Twilio.
-- Enforces exactly **48** unique-id scenarios in `testing/scenarios.json`.
+- Runs all console browser tests without skips and all six Inbox browser suites
+  with locked Playwright 1.63.0 and bundled Chromium. CI prepares them; the local
+  gate installs nothing and rejects missing dependencies or browser overrides.
+- Enforces **48** unique core IDs and **10** unique reliability IDs.
 
 Focused runs:
 
@@ -221,8 +231,14 @@ Focused runs:
 ```
 
 Python ≥ 3.12, uv-managed (`uv.lock` in `processor/`, `webhook/`); Node 20 for
-JS services. A clean 48-scenario live-model run is the release-quality gate —
-see `testing/HOW-TO-RUN.md` before any behavior-changing deploy.
+JS services. Model-quality review is separate: complete all 48 core and 10
+reliability cases and grade each result. Run receipts capture source, Hermes and
+approved KB identities before and after each run. The combined receipt checks
+those recorded bindings and human verdicts against the current source. It does
+not re-inspect the installed Hermes or KB content at check time, or prove that
+the published KB index matches the approved files. Pending, failed or stale
+source evidence cannot pass. See `testing/HOW-TO-RUN.md`. These paid/live-model checks were not run during
+this local implementation. Nothing in this work authorizes a production change.
 
 ## 9. Operate on the VPS
 
@@ -272,8 +288,8 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. **Stale layout:** root `README.md`
-(describes the retired `gorgias-webhook/` + `teddy/` design).
+`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. Older
+`gorgias-webhook/` and `teddy/` layouts are historical.
 
 ## 11. Knowledge base & learning loop (deep details)
 
@@ -293,6 +309,12 @@ platform background in `shopify/`. Index: LanceDB hybrid vector + FTS search.
   names and identifier patterns, promotes distinct `source: learned-auto`
   exemplars to `tickets/`, and rebuilds the KB. PII masking is best-effort;
   generated exemplars remain reviewable and purgeable.
+- Active lesson writing and promotion resolve one `LearningPaths` bundle without
+  importing the legacy feedback credential configuration. Relative overrides
+  anchor to the repository; empty overrides use the default. Promotion rejects a
+  root that differs from its active indexed corpus. Masking recognizes supplied
+  two-letter names such as Bo and Li as whole Unicode words. It remains best-effort:
+  a caller that supplies no customer name cannot obtain known-name coverage.
 - The Notice Board is a locked, immediate override layer and requires no
   reindex. Expired notices are removed by `buttonsbebe-kb-notices-gc.timer`.
 
@@ -345,4 +367,7 @@ as current work.
 - Organ/tissue architecture: Excalidraw at `docs/tissues/organ-tissue.excalidraw`; click-to-enter 3D sim at `docs/tissues/architecture-3d-sim.html` (world in `architecture-world.js`): LEGO-house organs, inside-Inbox list/thread/rail wireframe, info card off by default; mail → helpdesk intake, Shopify look-only; Send is human-only and fail-closed on the isolated preview until send access is activated.
 - This demo’s look-up path is Shopify Admin GraphQL only (`get_customer` / `get_order` / `get_returns` / `list_past_orders`); Redo and KB belong to production Hermes. Gorgias is an optional detachable bridge sidecar (`console-src/helpdesk-agent/bridge/`, `deploy/GORGIAS-BRIDGE-SETUP.md`), not a peer organ; defaults `GORGIAS_BRIDGE_ENABLED=0` / `HELPDESK_OUTBOUND_ENABLED=0`; intake tickets persist in the SQLite single-snapshot store (`HELPDESK_DB_FILE`, production default `/var/lib/buttonsbebe-inbox/inbox.sqlite3`), with legacy `HELPDESK_STORE_FILE` JSON as an explicit fallback.
 - Surge CLI is installed globally on this VPS (`surge` on PATH); publish a folder that contains `index.html`.
-- Production inbox Views need real Gorgias ticket state from allowlisted webhook `raw_payload` fields (status/assignee/snooze/spam/trash) after the HTTP Integration template includes them; never invent those fields or export `assignee: "me"` — map “Assigned to me” via `INBOX_OPERATOR_GORGIAS_EMAIL` on the inbox service.
+- The historical Inbox1 projection captured allowlisted ticket state from webhook
+  `raw_payload`; its Assigned to me operator setting is retired. The active Inbox
+  reads observed state through the read-only Gorgias MCP and offers All, Open and
+  Closed views. Never invent ticket state or an assignee.

@@ -80,6 +80,54 @@ knowledge gap is not urgency. Financial actions and unsupported promises are fai
 Inspect all 48, record explicit per-case judgments and unresolved defects, then
 rerun changed cases and the full gate as warranted. No QA result authorizes Send.
 
+## Review receipts
+
+Each run writes `run.json`: suite, catalog hash, captured IDs, whether the run
+was complete, and the bindings it ran against. Bindings are working-tree content
+hashes (plus HEAD and dirty state) of first-party processor, webhook, Inbox and
+console review code, KB search scripts, approved policies, Hermes SOUL/skills,
+QA code and catalogs; the Hermes executable/source digest; the selected interpreter
+file hash and nonsecret model/runtime settings read from the actual isolated profile;
+and the approved KB
+snapshot identity (KB mode, pinned policy overlay and product manifest). Tests,
+`.env` files, runtime data, unapproved lessons and dependency copies are
+excluded. Bindings are recomputed after the last scenario, re-verifying overlay
+bytes and every pinned product file. The profile is read again after the final
+scenario, so changes to the selected model, provider, endpoint or supported runtime
+settings invalidate the run. Model API keys and the separate OAuth auth file never
+enter the identity or its hash. Private shard homes and local MCP port differences
+are ignored, so equivalent isolated runs still match. Endpoint URLs carrying user
+credentials, query parameters or fragments are refused; unsupported model settings
+are refused rather than omitted from evidence. The run also lists each KB section shown
+to the model as file, heading and content hash. Create a judgments file per
+run with `testing/qa_receipt.py template --run <dir>/run.json --output <file>`,
+then replace every `pending` with the reviewer's `PASS`, `NEEDS_WORK` or `FAIL`
+and list blocking defects. Combine full core and reliability runs with
+`qa_receipt.py build`. It rejects partial runs, bindings that changed during a
+run, a section whose content changed within or between the runs, core and
+reliability runs with different source, Hermes, model/runtime or approved KB snapshot, and
+judgments for a different run. The two suites may observe different sections.
+The combined receipt keeps recorded nonsecret identities, hashes, IDs and verdicts; defect text and model
+output stay private.
+
+New runs, judgments and combined receipts use schema 3. Older evidence cannot be
+upgraded by copying a model name into it: schema 2 receipts did not record the actual
+profile before and after a run. Rerun both suites and grade the new captures. The
+template, combine and check commands fail closed on older or missing model identity.
+
+`qa_receipt.py check <receipt>` recomputes the state against the current
+checkout. It rejects stale sources, pending verdicts, `NEEDS_WORK`, `FAIL` and
+blocking defects. `--review-only` accepts a complete review that did not pass;
+that means "review complete", not "release passed". The release criterion this
+supports — full 48 plus 10 runs, all PASS, on one source fingerprint — is
+stricter than the current root rule of a clean 48-case run. No such receipt
+exists yet for the current source. `check` has no Hermes, model-profile, overlay or manifest paths,
+so it does not re-verify installed Hermes, model settings or KB snapshot content; that happens
+before and after each run. Observed section hashes detect differing served text,
+but do not prove that an index already stale before the run matches approved files. CI
+checks only catalog shape and receipt logic; it never runs a model or records a
+verdict.
+
 Output directories contain a private model credential copy; never attach, commit,
 or publish the directory wholesale. Share only reviewed results/receipts after
 secret and PII checks. Remove the private HOME once evidence review is complete.
@@ -107,17 +155,19 @@ capabilities are enabled. Production tool presentation is unchanged.
 
 Live synced products are runtime data and are not all tracked in Git. Before a
 policy-mode run that includes catalog retrieval, an operator may use
-`qa_catalog.py` to snapshot only filenames from the reviewed Shopify product
-folder. The snapshot rejects symlink boundaries, unexpected names, and documents
-without the confirmed `shopify-sync` product front matter. It requires the
-reviewed product-generator hash and never copies document bodies or URLs.
+`qa_catalog.py` to snapshot the reviewed Shopify product folder. The manifest
+records the folder path and a content hash per product file; it never copies
+document bodies or URLs. The snapshot rejects symlink boundaries, unexpected
+names, and documents without the confirmed `shopify-sync` product front matter.
+It requires the reviewed product-generator hash.
 
 Pass the immutable snapshot through `--product-manifest PATH` together with
 `--product-manifest-sha256 SHA256`. The loader admits only `products/product-*.md`
 filenames; it cannot admit tickets, learned content, directories, or traversal.
-The QA receipt records this snapshot's hash/count in addition to the merged
-allowlist hash. Unknown result paths still stop the run. Local product files never enter the base allowlist. New product filenames require
-a separately reviewed snapshot and a new run. This is a filename boundary, not
-a snapshot of document contents: edits to an already allowed public product may
-change retrieval. Keep KB writes paused for a reproducible run and retain tool
-evidence; do not claim content immutability from this manifest.
+Every load re-hashes each listed product file and stops on any difference, so
+the run fails if product content changes before its final recheck. Unknown
+result paths still stop the run. Local product files never enter the base
+allowlist. New product filenames or edited products require a new reviewed
+snapshot and a new run. The published index may still serve text indexed before
+the snapshot; keep KB writes paused for a reproducible run and retain tool
+evidence.

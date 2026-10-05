@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const base=process.env.INBOX_TEST_URL||'http://127.0.0.1:8878';
-const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+const artifacts=process.env.INBOX_TEST_ARTIFACT_DIR||path.join(os.tmpdir(),'buttonsbebe-inbox-rewrite');
+const browser=await chromium.launch({headless:true,args:['--no-sandbox'],...(process.env.INBOX_TEST_BROWSER?{executablePath:process.env.INBOX_TEST_BROWSER}:{})});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(10000);
 const errors=[],calls=[];
@@ -93,16 +96,16 @@ await page.goto(`${base}/inbox/?ticket=gorgias%3A123`);await ready();assert.equa
 ticket.draftSourceMessageId='';await page.reload();await ready();assert(await edit.isDisabled());
 ticket.draftSourceMessageId='456';ticket.draftSuperseded=true;await page.reload();await composer.waitFor();assert.equal(await edit.count(),0);
 ticket.draftSuperseded=false;ticket.readonlyDraft=original;await page.reload();await ready();
-fs.mkdirSync('/tmp/buttonsbebe-inbox-rewrite',{recursive:true});
+fs.mkdirSync(artifacts,{recursive:true});
 for(const width of [1440,1040,650,390,320]){
   await page.setViewportSize({width,height:900});await edit.scrollIntoViewIfNeeded();
   assert(await edit.isVisible());
   const size=await page.evaluate(()=>({width:document.body.scrollWidth,viewport:innerWidth}));assert(size.width<=size.viewport,`Page overflows at ${width}`);
-  if(width===1440)await page.locator('.draft-card').screenshot({path:'/tmp/buttonsbebe-inbox-rewrite/reply-card.png'});
+  if(width===1440)await page.locator('.draft-card').screenshot({path:path.join(artifacts,'reply-card.png')});
   await edit.click();await input.fill('Make it shorter and warmer, and ask which color they received.');
   const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width,`Dialog overflows at ${width}`);
   assert(await submit.isVisible());
-  if(width===1440||width===390)await page.screenshot({path:`/tmp/buttonsbebe-inbox-rewrite/editor-${width}.png`});
+  if(width===1440||width===390)await page.screenshot({path:path.join(artifacts,`editor-${width}.png`)});
   await page.keyboard.press('Escape');
 }
 assert.equal(await page.getByRole('switch').getAttribute('aria-checked'),'false');

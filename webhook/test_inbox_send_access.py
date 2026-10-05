@@ -4,7 +4,8 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, Mock, patch
 
-from bb_webhook import app as app_module, session_store
+from bb_webhook import database, session_store
+from bb_webhook.routers import console as console_router
 from bb_webhook.console_auth import build_session_token, session_claims
 from bb_webhook.db import Database
 from bb_webhook.inbox_send_access import InboxSendAccess
@@ -28,7 +29,7 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
             await kwargs['on_created'](9001)
             return {'ok':True,'delivery_status':'sent','message_id':9001}
         self.provider.send_public_reply=AsyncMock(side_effect=send)
-        factory=patch.object(app_module,'_GClient',return_value=self.provider)
+        factory=patch.object(console_router,'_GClient',return_value=self.provider)
         self.factory=factory.start();self.addCleanup(factory.stop)
 
     async def enable(self):
@@ -42,6 +43,7 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
             response=await self.client.post(self.send_url,json=self.payload,headers={'X-Inbox-Send-Access':token})
             self.assertEqual(response.status_code,403)
             self.assertEqual(response.json()['delivery_status'],'not_attempted')
+            self.assertEqual(response.json()['operation_id'],self.payload['operation_id'])
         self.factory.assert_not_called()
 
     async def test_toggle_never_calls_provider_and_off_revokes(self):
@@ -64,7 +66,10 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.post(self.send_url,json=self.payload,headers=headers)).status_code,403)
         self.client.cookies.clear();self.client.cookies.update(original)
         await Database(self.path).execute('UPDATE inbox_send_grants SET expires_at=0')
-        self.assertEqual((await self.client.post(self.send_url,json=self.payload,headers=headers)).status_code,403)
+        response=await self.client.post(self.send_url,json=self.payload,headers=headers)
+        self.assertEqual(response.status_code,403)
+        self.assertEqual(response.json(),{'ok':False,'error':'inbox_read_only','operation_id':self.payload['operation_id'],
+                                         'delivery_status':'not_attempted'})
         self.factory.assert_not_called()
 
     async def test_auth_origin_and_explicit_boolean_required(self):
@@ -82,6 +87,19 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
             response=await self.client.post(self.send_url,json={**self.payload,**changes},headers=headers)
             self.assertIn(response.status_code,(400,404,409),response.text)
             self.assertEqual(response.json()['delivery_status'],'not_attempted')
+            self.assertEqual(response.json()['operation_id'],self.payload['operation_id'])
+        self.factory.assert_not_called()
+
+    async def test_new_customer_message_refusal_identifies_the_unreserved_operation(self):
+        headers=await self.enable()
+        await database.ingest_event(dict(tenant_id='test',ticket_id=1,message_id='new-source',
+            event_type='message',author_type='customer',is_customer_message=True,
+            message_text='A different question',created_at='2026-09-26T01:00:00.000200Z'), '{}',self.path)
+        response=await self.client.post(self.send_url,json=self.payload,headers=headers)
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.json(),{'ok':False,'error':'new_customer_message_refresh_ticket',
+                                         'operation_id':self.payload['operation_id'],'delivery_status':'not_attempted'})
+        self.assertIsNone(await IntentStore(self.path).get(self.payload['operation_id']))
         self.factory.assert_not_called()
 
     async def test_confirmed_reply_uses_durable_sender_and_never_duplicates(self):
@@ -127,6 +145,7 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
             response=await self.client.post(self.send_url,json=self.payload,headers=headers)
         self.assertEqual(response.status_code,503)
         self.assertEqual(response.json()['delivery_status'],'not_attempted')
+        self.assertEqual(response.json()['operation_id'],self.payload['operation_id'])
         self.factory.assert_not_called()
 
     async def test_recipient_or_source_change_during_reservation_is_rejected(self):

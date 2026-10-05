@@ -4,56 +4,31 @@ These scripts never enable inbox Send, connect intake, or change Shopify/Gorgias
 credentials. Root reviews and applies them on srv1766050. Keep the existing
 console and Gorgias webhook active; do not run the retired full-root rollback.
 
-## Isolated inbox runtime
+## Active Inbox source recovery
 
-`helpdesk-inbox.service` runs as the dedicated `bb-inbox` account. Code and the
-hash-locked venv live under `/opt/buttonsbebe/inbox`, owned by root and readable
-but not writable by the account. SQLite state alone lives under
-`/var/lib/buttonsbebe-inbox`, owned by the account. `ProtectHome=true` denies the
-old shared `/root` credentials; strict filesystem and localhost network rules
-limit the service. Initial limits are 512 MiB and 64 tasks. Observe memory and
-startup failures before changing limits; do not remove restrictions blindly.
+The active Inbox is `helpdesk-inbox2.service` on localhost port 8767. Its public
+route is https://support.buttonsbebe.com/inbox/. Shared projection and Shopify
+modules remain under `console-src/inbox/`; they do not provide a second Inbox UI.
 
-1. Verify old intake/seen files are absent or run the reviewed explicit migration
-   CLI against a stopped old inbox. Do not infer an empty store from a read error.
-   Preserve originals and take a SQLite backup of any existing new store.
-2. Prepare a **new** candidate directory from the reviewed integrated source:
-   `python3 tools/ops/inbox_runtime.py prepare --source REVIEWED_ROOT --stage /opt/buttonsbebe/inbox-stage-RELEASE`.
-   Preparation installs only hash-locked dependencies. It does not start a service.
-3. Record the current `/etc/systemd/system/helpdesk-inbox.service` SHA256 and
-   review the new unit. The source must contain the ASGI server and lock file.
-4. After validating state, invoke `inbox_runtime.py apply` with `--stage`,
-   `--unit REVIEWED_ROOT/deploy/systemd/helpdesk-inbox.service`,
-   `--expected-unit-sha256 REVIEWED_SHA`, and `--state-verified`.
-   The script validates Linux unit syntax, installs the identity, stops only the
-   inbox, switches code/unit, probes storage readiness, Send and bridge locks, and restores the old
-   code/unit on failure. It prints a protected backup directory for rollback.
-5. Independently verify account, listening address, authenticated browser/API
-   routing, assets, and read-only state. The script's two safety probes are not
-   a complete acceptance test. Enable `helpdesk-inbox.service` only after success.
-6. To undo this manual installation, run `inbox_runtime.py rollback --backup
-   THE_RECORDED_DIRECTORY` while no later code deployment is in progress.
-   It restores code and unit only; it never restores or deletes customer data.
-   Repeated completed rollback is a no-op. Retain the restricted account/state.
+Use [the journaled source release and recovery procedure](../../deploy/cd/README.md)
+for source changes on a provisioned host. It preserves application data,
+prepared environments, approved configuration, and previously active services.
+A fresh host needs separate reviewed dependency, identity, unit, and proxy setup.
+The privileged receiver is installed separately from source deployment.
 
-The deployment receiver manages later inbox source updates at this isolated
-path. The venv is a separate prepared dependency artifact; the helper verifies its
-installed package receipt and runs `python -m pip check`. Relocated package
-entrypoint shebangs may retain their staging path: always use the final absolute
-Python with `-m pip`/`-m uvicorn`, not a relocated `pip` or `uvicorn` script. do not move a venv
-out of `/root` or run the new account against credentials in the main app tree.
-The CLI takes the receiver deployment lock before apply or rollback and refuses
-a concurrent release. A later code release requires
-fresh review before using an older manual rollback directory.
+`inbox_runtime.py` targets retired Inbox 1. Every action refuses, including
+rollback. Keep that service masked and preserve its backups and customer state.
+Do not use an old runtime receipt to restore or start it.
 
 ## Caddy and conservative core restrictions
 
 Materialize **only reviewed differences** into the existing live support
 fragment; never overwrite secrets with redacted source placeholders.
 
-- Inbox uses `handle /inbox/*` plus explicit `route`: authentication executes
-  before stripping `/inbox`, then all service routes reach port 8766. This keeps
-  original URI/method/Origin available to auth and preserves `/console/api`.
+- Inbox API uses `handle /inbox/api/*` with authentication before forwarding
+  the unchanged path to port 8767. The separate `/inbox/*` page route authenticates,
+  strips the prefix and serves `/var/www/inbox2/`. This preserves the original
+  URI/method/Origin for authentication and keeps backend source out of the web root.
 - Historical `/qa` and `/qa/*` return404. Files remain on disk for recovery.
 - Existing URI/Referer log redaction remains intact.
 - Webhook/processor units add NoNewPrivileges, PrivateTmp and kernel protection,

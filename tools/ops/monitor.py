@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 import urllib.request
+from urllib.error import HTTPError
 
 STATUS=Path('/var/lib/buttonsbebe/ops-status.json')
 BACKUP=Path('/var/lib/buttonsbebe/backup-status.json')
@@ -57,10 +58,23 @@ def tcp(port):
 
 
 def readiness(port):
-    with urllib.request.urlopen(f'http://127.0.0.1:{port}/' + ('health' if port==8767 else 'ready'),timeout=3) as response:
-        data=json.loads(response.read(65537))
+    try:
+        response=urllib.request.urlopen(f'http://127.0.0.1:{port}/ready',timeout=3)
+    except HTTPError as exc:
+        if port!=8767 or exc.code!=503: raise
+        response=exc
+    with response:
+        raw=response.read(65537)
+        if len(raw)>65536:return 'unavailable'
+        data=json.loads(raw)
+        code=response.code
+    if not isinstance(data,dict):return 'unavailable'
     if port==8767:
-        return 'ok' if data.get('ok') is True and data.get('readOnly') is True else 'unavailable'
+        if data.get('readOnly') is not True:return 'unavailable'
+        if data.get('status')=='degraded' and code==503:return 'attention'
+        if data.get('status')=='ready' and code==200 and data.get('checks')=={
+            'storage':'ok','worker':'ok','ticketData':'fresh','projection':'fresh'}:return 'ok'
+        return 'unavailable'
     if data.get('status')!='ready':return 'unavailable'
     diagnostics=data.get('diagnostics',{})
     for count,age in (('pending_jobs','oldest_pending_seconds'),('processing_jobs','oldest_processing_seconds')):
