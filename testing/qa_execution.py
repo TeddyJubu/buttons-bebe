@@ -65,21 +65,27 @@ class ProcReader:
             raise _Failure("linux_proc_required")
 
     @staticmethod
-    def _state(pid):
+    def _facts(pid):
+        with open(f"/proc/{pid}/stat", "rb") as stream:
+            raw = stream.read(8193)
+        if len(raw) > 8192:
+            raise _Failure("pid_state_invalid")
         try:
-            with open(f"/proc/{pid}/stat", "rb") as stream:
-                raw = stream.read(8193)
-            if len(raw) > 8192:
-                raise _Failure("pid_state_invalid")
             # The comm field may contain spaces/parentheses; it is not cmdline.
             fields = raw.rsplit(b") ", 1)[1].split()
-            if fields[0] in (b"Z", b"X"):
-                raise ProcessExited()
-            return int(fields[19])  # field 22: starttime
-        except FileNotFoundError:
-            raise ProcessExited() from None
+            return fields[0], int(fields[19])  # field 22: starttime
         except (IndexError, ValueError):
             raise _Failure("pid_state_invalid") from None
+
+    @classmethod
+    def _state(cls, pid):
+        try:
+            state, start = cls._facts(pid)
+        except FileNotFoundError:
+            raise ProcessExited() from None
+        if state in (b"Z", b"X"):
+            raise ProcessExited()
+        return start
 
     def open_image(self, pid):
         start = self._state(pid)
@@ -104,6 +110,15 @@ class ProcReader:
 
     def start_identity(self, pid):
         return self._state(pid)
+
+    def final_state(self, pid, process_start):
+        try:
+            state, start = self._facts(pid)
+        except FileNotFoundError:
+            return "absent_after_helper_reap"
+        if start != process_start:
+            return "reused"
+        return "unreaped" if state in (b"Z", b"X") else "live"
 
     def confirm_image(self, pid, image):
         start = self._state(pid)
@@ -187,6 +202,7 @@ class _Observer:
         self.last_index = None
         self.last_consecutive = 0
         self.pid = None
+        self.child = None
 
     def begin(self, child):
         if self.pid is not None:
@@ -194,6 +210,7 @@ class _Observer:
         if type(child.pid) is not int or child.pid <= 0:
             raise _Failure("invalid_child_pid")
         self.pid = child.pid
+        self.child = child
         self.evidence["pid"] = child.pid
         # Bind start ticks synchronously before returning Popen to the helper.
         # The helper has not yet reaped this child, so this cannot accidentally
@@ -259,13 +276,33 @@ class _Observer:
             # Never expose reader/system exception text or a credential value.
             self.evidence["failure"] = str(error) if isinstance(error, _Failure) else "image_observation_failed"
 
-    def finish(self):
+    def finish(self, result, helper_completed):
         self.stop_event.set()
         if self.thread and self.thread.ident is not None:
             self.thread.join(timeout=2.0)
             if self.thread.is_alive():
                 self.evidence["failure"] = "observer_cleanup_incomplete"
         try:
+            self.evidence["helper_completed"] = helper_completed
+            child_code = getattr(self.child, "returncode", None)
+            self.evidence["child_returncode"] = child_code if type(child_code) is int else None
+            if helper_completed:
+                result_code = getattr(result, "returncode", None)
+                self.evidence["helper_returncode"] = result_code if type(result_code) is int else None
+                if (self.child is None or getattr(self.child, "pid", None) != self.pid
+                        or type(child_code) is not int or type(result_code) is not int
+                        or child_code != result_code):
+                    raise _Failure("child_completion_unbound")
+                final_state = self.reader.final_state(self.pid, self.start_time)
+                if final_state not in ("absent_after_helper_reap", "reused", "unreaped", "live"):
+                    raise _Failure("final_pid_state_unknown")
+                self.evidence["final_pid_state"] = final_state
+                if final_state != "absent_after_helper_reap":
+                    raise _Failure("child_not_verified_reaped")
+                self.evidence["process_exit_observed"] = True
+                # The unchanged helper returned only after its finally cleanup;
+                # neither the observer nor its proxy calls poll/wait/reap.
+                self.evidence["helper_cleanup_completed"] = True
             if self.evidence.get("failure") != "observer_cleanup_incomplete":
                 # Preserve diagnostic FD identities even when the helper raised
                 # or an image failed to qualify; these cannot grant PASS.
@@ -337,6 +374,8 @@ def run_observed(helper, command, *, timeout, env, expected_sha256, private_home
     evidence = {"schema": 1, "status": "incomplete", "pid": None, "images": [],
                 "samples": 0, "observed_transitions": [], "effective_observed_image": None,
                 "all_exec_transitions_observed": False, "process_exit_observed": False,
+                "helper_completed": False, "helper_cleanup_completed": False,
+                "child_returncode": None, "helper_returncode": None, "final_pid_state": None,
                 "reader_kind": "linux_proc" if reader is None else "injected",
                 "required_effective_role": None,
                 "expected_sha256": None, "requested_launch_sha256": None}
@@ -380,9 +419,11 @@ def run_observed(helper, command, *, timeout, env, expected_sha256, private_home
         raise ExecutionObservationError(evidence)
     helper.subprocess = _SubprocessProxy(original, observer)
     result = None
+    helper_completed = False
     try:
         result = helper.run_bounded(command, timeout=timeout, env=env, cwd=cwd,
                                    capture_output=capture_output, text=text)
+        helper_completed = True
     except BaseException as error:
         evidence["failure"] = "helper_failed"
         # Retain the original type/value (e.g. TimeoutExpired) and lifecycle.
@@ -393,7 +434,7 @@ def run_observed(helper, command, *, timeout, env, expected_sha256, private_home
         raise
     finally:
         helper.subprocess = original
-        observer.finish()
+        observer.finish(result, helper_completed)
         try:
             evidence["helper_sha256_after"] = hashlib.sha256(source.read_bytes()).hexdigest()
             if evidence["helper_sha256_after"] != before:

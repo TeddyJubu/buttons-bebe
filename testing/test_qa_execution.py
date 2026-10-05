@@ -27,14 +27,18 @@ class LocalSubprocess:
 
 
 class Reader:
-    def __init__(self, rows, *, alive=True):
+    def __init__(self, rows, *, alive=True, final="absent_after_helper_reap"):
         self.rows = iter(rows)
         self.last = None
         self.alive = alive
         self.fds = []
+        self.final = final
 
     def start_identity(self, pid):
         return 123
+
+    def final_state(self, pid, process_start):
+        return self.final
 
     def open_image(self, pid):
         row = next(self.rows, self.last)
@@ -63,7 +67,8 @@ class ExecutionTests(unittest.TestCase):
         self.helper = execution.load_helper(HELPER)
         self.original = self.helper.subprocess
 
-    def run_case(self, reader, *, duration=0.04, after=None, error=None, command=None, **options):
+    def run_case(self, reader, *, duration=0.04, after=None, error=None, command=None,
+                 child_returncode=0, helper_returncode=0, **options):
         options.setdefault("required_effective_role", "selected_python")
         def synthetic(command, **kwargs):
             child = self.helper.subprocess.Popen(command, env=kwargs["env"], cwd=kwargs["cwd"])
@@ -72,9 +77,9 @@ class ExecutionTests(unittest.TestCase):
                 after()
             if error:
                 raise error
-            return subprocess.CompletedProcess(command, 0, "synthetic output", "")
+            return subprocess.CompletedProcess(command, helper_returncode, "synthetic output", "")
         self.helper.run_bounded = synthetic
-        child = type("Child", (), {"pid": 4321})()
+        child = type("Child", (), {"pid": 4321, "returncode": child_returncode})()
         launch = Mock(return_value=child)
         local = LocalSubprocess(self.original, launch)
         self.helper.subprocess = local
@@ -105,6 +110,12 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result.stdout, "synthetic output")
         self.assertEqual(evidence["status"], "verified_sampled")
         self.assertEqual(evidence["pid"], 4321)
+        self.assertTrue(evidence["helper_completed"])
+        self.assertTrue(evidence["helper_cleanup_completed"])
+        self.assertEqual(evidence["child_returncode"], 0)
+        self.assertEqual(evidence["helper_returncode"], 0)
+        self.assertEqual(evidence["final_pid_state"], "absent_after_helper_reap")
+        self.assertTrue(evidence["process_exit_observed"])
         self.assertEqual(evidence["requested_launch_sha256"], execution.command_digest(command))
         self.assertEqual(evidence["images"][0]["sha256_before"], self.sha)
         self.assertEqual(evidence["images"][0]["sha256_after"], self.sha)
@@ -253,6 +264,41 @@ class ExecutionTests(unittest.TestCase):
             with self.assertRaises(execution.ExecutionObservationError) as raised:
                 execution.run_observed(self.helper, [str(self.binary)], **arguments)
             self.assertNotIn(fictional, json.dumps(raised.exception.execution_evidence))
+
+    def test_live_reused_or_unreaped_final_pid_cannot_qualify(self):
+        for final in ("live", "reused", "unreaped", None):
+            with self.subTest(final=final):
+                reader = Reader([(self.binary, str(self.binary))], final=final)
+                with self.assertRaises(execution.ExecutionObservationError) as raised:
+                    self.run_case(reader)
+                self.assertFalse(raised.exception.execution_evidence.get("helper_cleanup_completed", False))
+                self.assert_closed(reader)
+
+    def test_missing_boolean_or_mismatched_actual_child_returncode_cannot_qualify(self):
+        for child_code, result_code in ((None, 0), (True, 0), (1, 0), (0, 1)):
+            with self.subTest(child=child_code, result=result_code):
+                reader = Reader([(self.binary, str(self.binary))])
+                with self.assertRaises(execution.ExecutionObservationError):
+                    self.run_case(reader, child_returncode=child_code, helper_returncode=result_code)
+                self.assert_closed(reader)
+
+    def test_matching_nonzero_returncodes_bind_execution_without_claiming_model_success(self):
+        reader = Reader([(self.binary, str(self.binary))])
+        result, evidence = self.run_case(reader, child_returncode=3, helper_returncode=3)
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(evidence["helper_returncode"], 3)
+        self.assertEqual(evidence["child_returncode"], 3)
+        self.assertEqual(evidence["status"], "verified_sampled")
+
+    def test_final_kernel_pid_state_is_absent_live_unreaped_or_reused(self):
+        reader = object.__new__(execution.ProcReader)
+        for value, expected in ((FileNotFoundError(), "absent_after_helper_reap"),
+                                ((b"R", 123), "live"), ((b"Z", 123), "unreaped"),
+                                ((b"S", 999), "reused")):
+            with self.subTest(expected=expected):
+                options = {"side_effect": value} if isinstance(value, Exception) else {"return_value": value}
+                with patch.object(reader, "_facts", **options):
+                    self.assertEqual(reader.final_state(4321, 123), expected)
 
     def test_real_helper_timeout_cleans_observer_without_replacing_exception(self):
         selected = Path(sys.executable).resolve()
