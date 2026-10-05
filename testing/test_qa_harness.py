@@ -82,6 +82,20 @@ class PolicyBoundaryTests(unittest.TestCase):
         for forbidden in ("test.person@example.com","123-4567","123 Example Street"):
             self.assertNotIn(forbidden,content)
 
+    def test_policy_projection_redacts_supported_credentials(self):
+        text = ('Bearer syntheticTOKENabcd API_KEY=sk-syntheticabcd '
+                'Authorization: Basic c3ludGhldGljOnBhc3M= '
+                'https://syntheticuser:syntheticpass@localhost/policy?token=syntheticquery '
+                'access_token="synthetic-access" password: synthetic-password')
+        safe, _ = filter_policy_results([self.row(text=text, title=text, heading=text)],
+                                       {"policies/shipping.md"})
+        content = json.dumps(safe)
+        for marker in ('syntheticTOKENabcd', 'sk-syntheticabcd', 'c3ludGhldGljOnBhc3M=',
+                       'syntheticuser', 'syntheticpass', 'syntheticquery',
+                       'synthetic-access', 'synthetic-password'):
+            self.assertNotIn(marker, content)
+        self.assertIn('localhost/policy', content)
+
     def test_profile_is_exact_and_environment_does_not_inherit_credentials(self):
         profile=profile_config({"default":"test-model","provider":"custom"},{g:19000+i for i,g in enumerate(GROUPS)})
         self.assertEqual(set(profile["mcp_servers"]),set(GROUPS))
@@ -317,6 +331,30 @@ print('JSON_RESULT['+token+']: '+json.dumps({'priority':'normal','action':'draft
                     self.harness()
                 launchers.write_text(LAUNCHERS)
         self.assertEqual(self.harness().launch[:3],[sys.executable,"-I","-c"])
+
+    def test_launcher_accepts_home_prefix_in_source_but_rejects_baked_home(self):
+        home = self.root / 'private/qa/home'
+        home.mkdir(parents=True)
+        source = Path(str(home) + '-hermes')
+        source.mkdir()
+        env = minimal_environment(home)
+        bootstrap = ("import os, sys, runpy; "
+            "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
+            "os.environ.pop('VIRTUAL_ENV', None); "
+            f"sys.path.insert(0, {str(source)!r}); " + qa_harness.DEFAULT_HOME +
+            "import hermes_bootstrap; runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)")
+        def response(text):
+            return subprocess.CompletedProcess([], 0, 'QA_LAUNCH=' + json.dumps(
+                [sys.executable, '-I', '-c', text]), '')
+        with patch('qa_harness.isolated_run', return_value=response(bootstrap)):
+            self.assertEqual(qa_harness.resolve_launch(Path(sys.executable), source, env, home)[3], bootstrap)
+        variants = [bootstrap + f"; os.environ['HERMES_HOME'] = {str(home)!r}",
+                    bootstrap.replace(qa_harness.DEFAULT_HOME,
+                        f"os.environ['HERMES_HOME'] = {str(home)!r}; ")]
+        for text in variants:
+            with self.subTest(text=text), patch('qa_harness.isolated_run', return_value=response(text)):
+                with self.assertRaisesRegex(ValueError, 'runtime_command launcher contract'):
+                    qa_harness.resolve_launch(Path(sys.executable), source, env, home)
 
     def test_shards_share_one_canonical_launch_and_instruction_identity(self):
         from qa_receipt import hermes_identity, instruction_identity
@@ -586,7 +624,8 @@ proxy.run(transport='streamable-http')
             status = "unavailable"
         safe_source = (
             "Shipping facts: contact privacy.person@example.com, call +1 (555) 123-4567, "
-            "or visit 12 Example Street. " + "x" * 10050
+            "or visit 12 Example Street. Bearer syntheticAUDITtoken "
+            "API_KEY=sk-syntheticAUDITkey https://audituser:auditpass@localhost/policy?key=auditquery " + "x" * 10050
         )
         return {
             "status": status,
@@ -636,6 +675,7 @@ proxy.run(transport='streamable-http')
                 for marker in (
                     "privacy.person@example.com", "+1 (555) 123-4567", "12 Example Street",
                     "PRIVATE SYNTHETIC TICKET SENTINEL", "K-TRUNCATED SYNTHETIC POLICY SENTINEL",
+                    "syntheticAUDITtoken", "sk-syntheticAUDITkey", "audituser", "auditpass", "auditquery",
                 ):
                     self.assertNotIn(marker, receipt)
                 self.assertEqual(stat.S_IMODE(self.audit_path.stat().st_mode) & 0o077, 0)

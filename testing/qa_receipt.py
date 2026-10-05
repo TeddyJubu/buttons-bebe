@@ -342,7 +342,8 @@ def instruction_identity(home: Path, essentials: dict, hermes_source: Path, repo
     if any(installed[key] != value for key, value in expected.items()):
         raise ValueError("QA skill file differs from the pinned source")
     memories = hermes_home / "memories"
-    if memories.exists() and (memories.is_symlink() or any(memories.iterdir())):
+    if memories.is_symlink() or (memories.exists() and
+            (not memories.is_dir() or any(memories.iterdir()))):
         raise ValueError("QA memory must stay empty")
     for directory in context_directories(home):
         found = sorted(entry.name for entry in directory.iterdir() if entry.name.lower() in CONTEXT_FILE_NAMES)

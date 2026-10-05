@@ -1,5 +1,6 @@
 """Separate QA profile and transport harness around the production runner."""
 from __future__ import annotations
+import ast
 import asyncio
 from contextlib import contextmanager
 import hashlib
@@ -193,11 +194,21 @@ def resolve_launch(hermes_python, hermes_source, env, home, code=None, timeout=6
                           timeout=timeout,env=env,cwd=home)
     matches = [line[len("QA_LAUNCH="):] for line in result.stdout.splitlines() if line.startswith("QA_LAUNCH=")]
     launch = json.loads(matches[0]) if not result.returncode and len(matches)==1 else None
-    entry = f"exec({code!r})" if code is not None else "runpy.run_module('hermes_cli.main'"
+    entry = f"exec({code!r})" if code is not None else (
+        "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)")
+    expected_bootstrap = ("import os, sys, runpy; "
+        "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
+        "os.environ.pop('VIRTUAL_ENV', None); "
+        f"sys.path.insert(0, {str(hermes_source)!r}); " + DEFAULT_HOME +
+        "import hermes_bootstrap; " + entry)
+    try:
+        supported_bootstrap = (isinstance(launch, list) and len(launch) == 4
+            and isinstance(launch[3], str)
+            and ast.dump(ast.parse(launch[3])) == ast.dump(ast.parse(expected_bootstrap)))
+    except (SyntaxError, ValueError, TypeError):
+        supported_bootstrap = False
     if (not isinstance(launch,list) or len(launch)!=4 or not all(isinstance(part,str) for part in launch)
-            or launch[:3]!=[str(hermes_python),"-I","-c"] or f"sys.path.insert(0, {str(hermes_source)!r})" not in launch[3]
-            or "import hermes_bootstrap; " not in launch[3] or entry not in launch[3]
-            or DEFAULT_HOME not in launch[3] or str(home) in launch[3]):
+            or launch[:3]!=[str(hermes_python),"-I","-c"] or not supported_bootstrap):
         raise ValueError("Hermes source lacks the supported runtime_command launcher contract; no scenarios run")
     return launch
 

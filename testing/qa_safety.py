@@ -28,6 +28,14 @@ NOTICE_OPERATOR_ACTIONS = {
 
 
 def redact(text: str) -> str:
+    """Best-effort masking of supported PII and credential shapes, not a secret detector."""
+    text = re.sub(r"(https?://)[^/\s]+@", r"\1[userinfo-removed]@", text, flags=re.I)
+    text = re.sub(r"\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+", r"\1 [credential removed]", text, flags=re.I)
+    text = re.sub(
+        r"\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|client[_-]?secret)"
+        r"\b[\"']?\s*[:=]\s*(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;]+)",
+        r"\1=[credential removed]", text, flags=re.I)
+    text = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "[credential removed]", text)
     text = re.sub(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", "[email removed]", text, flags=re.I)
     text = re.sub(r"(?<!\w)\+?\d[\d ().-]{7,}\d(?!\w)", "[phone or identifier removed]", text)
     text = re.sub(r"\b\d{1,6}\s+[A-Za-z0-9 .'-]{1,60}\b(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Drive|Dr)\b", "[address removed]", text, flags=re.I)
@@ -189,7 +197,8 @@ def validate_fixture(value):
 
 def audit(path: Path, group: str, tool: str, **details):
     # KB audit entries may include only returned snippets after allowlist
-    # filtering, redaction and text bounds; raw responses and credentials stay out.
+    # filtering, best-effort supported-pattern redaction and text bounds.
+    # Audits remain private: novel credential/PII formats may evade masking.
     import os
     payload = json.dumps({"group": group, "tool": tool, **details}, separators=(",", ":")) + "\n"
     fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)

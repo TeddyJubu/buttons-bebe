@@ -66,6 +66,10 @@ and admits only confirmed policies, FAQ, intents and products with checked-in
 allowlisted paths. Tickets, learned examples and notices are dropped; unexpected
 categories or paths abort. Only selected policy fields reach the model after
 PII masking. The receipt records the mode and tool audit records filtered counts.
+
+Policy snippets saved in private QA audits use best-effort masking for supported
+email, phone, address, token and URL credential patterns. This does not detect
+every possible credential format; review policy inputs and keep audit files private.
 This is current policy grounding, **not full production retrieval equivalence**;
 regex masking is not proof that arbitrary prose contains no personal information.
 
@@ -150,8 +154,8 @@ and hash. The launcher runs Python with `-I`, clears
 `hermes_cli.main` module. A source without that launcher stops the run before any model call.
 The preflight probes (metadata, tool bindings and essential seeding) run through the same
 launcher with `code=`, never through a bare `python -c`. The child environment is a fixed
-allow-list: `TERMINAL_CWD`, `HERMES_IGNORE_RULES`, `HERMES_BUNDLED_SKILLS`, `PYTHONPATH` or
-any other inherited variable stops the run.
+allow-list; inheriting `TERMINAL_CWD`, `HERMES_IGNORE_RULES`, `HERMES_BUNDLED_SKILLS`,
+`PYTHONPATH` or any variable outside that list stops the run.
 The launch command's hash is recorded in the Hermes identity. Shell wrappers and console
 scripts are never executed.
 

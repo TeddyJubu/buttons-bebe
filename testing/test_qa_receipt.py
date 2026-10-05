@@ -300,6 +300,30 @@ class ReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "traverse links"):
             seed_instructions(self.out / "fresh2", self.repo)
 
+    def test_memory_identity_accepts_only_absent_or_empty_real_directory(self):
+        memories = self.home / '.hermes/memories'
+        self.identity()
+        memories.mkdir()
+        self.identity()
+        memories.rmdir()
+        targets = [self.out / 'missing-memory', self.out / 'existing-memory']
+        targets[1].mkdir()
+        for target in targets:
+            memories.symlink_to(target, target_is_directory=True)
+            try:
+                with self.assertRaisesRegex(ValueError, 'memory'):
+                    self.identity()
+            finally:
+                memories.unlink()
+        memories.write_text('')
+        with self.assertRaisesRegex(ValueError, 'memory'):
+            self.identity()
+        memories.unlink()
+        memories.mkdir()
+        (memories / 'MEMORY.md').write_text('synthetic context')
+        with self.assertRaisesRegex(ValueError, 'memory'):
+            self.identity()
+
     def test_receipts_require_instruction_parity_bound_to_source(self):
         core = self.run_file("core")
         run = json.loads(core.read_text())
