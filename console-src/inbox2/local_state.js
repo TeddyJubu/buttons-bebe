@@ -41,7 +41,7 @@ function verifiedTimestamp(value) {
   return Date.parse(value);
 }
 export function enrichMessageEvidence(row,detail) {
-  if(!providerId.test(row?.id||'')||row.localOnly||detail?.localOnly||detail?.id!==row.id)return row;
+  if(detail?.syncStale||!providerId.test(row?.id||'')||row.localOnly||detail?.localOnly||detail?.id!==row.id)return row;
   const knownId=ticket=>{
     const value=ticket.lastMessageId||ticket.latestMessageId||ticket.messages?.at(-1)?.id;
     return typeof value==='string'||Number.isSafeInteger(value)&&value>0?String(value):'';

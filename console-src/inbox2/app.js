@@ -198,7 +198,7 @@ function allRows(){return [...matchingLocalRows().slice(state.page*state.size,(s
 function filtered(){return allRows();}
 function updateObserved(tickets){
   const records=stateRecords(stored(keys.state,{}));let changed=false;
-  for(const ticket of tickets)if(records[ticket.id]?.observed){rememberObserved(records,ticket);changed=true;}
+  for(const ticket of tickets)if(!ticket.syncStale&&records[ticket.id]?.observed){rememberObserved(records,ticket);changed=true;}
   if(changed)persist(keys.state,{version:1,records});
 }
 function markRead(ticket,read=true){const records=readRecords(stored(keys.read,{}));records[ticket.id]=readMarker(ticket,read);persist(keys.read,{version:1,records});}
@@ -386,7 +386,7 @@ async function selectTicket(id,push=true,focus=false) {
     if(id.startsWith('local:')&&!local)throw new Error('This local ticket is unavailable in this browser.');
     const result=local?{ticket:local}:await api('get_ticket',{ticketId:id});
     if(request!==state.ticketRequest)return;
-    state.ticket=result.ticket;updateObserved([state.ticket]);state.rows=state.rows.map(row=>enrichMessageEvidence(row,state.ticket));markRead(state.ticket);
+    state.ticket=result.ticket;updateObserved([state.ticket]);state.rows=state.rows.map(row=>enrichMessageEvidence(row,state.ticket));if(!state.ticket.syncStale)markRead(state.ticket);
     renderTicket();renderRail();listRender();
     document.title=`${ticketTitle(state.ticket)} · Buttons Bebe Support`;
     if(focus)$('#conversation').focus({preventScroll:true});

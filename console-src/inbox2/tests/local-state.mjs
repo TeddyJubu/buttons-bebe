@@ -42,6 +42,21 @@ const enriched=enrichMessageEvidence(deficient,accepted);
 assert.deepEqual(enriched,{...deficient,lastMessageAt:'2026-10-05T00:00:00Z',lastMessageId:'m1'},'only genuine message evidence enriches a matching provider row');
 assert.equal(Object.hasOwn(deficient,'lastMessageAt'),false,'enrichment leaves input unchanged');
 assert.equal(readState(enriched,{[deficient.id]:readMarker(accepted)}),true);
+const uncoveredRow={...deficient,lastMessageAt:'2026-10-05T02:00:00Z',updatedAt:'2026-10-05T02:00:00Z'};
+const uncovered={...uncoveredRow,syncStale:true,messages:[{id:'m1',at:'2026-10-05T00:00:00Z'}]};
+for(const [row,detail] of [
+  [deficient,{...accepted,syncStale:true}],
+  [uncoveredRow,uncovered],
+  [deficient,{...deficient,syncStale:true,messages:[{id:123456}]}],
+  [{...deficient,lastMessageId:'m-old'},uncovered],
+  [{...deficient,lastMessageAt:'2026-10-05T00:00:00Z',lastMessageId:'m1'}, {...uncovered,messages:[{id:'',at:uncovered.lastMessageAt}]}],
+]){
+  const before=structuredClone(row);
+  assert.equal(enrichMessageEvidence(row,detail),row,'explicit stale detail cannot promote an incomplete page as verified message evidence');
+  assert.deepEqual(row,before,'held stale evidence leaves the prior row unchanged');
+}
+assert.deepEqual(enrichMessageEvidence(deficient,{...accepted,syncStale:false}),enriched,'covered explicitly fresh detail retains normal enrichment');
+assert.deepEqual(readMarker(uncovered,true,42),{read:true,kind:'message',message:'m1',activity:uncovered.lastMessageAt,at:42},'explicit browser-local read policy stays available independently of automatic stale opening');
 assert.equal(readState({...deficient,lastMessageId:'m1'},{[deficient.id]:readMarker(accepted)}),true,'same known ID already reads without timestamp enrichment');
 assert.deepEqual(enrichMessageEvidence(deficient,{...deficient,messages:[{id:123456}]}),{...deficient,lastMessageId:'123456'},'ID-only actual numeric message does not manufacture activity');
 for(const incoming of [
