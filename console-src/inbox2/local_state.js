@@ -62,8 +62,8 @@ export function observedSummary(ticket, savedAt=Date.now(), prior=null) {
 export function rememberObserved(records,ticket,at=Date.now()) {
   const prior=records[ticket.id]?.observed,summary=observedSummary(ticket,at,prior);
   if(!summary)return records;
-  // Activity and mutable provider metadata advance independently. Neither may
-  // replace a known newer observation with an older or unverified timestamp.
+  // The two clocks guard one atomic observation. Without per-field versions,
+  // mixed older/unknown and newer clocks cannot safely refresh its fields.
   for(const field of ['lastMessageAt','updatedAt']) {
     const incoming=verifiedTimestamp(summary[field]),previous=verifiedTimestamp(prior?.[field]);
     if(Number.isFinite(previous)&&(!Number.isFinite(incoming)||incoming<previous))return records;
@@ -71,6 +71,16 @@ export function rememberObserved(records,ticket,at=Date.now()) {
   records[ticket.id]={...(records[ticket.id]||{}),observed:summary};
   const saved=Object.entries(records).filter(([,record])=>record?.observed).sort((a,b)=>(Number(b[1].observed.savedAt)||0)-(Number(a[1].observed.savedAt)||0));
   for(const [,record] of saved.slice(MAX_OBSERVED_SUMMARIES))delete record.observed;
+  return records;
+}
+export function syncObservedOverride(records,ticket,at=Date.now()) {
+  const record=records[ticket.id],fields=['title','status','priority','assignee','snooze'];
+  if(fields.some(field=>record?.[field]?.value))return rememberObserved(records,ticket,at);
+  if(record){
+    delete record.observed;
+    for(const field of fields)if(!record[field]?.value)delete record[field];
+    if(!Object.keys(record).length)delete records[ticket.id];
+  }
   return records;
 }
 export function observedRows(records) {
@@ -101,6 +111,7 @@ export function matchesLocal(ticket, view, filters, effective, operator, now=Dat
   if(filters.channel && fold(ticket.channel)!==fold(filters.channel)) return false;
   if(filters.tag && !(ticket.tags||[]).map(t=>fold(typeof t==='string'?t:t.name)).includes(fold(filters.tag))) return false;
   const query=String(filters.query||'').trim().replace(/\s+/g,' ').toLowerCase();
-  if(query && ![ticket.customerName,ticket.subject,ticket.snippet,ticket.id].join(' ').toLowerCase().includes(query)) return false;
+  if(query.length>200)return false;
+  if(query && ![ticket.customerName,ticket.fromEmail,ticket.subject,ticket.snippet,ticket.id].join(' ').toLowerCase().includes(query)) return false;
   return true;
 }

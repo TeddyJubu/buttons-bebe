@@ -85,7 +85,11 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    read in Gorgias. Edited provider tickets keep bounded, allowlisted last-observed
    summaries for browser view membership. These saved observations are labelled,
    preserve provider totals separately, and never authorize a draft or send.
-   Opening a provider ticket always re-reads the provider-facing read API. A
+   Opening a provider ticket calls the provider-facing read API rather than
+   trusting a browser observation. The API can use its 15-second detail cache;
+   a newer synced summary, a cache miss or expiry requires a provider refresh.
+   Mixed older/unknown and newer observation clocks retain the previous browser
+   summary until a fully nonregressing observation arrives. A
    provider-side status, priority, assignment, rename or read-state write still
    requires the owner's explicit authorization and an audit trail.
 7. Owner-approved New ticket creates a private browser-only `local:<UUID>` ticket

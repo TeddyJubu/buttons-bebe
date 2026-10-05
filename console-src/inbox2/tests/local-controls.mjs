@@ -14,8 +14,8 @@ page.setDefaultTimeout(10000);
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bb-local-controls-'));
 const stamp='2026-10-05T10:00:00Z';
 let next=false,order=false;let listPages=false,observedStatus='open',observedUpdated='';
-let releaseCapabilities,capabilitiesFinished=false;const heldCapabilities=new Promise(resolve=>{releaseCapabilities=resolve;});
-const fixture=()=>({id:'gorgias:123',subject:'Original subject retained',customerName:'Example Customer',fromEmail:'example@example.invalid',status:observedStatus,gorgiasPriority:'normal',assigneeEmail:'support@example.invalid',channel:'email',updatedAt:observedUpdated||stamp,lastMessageAt:next?'2026-10-05T10:01:00Z':stamp,syncedAt:stamp,readonlyDraft:Array.from({length:80},(_,i)=>`Suggestion paragraph ${i+1}.`).join('\n\n'),draftSourceMessageId:'m1',draftProcessedAt:stamp,messages:Array.from({length:30},(_,i)=>({id:next&&i===29?'new-message':`m${i}`,fromAgent:false,body:`Message ${i}. `.repeat(20),at:next&&i===29?'2026-10-05T10:01:00Z':stamp,...(i===0?{normalized:{display_text:'Question #12345\n\n> Earlier Bengali history বাংলা',current_text:'Question #12345',original_content:'<script>bad()</script><p>Question #12345</p>',original_field:'body_html',history_available:true},attachments:[{name:'Example.png',url:`${base}/fixture.png`,content_type:'image/png'},{name:'Unsafe',url:'javascript:alert(1)',content_type:'image/png'}]}:{})})),shopifyRail:order?{status:'observed',order:{name:'#12345',lineItems:{nodes:[]}},customer:{displayName:'Example Customer'}}:{status:'unavailable'},redoDetails:{status:'observed',fetchedAt:stamp,orders:{'#12345':{status:'observed',returns:[{status:'pending',refund_amount:'15',tracking_url:'javascript:alert(1)'}],observedAt:stamp}}}});
+let releaseCapabilities;const heldCapabilities=new Promise(resolve=>{releaseCapabilities=resolve;});
+const fixture=()=>({id:'gorgias:123',subject:'Original subject retained',customerName:'Example Customer',fromEmail:'example@example.invalid',status:observedStatus,gorgiasPriority:'normal',assigneeEmail:'support@example.invalid',channel:'email',updatedAt:observedUpdated||stamp,lastMessageAt:next?'2026-10-05T10:01:00Z':stamp,syncedAt:stamp,readonlyDraft:Array.from({length:80},(_,i)=>`Suggestion paragraph ${i+1}.`).join('\n\n'),draftSourceMessageId:'m1',draftProcessedAt:stamp,messages:Array.from({length:30},(_,i)=>({id:next&&i===29?'new-message':`m${i}`,fromAgent:false,body:`Message ${i}. `.repeat(20),at:next&&i===29?'2026-10-05T10:01:00Z':stamp,...(i===1?{normalized:{display_text:'Historical quoted request only',current_text:'',history_available:true}}:i===2?{normalized:{display_text:'Legacy message without current-text field'}}:{}),...(i===0?{normalized:{display_text:'Question #12345\n\n> Earlier Bengali history বাংলা',current_text:'Question #12345',original_content:'<script>bad()</script><p>Question #12345</p>',original_field:'body_html',history_available:true},attachments:[{name:'Example.png',url:`${base}/fixture.png`,content_type:'image/png'},{name:'Unsafe',url:'javascript:alert(1)',content_type:'image/png'}]}:{})})),shopifyRail:order?{status:'observed',order:{name:'#12345',lineItems:{nodes:[]}},customer:{displayName:'Example Customer'}}:{status:'unavailable'},redoDetails:{status:'observed',fetchedAt:stamp,orders:{'#12345':{status:'observed',returns:[{status:'pending',refund_amount:'15',tracking_url:'javascript:alert(1)'}],observedAt:stamp}}}});
 const apiCalls=[],consoleCalls=[],errors=[];
 page.on('pageerror',e=>errors.push(e.message));
 await page.route('**/console/api/**',async route=>{consoleCalls.push(route.request().url());await route.fulfill({status:403,json:{error:'inbox_read_only'}});});
@@ -23,7 +23,7 @@ await page.route('**/inbox/api/helpdesk',async route=>{
   const payload=route.request().postDataJSON();apiCalls.push(payload);const tool=payload.tool.split('.').at(-1),t=fixture();
   assert(['capabilities','get_ticket','get_messages','list_tickets'].includes(tool),'only read tools may be requested');
   assert(!String(payload.arguments.ticketId||'').startsWith('local:'));
-  if(tool==='capabilities'){await heldCapabilities;await route.fulfill({json:{ok:true,source:'gorgias_api',readOnly:true,capabilities:{sendReply:false}}});capabilitiesFinished=true;return;}
+  if(tool==='capabilities'){await heldCapabilities;await route.fulfill({json:{ok:true,source:'gorgias_api',readOnly:true,capabilities:{sendReply:false}}});return;}
   const matches=!(payload.arguments.view==='closed'&&t.status!=='closed'||payload.arguments.view==='open'&&t.status!=='open');
   await route.fulfill({json:{ok:true,source:'gorgias_api',...(tool==='get_ticket'?{ticket:t}:tool==='list_tickets'?{tickets:matches?(payload.arguments.offset?[{...t,id:'gorgias:124'}]:[t]):[],total:matches?(listPages?2:1):0,nextOffset:matches&&listPages&&!payload.arguments.offset?9:null,projection:{complete:true},operatorEmail:'support@example.invalid',categoryAvailability:{assigned:true,snoozed:true,spam:true,trash:true}}:{})}});
 });
@@ -31,11 +31,17 @@ await page.goto(`${base}/inbox/?ticket=gorgias%3A123`);
 await page.locator('.ticket-title').waitFor();
 assert.equal(await page.locator('.ticket-title').textContent(),'New Ticket');
 await page.waitForFunction(()=>!document.querySelector('[data-view="assigned"]').disabled);
-releaseCapabilities();const capabilitiesDeadline=Date.now()+10000;while(!capabilitiesFinished&&Date.now()<capabilitiesDeadline)await new Promise(resolve=>setTimeout(resolve,10));assert(capabilitiesFinished,'expected delayed capabilities response to finish within 10 seconds');
+const capabilitiesResponse=page.waitForResponse(response=>response.url().endsWith('/inbox/api/helpdesk')&&response.request().postDataJSON()?.tool==='helpdesk.capabilities',{timeout:30000});
+releaseCapabilities();await (await capabilitiesResponse).finished();
 await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
 assert.equal(await page.locator('[data-view="assigned"]').isDisabled(),false,'late capabilities without operatorEmail must not erase configured fixture identity');
 async function visibleComposer(){const boxes=await page.locator('#reply,[data-action="copy-reply"]').evaluateAll(els=>els.map(el=>({top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom,right:el.getBoundingClientRect().right,left:el.getBoundingClientRect().left})));for(const r of boxes)assert(r.top>=0&&r.bottom<=await page.evaluate(()=>innerHeight)&&r.left>=0&&r.right<=await page.evaluate(()=>innerWidth),JSON.stringify(r));}
-assert.equal(await page.locator('.original-evidence').count(),1);assert.equal(await page.locator('.message script').count(),0);assert.equal(await page.locator('.original-evidence pre').textContent(),'<script>bad()</script><p>Question #12345</p>');assert.equal(await page.locator('.message-attachment').count(),1);assert((await page.locator('.quoted-email .message-body').textContent()).includes('বাংলা'));
+assert.equal(await page.locator('.original-evidence').count(),1);assert.equal(await page.locator('.message script').count(),0);assert.equal(await page.locator('.original-evidence pre').textContent(),'<script>bad()</script><p>Question #12345</p>');assert.equal(await page.locator('.message-attachment').count(),1);assert((await page.locator('.quoted-email .message-body').first().textContent()).includes('বাংলা'));
+assert.equal(await page.locator('.message[data-message-id="m1"] > .message-body').count(),0,'empty current_text must not render historical request as new text');
+assert.equal(await page.locator('.message[data-message-id="m1"] > .message-note').first().textContent(),'No new message text.');
+assert.equal(await page.locator('.message[data-message-id="m1"] .quoted-email .message-body').textContent(),'Historical quoted request only');
+assert.equal(await page.locator('.message[data-message-id="m1"] .quoted-email').evaluate(el=>el.open),false);
+assert.equal(await page.locator('.message[data-message-id="m2"] > .message-body').textContent(),'Legacy message without current-text field','undefined current_text still uses available display text');
 for(const [width,height] of [[1280,800],[390,844],[640,450]]){await page.setViewportSize({width,height});await visibleComposer();assert(await page.locator('[data-action="use-draft"]').evaluate(el=>el.getBoundingClientRect().bottom<=innerHeight));await page.locator('[data-action="expand-draft"]').click();await visibleComposer();await page.locator('[data-action="expand-draft"]').click();await page.screenshot({path:path.join(dir,`anchored-${width}.png`)});}
 await page.setViewportSize({width:1280,height:800});
 await page.locator('#reply').fill('My private reply');
@@ -48,8 +54,21 @@ assert.deepEqual(await page.locator('#reply').evaluate(el=>({focused:el===docume
 assert.equal(await page.locator('.redo-section').count(),1);
 assert.equal(await page.locator('.redo-section a').count(),0);
 await page.locator('.ticket-actions-menu summary').click();
+await page.evaluate(()=>{const records={version:1,records:{'gorgias:123':{notes:{value:'Private note retained'}}}};localStorage.setItem('bb-inbox-ticket-state-v1',JSON.stringify(records));dispatchEvent(new StorageEvent('storage',{key:'bb-inbox-ticket-state-v1'}));});
 await page.locator('[data-field="priority"]').selectOption('high');
 assert((await page.locator('.local-observed').textContent()).includes('Priority: high (observed: normal)'));
+await page.locator('#search').fill('example@example.invalid');
+await page.waitForFunction(()=>document.querySelector('.ticket-row')!==null&&document.querySelector('#count')?.textContent.includes('1 browser rows shown of 1 matching'));
+assert((await page.locator('.row-state').textContent()).includes('Browser changes'),'edited provider row remains searchable by customer email');
+await page.locator('#search').fill('');
+await page.waitForFunction(()=>!new URLSearchParams(location.search).get('q'));
+await page.locator('[data-field="priority"]').selectOption('');
+assert.equal(await page.locator('.local-observed').count(),0);
+assert.equal((await page.locator('.row-state').textContent()).includes('Browser changes'),false,'last cleared override returns row to provider grouping');
+const afterClear=await page.evaluate(()=>JSON.parse(localStorage.getItem('bb-inbox-ticket-state-v1')).records['gorgias:123']);
+assert.deepEqual(afterClear,{notes:{value:'Private note retained'}},'disposable grouping cleanup must not delete a private note');
+await page.locator('[data-field="priority"]').selectOption('high');
+
 await page.reload();await page.locator('.ticket-title').waitFor();
 assert((await page.locator('.local-observed').textContent()).includes('Priority: high'));
 assert.equal(await page.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone),'Asia/Dhaka');

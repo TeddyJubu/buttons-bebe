@@ -1,5 +1,5 @@
 import { icons } from './icons.js';
-import {stateRecords,readRecords,lastMessage,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows} from './local_state.js';
+import {stateRecords,readRecords,lastMessage,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,syncObservedOverride} from './local_state.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${icons[name] || icons.info}</svg>`;
@@ -421,7 +421,7 @@ function renderTicket() {
   document.title=`${ticketTitle(t)} · Buttons Bebe Support`;
   installTooltips();renderSendAccess();
 }
-function displayMessage(m){const n=m.normalized||m;const full=n.display_text??n.displayText??m.body??'',current=n.current_text??n.currentText;return {main:String(current&&current!==full?current:full),quoted:current&&current!==full?String(full):'',original:n.original_content??m.originalText??m.originalHtml??'',originalField:n.original_field||'',history:n.history_available,truncated:Boolean(n.source_truncated||m.truncated)};}
+function displayMessage(m){const n=m.normalized||m;const full=n.display_text??n.displayText??m.body??'',current=n.current_text??n.currentText;return {main:String(current??full),quoted:current!=null&&current!==full?String(full):'',emptyCurrent:current==='',original:n.original_content??m.originalText??m.originalHtml??'',originalField:n.original_field||'',history:n.history_available,truncated:Boolean(n.source_truncated||m.truncated)};}
 function messageBodyHtml(text) {
   // Keep working links without printing long tracking/query strings as prose.
   let result='',last=0;
@@ -438,9 +438,9 @@ function messageBodyHtml(text) {
 }
 
 function messageHtml(m,t) {
-  const {main,quoted,original,originalField,history,truncated}=displayMessage(m);
+  const {main,quoted,emptyCurrent,original,originalField,history,truncated}=displayMessage(m);
   const name=(m.fromName&&m.fromName!==m.fromEmail?m.fromName:'')||(m.fromAgent?'Support':t.customerName)||m.fromName||'Unknown sender',email=m.fromEmail||(!m.fromAgent?t.fromEmail:'');
-  return `<article class="message" data-message-id="${esc(m.id)}"><div class="message-heading"><span class="avatar">${esc(initials(name))}</span><div class="message-person"><strong>${esc(name)}${m.internal?' · Internal note':''}</strong>${email?`<span>${esc(email)}</span>`:''}</div><time datetime="${esc(m.at||'')}">${esc(date(m.at))}</time></div>${main?`<div class="message-body" dir="auto">${messageBodyHtml(main)}</div>`:quoted?'<p class="message-note">No new message text.</p>':'<p class="message-note">Message text is unavailable.</p>'}${quoted?`<details class="quoted-email" data-message-id="${esc(m.id)}"><summary>${icon('right')} Full email history</summary><div class="message-body" dir="auto">${messageBodyHtml(quoted)}</div></details>`:''}${original?`<details class="original-evidence"><summary>Original message evidence${originalField?' · '+esc(originalField):''}</summary><pre dir="auto">${esc(original)}</pre></details>`:'<p class="message-note">Original message evidence was not retained.</p>'}${history===false?'<p class="message-note">Full email history was not retained. Showing the available text.</p>':''}${truncated?'<p class="message-note">Only part of this message is available.</p>':''}${attachmentsHtml(m.attachments)}</article>`;
+  return `<article class="message" data-message-id="${esc(m.id)}"><div class="message-heading"><span class="avatar">${esc(initials(name))}</span><div class="message-person"><strong>${esc(name)}${m.internal?' · Internal note':''}</strong>${email?`<span>${esc(email)}</span>`:''}</div><time datetime="${esc(m.at||'')}">${esc(date(m.at))}</time></div>${main?`<div class="message-body" dir="auto">${messageBodyHtml(main)}</div>`:quoted||emptyCurrent?'<p class="message-note">No new message text.</p>':'<p class="message-note">Message text is unavailable.</p>'}${quoted?`<details class="quoted-email" data-message-id="${esc(m.id)}"><summary>${icon('right')} Full email history</summary><div class="message-body" dir="auto">${messageBodyHtml(quoted)}</div></details>`:''}${original?`<details class="original-evidence"><summary>Original message evidence${originalField?' · '+esc(originalField):''}</summary><pre dir="auto">${esc(original)}</pre></details>`:'<p class="message-note">Original message evidence was not retained.</p>'}${history===false?'<p class="message-note">Full email history was not retained. Showing the available text.</p>':''}${truncated?'<p class="message-note">Only part of this message is available.</p>':''}${attachmentsHtml(m.attachments)}</article>`;
 }
 function attachmentsHtml(attachments){return (Array.isArray(attachments)?attachments:[]).slice(0,20).map(a=>{const url=webUrl(a.url||a.download_url||a.public_url);if(!url)return '';const name=String(a.name||a.filename||'Attachment'),image=/^image\/(?:jpeg|png|gif|webp|avif)$/.test(String(a.content_type||a.contentType||a.mime_type||''));return `<details class="message-attachment"><summary>${icon(image?'image':'link')}${esc(name)}</summary>${image?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(url)}" alt="${esc(name)}" loading="lazy" referrerpolicy="no-referrer"></a>`:`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open attachment ${icon('external')}</a>`}</details>`;}).join('');}
 function conversationHtml(t) {
@@ -566,7 +566,7 @@ function setField(field,value){
   if(field==='snooze'&&value){const d=new Date(value);if(!Number.isFinite(+d)||+d<=Date.now()){toast('Choose a future snooze time.');return;}value=d.toISOString();}
   const records=stateRecords(stored(keys.state,{}));
   records[state.id]={...(records[state.id]||{}),[field]:value?{value,by:state.operator||'operator',at:Date.now()}:null};
-  rememberObserved(records,state.ticket);
+  syncObservedOverride(records,state.ticket);
   persist(keys.state,{version:1,records});renderTicket();listRender();toast(storageAvailable?'Saved in this browser. Observed Gorgias values are unchanged.':'Browser storage is unavailable. Changes last for this session only.');
 }
 // Refresh only the context rail while a background lookup runs; never touch the editor.
@@ -726,7 +726,7 @@ function applyBulk(){
       if(value==='me'){if(!state.operator){toast('Operator email is unavailable. Choose an assignee on the ticket.');return;}value=state.operator;}
       if(value==='tomorrow')value=new Date(at+86400000).toISOString();
       records[t.id]={...(records[t.id]||{}),[field]:{value,at,by:state.operator||'operator'}};
-      rememberObserved(records,t,at);
+      syncObservedOverride(records,t,at);
     }
   }
   persist(keys.state,{version:1,records});persist(keys.read,{version:1,records:reads});clearSelection();renderTicket();listRender();toast(storageAvailable?`Updated ${rows.length} tickets in this browser. Gorgias is unchanged.`:'Browser storage is unavailable. Updates last for this session only.');

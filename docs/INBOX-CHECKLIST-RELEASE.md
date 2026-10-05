@@ -22,8 +22,14 @@ Trash summaries are bounded to 1,000 cached rows. Browser organization has its o
 allowlisted saved summaries for edited provider tickets. Local status, priority,
 assignment and snooze can place those saved observations into another browser
 view without scanning provider history. Latest observed responses refresh saved
-summaries; opening a provider ticket always reads the real API before any draft
-or human action can be used. Saved observations are labelled and are not current
+summaries only when neither known message activity nor metadata update time
+regresses or becomes unknown. Mixed-clock responses retain the previous whole
+summary; independently versioned fields are unavailable, so partial merges are
+not assumed fresh. A later fully nonregressing observation can advance it.
+Clearing the last local override removes its disposable saved observation while
+preserving unrelated private fields. Opening a provider ticket calls the read API
+before any draft or human action can be used. That API may serve its 15-second
+detail cache unless a newer synced summary requires a refresh. Saved observations are labelled and are not current
 provider claims. Provider pagination and observed totals remain separate; edited
 IDs are omitted from the provider page to avoid duplicate rows. Only disposable
 saved summaries are evicted at the bound; local edits/private tickets remain.

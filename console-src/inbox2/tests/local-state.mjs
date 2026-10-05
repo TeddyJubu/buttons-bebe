@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source=fs.readFileSync(new URL('../local_state.js',import.meta.url),'utf8');
-const {stateRecords,readRecords,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,MAX_OBSERVED_SUMMARIES}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const {stateRecords,readRecords,readState,readMarker,localTicket,matchesLocal,rememberObserved,observedRows,syncObservedOverride,MAX_OBSERVED_SUMMARIES}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 assert.deepEqual(readRecords(['gorgias:1']),{});
 assert.deepEqual(stateRecords({version:2,records:{unsafe:true}}),{});
 assert.deepEqual(stateRecords({version:1,records:[]}),{});
@@ -44,6 +44,17 @@ assert.equal(matchesLocal(filtered,'all',{priority:'high'},effective,''),false);
 assert(matchesLocal({...filtered,status:'closed'},'closed',{},effective,''));
 assert.equal(matchesLocal({...filtered,status:'closed'},'open',{},effective,''),false);
 assert(matchesLocal({...filtered,snooze:'2026-10-06T00:00:00Z'},'snoozed',{},effective,'',Date.parse('2026-10-05T00:00:00Z')));
+assert(matchesLocal({...filtered,fromEmail:'Customer@Example.invalid'},'all',{query:'customer@example.invalid'},effective,''));
+assert(matchesLocal({...filtered,snippet:'x'.repeat(200)},'all',{query:'x'.repeat(200)},effective,''));
+assert.equal(matchesLocal({...filtered,snippet:'x'.repeat(201)},'all',{query:'x'.repeat(201)},effective,''),false,'deep-linked query must respect the UI normalized search bound');
+const cleared={'gorgias:8':{status:null,observed:{id:'gorgias:8'},notes:{value:'Private note'}}};
+syncObservedOverride(cleared,{id:'gorgias:8'});
+assert.deepEqual(cleared['gorgias:8'],{notes:{value:'Private note'}},'last override removal discards only disposable observation/empty overrides');
+cleared['gorgias:9']={status:null,observed:{id:'gorgias:9'}};
+syncObservedOverride(cleared,{id:'gorgias:9'});assert.equal(cleared['gorgias:9'],undefined);
+cleared['gorgias:10']={status:null,title:{value:'Private title'},notes:{value:'Keep this'}};
+syncObservedOverride(cleared,{id:'gorgias:10',subject:'Observed subject'});
+assert.equal(cleared['gorgias:10'].title.value,'Private title');assert.equal(cleared['gorgias:10'].notes.value,'Keep this');assert(cleared['gorgias:10'].observed);
 const records={};
 rememberObserved(records,{...filtered,fromEmail:'owner@example.invalid',subject:'x'.repeat(500),snippet:'s'.repeat(10000),messages:[{id:'m1',body:'private body'.repeat(1000)}],shopifyRail:{order:{name:'#12345',secret:'never store'}},secret:'never store'},1);
 records[ticket.id].title={value:'User title'};
@@ -81,6 +92,8 @@ for(const incoming of [
 }
 rememberObserved(ordered,{...current,status:'open',lastMessageAt:'2026-10-06T06:00:00+06:00',updatedAt:'2026-10-06T07:00:00+06:00'},5);
 assert.equal(ordered['gorgias:4'].observed.status,'open','equivalent timezone-aware instants are accepted');
+rememberObserved(ordered,{...current,status:'closed',lastMessageAt:'2026-10-07T00:00:00Z',updatedAt:'2026-10-07T01:00:00Z'},6);
+assert.equal(ordered['gorgias:4'].observed.status,'closed','a fully nonregressing observation advances after mixed-clock observations were held');
 for(let i=0;i<MAX_OBSERVED_SUMMARIES;i++)rememberObserved(records,{id:`gorgias:${i+10}`,customerName:'Small summary'},i+10);
 assert.equal(observedRows(records).length,MAX_OBSERVED_SUMMARIES);assert.equal(records[ticket.id].observed,undefined);
 assert.equal(records[ticket.id].title.value,'User title','only disposable saved observations may be evicted');
