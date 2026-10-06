@@ -2238,3 +2238,14 @@ dialog textarea {
 .filter-row { flex-wrap:wrap; }
 .filter-row .bulk-toolbar { margin-left:auto; padding:0; border:0; font-size:12px; }
 .filter-row .bulk-toolbar.has-selection { flex-basis:100%; margin-left:0; padding-top:4px; }
+
+/* Ticket actions sits in the title row, opening as a dropdown under its button. */
+.title-row>.ticket-actions-menu { position:relative; margin:4px 0 0 auto; flex:0 0 auto; }
+.title-row>.ticket-actions-menu>summary { list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px; padding:7px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface); white-space:nowrap; }
+.title-row>.ticket-actions-menu>summary::-webkit-details-marker { display:none; }
+.title-row>.ticket-actions-menu[open] { z-index:20; }
+.title-row>.ticket-actions-menu>:not(summary) { position:absolute; right:0; width:min(380px,calc(100vw - 48px)); box-sizing:border-box; background:var(--surface); }
+.title-row>.ticket-actions-menu>p { top:calc(100% + 4px); margin:0; padding:10px 14px 4px; border:1px solid var(--line); border-bottom:0; border-radius:8px 8px 0 0; }
+.title-row>.ticket-actions-menu>.ticket-actions { top:calc(100% + 30px); padding:6px 14px 12px; border:1px solid var(--line); border-top:0; border-radius:0 0 8px 8px; box-shadow:0 10px 24px rgb(0 0 0 / .12); flex-wrap:wrap; }
+.title-row { gap:10px; }
+.ticket-header:has(.ticket-actions-menu[open]) { overflow:visible; position:relative; z-index:20; }
