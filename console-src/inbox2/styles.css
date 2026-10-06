@@ -2191,3 +2191,20 @@ dialog textarea {
 
 .reply-context { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow:hidden; }
 .reply-context > .info-banner,.reply-context > .small { flex:0 1 auto; min-height:0; max-height:64px; overflow:auto; margin-block:4px; }
+
+/* List chrome: views stay on one scrollable line; bulk actions appear only once a row is selected. */
+.filter-tabs { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:10px; }
+.filter-tabs::-webkit-scrollbar { display:none; }
+.filter-tabs button { flex:0 0 auto; white-space:nowrap; }
+.bulk-toolbar { flex-wrap:nowrap; padding:4px 14px; }
+.bulk-toolbar label { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.bulk-toolbar:not(.has-selection) :is(#selection-count,#bulk-action,[data-action="bulk-apply"]) { display:none; }
+.bulk-toolbar.has-selection { flex-wrap:wrap; padding-block:6px; }
+.bulk-toolbar.has-selection #selection-count { white-space:nowrap; color:var(--muted); }
+.bulk-toolbar.has-selection #bulk-action { flex:1 1 140px; max-width:none; min-width:0; }
+.bulk-toolbar .button { min-height:28px; padding:4px 10px; flex:0 0 auto; }
+/* Read state: unread rows are bold with a dot, read rows recede. The Read/Unread word stays for screen readers. */
+.row-state.is-quiet { margin:0; height:0; }
+.ticket-row.is-read .row-name { font-weight:500; }
+.ticket-row.is-read:not([aria-current]) .row-name,.ticket-row.is-read:not([aria-current]) .row-subject { color:var(--ink2); }
+.ticket-row.is-unread .row-subject { font-weight:600; }
