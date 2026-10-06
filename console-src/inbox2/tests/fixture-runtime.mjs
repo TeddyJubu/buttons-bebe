@@ -69,9 +69,9 @@ async function run(){
   assert((await page.locator('#customer-rail').textContent()).includes('Shopify returns'));
   assert.equal(await page.locator('.order-item').count(),1);
   await page.screenshot({path:path.join(evidence,'fixture-runtime-shopify-redo.png')});await wait(3000);
-  await page.locator('[data-view="closed"]').click();
+  await page.locator('.view-menu>summary').click();await page.locator('[data-view="closed"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('[data-ticket]').length===1&&document.querySelector('[data-ticket]')?.dataset.ticket==='gorgias:841000000000003');
-  await wait(1500);await page.locator('[data-view="all"]').click();
+  await wait(1500);await page.locator('.view-menu>summary').click();await page.locator('[data-view="all"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('[data-ticket]').length===4);await wait(1500);
   await page.locator('[data-action="list-collapse"]').click();assert(await page.locator('.list-reopen').isVisible());await anchored();await wait(1500);
   await page.locator('.list-reopen .icon-button').click();assert(await page.locator('.ticket-sidebar').isVisible());

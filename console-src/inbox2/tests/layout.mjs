@@ -49,7 +49,7 @@ await page.locator('#details-tab').click();
 assert.equal(await page.locator('#details-tab').getAttribute('aria-selected'),'true');
 await page.keyboard.press('ArrowLeft');
 assert.equal(await page.locator('#reply').inputValue(),'A local draft');
-await page.locator('[data-view="open"]').click();
+await page.locator('.view-menu>summary').click();await page.locator('[data-view="open"]').click();
 await page.waitForTimeout(100);
 assert.equal(await page.locator('[data-view="open"]').getAttribute('aria-pressed'),'true');
 await page.locator('#search').fill('return');

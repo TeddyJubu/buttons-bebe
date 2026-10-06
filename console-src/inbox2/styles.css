@@ -2220,3 +2220,17 @@ dialog textarea {
 .list-footer .pagination .icon-button { width:32px; height:32px; }
 .list-footer .sync-status:not(.sync-delayed) { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 .list-footer .sync-status.sync-delayed { margin:4px 0 0; font-size:11px; }
+
+/* Views and More filters share one row; each opens as a dropdown over the list. */
+.filter-row { display:flex; align-items:center; gap:8px; padding:4px 16px 6px; position:relative; z-index:5; }
+.filter-row>details { position:relative; }
+.filter-row summary { cursor:pointer; list-style:none; display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface); font-size:12px; white-space:nowrap; }
+.filter-row summary::-webkit-details-marker { display:none; }
+.filter-row summary::after { content:'▾'; font-size:10px; color:var(--muted); }
+.view-menu>summary { color:var(--ink); font-weight:600; }
+.filter-row .list-filters { padding:0; position:static; }
+.filter-row .list-filters summary { color:var(--acc); }
+.view-menu .filter-tabs,.filter-panel { position:absolute; top:calc(100% + 4px); left:0; background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgb(0 0 0 / .12); }
+.view-menu .filter-tabs { min-width:180px; flex-direction:column; flex-wrap:nowrap; gap:2px; padding:6px; overflow:visible; }
+.view-menu .filter-tabs button { justify-content:flex-start; text-align:left; width:100%; padding:7px 10px; }
+.filter-panel { left:16px; width:270px; padding:8px 12px; }

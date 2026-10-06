@@ -235,6 +235,7 @@ function listRender() {
   $('[data-action="page-prev"]').disabled=state.page===0;
   $('[data-action="page-next"]').disabled=!state.hasNext;
   for(const button of document.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===state.view));
+  $('#view-label').textContent=$(`[data-view="${state.view}"]`)?.textContent||'All';
   $('#sort-button').innerHTML=`${state.oldest?'Oldest':'Newest'} first ${icon('sort')}`;
   $('#window-label').textContent=`Gorgias · ${canSend()?'Read & write':'Read only'}`;
   $('#refresh span').textContent=state.error||state.projection?.stale?'Sync delayed · Retry':state.projection&&!state.projection.complete?'Syncing ticket history…':state.projection?.generatedAt?`Synced ${date(state.projection.generatedAt)}`:'Connecting to Gorgias…';
@@ -665,7 +666,7 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('click',async event=>{
   const ticketButton=event.target.closest('[data-ticket]');if(ticketButton){await selectTicket(ticketButton.dataset.ticket,true,true);return;}
-  const view=event.target.closest('[data-view]');if(view){state.view=view.dataset.view;state.page=0;clearSelection();syncUrl();loadList();return;}
+  const view=event.target.closest('[data-view]');if(view){view.closest('details')?.removeAttribute('open');state.view=view.dataset.view;state.page=0;clearSelection();syncUrl();loadList();return;}
   const tab=event.target.closest('[data-tab]');if(tab){state.tab=tab.dataset.tab;renderTicket();$(`[data-tab="${state.tab}"]`)?.focus({preventScroll:true});return;}
   const action=event.target.closest('[data-action]')?.dataset.action;if(!action)return;
   if(action==='refresh'){loadList(true);refreshTicket();return;}

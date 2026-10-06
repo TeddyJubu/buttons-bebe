@@ -167,14 +167,14 @@ async function checkLocalSnoozedAccess(){
       }
     }
     if(reset){
-      await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
+      await p.locator('.view-menu>summary').click();await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
       await p.locator('[data-ticket="gorgias:501"]').click();await p.locator('.ticket-actions-menu summary').click();await p.locator('[data-action="reset-local"]').click();
       assert.equal(await snoozed.isDisabled(),true,`${name}: resetting the last local override removes local Snoozed access`);
     }else if(filtersAndPages){
       const ids=()=>p.locator('.ticket-row').evaluateAll(nodes=>nodes.map(node=>node.dataset.ticket));
       await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:510');
       assert.deepEqual(await ids(),['gorgias:510','gorgias:511','gorgias:512']);
-      await p.locator('[data-select-ticket="gorgias:510"]').check();await snoozed.click();
+      await p.locator('[data-select-ticket="gorgias:510"]').check();await p.locator('.view-menu>summary').click();await snoozed.click();
       await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed'&&document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:501');
       assert.deepEqual(await ids(),['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509'],'view click resets page to the first local page');
       assert.equal(await p.locator('#selection-count').textContent(),'0 selected on this page','view click clears selection');
@@ -192,7 +192,7 @@ async function checkLocalSnoozedAccess(){
         assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 9 browser rows shown of 12 matching'));
         assert(await p.locator('#sync-status').evaluate(el=>el.classList.contains('sync-delayed')),'provider failure must retain delayed-refresh status');}
     }else if(hasLocalSnooze&&!providerAvailable){
-      await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
+      await p.locator('.view-menu>summary').click();await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
       const expected=kind==='local'?'local:snoozed-probe':'gorgias:501';
       await p.waitForFunction(id=>document.querySelector(`[data-ticket="${id}"]`)!==null,expected);
       assert.deepEqual(await p.locator('.ticket-row').evaluateAll(nodes=>nodes.map(node=>node.dataset.ticket)),[expected],`${name}: Snoozed shows the literal browser row`);
@@ -255,7 +255,7 @@ async function checkOpenedMessageEvidence(){
   const listOnly=async()=>{
     const before=await p.evaluate(()=>window.__inboxReadResponses.length);
     const requestPromise=p.waitForRequest(request=>request.url().endsWith('/inbox/api/helpdesk')&&request.postDataJSON()?.tool==='helpdesk.list_tickets');
-    await p.locator('[data-view="all"]').click();const request=await requestPromise;
+    await p.locator('.view-menu>summary').click();await p.locator('[data-view="all"]').click();const request=await requestPromise;
     const response=await request.response();assert(response,'the exact list request receives a response');assert.equal(await response.finished(),null,'list response must finish without a transport error');
     await waitForConsumedResponse(p,before,'helpdesk.list_tickets',request.postDataJSON().arguments);
   };
@@ -574,26 +574,26 @@ await page.locator('#bulk-action').selectOption('read');await page.locator('[dat
 assert((await page.locator('.row-state').textContent()).includes('Read'));
 assert.equal(await page.locator('[data-action="toggle-read"]').textContent(),'Mark unread','bulk Read must agree with the opened detail immediately');
 await page.locator('[data-field="status"]').selectOption('closed');
-await page.locator('[data-view="closed"]').click();
+await page.locator('.view-menu>summary').click();await page.locator('[data-view="closed"]').click();
 await page.waitForFunction(()=>document.querySelector('[data-ticket="gorgias:123"]')!==null&&document.querySelector('#count')?.textContent.includes('0 total'));
 assert((await page.locator('.row-state').textContent()).includes('Browser changes · Last saved read'));
 assert((await page.locator('#count').textContent()).includes('1 browser rows shown of 1 matching'));
 await page.reload();await page.locator('.ticket-title').waitFor();
 assert.equal(await page.locator('.ticket-row').count(),1,'closed browser organization survives reload although provider remains open');
 await page.locator('.ticket-actions-menu summary').click();await page.locator('[data-field="status"]').selectOption('open');
-await page.locator('[data-view="open"]').click();await page.waitForFunction(()=>document.querySelector('#count')?.textContent.includes('1 total'));
+await page.locator('.view-menu>summary').click();await page.locator('[data-view="open"]').click();await page.waitForFunction(()=>document.querySelector('#count')?.textContent.includes('1 total'));
 observedStatus='closed';observedUpdated='2026-10-05T10:02:00Z';
 await page.locator('[data-action="refresh"]').click();
 await page.waitForFunction(()=>JSON.parse(localStorage.getItem('bb-inbox-ticket-state-v1')).records['gorgias:123'].observed.status==='closed');
 assert((await page.locator('.local-observed').textContent()).includes('Status: open (observed: closed)'));
 assert.equal(await page.locator('.ticket-row').count(),1,'fresh observation updates without losing browser grouping');
 observedStatus='open';observedUpdated='2026-10-05T10:03:00Z';await page.locator('[data-action="refresh"]').click();
-await page.locator('[data-view="all"]').click();
+await page.locator('.view-menu>summary').click();await page.locator('[data-view="all"]').click();
 await page.locator('#select-page').check();
 assert.equal(await page.locator('#selection-count').textContent(),'1 selected on this page');
 await page.locator('#bulk-action').selectOption('priority:normal');await page.locator('[data-action="bulk-apply"]').click();
 assert.equal(await page.locator('#selection-count').textContent(),'0 selected on this page');
-await page.locator('#select-page').check();await page.locator('[data-view="all"]').click();
+await page.locator('#select-page').check();await page.locator('.view-menu>summary').click();await page.locator('[data-view="all"]').click();
 assert.equal(await page.locator('#selection-count').textContent(),'0 selected on this page');
 listPages=true;await page.locator('[data-action="refresh"]').click();await page.waitForFunction(()=>!document.querySelector('[data-action="page-next"]').disabled);await page.locator('#select-page').check();await page.locator('[data-action="page-next"]').click();assert.equal(await page.locator('#selection-count').textContent(),'0 selected on this page');await page.locator('[data-action="page-prev"]').click();listPages=false;
 await page.locator('[data-action="list-collapse"]').click();assert(await page.locator('.list-reopen').isVisible());
