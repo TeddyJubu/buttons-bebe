@@ -2234,3 +2234,7 @@ dialog textarea {
 .view-menu .filter-tabs { min-width:180px; flex-direction:column; flex-wrap:nowrap; gap:2px; padding:6px; overflow:visible; }
 .view-menu .filter-tabs button { justify-content:flex-start; text-align:left; width:100%; padding:7px 10px; }
 .filter-panel { left:16px; width:270px; padding:8px 12px; }
+/* Select page shares the filter row; selecting tickets drops the bulk actions onto their own line. */
+.filter-row { flex-wrap:wrap; }
+.filter-row .bulk-toolbar { margin-left:auto; padding:0; border:0; font-size:12px; }
+.filter-row .bulk-toolbar.has-selection { flex-basis:100%; margin-left:0; padding-top:4px; }
