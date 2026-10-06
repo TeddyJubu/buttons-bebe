@@ -76,6 +76,7 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(target.readiness(8767),'unavailable')
         self.assertIn('helpdesk-inbox2',target.SERVICES)
         self.assertIn('buttonsbebe-inbox2-shop',target.SERVICES)
+        self.assertIn('buttonsbebe-inbox2-redo',target.SERVICES)
         self.assertNotIn('helpdesk-inbox',target.SERVICES)
 
     def test_inbox_readiness_parses_only_bounded_structured_503(self):
@@ -97,6 +98,7 @@ class MonitorTests(unittest.TestCase):
         with patch.object(target,'active',return_value='ok'),patch.object(target,'last_result',return_value='ok'),patch.object(target,'tcp',return_value='ok'),patch.object(target,'readiness',return_value='ok'),patch.object(target,'backup',return_value='ok'),patch.object(target,'disk',return_value='ok'),patch.object(target,'progress',return_value='stale'):
             result=target.collect(self.now)
         self.assertEqual(result['status'],'attention');self.assertEqual(result['checks']['processor_progress'],'stale')
+        self.assertIn('buttonsbebe-inbox2-redo',result['checks'])
         self.assertEqual(result['notification_transport'],'local_only')
 
     def test_failure_details_are_not_written_to_status(self):

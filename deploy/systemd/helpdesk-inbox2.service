@@ -4,6 +4,7 @@ After=network.target buttonsbebe-gorgias-mcp.service
 Wants=buttonsbebe-gorgias-mcp.service
 
 [Service]
+Environment=PYTHONPATH=/opt/buttonsbebe/shared
 Type=simple
 User=bb-inbox
 Group=bb-inbox

@@ -351,6 +351,171 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.list_calls, [])
         self.assertEqual(client.detail_calls, [])
 
+    async def test_current_text_is_queued_and_raw_evidence_stays_intact(self):
+        full = ("Please help with my order.\nSent from my iPhone\n"
+                "-------- Original message --------\nFrom: Buttons Bebe <hello@bb.com>")
+        stripped = "Please help with my order.\nSent from my iPhone"
+        raw_message = message(body=stripped)
+        raw_message["body_text"] = full
+        raw_message["stripped_text"] = stripped
+        raw_message["preferred_content"] = stripped
+        raw_message["preferred_content_field"] = "stripped_text"
+        client = FakeMCP([ticket()], {284477559: [raw_message]})
+        cursor, count = await self.scan(client)
+        self.assertEqual((cursor, count), ("older", 1))
+        self.assertEqual(self.rows("SELECT message_id,message_text FROM parsed_messages"),
+                         [("730082445", "Please help with my order.")])
+        source = json.loads(self.rows("SELECT raw_payload FROM webhook_events")[0][0])
+        stored = source["message"]
+        self.assertEqual(stored["id"], 730082445)
+        self.assertEqual(stored["preferred_content"], stripped)
+        self.assertEqual(stored["preferred_content_field"], "stripped_text")
+        self.assertEqual(stored["stripped_text"], stripped)
+        self.assertEqual(stored["body_text"], full)
+        self.assertEqual(stored["current_text"], "Please help with my order.")
+        self.assertIn("Original message", stored["display_text"])
+        self.assertEqual(stored["original_content"], full)
+        self.assertEqual(stored["original_field"], "body_text")
+        self.assertTrue(stored["history_available"])
+        self.assertFalse(stored["source_truncated"])
+        self.assertEqual(stored["cleanup_version"], "intake-1")
+        self.assertEqual(stored["display_source"], "body_text")
+        self.assertEqual(stored["current_source"], "stripped_text")
+
+    async def test_customer_ask_after_footer_words_or_html_quote_reaches_the_queue(self):
+        from tools.gorgias_content import curate_message
+        cases = (
+            ('body_text', 'Sent from my warehouse on Monday; why is the order still missing?',
+             'Sent from my warehouse on Monday; why is the order still missing?'),
+            ('body_html', '<blockquote>Old reply</blockquote>My package is missing.',
+             'My package is missing.'),
+        )
+        for offset, (field, source, expected) in enumerate(cases):
+            with self.subTest(field=field):
+                message_id = 730082446 + offset
+                provider_message = message(message_id)
+                for key in ('stripped_text', 'preferred_content', 'preferred_content_field'):
+                    provider_message.pop(key)
+                provider_message[field] = source
+                current_ticket = ticket()
+                current_ticket['updated_datetime'] = f'2026-09-25T14:39:0{4 + offset}+00:00'
+                provider_message['created_datetime'] = current_ticket['updated_datetime']
+                current_ticket['last_received_message_datetime'] = current_ticket['updated_datetime']
+                client = FakeMCP([current_ticket], {284477559: [curate_message(provider_message)]})
+                self.position = SweepPosition()
+                self.assertEqual((await self.scan(client))[1], 1)
+                self.assertEqual(self.rows('SELECT message_text FROM parsed_messages WHERE message_id=?',
+                                          (str(message_id),)), [(expected,)])
+                raw = json.loads(self.rows('SELECT raw_payload FROM webhook_events WHERE message_id=?',
+                                           (str(message_id),))[0][0])['message']
+                self.assertEqual(raw['current_text'], expected)
+                self.assertEqual(raw['original_content'], source)
+                self.assertEqual(raw[field], source)
+                self.assertEqual(raw['preferred_content'], source)
+
+    async def test_curated_contract_is_stored_without_inventing_a_body(self):
+        raw_message = message(body="Please help with my order.")
+        raw_message["preferred_content"] = "NOT A RAW BODY"
+        raw_message["preferred_content_field"] = "body_text"
+        raw_message.update({
+            "display_text": "SERVICE DISPLAY\nEarlier quoted history",
+            "current_text": "SERVICE CURRENT",
+            "display_source": "body_text",
+            "current_source": "stripped_text",
+            "original_content": "RAW CHOSEN BODY",
+            "original_field": "body_text",
+            "history_available": True,
+            "source_truncated": False,
+            "cleanup_version": "intake-1",
+        })
+        client = FakeMCP([ticket()], {284477559: [raw_message]})
+        self.assertEqual((await self.scan(client))[1], 1)
+        stored = json.loads(self.rows("SELECT raw_payload FROM webhook_events")[0][0])["message"]
+        self.assertEqual(self.rows("SELECT message_text FROM parsed_messages"), [("SERVICE CURRENT",)])
+        self.assertEqual(stored["display_text"], "SERVICE DISPLAY\nEarlier quoted history")
+        self.assertEqual(stored["current_text"], "SERVICE CURRENT")
+        self.assertEqual(stored["original_content"], "RAW CHOSEN BODY")
+        self.assertTrue(stored["history_available"])
+        self.assertNotIn("body_text", stored)
+        self.assertEqual(stored["preferred_content"], "NOT A RAW BODY")
+        self.assertEqual(raw_message["preferred_content"], "NOT A RAW BODY")
+
+    async def test_invalid_contract_uses_retained_sources_only(self):
+        raw_message = message(body="Please help with my order.")
+        raw_message["preferred_content"] = "NOT A RAW BODY"
+        raw_message["preferred_content_field"] = "body_text"
+        raw_message["history_available"] = True
+        raw_message["cleanup_version"] = "intake-1"
+        raw_message["display_text"] = "FAKE HISTORY"
+        client = FakeMCP([ticket()], {284477559: [raw_message]})
+        self.assertEqual((await self.scan(client))[1], 1)
+        stored = json.loads(self.rows("SELECT raw_payload FROM webhook_events")[0][0])["message"]
+        self.assertEqual(stored["current_text"], "Please help with my order.")
+        self.assertEqual(stored["display_text"], "Please help with my order.")
+        self.assertFalse(stored["history_available"])
+        self.assertNotIn("body_text", stored)
+        self.assertNotIn("FAKE", stored["display_text"])
+        self.assertNotIn("NOT A RAW BODY", stored["original_content"])
+
+    async def test_large_metadata_cannot_displace_current_message(self):
+        item = ticket()
+        item['customer'] = {'name': '你' * 40_000, 'email': 'x' * 40_000,
+                            'id': 'y' * 40_000}
+        raw_message = message(body='Please help with my order.')
+        client = FakeMCP([item], {284477559: [raw_message]})
+        self.assertEqual((await self.scan(client))[1], 1)
+        raw = self.rows('SELECT raw_payload FROM webhook_events')[0][0]
+        self.assertLessEqual(len(raw.encode('utf-8')), 65_536)
+        value = json.loads(raw)
+        self.assertEqual(value['message']['current_text'], 'Please help with my order.')
+        self.assertEqual(value['ticket']['id'], 284477559)
+        self.assertTrue(value['message']['source_truncated'])
+        self.assertEqual(len(value['ticket']['customer']['name']), 200)
+        self.assertEqual(item['customer']['name'], '你' * 40_000)
+
+    async def test_unicode_sources_stay_inside_the_raw_byte_cap(self):
+        marker = "Please help with my order.\nEarlier note about the hat.\n"
+        filler = "你" * ((100_000 // len("你".encode("utf-8"))) + 8)
+        self.assertGreaterEqual(len(filler.encode("utf-8")), 100_000)
+        body = marker + filler
+        originals = {
+            "body_text": body,
+            "body_html": "<p>" + body + "</p>",
+            "stripped_html": "<div>" + filler + "</div>",
+            "preferred_content": filler + "preferred",
+        }
+        raw_message = message(body="Please help with my order.\nSent from my iPhone")
+        raw_message.update(originals)
+        raw_message["preferred_content_field"] = "stripped_text"
+        client = FakeMCP([ticket()], {284477559: [raw_message]})
+        self.assertEqual((await self.scan(client))[1], 1)
+        self.assertEqual(raw_message["preferred_content"], originals["preferred_content"])
+        self.assertEqual(raw_message["body_text"], originals["body_text"])
+        raw_payload = self.rows("SELECT raw_payload FROM webhook_events")[0][0]
+        self.assertLessEqual(len(raw_payload.encode("utf-8")), 65_536)
+        self.assertTrue(raw_payload.isascii())
+        source = json.loads(raw_payload)
+        stored = source["message"]
+        self.assertEqual(stored["id"], 730082445)
+        self.assertEqual(stored["created_datetime"], WHEN)
+        self.assertEqual(source["ticket"]["id"], 284477559)
+        self.assertEqual(self.rows("SELECT message_id, created_at FROM parsed_messages"),
+                         [("730082445", WHEN)])
+        self.assertIn("Please help with my order.", stored["current_text"])
+        self.assertIn("Earlier note about the hat.", stored["display_text"])
+        self.assertTrue(stored["history_available"])
+        self.assertTrue(stored["source_truncated"])
+        self.assertTrue(stored["original_content"].startswith("Please help with my order.\nEarlier note"))
+        for key, value in originals.items():
+            self.assertTrue(stored[key])
+            self.assertTrue(value.startswith(stored[key]))
+            self.assertLess(len(stored[key]), len(value))
+        from intake.message_content import intake_from_message
+        read = intake_from_message(stored)
+        self.assertIn("Please help with my order.", read["current_text"])
+        self.assertIn("Earlier note about the hat.", read["display_text"])
+        self.assertTrue(read["history_available"])
+
 
 if __name__ == "__main__":
     unittest.main()

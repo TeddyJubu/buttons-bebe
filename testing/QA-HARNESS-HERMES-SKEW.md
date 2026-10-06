@@ -1,17 +1,23 @@
-# QA harness vs production Hermes: version skew, 2026-09-24
+# Historical QA harness vs Hermes notes — snapshot from 2026-09-24
 
-Status: FIXED IN REPO 2026-09-24, 48/48 graded. The one-line brain fix is live in
-`/usr/local/lib/hermes-agent/tools/mcp_tool_registration.py`, backup at
-`/root/mcp_tool_registration.py.bak-20260924`. The repo harness now imports
-from the split Hermes homes first with old-path fallback (`qa_metadata.py`
-PROBE + `qa_harness.py` bindings), drops `required == []` during
-canonicalization, reads hint tables via `_server_key`, and exports
-`OLLAMA_API_KEY` into the isolated env. Full 48/48 with reviewed product
-manifest (5,935 files, sha `499a2e78…`); grade 47 PASS + R18 NEEDS_WORK,
-fixed by a prompt rule against implied future outcomes. Nothing sent,
-merged, or written to production.
+> This is an incident-history document, not a current runtime report or runbook.
+> Its server paths, model names, installed-code claims, test counts, key status,
+> and cleanup notes describe reports from 2026-09-24 only. They have not been
+> re-verified for the current environment and do not identify the current server,
+> Hermes source, interpreter, or model. Use [HOW-TO-RUN.md](HOW-TO-RUN.md) for
+> the current supported procedure. The runner uses `--hermes-python` and
+> `--hermes-source` and derives the launcher from the pinned source; it does not
+> accept the old `--hermes` option.
 
-## Box facts (verified, secret-free)
+## Status reported at the time
+
+The 2026-09-24 report said the repo fix was present and described a 48/48
+historical review, with 47 PASS and R18 NEEDS_WORK before a prompt adjustment.
+Those results are archived evidence only, not a current gate result. The exact
+installed file paths and backup listed in that report are not current
+identification or authorization to inspect a server.
+
+## Historical box facts (reported on 2026-09-24 only)
 
 - Ollama key is valid (API returns 200) and `glm-5.2` is listed.
 - Offline boundary tests: 15/15 pass.
@@ -70,25 +76,24 @@ legacy-table comparison. Do not just delete it; something slipped once.
 Staging with macOS `tar` carried AppleDouble `._*` files into the KB
 allowlist. Use `COPYFILE_DISABLE=1` or `--no-xattr` when copying. Cleaned.
 
-## Reproduce (on the box, isolated, no production writes)
+## Current reproduction procedure
 
-```sh
-mkdir -p /private/bb-qa
-COPYFILE_DISABLE=1 tar cf - testing processor webhook/src/bb_webhook kb/policies kb/faq kb/intents \
-  | ssh chaim "tar xf - -C /private/bb-qa"
-ssh chaim "/root/.local/bin/uv venv /tmp/buttonsbebe-qa-venv --python 3.12 && /root/.local/bin/uv pip sync --python /tmp/buttonsbebe-qa-venv/bin/python --require-hashes /private/bb-qa/testing/requirements-qa.lock"
-ssh chaim "cd /private/bb-qa && DEMO_MODE=1 /tmp/buttonsbebe-qa-venv/bin/python testing/run_live_tests.py --hermes /usr/local/lib/hermes-agent/venv/bin/hermes --hermes-python /usr/local/lib/hermes-agent/venv/bin/python --hermes-source /usr/local/lib/hermes-agent --model-config /private/operator-provided-model.json --output /private/qa-smoke --limit 1 --kb-mode policies-only"
-```
+Do not reuse commands, hostnames, or file paths from this historical report.
+For a newly authorized run, prepare a fresh isolated environment and follow
+HOW-TO-RUN. The supported command supplies the exact verified interpreter with
+`--hermes-python`, the pinned Hermes source directory with `--hermes-source`,
+and an owner-provided private model-only file. The harness derives the launcher
+from that source. No current host, model version, key status, or installed Hermes
+path is asserted here. Do not inspect or reuse the old model files or QA output
+directories listed in the historical notes.
 
-Expect `QA stopped safely (ValueError)`. Debug tracers used: phase tracer,
-per-tool schema diff, readonly-table dump (all kept under
-`/private/bb-qa/testing/debug_*.py`, box only).
+## Historical cleanup note
 
-## Cleanup still on the box
-
-`/private/bb-qa`, `/private/qa-smoke*`, `/private/qa-debug*`, and
-`/tmp/buttonsbebe-qa-venv`. Output dirs contain a model credential copy;
-shred them after review, then rerun the gate from a clean slate.
+The preceding session listed private staging and output paths as cleanup
+candidates. Their existence and ownership have not been checked since that
+session. Do not remove them based on this note; any future cleanup needs a fresh
+inventory and must preserve paths the current owner confirms are runtime
+dependencies.
 ## Gap 4 (upstream Hermes bug, 48 blocked): readonly hints always False
 
 `tools/mcp_tool_registration.py`: `_annotation_read_only_hint` reads the

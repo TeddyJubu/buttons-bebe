@@ -1,4 +1,5 @@
 import io
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -150,6 +151,110 @@ class DeploymentGuardrailTests(unittest.TestCase):
         self.assertNotIn("issues: write", workflow)
         self.assertNotIn("pull-requests: write", workflow)
         self.assertIn("core.summary.addRaw(body).write()", workflow)
+
+
+class AppliedConsumerUnitTests(unittest.TestCase):
+    """Run the actual embedded guard on private files without Linux services."""
+    UNITS = ('buttonsbebe-webhook.service', 'buttonsbebe-processor.service',
+             'buttonsbebe-gorgias-mcp.service')
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.release = self.root / 'release'
+        self.approval = self.root / 'approved'
+        self.installed = {}
+        source = RECEIVER.read_text()
+        self.guard = source.split("<<'PYCONFIG'\n", 1)[1].split('\nPYCONFIG', 1)[0]
+        paths = ('/etc/caddy/sites/support.caddy',
+                 '/etc/systemd/system/helpdesk-inbox2.service',
+                 '/etc/systemd/system/buttonsbebe-inbox-projection.service',
+                 '/etc/systemd/system/buttonsbebe-inbox-projection.timer')
+        for path in paths + tuple('/etc/systemd/system/' + name for name in self.UNITS):
+            target = self.root / 'installed' / Path(path).name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.guard = self.guard.replace(path, str(target))
+            if Path(path).name in self.UNITS:
+                body = (ROOT / 'deploy/systemd' / Path(path).name).read_bytes()
+                candidate = self.release / 'deploy/systemd' / Path(path).name
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_bytes(body)
+                self.installed[Path(path).name] = target
+            else:
+                body = b'reviewed unrelated configuration'
+            target.write_bytes(body)
+        self.approve()
+
+    def approve(self, omit=()):
+        self.approval.write_text(''.join(str(path) + ' ' + hashlib.sha256(path.read_bytes()).hexdigest() + '\n'
+            for path in sorted((self.root / 'installed').iterdir()) if path.name not in omit))
+
+    def run_guard(self):
+        return subprocess.run([sys.executable, '-', str(self.approval), str(self.release)],
+            input=self.guard, text=True, capture_output=True, timeout=10)
+
+    def assert_missing_refused(self, *names):
+        self.approve(omit=names)
+        result = self.run_guard()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Shared intake consumer unit applied fingerprints are required', result.stderr)
+
+    def test_missing_all_consumer_fingerprints(self):
+        self.assert_missing_refused(*self.UNITS)
+
+    def test_missing_webhook_fingerprint(self):
+        self.assert_missing_refused('buttonsbebe-webhook.service')
+
+    def test_missing_processor_fingerprint(self):
+        self.assert_missing_refused('buttonsbebe-processor.service')
+
+    def test_missing_gorgias_fingerprint(self):
+        self.assert_missing_refused('buttonsbebe-gorgias-mcp.service')
+
+    def test_approval_of_prior_units_cannot_authorize_incompatible_release(self):
+        for path in self.installed.values():
+            old = path.read_bytes().replace(b'/opt/buttonsbebe/shared:', b'')
+            old = old.replace(b'Environment=PYTHONPATH=/opt/buttonsbebe/shared\n', b'')
+            path.write_bytes(old)
+        self.approve()
+        result = self.run_guard()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Shared intake consumer unit differs from reviewed release', result.stderr)
+
+    def test_post_approval_drift_is_refused(self):
+        self.installed[self.UNITS[0]].write_bytes(b'unapproved change')
+        result = self.run_guard()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Applied configuration drift', result.stderr)
+
+    def test_each_approved_noncanonical_fragment_is_refused(self):
+        for name in self.UNITS:
+            with self.subTest(unit=name):
+                path = self.installed[name]
+                canonical = path.read_bytes()
+                path.write_bytes(canonical + b'# approved host variant\n')
+                self.approve()
+                result = self.run_guard()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Shared intake consumer unit differs from reviewed release', result.stderr)
+                self.assertIn(name, result.stderr)
+                path.write_bytes(canonical)
+
+    def test_missing_canonical_release_fragment_is_refused(self):
+        (self.release / 'deploy/systemd' / self.UNITS[0]).unlink()
+        result = self.run_guard()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Reviewed shared intake consumer unit is absent', result.stderr)
+
+    def test_canonical_approved_units_and_separately_approved_dropin_pass(self):
+        dropin = self.root / 'installed/reviewed-dropin.conf'
+        dropin.write_bytes(b'reviewed drop-in preserved')
+        self.approve()
+        before = {path: path.read_bytes() for path in (self.root / 'installed').iterdir()}
+        result = self.run_guard()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
 
 
 if __name__ == "__main__":

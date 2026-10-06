@@ -1,0 +1,268 @@
+{
+  "version": 1,
+  "cases": {
+    "long-email": "841000000000001",
+    "assigned": "841000000000001",
+    "unassigned": "841000000000002",
+    "closed": "841000000000003",
+    "spam": "841000000000004",
+    "trash": "841000000000005",
+    "snoozed": "841000000000006"
+  },
+  "operatorEmail": "fixture.agent@example.invalid",
+  "tickets": [
+    {
+      "id": 841000000000001,
+      "subject": "Order #10312345 · Bangladesh delivery and size question",
+      "status": "open",
+      "priority": "normal",
+      "channel": "email",
+      "customer": {"id": 941000000000001, "name": "Nadia Rahman", "email": "nadia.rahman@example.invalid"},
+      "assignee_user": {"id": 951000000000001, "name": "Amina Support", "email": "fixture.agent@example.invalid"},
+      "assignee_team": {"id": 961000000000001, "name": "Buttons Bebe Support"},
+      "created_datetime": "2026-10-01T08:20:00Z",
+      "updated_datetime": "2026-10-05T09:45:00Z",
+      "last_message_datetime": "2026-10-05T09:45:00Z",
+      "last_received_message_datetime": "2026-10-05T09:45:00Z",
+      "excerpt": "<html><head><title>Seasonal offer</title><style>@font-face{font-family:Fixture;src:url('https://fonts.example.invalid/list.woff2')}</style></head><body><div class=\"preheader\" style=\"display:none\">A seasonal offer from the sample mailer</div><p>নমস্কার Amina, order #10312345-এর জন্য Bangladesh-এ delivery নিশ্চিত করবেন?</p><p><a href=\"https://shop.example.invalid/pages/shipping?country=BD&source=fixture\">Shipping details</a></p></body></html>",
+      "tags": [{"name": "shipping"}, {"name": "size-question"}],
+      "spam": false,
+      "trashed_datetime": null,
+      "snooze_datetime": null
+    },
+    {
+      "id": 841000000000002,
+      "subject": "Can someone help with a gift note?",
+      "status": "open",
+      "priority": "low",
+      "channel": "email",
+      "customer": {"id": 941000000000002, "name": "Jordan Lee", "email": "jordan.lee@example.invalid"},
+      "assignee_user": null,
+      "assignee_team": null,
+      "created_datetime": "2026-10-04T15:10:00Z",
+      "updated_datetime": "2026-10-04T15:35:00Z",
+      "last_message_datetime": "2026-10-04T15:35:00Z",
+      "last_received_message_datetime": "2026-10-04T15:10:00Z",
+      "excerpt": "Could you add a short gift note to my order?",
+      "tags": [{"name": "gift"}],
+      "spam": false,
+      "trashed_datetime": null,
+      "snooze_datetime": null
+    },
+    {
+      "id": 841000000000003,
+      "subject": "Thanks for helping with the replacement",
+      "status": "closed",
+      "priority": "normal",
+      "channel": "email",
+      "customer": {"id": 941000000000003, "name": "Riley Morgan", "email": "riley.morgan@example.invalid"},
+      "assignee_user": {"id": 951000000000001, "name": "Amina Support", "email": "fixture.agent@example.invalid"},
+      "assignee_team": {"id": 961000000000001, "name": "Buttons Bebe Support"},
+      "created_datetime": "2026-10-03T11:00:00Z",
+      "updated_datetime": "2026-10-04T09:30:00Z",
+      "last_message_datetime": "2026-10-04T09:30:00Z",
+      "last_received_message_datetime": "2026-10-04T09:30:00Z",
+      "excerpt": "The replacement arrived safely. Thank you!",
+      "tags": [{"name": "replacement"}],
+      "spam": false,
+      "trashed_datetime": null,
+      "snooze_datetime": null
+    },
+    {
+      "id": 841000000000004,
+      "subject": "Limited-time casino offer",
+      "status": "open",
+      "priority": "low",
+      "channel": "email",
+      "customer": {"id": 941000000000004, "name": "Sample Sender", "email": "sender@example.invalid"},
+      "assignee_user": null,
+      "assignee_team": null,
+      "created_datetime": "2026-10-02T06:00:00Z",
+      "updated_datetime": "2026-10-02T06:00:00Z",
+      "last_message_datetime": "2026-10-02T06:00:00Z",
+      "last_received_message_datetime": "2026-10-02T06:00:00Z",
+      "excerpt": "Unsolicited promotional message used only as a local spam fixture.",
+      "tags": [],
+      "spam": true,
+      "trashed_datetime": null,
+      "snooze_datetime": null
+    },
+    {
+      "id": 841000000000005,
+      "subject": "Archived duplicate order question",
+      "status": "open",
+      "priority": "normal",
+      "channel": "email",
+      "customer": {"id": 941000000000005, "name": "Casey Sample", "email": "casey.sample@example.invalid"},
+      "assignee_user": null,
+      "assignee_team": null,
+      "created_datetime": "2026-10-01T12:00:00Z",
+      "updated_datetime": "2026-10-01T12:20:00Z",
+      "last_message_datetime": "2026-10-01T12:20:00Z",
+      "last_received_message_datetime": "2026-10-01T12:00:00Z",
+      "excerpt": "Duplicate question retained as a synthetic Trash fixture.",
+      "tags": [],
+      "spam": false,
+      "trashed_datetime": "2026-10-01T12:30:00Z",
+      "snooze_datetime": null
+    },
+    {
+      "id": 841000000000006,
+      "subject": "Please check back after the weekend",
+      "status": "open",
+      "priority": "high",
+      "channel": "email",
+      "customer": {"id": 941000000000006, "name": "Taylor Example", "email": "taylor.example@example.invalid"},
+      "assignee_user": {"id": 951000000000001, "name": "Amina Support", "email": "fixture.agent@example.invalid"},
+      "assignee_team": {"id": 961000000000001, "name": "Buttons Bebe Support"},
+      "created_datetime": "2026-10-04T16:15:00Z",
+      "updated_datetime": "2026-10-05T07:00:00Z",
+      "last_message_datetime": "2026-10-05T07:00:00Z",
+      "last_received_message_datetime": "2026-10-04T16:15:00Z",
+      "excerpt": "The customer asked the team to follow up after the weekend.",
+      "tags": [{"name": "follow-up"}],
+      "spam": false,
+      "trashed_datetime": null,
+      "snooze_datetime": "2030-01-01T09:00:00Z"
+    }
+  ],
+  "messages": {
+    "841000000000001": [
+      {
+        "id": 920000000000001,
+        "from_agent": false,
+        "sender": {"name": "Nadia Rahman", "email": "nadia.rahman@example.invalid"},
+        "channel": "email",
+        "public": true,
+        "created_datetime": "2026-10-01T08:20:00Z",
+        "body_html": "<html><head><meta name=\"generator\" content=\"Example Mailer\"><title>New season collection</title><style>@font-face { font-family: ClutterSans; src: url('https://fonts.example.invalid/clutter.woff2'); }</style></head><body><div style=\"display:none\">New season arrivals are here. View our latest products.</div><p>Hello Buttons Bebe,</p><p>I ordered the green embroidered romper for my niece. The item page is <a href=\"https://shop.example.invalid/products/green-garden-romper?utm_source=fixture\">Green Garden Romper</a>.</p><p>Could you tell me whether the 12–18 month size usually fits a tall baby?</p><p>Thank you,<br>Nadia</p></body></html>",
+        "stripped_html": "<html><head><meta name=\"generator\" content=\"Example Mailer\"><title>New season collection</title><style>@font-face { font-family: ClutterSans; src: url('https://fonts.example.invalid/clutter.woff2'); }</style></head><body><div style=\"display:none\">New season arrivals are here. View our latest products.</div><p>Hello Buttons Bebe,</p><p>I ordered the green embroidered romper for my niece. The item page is <a href=\"https://shop.example.invalid/products/green-garden-romper?utm_source=fixture\">Green Garden Romper</a>.</p><p>Could you tell me whether the 12–18 month size usually fits a tall baby?</p><p>Thank you,<br>Nadia</p></body></html>"
+      },
+      {
+        "id": 920000000000002,
+        "from_agent": true,
+        "sender": {"name": "Amina Support", "email": "fixture.agent@example.invalid"},
+        "channel": "email",
+        "public": true,
+        "created_datetime": "2026-10-01T10:05:00Z",
+        "stripped_text": "Hi Nadia,\n\nThanks for checking with us. The size guide is on the product page, and if you share the baby's height and weight we can help you compare the measurements.\n\nWarmly,\nAmina"
+      },
+      {
+        "id": 920000000000003,
+        "from_agent": false,
+        "sender": {"name": "Nadia Rahman", "email": "nadia.rahman@example.invalid"},
+        "channel": "email",
+        "public": true,
+        "created_datetime": "2026-10-02T07:45:00Z",
+        "stripped_text": "Hello Amina,\n\nShe is 79 cm tall and weighs about 10 kg. I am including the size chart link again because my mail app added a long font and tracking footer after my last message.\n\nSize chart: https://shop.example.invalid/pages/size-guide?source=fixture\n\nRegards,\nNadia\n\n----- Original Message -----\nFrom: Buttons Bebe Support <support@example.invalid>\nSent: Thursday, October 1, 2026 10:05 AM\nSubject: Re: Order #10312345\n\n> The size guide is on the product page."
+      },
+      {
+        "id": 920000000000004,
+        "from_agent": true,
+        "sender": {"name": "Amina Support", "email": "fixture.agent@example.invalid"},
+        "channel": "email",
+        "public": true,
+        "created_datetime": "2026-10-02T09:12:00Z",
+        "stripped_text": "Hi Nadia,\n\nThanks for the measurements. The product page lists the garment measurements by size. Please compare those with a similar outfit that fits comfortably. We can help read the chart if you tell us which measurement is unclear.\n\nWarmly,\nAmina"
+      },
+      {
+        "id": 920000000000005,
+        "from_agent": false,
+        "sender": {"name": "Nadia Rahman", "email": "nadia.rahman@example.invalid"},
+        "channel": "email",
+        "public": true,
+        "created_datetime": "2026-10-04T11:32:00Z",
+        "stripped_text": "Hi Amina,\n\nThe chart is helpful, thank you. Before I place the matching headband in the same order, could you confirm whether you ship to Bangladesh and whether duties are collected at checkout?\n\nOrder #10312345 is already placed. Please keep the current items unchanged while I check.\n\nOn Friday, October 2, 2026, Buttons Bebe Support wrote:\n> Please compare the garment measurements with a similar outfit.\n> We can help read the chart if you tell us which measurement is unclear.\n\nNadia"
+      },
+      {
+        "id": 920000000000006,
+        "from_agent": false,
+        "sender": {"name": "Nadia Rahman", "email": "nadia.rahman@example.invalid"},
+        "channel": "email",
+        "public": true,
+        "created_datetime": "2026-10-05T09:45:00Z",
+        "body_html": "<html><head><meta name=\"x-hidden\" content=\"fixture\"><title>Inbox product update</title><style>@font-face{font-family:MailDecor;src:url('https://fonts.example.invalid/maildecor.woff2')}</style></head><body><div class=\"preheader\" style=\"display:none;max-height:0;overflow:hidden\">Your monthly style update is ready.&#8203;&#8203;&#8203;</div><p>নমস্কার Amina,</p><p>ধন্যবাদ size chart-টা পাঠানোর জন্য। 🙏 The 12–18 month measurements seem close, and I would like to order the matching headband too.</p><p>Before I decide, could you confirm whether you ship to Bangladesh and whether duties are shown before payment?</p><p>For reference, my current order is <strong>#10312345</strong>. I have not asked for any change or cancellation.</p><p>The page I read was <a href=\"https://shop.example.invalid/pages/shipping?country=BD&source=fixture\">the international shipping information</a>.</p><blockquote><p>On Sunday, October 4, 2026, Nadia wrote:</p><p>&gt; Could you confirm whether you ship to Bangladesh and whether duties are collected at checkout?</p><p>&gt; Please keep the current items unchanged while I check.</p></blockquote><p>ধন্যবাদ,<br>Nadia</p></body></html>",
+        "stripped_html": "<html><head><meta name=\"x-hidden\" content=\"fixture\"><title>Inbox product update</title><style>@font-face{font-family:MailDecor;src:url('https://fonts.example.invalid/maildecor.woff2')}</style></head><body><div class=\"preheader\" style=\"display:none;max-height:0;overflow:hidden\">Your monthly style update is ready.&#8203;&#8203;&#8203;</div><p>নমস্কার Amina,</p><p>ধন্যবাদ size chart-টা পাঠানোর জন্য। 🙏 The 12–18 month measurements seem close, and I would like to order the matching headband too.</p><p>Before I decide, could you confirm whether you ship to Bangladesh and whether duties are shown before payment?</p><p>For reference, my current order is <strong>#10312345</strong>. I have not asked for any change or cancellation.</p><p>The page I read was <a href=\"https://shop.example.invalid/pages/shipping?country=BD&source=fixture\">the international shipping information</a>.</p><blockquote><p>On Sunday, October 4, 2026, Nadia wrote:</p><p>&gt; Could you confirm whether you ship to Bangladesh and whether duties are collected at checkout?</p><p>&gt; Please keep the current items unchanged while I check.</p></blockquote><p>ধন্যবাদ,<br>Nadia</p></body></html>"
+      }
+    ],
+    "841000000000002": [
+      {"id": 920000000000007, "from_agent": false, "sender": {"name": "Jordan Lee", "email": "jordan.lee@example.invalid"}, "channel": "email", "public": true, "created_datetime": "2026-10-04T15:10:00Z", "stripped_text": "Hi, could you add the note 'Happy birthday, Sam!' to my gift order? Thanks."}
+    ],
+    "841000000000003": [
+      {"id": 920000000000008, "from_agent": false, "sender": {"name": "Riley Morgan", "email": "riley.morgan@example.invalid"}, "channel": "email", "public": true, "created_datetime": "2026-10-04T09:30:00Z", "stripped_text": "The replacement arrived safely. Thank you!"}
+    ],
+    "841000000000004": [
+      {"id": 920000000000009, "from_agent": false, "sender": {"name": "Sample Sender", "email": "sender@example.invalid"}, "channel": "email", "public": true, "created_datetime": "2026-10-02T06:00:00Z", "stripped_text": "Unsolicited promotional message used only as a local spam fixture."}
+    ],
+    "841000000000005": [
+      {"id": 920000000000010, "from_agent": false, "sender": {"name": "Casey Sample", "email": "casey.sample@example.invalid"}, "channel": "email", "public": true, "created_datetime": "2026-10-01T12:00:00Z", "stripped_text": "Duplicate ticket fixture. No customer action is needed."}
+    ],
+    "841000000000006": [
+      {"id": 920000000000011, "from_agent": false, "sender": {"name": "Taylor Example", "email": "taylor.example@example.invalid"}, "channel": "email", "public": true, "created_datetime": "2026-10-04T16:15:00Z", "stripped_text": "Please check back after the weekend and tell me whether the replacement is available."}
+    ]
+  },
+  "drafts": {
+    "841000000000001": {
+      "readonlyDraft": "Hi Nadia,\n\nThanks for sharing the size chart and explaining what you are considering. I can see that order #10312345 includes the Green Garden Embroidered Romper, and the sample order record currently shows it as paid and unfulfilled. I will leave the order exactly as it is while we check your question.\n\nI need to verify the store's current shipping options for Bangladesh before I can promise whether delivery is available, what duties may apply, or how long a parcel would take. The information in this local preview does not include a confirmed country rate or customs estimate, so I do not want to guess.\n\nIf you share the delivery postcode you plan to use, our team can check the right destination and reply with the available service, shipping cost, and any duty details shown for that address. You can still decide whether to add the matching headband after you have that information.\n\nFor the 12–18 month size, please compare the garment measurements on the product page with an outfit that fits comfortably. If you send the baby's height and the chest or length measurement you are comparing, we can help you read the chart.\n\nWe will not add the headband, change the size, or alter the existing order unless you ask us to do that.\n\nWarmly,\nButtons Bebe Support",
+      "draftReason": "Synthetic fixture draft. Shipping coverage and duties still need a verified staff check.",
+      "draftSourceMessageId": "920000000000006",
+      "draftSourceMessageAt": "2026-10-05T09:45:00Z",
+      "draftProcessedAt": "2026-10-05T09:46:00Z",
+      "draftGenerationState": "complete",
+      "draftAction": "drafted",
+      "priority": "normal"
+    },
+    "841000000000002": {
+      "readonlyDraft": "Hi Jordan, thanks for the note. I can check whether the order has reached the point where we can add it. Please share the order number so the team can verify it before making any change.",
+      "draftReason": "Synthetic fixture draft.",
+      "draftSourceMessageId": "920000000000007",
+      "draftSourceMessageAt": "2026-10-04T15:10:00Z",
+      "draftProcessedAt": "2026-10-04T15:11:00Z",
+      "draftGenerationState": "complete",
+      "draftAction": "drafted",
+      "priority": "normal"
+    }
+  },
+  "shopify": {
+    "841000000000001": {
+      "status": "found",
+      "customer": {
+        "displayName": "Nadia Rahman",
+        "numberOfOrders": 2,
+        "amountSpent": {"amount": "108.00", "currencyCode": "USD"},
+        "createdAt": "2025-02-12T10:00:00Z",
+        "tags": ["fixture-customer"]
+      },
+      "order": {
+        "id": "gid://shopify/Order/fixture-10312345",
+        "name": "#10312345",
+        "createdAt": "2026-10-01T08:18:00Z",
+        "displayFinancialStatus": "PAID",
+        "displayFulfillmentStatus": "UNFULFILLED",
+        "currentTotalPriceSet": {"shopMoney": {"amount": "48.00", "currencyCode": "USD"}},
+        "shippingAddress": {"name": "Nadia Rahman", "city": "Dhaka", "country": "Bangladesh"},
+        "billingAddress": {"name": "Nadia Rahman", "city": "Dhaka", "country": "Bangladesh"},
+        "fulfillments": [],
+        "lineItems": {"nodes": [
+          {"title": "Green Garden Embroidered Romper", "variantTitle": "12–18 months", "quantity": 1, "unfulfilledQuantity": 1, "originalUnitPriceSet": {"shopMoney": {"amount": "48.00", "currencyCode": "USD"}}}
+        ]}
+      },
+      "returns": {"returns": {"nodes": [
+        {"name": "#10312345", "status": "OPEN", "createdAt": "2026-10-04T14:00:00Z", "items": [{"title": "Green Garden Embroidered Romper", "quantity": 1, "reason": "Size exchange requested"}]}
+      ]}},
+      "history": [
+        {"name": "#10309876", "createdAt": "2026-09-14T10:00:00Z", "displayFinancialStatus": "PAID", "displayFulfillmentStatus": "FULFILLED", "currentTotalPriceSet": {"shopMoney": {"amount": "60.00", "currencyCode": "USD"}}}
+      ]
+    }
+  },
+  "redo": {
+    "841000000000001": {
+      "orders": {
+        "10312345": {
+          "status": "observed",
+          "returns": [{"status": "requested", "type": "size exchange", "created_at": "2026-10-04T14:00:00Z", "updated_at": "2026-10-04T14:00:00Z", "refund_amount": "0.00 USD", "store_credit_amount": "0.00 USD", "tracking_number": "Not shipped", "tracking_url": ""}]
+        }
+      }
+    }
+  }
+}

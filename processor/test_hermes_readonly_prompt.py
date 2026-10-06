@@ -35,6 +35,18 @@ def tokenized_verdict(**fields: object) -> str:
 
 
 class HermesReadOnlyPromptTests(unittest.TestCase):
+    def test_planned_purchase_rule_does_not_assume_an_existing_order_lacks_context(self) -> None:
+        built_prompt = prompt._build_prompt(
+            ticket_id=12345, message_text="I placed an order today. Can it arrive Friday?",
+            ticket_subject="Delivery estimate", customer_email="customer@example.test",
+            intents=[], token=TOKEN,
+        )
+        self.assertIn("'if I place an order today, could it arrive by Friday?'", built_prompt)
+        self.assertIn("For an order already placed, check available read-only order context first", built_prompt)
+        self.assertIn("do not ask for facts already present", built_prompt)
+        self.assertIn("missing staff-owned delivery/transit checks in staff_next_step", built_prompt)
+        self.assertNotIn("an order placed today could arrive by Friday has no order number yet", built_prompt)
+
     def test_confirmed_policy_metadata_remains_authoritative_without_source(self) -> None:
         built_prompt = prompt._build_prompt(
             ticket_id=12345, message_text="What is your return window?",

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 from typing import Literal, TypedDict
+from urllib.parse import urlsplit
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server.fastmcp import FastMCP
@@ -33,9 +35,37 @@ class SearchOutcome(TypedDict):
     results: list[dict]
 
 
-def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, allowlist: Path, kb_mode: str, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None):
+DEFAULT_POLICY_ENDPOINT = "http://127.0.0.1:8077/mcp"
+
+
+def _validate_policy_endpoint(endpoint: str) -> str:
+    if not isinstance(endpoint, str) or len(endpoint) > 2048:
+        raise ValueError("Invalid QA policy endpoint")
+    try:
+        parsed = urlsplit(endpoint)
+        address = ipaddress.ip_address(parsed.hostname or "")
+        port = parsed.port
+    except ValueError:
+        raise ValueError("QA policy endpoint must be loopback-only") from None
+    if (
+        parsed.scheme != "http"
+        or not address.is_loopback
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is None
+        or not 1 <= port <= 65535
+        or parsed.path != "/mcp"
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("QA policy endpoint must be a loopback MCP endpoint")
+    return endpoint
+
+
+def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, allowlist: Path, kb_mode: str, policy_overlay: Path | None = None, policy_overlay_sha256: str | None = None, policy_endpoint: str = DEFAULT_POLICY_ENDPOINT):
     if group not in GROUPS or not 1024 <= port <= 65535:
         raise ValueError("Invalid QA endpoint")
+    policy_endpoint = _validate_policy_endpoint(policy_endpoint)
     server = FastMCP(group, host="127.0.0.1", port=port, log_level="ERROR", stateless_http=True, json_response=True)
     overlay = {}
     if policy_overlay is not None:
@@ -133,15 +163,16 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
                 }
                 allowed = set(json.loads(allowlist.read_text())) | {"policies/qa-fixture.md"}
                 safe, filtered = filter_search_outcome(fixture_outcome, allowed)
-                safe["results"] = [{**row, "qa_fixture": True} for row in safe["results"]]
+                safe["results"] = [{**row, "qa_fixture": True} for row in safe["results"][:k]]
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], filtered=filtered,
-                      returned=len(safe["results"]), files=[row["file"] for row in safe["results"]], fixture=True)
+                      returned=len(safe["results"]), files=[row["file"] for row in safe["results"]],
+                      fixture=True, returned_envelope=safe)
                 return safe
             try:
                 # This fixed read-only endpoint is the only optional real-service
                 # connection anywhere in the QA MCP process.
                 async with asyncio.timeout(30):
-                    async with streamablehttp_client("http://127.0.0.1:8077/mcp", timeout=10, sse_read_timeout=25) as (read, write, _):
+                    async with streamablehttp_client(policy_endpoint, timeout=10, sse_read_timeout=25) as (read, write, _):
                         async with ClientSession(read, write) as session:
                             await session.initialize()
                             result = await session.call_tool("search_kb", {"query":query,"k":25})
@@ -165,13 +196,15 @@ def create_server(group: str, port: int, fixture_path: Path, audit_path: Path, a
                     from qa_policy_overlay import replace_hits
                     safe["results"] = replace_hits(safe["results"], overlay)
                 safe["results"] = safe["results"][:k]
+                returned = safe["results"]
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], filtered=filtered,
-                      returned=len(safe["results"]), files=[row["file"] for row in safe["results"]],
+                      returned=len(returned), files=[row["file"] for row in returned],
                       proposed_policies=bool(overlay), status=safe["status"],
                       notice_board_state=safe["notice_board"]["state"], index_state=safe["index"]["state"],
                       notice_board_codes=safe["notice_board"]["codes"], index_codes=safe["index"]["codes"],
-                      headings=[row["heading"] for row in safe["results"]],
-                      content_sha256=[hashlib.sha256(row["text"].encode()).hexdigest() for row in safe["results"]])
+                      headings=[row["heading"] for row in returned],
+                      content_sha256=[hashlib.sha256(row["text"].encode()).hexdigest() for row in returned],
+                      returned_envelope=safe)
                 return safe
             except Exception:
                 audit(audit_path, group, "kb_projection", scenario_id=value["scenario_id"], fatal=True)
@@ -189,8 +222,9 @@ def main():
     parser.add_argument("--kb-mode", choices=("fixture","policies-only"), required=True)
     parser.add_argument('--policy-overlay', type=Path)
     parser.add_argument('--policy-overlay-sha256')
+    parser.add_argument('--policy-endpoint', default=DEFAULT_POLICY_ENDPOINT)
     args = parser.parse_args()
-    create_server(args.group,args.port,args.fixture,args.audit,args.allowlist,args.kb_mode,args.policy_overlay,args.policy_overlay_sha256).run(transport="streamable-http")
+    create_server(args.group,args.port,args.fixture,args.audit,args.allowlist,args.kb_mode,args.policy_overlay,args.policy_overlay_sha256,args.policy_endpoint).run(transport="streamable-http")
 
 
 if __name__ == "__main__":

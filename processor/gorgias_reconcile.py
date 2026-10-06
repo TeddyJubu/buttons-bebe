@@ -19,9 +19,21 @@ import httpx
 
 from bb_webhook.database import ingest_event
 from bb_webhook.db import Database
-from bb_webhook.message_content import message_text
 from bb_webhook.message_times import normalize_timestamp, utc_microseconds, SOURCE_TIME_SQL
 from logging_setup import get_logger, log_event
+
+def _load_intake():
+    try:
+        from intake.message_content import intake_from_message as reader
+    except ImportError:
+        import sys
+        root = Path(__file__).resolve().parents[1]
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from intake.message_content import intake_from_message as reader
+    return reader
+
+intake_from_message = _load_intake()
 
 logger = get_logger(__name__)
 MCP_URL = "http://127.0.0.1:8079/mcp"
@@ -30,6 +42,12 @@ MAX_DETAILS = 5
 MAX_ACTIVE_JOBS = 5
 SCAN_SECONDS = 60
 LOOKBACK_DAYS = 90  # The Inbox draft projection has the same window.
+RAW_BYTE_CAP = 65_536
+_SOURCE_FIELDS = ("body_text", "body_html", "text", "stripped_text", "stripped_html", "excerpt")
+_BOUND_FIELDS = (
+    "current_text", "display_text", "original_content", "preferred_content",
+    "body_text", "body_html", "stripped_text", "stripped_html", "text", "excerpt",
+)
 
 
 class ReadOnlyMCP:
@@ -149,9 +167,12 @@ def _detail_page_lags_summary(message: dict, ticket: dict) -> bool:
 
 def _event(ticket: dict, message: dict, tenant: str) -> tuple[dict, str] | None:
     """Build a bounded canonical intake from observed provider data."""
-    if message.get("from_agent") is not False or type(message.get("id")) is not int:
+    if (message.get("from_agent") is not False
+            or any(type(record.get("id")) is not int or not 0 < record["id"] < 2**63
+                   for record in (ticket, message))):
         return None
-    body = message_text(message).strip()[:20_000]
+    normalized = intake_from_message(message)
+    body = normalized["current_text"].strip()[:20_000]
     if not body:
         return None
     customer = ticket.get("customer") if isinstance(ticket.get("customer"), dict) else {}
@@ -179,21 +200,148 @@ def _event(ticket: dict, message: dict, tenant: str) -> tuple[dict, str] | None:
              "ticket_snoozed": int(bool(ticket.get("snooze_datetime"))),
              "customer_email": customer.get("email"), "intents": intents,
              "is_customer_message": True}
-    source_field = message.get("preferred_content_field")
-    if source_field not in {"stripped_text", "stripped_html", "body_text", "body_html"}:
-        source_field = "body_text"
-    original = message.get("preferred_content") or message.get(source_field) or ""
+    raw_message = {"id": message["id"], "from_agent": False, "created_datetime": created_at}
+    for key in _SOURCE_FIELDS:
+        value = message.get(key)
+        if isinstance(value, str):
+            raw_message[key] = value
+    preferred = message.get("preferred_content")
+    preferred_field = message.get("preferred_content_field")
+    if isinstance(preferred, str) or (preferred is None and "preferred_content" in message):
+        raw_message["preferred_content"] = preferred
+    if isinstance(preferred_field, str) or (preferred_field is None and "preferred_content_field" in message):
+        raw_message["preferred_content_field"] = preferred_field
+    raw_message.update(normalized)
     raw = {"source": "gorgias_reconciliation", "trigger": "ticket-message-created",
            "ticket": {"id": ticket["id"], "subject": event["ticket_subject"],
                       "customer": {"email": customer.get("email"), "name": customer.get("name"),
                                    "id": customer.get("id")}},
-           "message": {"id": message["id"], "from_agent": False, "created_datetime": created_at,
-                       source_field: str(original)[:12_000]}}
-    raw_text = json.dumps(raw, ensure_ascii=True)
-    if len(raw_text.encode()) > 65_536:
-        raw["message"][source_field] = str(original)[:6_000]
-        raw_text = json.dumps(raw, ensure_ascii=True)
-    return event, raw_text
+           "message": raw_message}
+    return event, _bound_raw(raw)
+
+
+def _json_body_len(value: str) -> int:
+    return len(json.dumps(value, ensure_ascii=True)) - 2
+
+
+def _prefix_for_budget(value: str, budget: int) -> str:
+    if budget <= 0 or not value:
+        return ""
+    if _json_body_len(value) <= budget:
+        return value
+    lo, hi, best = 0, len(value), ""
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        prefix = value[:mid]
+        if _json_body_len(prefix) <= budget:
+            best = prefix
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
+def _allocate_text(originals: dict[str, str], budget: int) -> dict[str, str]:
+    """Equal encoded-byte prefixes. Small fields keep their unused share."""
+    assigned = {key: "" for key in originals}
+    pending = [key for key in _BOUND_FIELDS if key in originals]
+    leftover = budget
+    while pending and leftover > 0:
+        share = leftover // len(pending)
+        if share <= 0:
+            for key in pending:
+                if leftover <= 0:
+                    break
+                assigned[key] = _prefix_for_budget(originals[key], leftover)
+                leftover -= _json_body_len(assigned[key])
+            break
+        still = []
+        for key in pending:
+            size = _json_body_len(originals[key])
+            if size <= share:
+                assigned[key] = originals[key]
+                leftover -= size
+            else:
+                still.append(key)
+        if len(still) != len(pending):
+            pending = still
+            continue
+        for key in pending:
+            assigned[key] = _prefix_for_budget(originals[key], share)
+            leftover -= _json_body_len(assigned[key])
+        for key in pending:
+            if leftover <= 0 or assigned[key] == originals[key]:
+                continue
+            room = _json_body_len(assigned[key]) + leftover
+            longer = _prefix_for_budget(originals[key], room)
+            leftover -= _json_body_len(longer) - _json_body_len(assigned[key])
+            assigned[key] = longer
+        break
+    return assigned
+
+
+def _bound_raw(raw: dict) -> str:
+    """Fit source, contract, and preferred copies into the stored payload cap.
+
+    The provider message is not modified. Prefixes are measured after
+    ensure_ascii escaping, which is six bytes for non-ASCII and more for emoji.
+    """
+    message = raw["message"]
+    truncated = bool(message.get("source_truncated"))
+    # Provider metadata shares the same storage envelope as message evidence.
+    # Bound it first so a long display name cannot consume the body budget.
+    customer = raw["ticket"]["customer"]
+    for record, key, limit in (
+        (raw["ticket"], "subject", 500), (customer, "name", 200),
+        (customer, "email", 254), (message, "created_datetime", 80),
+    ):
+        value = record.get(key)
+        bounded = value[:limit] if isinstance(value, str) else None
+        if bounded != value:
+            truncated = True
+        record[key] = bounded
+    identity = customer.get("id")
+    if isinstance(identity, str):
+        customer["id"] = identity[:128]
+        truncated |= len(identity) > 128
+    elif type(identity) is not int or abs(identity) > 2**63 - 1:
+        customer["id"] = None
+        truncated |= identity is not None
+    for key in ("display_source", "current_source", "original_field", "preferred_content_field"):
+        if message.get(key) is not None and message.get(key) not in _SOURCE_FIELDS:
+            message[key] = None
+            truncated = True
+    message["source_truncated"] = truncated
+    originals: dict[str, str] = {}
+    for key in _BOUND_FIELDS:
+        value = message.get(key)
+        if isinstance(value, str) and value:
+            originals[key] = value
+            message[key] = ""
+    budget = RAW_BYTE_CAP - len(json.dumps(raw, ensure_ascii=True))
+    assigned = _allocate_text(originals, max(0, budget))
+    for key, value in originals.items():
+        message[key] = assigned.get(key, "")
+        if message[key] != value:
+            truncated = True
+    if truncated:
+        message["source_truncated"] = True
+    text = json.dumps(raw, ensure_ascii=True)
+    while len(text) > RAW_BYTE_CAP:
+        key = next((item for item in reversed(_BOUND_FIELDS)
+                    if isinstance(message.get(item), str) and message[item]), None)
+        if key is None:
+            break
+        current = message[key]
+        overflow = len(text) - RAW_BYTE_CAP
+        message[key] = _prefix_for_budget(current, _json_body_len(current) - overflow)
+        if message[key] == current:
+            message[key] = current[:-1]
+        message["source_truncated"] = True
+        text = json.dumps(raw, ensure_ascii=True)
+    if len(text) > RAW_BYTE_CAP:
+        raise ValueError("Retained message envelope exceeds the storage budget")
+    return text
 
 
 async def _mark_seen(db: Database, ticket: dict, outcome: str) -> None:

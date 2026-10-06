@@ -4,6 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Environment=PYTHONPATH=/opt/buttonsbebe/shared
 Type=simple
 Environment=GORGIAS_MCP_TRANSPORT=streamable-http
 Environment=GORGIAS_MCP_HOST=127.0.0.1

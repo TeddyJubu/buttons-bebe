@@ -14,6 +14,7 @@ import shutil
 import tempfile
 
 COMPONENTS = {
+    'intake': ('intake', ['buttonsbebe-webhook', 'buttonsbebe-processor', 'buttonsbebe-gorgias-mcp', 'helpdesk-inbox2']),
     'feedback': ('feedback', ['buttonsbebe-webhook', 'buttonsbebe-processor', 'buttonsbebe-kb-mcp']),
     'webhook': ('webhook', ['buttonsbebe-webhook', 'buttonsbebe-processor']),
     'processor': ('processor', ['buttonsbebe-webhook', 'buttonsbebe-processor']),
@@ -22,10 +23,11 @@ COMPONENTS = {
     'kb-admin': ('kb-admin', ['buttonsbebe-kb-admin']),
     'whatsapp-connect': ('whatsapp-connect', ['buttonsbebe-whatsapp-connect']),
     'console-src/inbox': ('console-src/inbox', ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop']),
-    'console-src/inbox2': ('', ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop']),
+    'console-src/inbox2': ('', ['helpdesk-inbox2', 'buttonsbebe-inbox2-shop', 'buttonsbebe-inbox2-redo']),
     'console-src/helpdesk-agent': ('console-src/helpdesk-agent', []),
 }
 REQUIRED_FILES = {
+    'intake': ('__init__.py', 'message_content.py'),
     'webhook': ('src/bb_webhook/app.py', 'pyproject.toml', 'uv.lock'),
     'processor': ('orchestrator.py', 'hermes_runner/process.py', 'pyproject.toml', 'uv.lock'),
     'feedback': ('__init__.py', 'pii.py'),
@@ -34,11 +36,11 @@ REQUIRED_FILES = {
     'kb-admin': ('server.js',),  # Node builtins only; no package manifest exists.
     'whatsapp-connect': ('server.js', 'package.json', 'package-lock.json'),
     'console-src/inbox': ('requirements.txt', 'requirements.lock', 'projection.py', 'export_projection.py', 'shop_rail.py', 'export_shop_rail.py'),
-    'console-src/inbox2': ('live_api.py', 'customer_details.py', 'shop_worker.py', 'index.html', 'app.js', 'styles.css', 'icons.js', 'lucide-LICENSE.txt'),
+    'console-src/inbox2': ('live_api.py', 'customer_details.py', 'shop_worker.py', 'redo_details.py', 'redo_worker.py', 'local_state.js', 'index.html', 'app.js', 'styles.css', 'icons.js', 'lucide-LICENSE.txt'),
     'console-src/helpdesk-agent': ('helpdesk/dispatch.py', 'helpdesk/send_access.py'),
 }
 
-INBOX2_ASSETS = {'index.html', 'app.js', 'styles.css', 'icons.js', 'lucide-LICENSE.txt'}
+INBOX2_ASSETS = {'local_state.js', 'index.html', 'app.js', 'styles.css', 'icons.js', 'lucide-LICENSE.txt'}
 
 EXCLUDED = {'.venv', 'venv', 'node_modules', '__pycache__', 'data', 'logs', 'auth',
             '.wwebjs_auth', '.wwebjs_cache', '.git', '.pytest_cache', 'lancedb',
@@ -124,6 +126,8 @@ def inventory(release):
                 raise ValueError('symlink in release')
             if path.is_file():
                 key = ('inbox/' if component.startswith('console-src/') else 'app/') + str(Path(target) / relative)
+                if component == 'intake':
+                    key = 'shared/' + str(Path(target) / relative)
                 if component == 'console-src/inbox2':
                     key = ('inbox2web/' if str(relative) in INBOX2_ASSETS else 'inbox2/') + str(relative)
                 result[key] = {'source': str(path.relative_to(release)), 'sha256': digest(path),
@@ -140,10 +144,11 @@ def inventory(release):
 
 def target_path(key, live, web, inbox=None):
     prefix, relative = key.split('/', 1)
-    if prefix not in {'app', 'web', 'inbox', 'inbox2', 'inbox2web'}:
+    if prefix not in {'app', 'web', 'inbox', 'inbox2', 'inbox2web', 'shared'}:
         raise ValueError('unknown deployment root')
     return safe_path({'app': live, 'web': web, 'inbox': inbox or live,
                       'inbox2': (inbox or live).parent / 'inbox2',
+                      'shared': (inbox or live).parent / 'shared',
                       'inbox2web': web.parent / 'inbox2'}[prefix], relative)
 
 

@@ -14,7 +14,7 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(10000);
 const errors=[]; page.on('pageerror',error=>errors.push(error.message));
 const now=new Date().toISOString();
-const t={id:'gorgias:fixture',subject:'A long ticket subject about an order and return',customerName:'Example customer',fromEmail:'customer@example.com',status:'open',gorgiasPriority:'high',assigneeEmail:'support@example.com',channel:'email',updatedAt:now,syncedAt:now,readonlyDraft:'Hello,\n\nThank you for getting in touch. We will review your request.',draftAction:'sensitive_draft',draftReason:'Review the request before sending a response.',draftSourceMessageId:'fixture-message',draftProcessedAt:now,messages:[{id:'message',fromName:'Example customer',fromEmail:'customer@example.com',body:'Please review my order.\n\nhttps://example.com/order\n\nOn Monday someone wrote:\n> Earlier email history.',at:now}],shopifyRail:{status:'observed',customer:{displayName:'Example customer',numberOfOrders:12,amountSpent:{amount:'1240',currencyCode:'USD'}},order:{id:'order',name:'#12345',displayFinancialStatus:'PAID',displayFulfillmentStatus:'UNFULFILLED',currentTotalPriceSet:{shopMoney:{amount:100,currencyCode:'USD'}},fulfillments:[{displayStatus:'IN_PROGRESS',trackingInfo:[]}],lineItems:{nodes:[]}},returns:{returns:{nodes:[]}},history:[]}};
+const t={id:'gorgias:fixture',subject:'A long ticket subject about an order and return',customerName:'Example customer',fromEmail:'customer@example.com',status:'open',gorgiasPriority:'high',assigneeEmail:'support@example.com',channel:'email',updatedAt:now,syncedAt:now,readonlyDraft:'Hello,\n\nThank you for getting in touch. We will review your request.',draftAction:'sensitive_draft',draftReason:'Review the request before sending a response.',draftSourceMessageId:'fixture-message',draftProcessedAt:now,messages:[{id:'message',fromName:'Example customer',fromEmail:'customer@example.com',display_text:'Please review my order.\n\nhttps://example.com/order\n\nEarlier email history.',current_text:'Please review my order.\n\nhttps://example.com/order',original_content:'Original fictional email with earlier history',history_available:true,body:'Please review my order.\n\nhttps://example.com/order\n\nOn Monday someone wrote:\n> Earlier email history.',at:now}],shopifyRail:{status:'observed',customer:{displayName:'Example customer',numberOfOrders:12,amountSpent:{amount:'1240',currencyCode:'USD'}},order:{id:'order',name:'#12345',displayFinancialStatus:'PAID',displayFulfillmentStatus:'UNFULFILLED',currentTotalPriceSet:{shopMoney:{amount:100,currencyCode:'USD'}},fulfillments:[{displayStatus:'IN_PROGRESS',trackingInfo:[]}],lineItems:{nodes:[]}},returns:{returns:{nodes:[]}},history:[]}};
 const calls=[];let mode='ok';
 await page.route('**/inbox/api/helpdesk',async route=>{
   const data=route.request().postDataJSON();calls.push(data);
@@ -81,14 +81,20 @@ for(const width of [1920,1440,1230,1100,1041,1040,768,651,650,390,320]) {
 }
 await page.screenshot({path:`${dir}/fixture-small.png`});
 await page.setViewportSize({width:1440,height:1000});
-await page.locator('#conversation').evaluate(el=>el.scrollTop=el.scrollHeight);
+assert(await page.locator('#reply').evaluate(el=>el.getBoundingClientRect().bottom<=innerHeight));
 await page.screenshot({path:`${dir}/fixture-composer.png`});
 await page.emulateMedia({reducedMotion:'reduce'});
 assert.equal(await page.locator('.button').first().evaluate(el=>getComputedStyle(el).transitionDuration),'0s');
 // Equivalent layout viewport to a 1280px window at 200% browser zoom.
 await page.setViewportSize({width:640,height:450});
 assert(await page.locator('.mobile-back').isVisible());
-assert(await page.locator('#conversation').evaluate(el=>el.scrollHeight>el.clientHeight));
+t.messages.push(...Array.from({length:25},(_,i)=>({...t.messages[0],id:`long-${i}`,body:`Long fictional history paragraph ${i}. `.repeat(50),display_text:`Long fictional history paragraph ${i}. `.repeat(50),current_text:`Long fictional history paragraph ${i}. `.repeat(50)})));
+await page.reload();
+await page.locator('.ticket-title').waitFor();
+await page.waitForFunction(()=>document.querySelectorAll('.message').length===26);
+assert(await page.locator('#ticket-content').evaluate(el=>el.scrollHeight>el.clientHeight));
+assert(await page.locator('#ticket-content').evaluate(el=>{el.scrollTop=0;el.scrollTop=150;return el.scrollTop>0;}));
+for(const control of ['#reply','[data-action="copy-reply"]'])assert(await page.locator(control).evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;}));
 mode='error';await page.reload();await page.locator('.is-error').waitFor();
 assert(await page.locator('[data-action="retry-ticket"]').isVisible());
 mode='auth';await page.reload();await page.getByRole('heading',{name:'Sign in to continue'}).waitFor();

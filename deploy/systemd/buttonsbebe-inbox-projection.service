@@ -3,6 +3,7 @@ Description=Export read-only canonical inbox projection
 After=buttonsbebe-webhook.service
 
 [Service]
+Environment=PYTHONPATH=/opt/buttonsbebe/shared
 Type=oneshot
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONNOUSERSITE=1

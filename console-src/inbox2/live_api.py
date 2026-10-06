@@ -35,7 +35,9 @@ import projection
 from projection import query as projection_query, ProjectionUnavailable
 from shop_rail import attach as attach_shop_rail
 import customer_details
+import redo_details
 
+OPERATOR_EMAIL = os.environ.get('INBOX_OPERATOR_GORGIAS_EMAIL', '').strip().casefold()
 DB = Path('/var/lib/buttonsbebe-inbox2/live.sqlite3')
 MCP_URL = 'http://127.0.0.1:8079/mcp'
 WORKER_LOCK = threading.Lock()
@@ -89,8 +91,14 @@ class Worker:
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def epoch(value):
-    try: return datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
-    except (ValueError, TypeError): return 0
+    """Provider/source instants require an explicit timezone; unknown is zero."""
+    if not isinstance(value,str) or not value.strip(): return 0
+    try:
+        parsed=datetime.fromisoformat(value.strip())
+        return parsed.timestamp() if parsed.tzinfo is not None and parsed.utcoffset() is not None else 0
+    except (ValueError,OverflowError,OSError): return 0
+
+source_epoch = epoch  # compatibility name; coverage and freshness share one time domain
 
 def database():
     db = sqlite3.connect(DB, timeout=10)
@@ -103,10 +111,16 @@ def init_db():
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, updated REAL, payload TEXT, generation TEXT)')
         db.execute('CREATE INDEX IF NOT EXISTS ticket_updated ON tickets(updated DESC,id)')
+        db.execute("CREATE INDEX IF NOT EXISTS ticket_category_updated ON tickets(coalesce(json_extract(payload,'$.trashed'),0),coalesce(json_extract(payload,'$.spam'),0),updated DESC,id)")
+        db.execute("CREATE INDEX IF NOT EXISTS ticket_category_status_updated ON tickets(coalesce(json_extract(payload,'$.trashed'),0),coalesce(json_extract(payload,'$.spam'),0),json_extract(payload,'$.status'),updated DESC,id)")
+        for key in ('spam','trash','snoozed'):
+            db.execute("CREATE INDEX IF NOT EXISTS ticket_available_"+key+" ON tickets(id) WHERE json_extract(payload,'$.categoryAvailability."+key+"')=1")
         db.execute('CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT)')
         db.execute("INSERT OR IGNORE INTO meta VALUES(1, '{}')")
     with closing(customer_details.database()) as db, db:
         customer_details.initialize(db)
+    with closing(redo_details.database()) as db, db:
+        redo_details.initialize(db)
 
 def get_meta(db): return json.loads(db.execute('SELECT payload FROM meta WHERE id=1').fetchone()[0])
 def set_meta(db, meta): db.execute('UPDATE meta SET payload=? WHERE id=1', (json.dumps(meta),))
@@ -201,11 +215,26 @@ def summary(t):
             'fromEmail':customer.get('email') or '', 'status':t.get('status') or '',
             'gorgiasPriority':t.get('priority') or '', 'assignee':user.get('name') or team.get('name') or 'unassigned',
             'assigneeEmail':user.get('email') or '', 'assigneeTeam':team.get('name') or '',
-            'channel':t.get('channel') or '', 'updatedAt':t.get('updated_datetime') or t.get('created_datetime'),
-            'snippet':t.get('excerpt') or '', 'tags':[x.get('name','') if isinstance(x,dict) else str(x) for x in t.get('tags') or []],
-            'spam':bool(t.get('spam')), 'trashed':bool(t.get('trashed_datetime')), 'source':'gorgias_api',
+            'channel':t.get('channel') or '', 'updatedAt':t.get('updated_datetime'),
+            'snippet':t.get('display_text') if t.get('cleanup_version') else t.get('excerpt') or '',
+            'previewProvenance':{'source':t.get('display_source') or 'excerpt','truncated':bool(t.get('source_truncated',True)),'cleanupVersion':t.get('cleanup_version')}, 'tags':[x.get('name','') if isinstance(x,dict) else str(x) for x in t.get('tags') or []],
+            'spam':bool(t.get('spam')), 'trashed':bool(t.get('trashed_datetime')),
+            'snoozedUntil':t.get('snooze_datetime'), 'lastMessageAt':t.get('last_message_datetime'),
+            'categoryAvailability':{key:field in t for key,field in [('spam','spam'),('trash','trashed_datetime'),('snoozed','snooze_datetime')]}, 'source':'gorgias_api',
             'customerContext':{'source':'gorgias_api','status':'observed','conflict':False,
                                'identity':{'email':customer.get('email') or '', 'name':customer.get('name') or ''},'observedAt':now()}}
+
+def cache_summary(db,ticket,generation,preserve_preview=True):
+    old=db.execute('SELECT payload FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
+    if old and preserve_preview:  # summary syncs keep a detail preview; a fresh covered detail may replace it
+        prior=json.loads(old[0])
+        if prior.get('previewMessageId') and prior.get('lastMessageAt') and prior.get('lastMessageAt')==ticket.get('lastMessageAt'):
+            for key in ('snippet','previewMessageId','previewProvenance'):
+                if key in prior:ticket[key]=prior[key]
+    db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload,generation=excluded.generation',
+               (ticket['id'],epoch(ticket['updatedAt']),json.dumps(ticket),generation))
+    # Keep only bounded trash summaries. Never mutate provider records.
+    db.execute("DELETE FROM tickets WHERE id IN (SELECT id FROM tickets WHERE json_extract(payload,'$.trashed')=1 ORDER BY updated DESC,id LIMIT -1 OFFSET 1000)")
 
 def sync_once(worker):
     worker.update('scanning')
@@ -229,16 +258,13 @@ def sync_once(worker):
         with closing(database()) as db, db:
             for raw in rows:
                 ticket=summary(raw);updated=epoch(ticket['updatedAt']);newest=max(newest,updated)
-                if ticket['trashed']: db.execute('DELETE FROM tickets WHERE id=?',(ticket['id'],))
-                else:
-                    db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload,generation=excluded.generation',
-                               (ticket['id'],updated,json.dumps(ticket),generation))
+                cache_summary(db,ticket,generation)
             meta=get_meta(db);meta.update(lastPageAt=now(),syncing=True)
             if cursor is None: meta['lastHeadAt']=now()
             if full:meta['pendingFull']={'cursor':next_cursor,'generation':generation,'watermark':newest}
             set_meta(db,meta)
         worker.update('scanning', progress=True)
-        reached_old=not full and rows and all(epoch(x.get('updated_datetime') or x.get('created_datetime'))<watermark-120 for x in rows)
+        reached_old=not full and rows and all(0<epoch(x.get('updated_datetime'))<watermark-120 for x in rows)
         if not next_cursor or reached_old:
             worker.update('writing')
             with closing(database()) as db, db:
@@ -259,8 +285,7 @@ def sync_once(worker):
             with closing(database()) as db, db:
                 for raw in head['data']:
                     ticket=summary(raw)
-                    if ticket['trashed']:db.execute('DELETE FROM tickets WHERE id=?',(ticket['id'],))
-                    else:db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload,generation=excluded.generation',(ticket['id'],epoch(ticket['updatedAt']),json.dumps(ticket),generation))
+                    cache_summary(db,ticket,generation)
                 meta=get_meta(db);meta.update(generatedAt=now(),lastHeadAt=now());set_meta(db,meta)
             last_head=time.monotonic()
         worker.update('scanning')
@@ -297,23 +322,8 @@ def sync_loop(worker):
 
 
 def display_content(m):
-    text=m.get('preferred_content') or ''
-    if m.get('preferred_content_field')!='stripped_text' or not text:return text
-    lines=text.replace('\r\n','\n').replace('\r','\n').split('\n')
-    result=[];previous=''
-    for line in lines:
-        source_line=previous.rstrip()
-        continuation=line.lstrip()
-        soft_wrap=(result and 60<=len(source_line)<=90 and continuation
-                   and continuation[0].islower() and source_line[-1] not in '.!?;:'
-                   and not line.startswith((' ','\t'))
-                   and not re.search(r'(?:https?://|www\.)\S+$',source_line))
-        if soft_wrap:result[-1]=result[-1].rstrip()+' '+continuation
-        else:result.append(line)
-        previous=line
-    text='\n'.join(result)
-    text=re.sub(r'[ \t]{2,}',' ',text)
-    return re.sub(r'[ \t]+(?=[.,!?;:])','',text)
+    return str(m.get('display_text') or m.get('preferred_content') or '')
+
 
 def message(m):
     sender=m.get('sender') or {}
@@ -322,6 +332,8 @@ def message(m):
             'from':'agent' if m.get('from_agent') else 'customer',
             'fromName':sender.get('name') or '', 'fromEmail':sender.get('email') or '',
             'body':display_content(m), 'at':m.get('created_datetime'),
+            **{key:m[key] for key in ('display_text','current_text','display_source','current_source','original_content','original_field','history_available','source_truncated','cleanup_version') if key in m},
+            'attachments':[{key:a[key] for key in ('name','url','content_type','size') if key in a} for a in (m.get('attachments') or [])[:20] if isinstance(a,dict)],
             'internal':m.get('channel')=='internal-note' or m.get('public') is False,
             'contentUnavailable':bool(m.get('content_unavailable'))}
 
@@ -349,43 +361,122 @@ def enrich(ticket):
 
 def attach_customer_details(ticket):
     try:
-        customer_details.attach(ticket, customer_details.database)
+        customer_details.attach(ticket, customer_details.database, path=customer_details.SNAPSHOT)
     except (sqlite3.Error, OSError):
         if not ticket.get('shopifyRail'):
             ticket['shopifyRail']={'status':'error','refreshError':True}
+    rail=ticket.get('shopifyRail') or {}
+    context=ticket.get('customerContext') or {}
+    email=str(rail.get('email') or '').strip().casefold()
+    verified=(rail.get('status')=='found' and not rail.get('stale') and not rail.get('refreshError')
+              and not context.get('conflict') and email==str(ticket.get('fromEmail') or '').strip().casefold())
+    order=rail.get('order') or {}
+    orders=[order.get('name')] if order.get('name') else []
+    if verified:
+        orders += [o.get('name') for o in (rail.get('history') or []) if isinstance(o,dict) and o.get('name')]
+    try:
+        redo_details.attach(ticket,email if verified else '',list(dict.fromkeys(orders))[:3] if verified else [],
+                            redo_details.database,redo_details.SNAPSHOT)
+    except (sqlite3.Error,OSError):
+        ticket['redoDetails']={'source':'redo','status':'unavailable','reason':'Redo lookup storage is temporarily unavailable.'}
     return ticket
+
+def newer_summary(db,ticket):
+    """Stored row, whether cache needs a fetch, and whether this candidate must be held."""
+    row=db.execute('SELECT generation,payload FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
+    stored=json.loads(row[1]) if row else {}
+    if not isinstance(stored,dict): raise ValueError('Invalid cached ticket summary')
+    mine,theirs=epoch(ticket.get('lastMessageAt')),epoch(stored.get('lastMessageAt'))
+    updated,stored_updated=epoch(ticket.get('updatedAt')),epoch(stored.get('updatedAt'))
+    # Either known newer clock protects the row. Unknown activity cannot erase
+    # a verified newer metadata update (or let an older Open detail undo Closed).
+    held=mine<=0 or updated<=0 or theirs>mine or stored_updated>updated
+    # Unverifiable stored times cannot prove a warm cache fresh. A new, fully
+    # verified provider read may repair that summary, subject to message coverage.
+    refetch=held or bool(row and (theirs<=0 or stored_updated<=0))
+    return row,refetch,held
+
+def mark_stale(ticket):
+    # Keep messages readable, but block Send/rewrite/retry and Use draft in the existing UI.
+    return {**ticket,'syncStale':True,'draftSuperseded':True}
 
 def get_ticket(number):
     key=str(number)
     with DETAIL_LOCK: cached=DETAIL_CACHE.get(key)
+    if cached:
+        try:
+            with closing(database()) as db: stale=newer_summary(db,cached[1])[1]
+        except (sqlite3.Error,ValueError,TypeError):
+            # A failed freshness check may serve readable cached data, never an actionable fresh draft.
+            return attach_customer_details(mark_stale(cached[1]))
+        if stale: cached=(0,cached[1])  # a newer synced summary forces a re-fetch past the 15 s cache
     if cached and time.time()-cached[0]<15: return attach_customer_details(cached[1])
     try:
         with MCP() as client:
             raw=client.call('get_ticket',{'ticket_id':number})
-            if str(raw.get('id'))!=key or raw.get('trashed_datetime'): raise Gone()
+            if str(raw.get('id'))!=key: raise Gone()
             page=messages_page(client,number)
         ticket=summary(raw);ticket.update(messages=page['messages'],messagesNextCursor=page['nextCursor'],historyIncomplete=bool(page['nextCursor']),observedMessageCount=len(page['messages']),syncedAt=now(),syncStale=False)
         enrich(ticket)
+        # Promote a message preview only when the page reaches the provider's latest activity (any message, notes included).
+        activity=source_epoch(raw.get('last_message_datetime'))
+        public_chronology_known=all(source_epoch(m['at'])>0 for m in ticket['messages'] if not m['internal'])
+        covered=activity>0 and public_chronology_known and max((source_epoch(m['at']) for m in ticket['messages']),default=0)>=activity
+        latest=next((m for m in reversed(ticket['messages']) if not m['internal']),None) if covered else None
+        if latest is not None:
+            preview_text=latest.get('current_text') if 'current_text' in latest else latest.get('body','')
+            preview_text=preview_text if isinstance(preview_text,str) else ''
+            ticket.update(snippet=preview_text[:300],previewMessageId=latest['id'],previewProvenance={'source':'message','truncated':len(preview_text)>300,'cleanupVersion':latest.get('cleanup_version')})
+        with closing(database()) as db, db:
+            db.execute('BEGIN IMMEDIATE')  # recheck the row and publish atomically against a concurrent sync
+            row,stale,older=newer_summary(db,ticket)
+            if not older and covered:
+                saved=summary(raw)
+                for field in ('snippet','previewMessageId','previewProvenance'):
+                    if field in ticket:saved[field]=ticket[field]
+                cache_summary(db,saved,row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation','')),preserve_preview=latest is None)
+        # Unknown source activity/metadata, uncovered messages, or a newer summary
+        # remain readable but cannot publish a fresh detail or actionable draft.
+        if older or not covered: return mark_stale(ticket)
         with DETAIL_LOCK:
             if len(DETAIL_CACHE)>=128: DETAIL_CACHE.pop(next(iter(DETAIL_CACHE)))
             DETAIL_CACHE[key]=(time.time(),ticket)
-        with closing(database()) as db, db:
-            row=db.execute('SELECT generation FROM tickets WHERE id=?',(ticket['id'],)).fetchone()
-            db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload',
-                       (ticket['id'],epoch(ticket['updatedAt']),json.dumps(summary(raw)),row[0] if row else (get_meta(db).get('pendingFull') or {}).get('generation',get_meta(db).get('generation',''))))
         return ticket
     except Gone:
         with DETAIL_LOCK: DETAIL_CACHE.pop(key,None)
         with closing(database()) as db, db: db.execute('DELETE FROM tickets WHERE id=?',('gorgias:'+key,))
         raise
     except Exception:
-        if cached: return attach_customer_details({**cached[1],'syncStale':True})
+        if cached: return attach_customer_details(mark_stale(cached[1]))
         raise Unavailable()
 
 def list_tickets(args):
     clause=[];params=[]
-    if args['view']!='all':
-        clause.append("json_extract(payload,'$.status')=?");params.append(args['view'])
+    view=args['view']
+    trash="coalesce(json_extract(payload,'$.trashed'),0)"
+    spam="coalesce(json_extract(payload,'$.spam'),0)"
+    snooze="coalesce(json_extract(payload,'$.snoozedUntil'),'')"
+    if view=='trash': clause.append(trash+'=1')
+    else:
+        clause.append(trash+'=0')
+        if view=='spam': clause.append(spam+'=1')
+        else: clause.append(spam+'=0')
+    if view in {'open','closed'}:
+        clause.append("json_extract(payload,'$.status')=?");params.append(view)
+    elif view=='assigned':
+        clause.append("fold(coalesce(json_extract(payload,'$.assigneeEmail'),''))=? AND ?<>''")
+        params.extend([OPERATOR_EMAIL,OPERATOR_EMAIL])
+    elif view=='unassigned':
+        clause.append("coalesce(json_extract(payload,'$.assigneeEmail'),'')='' AND coalesce(json_extract(payload,'$.assigneeTeam'),'')='' AND coalesce(json_extract(payload,'$.assignee'),'unassigned') IN ('','unassigned')")
+    elif view=='snoozed':
+        clause.append("epoch("+snooze+")>?");params.append(time.time())
+    for key,path in [('priority','gorgiasPriority'),('assignee','assigneeEmail'),('channel','channel')]:
+        value=args.get(key,'').strip()
+        if value:
+            clause.append("fold(coalesce(json_extract(payload,'$."+path+"'),''))=?");params.append(value.casefold())
+    if args.get('tag','').strip():
+        clause.append("EXISTS (SELECT 1 FROM json_each(tickets.payload,'$.tags') WHERE fold(value)=?)")
+        params.append(args['tag'].strip().casefold())
     needle=' '.join(args['query'].split()).casefold()
     if needle:
         clause.append("instr(fold(id || ' ' || coalesce(json_extract(payload,'$.subject'),'') || ' ' || coalesce(json_extract(payload,'$.customerName'),'') || ' ' || coalesce(json_extract(payload,'$.fromEmail'),'') || ' ' || coalesce(json_extract(payload,'$.snippet'),'')),?)>0")
@@ -394,12 +485,15 @@ def list_tickets(args):
     direction='ASC' if args['oldest'] else 'DESC'
     with closing(database()) as db:
         db.create_function('fold',1,lambda value:str(value).casefold(),deterministic=True)
+        db.create_function('epoch',1,epoch,deterministic=True)
         meta=get_meta(db)
         total=db.execute('SELECT count(*) FROM tickets'+where,params).fetchone()[0]
         rows=db.execute('SELECT payload FROM tickets'+where+' ORDER BY updated '+direction+',id LIMIT ? OFFSET ?',
                         (*params,args['limit'],args['offset'])).fetchall()
+        availability={key:bool(db.execute("SELECT EXISTS(SELECT 1 FROM tickets WHERE json_extract(payload,'$.categoryAvailability."+key+"')=1)").fetchone()[0]) for key in ('spam','trash','snoozed')}
     stamp=meta.get('generatedAt') or meta.get('lastPageAt')
     return {'ok':True,'source':'gorgias_api','tickets':[json.loads(row[0]) for row in rows],'total':total,
+            'operatorEmail':OPERATOR_EMAIL,'categoryAvailability':{**availability,'assigned':bool(OPERATOR_EMAIL)},
             'nextOffset':args['offset']+args['limit'] if args['offset']+args['limit']<total else None,
             'projection':{'generatedAt':stamp,'stale':bool(meta.get('error')) or (bool(stamp) and time.time()-epoch(stamp)>120),
                           'syncing':bool(meta.get('syncing')),'complete':bool(meta.get('complete')),'ticketCount':total}}
@@ -407,7 +501,11 @@ def list_tickets(args):
 class Arguments(BaseModel):
     model_config=ConfigDict(extra='forbid')
 class ListArguments(Arguments):
-    view: StrictStr=Field(default='all',pattern=r'^(all|open|closed)$')
+    view: StrictStr=Field(default='all',pattern=r'^(all|open|closed|assigned|unassigned|snoozed|trash|spam)$')
+    priority: StrictStr=Field(default='',pattern=r'^(|critical|high|normal|low)$')
+    assignee: StrictStr=Field(default='',max_length=254)
+    tag: StrictStr=Field(default='',max_length=200)
+    channel: StrictStr=Field(default='',max_length=80)
     query: StrictStr=Field(default='',max_length=500)
     oldest: StrictBool=False
     offset: StrictInt=Field(default=0,ge=0)

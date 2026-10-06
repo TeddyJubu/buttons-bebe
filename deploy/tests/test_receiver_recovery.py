@@ -15,6 +15,11 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).parents[2]
+SHARED_INTAKE_UNITS = (
+    'buttonsbebe-webhook.service',
+    'buttonsbebe-processor.service',
+    'buttonsbebe-gorgias-mcp.service',
+)
 
 @unittest.skipUnless(shutil.which('flock') and shutil.which('sha256sum'), 'Linux deployment toolchain required')
 class ReceiverRecoveryTests(unittest.TestCase):
@@ -31,8 +36,21 @@ class ReceiverRecoveryTests(unittest.TestCase):
         self.write(self.root / 'active.json', json.dumps(['buttonsbebe-webhook']))
         self.write(self.root / 'applied-config', 'approved config')
         config_digest = hashlib.sha256(b'approved config').hexdigest()
-        tree_digest = hashlib.sha256((hashlib.sha256(b'config').hexdigest() + '  ./approved.txt\n').encode()).hexdigest()
-        self.write(self.root / 'approved', f'deploy/systemd {tree_digest}\ndeploy/caddy {tree_digest}\n{self.root}/applied-config {config_digest}\n')
+        self.canonical_units = {
+            name: (ROOT / 'deploy/systemd' / name).read_bytes()
+            for name in SHARED_INTAKE_UNITS
+        }
+        self.unit_paths = {name: self.root / 'units' / name for name in SHARED_INTAKE_UNITS}
+        for name, body in self.canonical_units.items():
+            self.write(self.unit_paths[name], body.decode())
+        systemd_files = {'approved.txt': b'config', **self.canonical_units}
+        tree_digest = hashlib.sha256(''.join(
+            hashlib.sha256(body).hexdigest() + '  ./' + name + '\n'
+            for name, body in sorted(systemd_files.items())
+        ).encode()).hexdigest()
+        caddy_digest = hashlib.sha256((hashlib.sha256(b'config').hexdigest() + '  ./approved.txt\n').encode()).hexdigest()
+        self.write(self.root / 'approved', f'deploy/systemd {tree_digest}\ndeploy/caddy {caddy_digest}\n{self.root}/applied-config {config_digest}\n')
+        self.approve_consumer_units()
         helper = (ROOT / 'deploy/cd/source_release.py').read_text().replace('/var/lib/buttonsbebe-deploy/source-manifest.json', str(self.root / 'manifest.json')).replace('/opt/buttonsbebe/inbox', str(self.root / 'inbox'))
         # Defense in depth: even a missing receiver substitution must never
         # reach a real service tree. Reject every root outside this test's temp.
@@ -42,6 +60,8 @@ class ReceiverRecoveryTests(unittest.TestCase):
     for candidate in (args.live, args.web, args.inbox, args.journal, args.state):
         if not candidate.resolve().is_relative_to(harness_root):
             raise SystemExit('HARNESS refused non-temporary deployment target')
+    with (harness_root / 'helper-calls').open('a') as out:
+        out.write(args.action + '\\n')
     if args.action in {'apply', 'rollback', 'services', 'commit'}:
         check = json.loads((args.journal / 'journal.json').read_text())
         for key in ('live', 'web', 'inbox', 'release'):
@@ -66,6 +86,10 @@ class ReceiverRecoveryTests(unittest.TestCase):
             '/run/lock/buttonsbebe-deploy.lock': str(self.root / 'deploy.lock'),
             '/var/tmp/buttonsbebe-release': str(self.root / 'archive'),
             'readonly readiness_attempts=10': 'readonly readiness_attempts=1'}
+        replacements.update({
+            '/etc/systemd/system/' + name: str(path)
+            for name, path in self.unit_paths.items()
+        })
         for before, after in replacements.items():
             receiver = receiver.replace(before, after)
         for forbidden in ('/root/Buttonsbebe Agent', '/var/www/console', '/opt/buttonsbebe/inbox', '/var/lib/buttonsbebe-deploy'):
@@ -76,6 +100,7 @@ class ReceiverRecoveryTests(unittest.TestCase):
 import json,os,pathlib,sys
 root=pathlib.Path(os.environ['HARNESS_ROOT'])
 state=root/'active.json'; active=set(json.loads(state.read_text())); verb=sys.argv[1]; name=sys.argv[-1]
+with (root/'service-invocations').open('a') as out: out.write(' '.join(sys.argv[1:])+'\\n')
 if verb=='is-active': sys.exit(0 if name in active else 3)
 with (root/'calls').open('a') as out: out.write(verb+' '+name+'\\n')
 if verb=='stop': active.discard(name)
@@ -108,6 +133,7 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
         files.update({'console-src/index.html': b'html', 'console-src/login.html': b'login',
             'deploy/caddy/approved.txt': b'config', 'deploy/systemd/approved.txt': b'config',
             '.buttonsbebe-release.json': json.dumps({'commit': self.sha, 'generation': 1}).encode()})
+        files.update({'deploy/systemd/' + name: body for name, body in self.canonical_units.items()})
         with tarfile.open(fileobj=self.archive, mode='w:gz') as archive:
             for name, body in files.items():
                 info = tarfile.TarInfo(name); info.size = len(body)
@@ -122,6 +148,82 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
     def run_receiver(self):
         return subprocess.run(['bash', str(self.root / 'receiver.sh'), self.sha, hashlib.sha256(self.payload).hexdigest()],
                               input=self.payload, capture_output=True, env=self.env, timeout=20)
+
+    def approve_consumer_units(self):
+        approval = self.root / 'approved'
+        lines = [line for line in approval.read_text().splitlines()
+                 if not any(line.startswith(str(path) + ' ') for path in self.unit_paths.values())]
+        lines.extend(str(path) + ' ' + hashlib.sha256(path.read_bytes()).hexdigest()
+                     for path in self.unit_paths.values())
+        self.write(approval, '\n'.join(lines) + '\n')
+
+    def assert_consumer_guard_refuses_before_prepare(self, expected_error):
+        # Release staging may occur; managed source/data and all service/helper
+        # commands must remain untouched when configuration approval fails.
+        watched = [self.live, self.web, self.root / 'inbox', self.root / 'inbox2',
+                   self.root / 'shared', self.root / 'manifest.json',
+                   self.root / 'active.json', self.root / 'approved', self.root / 'units']
+        def snapshot():
+            result = {}
+            for path in watched:
+                files = path.rglob('*') if path.is_dir() else [path]
+                for candidate in files:
+                    if candidate.is_file():
+                        result[str(candidate)] = (candidate.read_bytes(), candidate.stat().st_mode)
+            return result
+        before = snapshot()
+        result = self.run_receiver()
+        self.assertNotEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(expected_error, result.stderr)
+        self.assertEqual(snapshot(), before)
+        self.assertFalse((self.root / 'helper-calls').exists())
+        self.assertFalse((self.root / 'service-invocations').exists())
+        self.assertFalse((self.root / 'calls').exists())
+        self.assertEqual(list((self.root / 'backups').glob('*/journal.json')), [])
+
+    def remove_consumer_approval(self, *names):
+        approval = self.root / 'approved'
+        lines = approval.read_text().splitlines()
+        self.write(approval, '\n'.join(line for line in lines if not any(
+            line.startswith(str(self.unit_paths[name]) + ' ') for name in names)) + '\n')
+
+    def test_missing_all_shared_intake_unit_fingerprints_refuses_before_prepare(self):
+        self.remove_consumer_approval(*SHARED_INTAKE_UNITS)
+        self.assert_consumer_guard_refuses_before_prepare(b'Shared intake consumer unit applied fingerprints are required')
+
+    def test_missing_webhook_unit_fingerprint_refuses_before_prepare(self):
+        self.remove_consumer_approval('buttonsbebe-webhook.service')
+        self.assert_consumer_guard_refuses_before_prepare(b'Shared intake consumer unit applied fingerprints are required')
+
+    def test_missing_processor_unit_fingerprint_refuses_before_prepare(self):
+        self.remove_consumer_approval('buttonsbebe-processor.service')
+        self.assert_consumer_guard_refuses_before_prepare(b'Shared intake consumer unit applied fingerprints are required')
+
+    def test_missing_gorgias_unit_fingerprint_refuses_before_prepare(self):
+        self.remove_consumer_approval('buttonsbebe-gorgias-mcp.service')
+        self.assert_consumer_guard_refuses_before_prepare(b'Shared intake consumer unit applied fingerprints are required')
+
+    def test_approved_prior_consumer_units_refuse_before_prepare(self):
+        for name, body in self.canonical_units.items():
+            old = body.replace(b'/opt/buttonsbebe/shared:', b'')
+            old = old.replace(b'Environment=PYTHONPATH=/opt/buttonsbebe/shared\n', b'')
+            self.write(self.unit_paths[name], old.decode())
+        self.approve_consumer_units()
+        self.assert_consumer_guard_refuses_before_prepare(b'Shared intake consumer unit differs from reviewed release')
+
+    def test_consumer_unit_drift_refuses_before_prepare(self):
+        path = self.unit_paths['buttonsbebe-processor.service']
+        self.write(path, path.read_text() + '# unapproved change\n')
+        self.assert_consumer_guard_refuses_before_prepare(b'Applied configuration drift')
+
+    def test_each_approved_noncanonical_consumer_refuses_before_prepare(self):
+        for name, body in self.canonical_units.items():
+            with self.subTest(unit=name):
+                self.write(self.unit_paths[name], body.decode() + '# approved host variant\n')
+                self.approve_consumer_units()
+                self.assert_consumer_guard_refuses_before_prepare(
+                    b'Shared intake consumer unit differs from reviewed release')
+                self.write(self.unit_paths[name], body.decode())
 
     def test_failed_readiness_restores_code_not_new_database_work(self):
         result = self.run_receiver()
@@ -143,7 +245,7 @@ sys.exit(22 if (root/'live/webhook/app.py').read_text()=='new code' else 0)
         self.assertEqual(manifest['commit'], self.sha)
         for key, entry in manifest['files'].items():
             prefix, relative = key.split('/', 1)
-            target = {'app': self.live, 'web': self.web, 'inbox': self.root / 'inbox', 'inbox2': self.root / 'inbox2', 'inbox2web': self.web.parent / 'inbox2'}[prefix] / relative
+            target = {'app': self.live, 'web': self.web, 'inbox': self.root / 'inbox', 'inbox2': self.root / 'inbox2', 'inbox2web': self.web.parent / 'inbox2', 'shared': self.root / 'shared'}[prefix] / relative
             self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), entry['sha256'])
             self.assertTrue(target.resolve().is_relative_to(self.root.resolve()))
         self.assertNotIn('app/webhook/data/webhook.db', manifest['files'])

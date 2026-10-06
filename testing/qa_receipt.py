@@ -1,18 +1,31 @@
 from __future__ import annotations
 import argparse
+import ast
+import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import yaml
+from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
+from qa_safety import TOOLS
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SUITES = {"core": ("testing/scenarios.json", 48), "reliability": ("testing/reliability-scenarios.json", 10)}
 VERDICTS = ("PASS", "NEEDS_WORK", "FAIL", "pending")
-RECEIPT_SCHEMA = 3
+RECEIPT_SCHEMA = 4
+APPROVED_INTERPRETER_SHA256 = "8dfa9757a52b9c3edf1dedaaa2a7a8c40ea4beb058f20e90bdd47b48f3b1b176"
+QA_DISABLED_TOOLSETS = frozenset({"terminal", "file", "code_execution", "browser", "computer_use", "web", "memory",
+                                "skills", "cronjob", "delegation", "session_search", "search", "todo"})
+# Production Hermes reads these from ~/.hermes (HERMES_IGNORE_RULES unset). QA seeds exactly these bytes.
+INSTRUCTION_FILES = ("SOUL.md", "skills/buttonsbebe/support-agent/SKILL.md", "skills/buttonsbebe/ticket-processor/SKILL.md")
 SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
+    "intake": ("intake/__init__.py", "intake/message_content.py"),
     "processor": (
         "processor/**/*.py", "processor/**/*.yaml", "processor/**/*.json", "processor/*.sh",
         "processor/pyproject.toml", "processor/uv.lock",
@@ -40,6 +53,7 @@ SOURCE_FINGERPRINT_GROUPS: dict[str, tuple[str, ...]] = {
     ),
 }
 REQUIRED = ("processor/hermes_runner/prompt.py", "processor/draft_cleaner.py", "processor/orchestrator.py",
+            "intake/message_content.py",
             "webhook/src/bb_webhook/app.py", "kb/scripts/search_kb.py",
             "testing/scenarios.json", "testing/reliability-scenarios.json")
 SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS = frozenset({"__pycache__", ".git", ".venv", "venv", "node_modules", "site-packages",
@@ -83,14 +97,15 @@ def source_fingerprint(repo: Path = REPO) -> dict:
     return {"head": head, "dirty": dirty, "files": dict(sorted(files.items())), "sha256": digest(files)}
 
 
-def hermes_identity(executable: Path, source: Path) -> dict:
+def hermes_identity(launch: list[str], source: Path) -> dict:
     source = source.resolve()
     files = {path.relative_to(source).as_posix(): sha256_bytes(path.read_bytes())
              for path in sorted(source.rglob("*.py"))
              if not SOURCE_FINGERPRINT_EXCLUDED_PATH_PARTS.intersection(path.relative_to(source).parts)}
     if not files:
         raise ValueError("Hermes source has no Python files")
-    return {"executable_sha256": sha256_bytes(executable.read_bytes()), "source_sha256": digest(files), "source_files": len(files)}
+    # The launch is the exact interpreter + Hermes runtime_command bootstrap the QA child runs.
+    return {"launch_sha256": digest(launch), "source_sha256": digest(files), "source_files": len(files)}
 
 
 def _safe_url(value: str, *, local: bool = False) -> str:
@@ -118,20 +133,16 @@ def _safe_url(value: str, *, local: bool = False) -> str:
         raise ValueError("QA profile URL must be a credential-free endpoint without query or fragment") from None
 
 
-def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
-    """Read the actual isolated profile, never the original config or auth file.
-
-    Only the supported, nonsecret configuration shape enters the identity.
-    Model API keys are ignored before hashing; unknown configuration fails closed.
-    """
-    if profile.is_symlink() or not profile.is_file() or profile.stat().st_size > 16384:
-        raise ValueError("Invalid isolated QA profile")
+def _profile_settings(config: dict, *, normalized: bool = False) -> dict:
+    """The same safety semantics apply to actual profiles and consumed receipts."""
     try:
-        config = json.loads(profile.read_bytes())
-        if not isinstance(config, dict) or set(config) != {"model", "agent", "memory", "platform_toolsets", "mcp_servers"}:
+        required = {"model", "agent", "memory", "platform_toolsets", "mcp_servers"}
+        if (not isinstance(config, dict) or not required <= set(config) <= required | {"_config_version"}
+                or not _supported_config_version(config)):
             raise ValueError
         model = config["model"]
-        if not isinstance(model, dict) or not set(model) <= {"default", "provider", "base_url", "api_key"}:
+        allowed_model = {"default", "provider", "base_url"} | (set() if normalized else {"api_key"})
+        if not isinstance(model, dict) or not set(model) <= allowed_model:
             raise ValueError
         if any(not isinstance(model.get(key), str) or not model[key].strip() for key in ("default", "provider")):
             raise ValueError
@@ -143,11 +154,12 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
                 or type(agent["max_turns"]) is not int or not 1 <= agent["max_turns"] <= 1000
                 or type(agent["verbose"]) is not bool
                 or not isinstance(agent["disabled_toolsets"], list)
-                or any(not isinstance(name, str) or not name.isidentifier() for name in agent["disabled_toolsets"])):
+                or any(not isinstance(name, str) for name in agent["disabled_toolsets"])
+                or set(agent["disabled_toolsets"]) != QA_DISABLED_TOOLSETS):
             raise ValueError
         memory = config["memory"]
         if (not isinstance(memory, dict) or set(memory) != {"memory_enabled", "user_profile_enabled"}
-                or any(type(value) is not bool for value in memory.values())
+                or any(value is not False for value in memory.values())
                 or config["platform_toolsets"] != {"cli": []}):
             raise ValueError
         servers = config["mcp_servers"]
@@ -157,32 +169,260 @@ def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
         for name, server in servers.items():
             if (not isinstance(server, dict) or set(server) != {"url", "enabled", "connect_timeout", "trust", "tools"}
                     or server["enabled"] is not True or type(server["connect_timeout"]) is not int
+                    or not 1 <= server["connect_timeout"] <= 60
                     or server["trust"] != "untrusted" or not isinstance(server["tools"], dict)
                     or set(server["tools"]) != {"include", "resources", "prompts"}
-                    or any(type(server["tools"][key]) is not bool for key in ("resources", "prompts"))
+                    or any(server["tools"][key] is not True for key in ("resources", "prompts"))
                     or not isinstance(server["tools"]["include"], list)
-                    or any(not isinstance(tool, str) or not tool.isidentifier() for tool in server["tools"]["include"])):
+                    or any(not isinstance(tool, str) for tool in server["tools"]["include"])
+                    or set(server["tools"]["include"]) != TOOLS[name]):
                 raise ValueError
-            safe_servers[name] = {**server, "url": _safe_url(server["url"], local=True),
+            if normalized:
+                if server["url"] != "http://127.0.0.1/mcp":
+                    raise ValueError
+                url = server["url"]
+            else:
+                url = _safe_url(server["url"], local=True)
+            safe_servers[name] = {**server, "url": url,
                                   "tools": {**server["tools"], "include": sorted(set(server["tools"]["include"]))}}
         safe = {"model": safe_model, "agent": {**agent, "disabled_toolsets": sorted(set(agent["disabled_toolsets"]))},
-                "memory": memory, "platform_toolsets": {"cli": []}, "mcp_servers": safe_servers,
-                "interpreter_sha256": sha256_bytes(interpreter.read_bytes())}
-        return {**safe, "sha256": digest(safe)}
+                "memory": memory, "platform_toolsets": {"cli": []}, "mcp_servers": safe_servers}
+        if "_config_version" in config: safe["_config_version"] = config["_config_version"]
+        return safe
     except (KeyError, TypeError, AttributeError, ValueError):
         raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
 
 
+def model_runtime_identity(profile: Path, interpreter: Path) -> dict:
+    """Read actual safe YAML; remove API keys before hashing supported settings."""
+    if profile.is_symlink() or not profile.is_file() or profile.stat().st_size > 16384:
+        raise ValueError("Invalid isolated QA profile")
+    try:
+        safe = _profile_settings(yaml.safe_load(profile.read_text(encoding="utf-8")))
+    except (UnicodeError, yaml.YAMLError):
+        raise ValueError("Unsupported isolated QA model/runtime profile; rerun with a supported configuration") from None
+    safe["interpreter_sha256"] = sha256_bytes(interpreter.read_bytes())
+    return {**safe, "sha256": digest(safe)}
+
+
+def _supported_config_version(config: dict) -> bool:
+    return ("_config_version" not in config or
+            (type(config["_config_version"]) is int and 0 <= config["_config_version"] <= 1000))
+
+
+CONTEXT_FILE_NAMES = frozenset({".hermes.md", "hermes.md", "agents.override.md", "agents.md", "claude.md", ".cursorrules", ".cursor"})
+
+
+def _regular_bytes(base: Path, name: str) -> bytes:
+    """Read base/name, refusing a symlink anywhere below base (O_NOFOLLOW only covers the leaf)."""
+    path = base
+    if base.is_symlink():
+        raise ValueError(f"QA instruction path must not traverse links: {base.name}")
+    for part in Path(name).parts:
+        path = path / part
+        if part in ("..", ".") or path.is_symlink():
+            raise ValueError(f"QA instruction path must not traverse links: {name}")
+    if not path.is_file():
+        raise ValueError(f"QA instruction file must be a regular file: {name}")
+    return path.read_bytes()
+
+
+def seed_instructions(hermes_home: Path, repo: Path = REPO) -> None:
+    if hermes_home.parent.is_symlink():
+        raise ValueError("QA instruction home must not be a link")
+    for name in INSTRUCTION_FILES:
+        data = _regular_bytes(repo / "hermes", name)
+        directory = hermes_home.parent
+        for part in (hermes_home.name, *Path(name).parts[:-1]):
+            directory = directory / part
+            if directory.is_symlink():
+                raise ValueError(f"QA instruction directory must not be a link: {name}")
+            directory.mkdir(exist_ok=True, mode=0o700)
+        with open(os.open(directory / Path(name).name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), "wb") as handle:
+            handle.write(data)
+
+
+def _present(path: Path) -> bool:
+    try:
+        path.lstat()
+        return True
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True  # Unknown counts as present: fail closed.
+
+
+def context_directories(cwd: Path) -> list[Path]:
+    """Directories Hermes project-context discovery reads (agent/prompt_builder.py, fae9e567):
+    every directory from cwd up to the nearest ancestor holding .git, or cwd alone without one."""
+    cwd = cwd.resolve()
+    chain = [cwd, *cwd.parents]
+    root = next((index for index, directory in enumerate(chain) if _present(directory / ".git")), 0)
+    return chain[:root + 1]
+
+
+NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"  # Hermes essential-only opt-out (tools/skills_sync.py).
+
+
+def _skill_tree(root: Path) -> dict:
+    """Regular files under root keyed by relative path; links refused, runtime caches skipped."""
+    files = {}
+    if root.is_symlink():
+        raise ValueError("QA skill tree must not contain links at its root")
+    if not root.is_dir():
+        raise ValueError("QA skill tree root must be a directory")
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_symlink():
+            raise ValueError(f"QA skill tree must not contain links: {relative.as_posix()}")
+        if path.is_file() and "__pycache__" not in relative.parts and path.suffix not in (".pyc", ".pyo"):
+            files[relative.as_posix()] = path.read_bytes()
+    return files
+
+
+def _md5_dir(files: dict) -> str:
+    # Mirrors Hermes tools/skills_sync._dir_hash (manifest origin hash) over the same file set.
+    hasher = hashlib.md5()
+    for name in sorted(files, key=lambda item: Path(item)):
+        hasher.update(str(Path(name)).encode("utf-8"))
+        hasher.update(files[name])
+    return hasher.hexdigest()
+
+
+def _valid_essentials(essentials) -> bool:
+    if not isinstance(essentials, dict) or not essentials:
+        return False
+    for name, relative in essentials.items():
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}",name)
+                or not isinstance(relative, str) or not relative or len(relative)>512 or "\\" in relative):
+            return False
+        parts=Path(relative).parts
+        if (not parts or Path(relative).is_absolute() or Path(relative).as_posix()!=relative
+                or len(parts)>10 or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}",part) for part in parts)):
+            return False
+    return True
+
+
+def _valid_sha256(value) -> bool:
+    return isinstance(value,str) and re.fullmatch(r"[0-9a-f]{64}",value) is not None
+
+
+def essential_expectation(hermes_source: Path, essentials: dict) -> tuple[dict, str]:
+    """Exact bytes Hermes essential-only sync installs from the pinned source: each essential
+    skill, its category DESCRIPTION.md, and the v2 manifest. No full bundled-index parity."""
+    if not _valid_essentials(essentials):
+        raise ValueError("Invalid essential skill locations")
+    bundled = hermes_source.resolve() / "skills"
+    if bundled.is_symlink():
+        raise ValueError("QA essential source must not contain links")
+    expected, manifest = {}, []
+    for name, relative in sorted(essentials.items()):
+        parts = Path(relative).parts
+        _regular_bytes(bundled, f"{relative}/SKILL.md")
+        tree = _skill_tree(bundled / relative)
+        if "SKILL.md" not in tree:
+            raise ValueError(f"Essential skill missing from the pinned source: {name}")
+        expected.update({f"skills/{relative}/{key}": value for key, value in tree.items()})
+        manifest.append(f"{name}:{_md5_dir(tree)}\n")
+        description = bundled / Path(relative).parent / "DESCRIPTION.md"
+        if description.is_symlink():
+            raise ValueError("QA essential source must not contain links")
+        if len(parts) > 1 and description.is_file() and not description.is_symlink():
+            expected[f"skills/{Path(relative).parent.as_posix()}/DESCRIPTION.md"] = description.read_bytes()
+    expected["skills/.bundled_manifest"] = "".join(sorted(manifest)).encode()
+    return expected, digest({key: sha256_bytes(value) for key, value in expected.items()})
+
+
+def instruction_identity(home: Path, essentials: dict, hermes_source: Path, repo: Path = REPO) -> dict:
+    """Hash the instruction bytes Hermes will actually load from the private HOME (also the QA cwd).
+
+    Approved SOUL/skills plus the source-pinned essential skills seeded under the explicit
+    .no-bundled-skills opt-out. Fails closed on missing, modified, linked or extra
+    context/skill/memory files, including approved files.
+    """
+    hermes_home = home / ".hermes"
+    if home.is_symlink() or hermes_home.is_symlink():
+        raise ValueError("QA instruction home must not traverse links")
+    files = {}
+    for name in INSTRUCTION_FILES:
+        data = _regular_bytes(hermes_home, name)
+        if data != _regular_bytes(repo / "hermes", name):
+            raise ValueError(f"QA instruction file differs from the reviewed source: {name}")
+        files[name] = sha256_bytes(data)
+    marker = hermes_home / NO_BUNDLED_SKILLS_MARKER
+    if marker.is_symlink() or not marker.is_file():
+        raise ValueError("QA requires the explicit essential-only skills opt-out marker")
+    expected, source_sha256 = essential_expectation(hermes_source, essentials)
+    essential_keys = sorted(expected)
+    expected.update({name: _regular_bytes(repo / "hermes", name) for name in INSTRUCTION_FILES[1:]})
+    installed = {f"skills/{key}": value for key, value in _skill_tree(hermes_home / "skills").items()}
+    if set(installed) != set(expected):
+        raise ValueError("Unexpected or missing QA skill files")
+    if any(installed[key] != value for key, value in expected.items()):
+        raise ValueError("QA skill file differs from the pinned source")
+    memories = hermes_home / "memories"
+    if memories.is_symlink() or (memories.exists() and
+            (not memories.is_dir() or any(memories.iterdir()))):
+        raise ValueError("QA memory must stay empty")
+    for directory in context_directories(home):
+        found = sorted(entry.name for entry in directory.iterdir() if entry.name.lower() in CONTEXT_FILE_NAMES)
+        if found:
+            raise ValueError(f"Hermes would load project context from {directory}: {', '.join(found)}")
+    essential = {"opt_out_marker": NO_BUNDLED_SKILLS_MARKER, "skills": dict(sorted(essentials.items())),
+                 "source_sha256": source_sha256,
+                 "installed_sha256": digest({key: sha256_bytes(installed[key]) for key in essential_keys})}
+    identity = {"ignore_rules": False, "files": files, "essential_skills": essential}
+    return {**identity, "sha256": digest(identity)}
+
+
+def _require_instructions(bindings: dict) -> None:
+    identity = bindings.get("instructions")
+    source = bindings.get("source", {}).get("files", {})
+    essential = identity.get("essential_skills") if isinstance(identity, dict) else None
+    if (not isinstance(identity, dict) or set(identity) != {"ignore_rules", "files", "essential_skills", "sha256"}
+            or identity["ignore_rules"] is not False or not isinstance(identity["files"], dict)
+            or list(identity["files"]) != list(INSTRUCTION_FILES)
+            or any(not _valid_sha256(value) for value in identity["files"].values())
+            or any(source.get(f"hermes/{name}") != value for name, value in identity["files"].items())
+            or not isinstance(essential, dict)
+            or set(essential) != {"opt_out_marker", "skills", "source_sha256", "installed_sha256"}
+            or essential["opt_out_marker"] != NO_BUNDLED_SKILLS_MARKER
+            or not _valid_essentials(essential["skills"])
+            or not _valid_sha256(essential["source_sha256"])
+            or not _valid_sha256(essential["installed_sha256"])
+            or essential["source_sha256"] != essential["installed_sha256"]
+            or identity["sha256"] != digest({key: value for key, value in identity.items() if key != "sha256"})):
+        raise ValueError("Missing or invalid Hermes instruction parity; rerun QA with the reviewed SOUL, skills and pinned essentials")
+
+
 def _require_model_runtime(bindings: dict) -> None:
+    if not isinstance(bindings, dict):
+        raise ValueError("Missing QA bindings; rerun against the frozen source")
+    source = bindings.get("source")
+    if (not isinstance(source, dict) or not isinstance(source.get("files"), dict)
+            or not source["files"] or any(not isinstance(name, str) or not _valid_sha256(value)
+                                          for name, value in source["files"].items())
+            or source.get("sha256") != digest(source["files"])):
+        raise ValueError("Missing or invalid source file identity; rerun QA against the frozen source")
+    hermes = bindings.get("hermes")
+    if (not isinstance(hermes, dict) or set(hermes) != {"launch_sha256", "source_sha256", "source_files"}
+            or not _valid_sha256(hermes["launch_sha256"])
+            or not _valid_sha256(hermes["source_sha256"])
+            or type(hermes["source_files"]) is not int or not 1 <= hermes["source_files"] <= 100_000):
+        raise ValueError("Missing or invalid Hermes launch/source identity; rerun QA with a pinned runtime")
     identity = bindings.get("model_runtime")
     expected = {"model", "agent", "memory", "platform_toolsets", "mcp_servers", "interpreter_sha256", "sha256"}
-    if (not isinstance(identity, dict) or set(identity) != expected
+    if (not isinstance(identity, dict) or not expected <= set(identity) <= expected | {"_config_version"}
+            or not _supported_config_version(identity)
             or not isinstance(identity["model"], dict)
             or not {"default", "provider"} <= set(identity["model"]) <= {"default", "provider", "base_url"}
             or any(not isinstance(value, str) or not value.strip() for value in identity["model"].values())
-            or not isinstance(identity["interpreter_sha256"], str) or len(identity["interpreter_sha256"]) != 64
+            or not _valid_sha256(identity["interpreter_sha256"])
             or identity.get("sha256") != digest({key: value for key, value in identity.items() if key != "sha256"})):
         raise ValueError("Missing or invalid model/runtime identity; legacy QA evidence must be rerun")
+    _profile_settings({key: value for key, value in identity.items()
+                       if key not in {"sha256", "interpreter_sha256"}}, normalized=True)
+    _require_instructions(bindings)
 
 
 def catalog(suite: str, repo: Path = REPO) -> tuple[str, list[str]]:
@@ -215,34 +455,359 @@ def observed_kb(results: list) -> list:
 
 
 def _single_content(observed, message: str) -> None:
+    if (not isinstance(observed, list) or any(not isinstance(row, (tuple, list)) or len(row) != 3
+            or any(not isinstance(value, str) for value in row) for row in observed)):
+        raise ValueError("Invalid observed KB evidence")
     sections = {}
     for name, heading, value in observed:
         if sections.setdefault((name, heading), value) != value:
             raise ValueError(f"{message}: {name} {heading!r}")
 
 
+# These are reviewed semantic ASTs, not hashes supplied by a run. A production
+# gate/runner change needs an explicit update and review of this acceptance policy.
+_NO_REPLY_SOURCE_AST = {
+    'processor/draft_cleaner.py': '503e0a5d03c1f04aabbcea1d5c977f6c0e72d3f34543e8e467f90144430cf7fc',
+    'processor/hermes_runner/runner.py': 'ef697e7a66f4e7a386b91194a4707367fb3347e991eee9d6820ce17bccfeb8f4',
+    'processor/hermes_runner/constants.py': '518eb959f49fe9e26d4f06814bb9bc346b177737ccee58a0008283bafd087fcf',
+}
+_NO_REPLY_RUNNER_PREFIX_AST = '7260f7debc31d02b775c9f938e4e3807ae7273b91dddac157312b4d2d3922fb8'
+_NO_REPLY_GATE_FUNCTIONS = ('_strip_decoration', '_carries_no_content', 'should_draft')
+_NO_REPLY_GATE_LITERALS = ('_MAX_GATE_SUBJECT', '_MAX_GATE_MESSAGE', '_SAFE_EMOJI', '_INERT_PUNCT')
+_NO_REPLY_GATE_SETS = ('_ACK_ANCHORS', '_ACK_FILLER', '_GRATITUDE_ANCHORS', '_DECISION_ANCHORS')
+_NO_REPLY_GATE_REGEXES = ('_TOKEN_RE', '_EMOTICON_RE', '_HAPPY_EMOTICON_RE', '_SUBJECT_NOISE_RE')
+
+
+def _no_reply_ast_digest(node):
+    # Explicit fields retain empty lists across Python versions; ast.dump's
+    # display formatting is not an identity contract.
+    def normalized(value):
+        if isinstance(value, ast.AST):
+            return {'node': type(value).__name__,
+                    'fields': {key: normalized(item) for key, item in ast.iter_fields(value)}}
+        if isinstance(value, list):
+            return [normalized(item) for item in value]
+        return value
+    return digest(normalized(node))
+
+
+def _reviewed_no_reply_trees(source_bytes):
+    trees = {}
+    for name, approved in _NO_REPLY_SOURCE_AST.items():
+        raw = source_bytes[name]
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= 128 * 1024:
+            raise ValueError('Unsupported no-reply source bounds')
+        tree = ast.parse(raw)
+        if _no_reply_ast_digest(tree) != approved:
+            raise ValueError('Unsupported no-reply source shape; reviewed AST required')
+        trees[name] = tree
+    # This proof binds the exact call arguments and the trusted False branch,
+    # including its template copy and gate-derived reason, before any evaluation.
+    runners = [n for n in trees['processor/hermes_runner/runner.py'].body
+               if isinstance(n, ast.FunctionDef) and n.name == 'process_ticket_with_hermes']
+    if len(runners) != 1:
+        raise ValueError('Ambiguous production runner gate')
+    runner = runners[0]
+    prefix = ast.Module(body=runner.body[1:3], type_ignores=[])
+    if _no_reply_ast_digest(prefix) != _NO_REPLY_RUNNER_PREFIX_AST:
+        raise ValueError('Unsupported production runner gate coupling')
+    return trees
+
+
+def _pure_gate_result(ok, reason=''):
+    if type(ok) is not bool or not isinstance(reason, str):
+        raise ValueError('Invalid pure gate result')
+    return SimpleNamespace(ok=ok, reason=reason)
+
+
+def _pure_no_reply_gate(tree, message, subject):
+    """Evaluate only the reviewed gate slice; imports/top-level code never run."""
+    if not isinstance(message, str) or not isinstance(subject, str):
+        raise ValueError('Catalog gate inputs must be text')
+    assignments = {}
+    functions = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id in assignments:
+                raise ValueError('Ambiguous gate dependency')
+            assignments[node.targets[0].id] = node.value
+        elif isinstance(node, ast.FunctionDef):
+            if node.name in functions:
+                raise ValueError('Ambiguous gate function')
+            functions[node.name] = node
+    env = {'__builtins__': {'str': str, 'len': len, 'all': all, 'any': any},
+           'ShouldDraft': _pure_gate_result}
+    for name in _NO_REPLY_GATE_LITERALS:
+        value = ast.literal_eval(assignments[name])
+        if not isinstance(value, (str, int, tuple)) or type(value) is bool:
+            raise ValueError('Unsupported gate literal')
+        env[name] = value
+    for name in _NO_REPLY_GATE_SETS:
+        call = assignments[name]
+        if (not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name)
+                or call.func.id != 'frozenset' or len(call.args) != 1 or call.keywords):
+            raise ValueError('Unsupported gate set')
+        items = ast.literal_eval(call.args[0])
+        if not isinstance(items, set) or len(items) > 2000 or any(not isinstance(x, str) for x in items):
+            raise ValueError('Unsupported gate set literal')
+        env[name] = frozenset(items)
+    env['_ACK_ALLOWED'] = env['_ACK_ANCHORS'] | env['_ACK_FILLER']
+    # The reviewed AST pins this exact bounded range and literal suffixes. No
+    # generator, chr/range call, or arbitrary initializer from source executes.
+    decoration = assignments['_DECORATION']
+    env['_DECORATION'] = (''.join(chr(c) for c in range(0x1F3FB, 0x1F400))
+                          + ast.literal_eval(decoration.left.right)
+                          + ast.literal_eval(decoration.right))
+    for name in _NO_REPLY_GATE_REGEXES:
+        call = assignments[name]
+        if (not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute)
+                or not isinstance(call.func.value, ast.Name) or call.func.value.id != 're'
+                or call.func.attr != 'compile' or call.keywords or not 1 <= len(call.args) <= 2):
+            raise ValueError('Unsupported gate regex')
+        pattern = ast.literal_eval(call.args[0])
+        if not isinstance(pattern, str) or len(pattern) > 4096:
+            raise ValueError('Unsupported gate regex literal')
+        flags = 0
+        if len(call.args) == 2:
+            flag = call.args[1]
+            if (not isinstance(flag, ast.Attribute) or not isinstance(flag.value, ast.Name)
+                    or flag.value.id != 're' or flag.attr not in ('UNICODE', 'IGNORECASE')):
+                raise ValueError('Unsupported gate regex flags')
+            flags = {'UNICODE': re.UNICODE, 'IGNORECASE': re.IGNORECASE}[flag.attr]
+        env[name] = re.compile(pattern, flags)
+    selected = []
+    for name in _NO_REPLY_GATE_FUNCTIONS:
+        node = copy.deepcopy(functions[name])
+        if node.decorator_list or node.args.kwonlyargs or node.args.vararg or node.args.kwarg:
+            raise ValueError('Unsupported gate function shape')
+        # The complete reviewed AST already pins defaults, annotations and every
+        # call/attribute. Remove annotations so no source type expression runs.
+        node.returns = None
+        for arg in (*node.args.posonlyargs, *node.args.args):
+            arg.annotation = None
+        selected.append(node)
+    code = compile(ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])),
+                   '<reviewed-pure-no-reply-gate>', 'exec', dont_inherit=True)
+    exec(code, env)
+    return env['should_draft'](message, subject)
+
+
+def _deterministic_no_reply(scenario_id, bindings=None, repo: Path = REPO):
+    """Recompute the production gate for an exact catalog case, without Hermes."""
+    try:
+        if not isinstance(scenario_id, str) or not scenario_id:
+            raise ValueError
+        matches = []
+        for name, _ in SUITES.values():
+            raw = (repo / name).read_bytes()
+            for scenario in json.loads(raw):
+                if scenario.get('id') == scenario_id:
+                    matches.append((scenario, name, sha256_bytes(raw)))
+        if len(matches) != 1:
+            raise ValueError
+        scenario, catalog_name, catalog_hash = matches[0]
+        names = ('processor/draft_cleaner.py', 'processor/hermes_runner/constants.py',
+                 'processor/hermes_runner/runner.py')
+        source_bytes = {}
+        for name in names:
+            with (repo / name).open('rb') as stream:
+                source_bytes[name] = stream.read(128 * 1024 + 1)
+            if not 0 < len(source_bytes[name]) <= 128 * 1024:
+                raise ValueError
+        sources = {name: sha256_bytes(raw) for name, raw in source_bytes.items()}
+        sources[catalog_name] = catalog_hash
+        if bindings is not None and any(bindings['source']['files'].get(name) != value
+                                        for name, value in sources.items()):
+            raise ValueError
+        trees = _reviewed_no_reply_trees(source_bytes)
+        gate = _pure_no_reply_gate(trees[names[0]], scenario['message'], scenario['subject'])
+        if gate.ok is not False or not isinstance(gate.reason, str) or not gate.reason:
+            raise ValueError
+        tree = trees[names[1]]
+        templates = [ast.literal_eval(node.value) for node in tree.body
+                     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                     and node.target.id == '_NO_DRAFT_RESULT']
+        if len(templates) != 1 or not isinstance(templates[0], dict):
+            raise ValueError
+        result = {**templates[0], 'reason': 'No draft generated — ' + gate.reason}
+        if (result.get('generation_state') != 'no_reply' or result.get('action') != 'no_draft_needed'
+                or result.get('draft_text') != '' or result.get('no_draft') is not True
+                or any(result.get(k) is not False for k in ('notify_owner', 'gorgias_priority_set', 'note_posted'))):
+            raise ValueError
+        record = {'kind': 'deterministic_no_reply', 'scenario_sha256': digest(scenario),
+                  'source_sha256': digest(sources), 'gate_reason': gate.reason, 'result': result,
+                  'model_called': False, 'child_attempts': 0, 'tool_call_count': 0,
+                  'hermes_output': '', 'process_returncode': None,
+                  'authenticated_verdict': False, 'draft_extraction': None}
+        return scenario, record
+    except (KeyError, TypeError, AttributeError, ValueError, OSError, SyntaxError, RecursionError, MemoryError):
+        raise ValueError('Invalid deterministic no-reply disposition; exact source and catalog gate required') from None
+
+
+def deterministic_no_reply_record(scenario, result, *, model_attempts, tool_calls, repo: Path = REPO):
+    """Only an exact production skip with zero invocation attempts is admissible."""
+    try:
+        expected, record = _deterministic_no_reply(scenario['id'], repo=repo)
+        if (digest(scenario) != digest(expected) or digest(result) != digest(record['result']) or type(model_attempts) is not int
+                or model_attempts != 0 or tool_calls != []):
+            raise ValueError
+        return record
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('No-reply proof requires an exact catalog case and zero model/tool attempts') from None
+
+
+def _require_no_reply_capture(case, bindings, repo):
+    try:
+        scenario, record = _deterministic_no_reply(case['id'], bindings, repo)
+        if (digest(case.get('scenario')) != digest(scenario) or digest(case.get('result')) != digest(record['result'])
+                or case.get('model_called') is not False or case.get('tool_calls') != []
+                or case.get('hermes_output') != '' or case.get('process_returncode', 'missing') is not None
+                or case.get('authenticated_verdict') is not False
+                or case.get('draft_extraction', 'missing') is not None or digest(case.get('execution')) != digest(record)):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('Invalid captured deterministic no-reply case') from None
+
+
+def _execution_identity(case: dict, bindings: dict, repo: Path = REPO) -> dict:
+    """Consume actual per-child evidence; profile/probe hashes cannot replace it."""
+    try:
+        execution = case["execution"]
+        if isinstance(execution, dict) and execution.get('kind') == 'deterministic_no_reply':
+            _, expected = _deterministic_no_reply(case['id'], bindings, repo)
+            if digest(execution) != digest(expected):
+                raise ValueError
+            return {'id': case['id'], **expected}
+        observed = execution["observation"]
+        pin = bindings["model_runtime"]["interpreter_sha256"]
+        helper = bindings["source"]["files"]["processor/hermes_runner/process.py"]
+        if (set(execution) != {"base_launch_sha256", "command_sha256", "observation"}
+                or execution["base_launch_sha256"] != bindings["hermes"]["launch_sha256"]
+                or not _valid_sha256(execution["command_sha256"])
+                or pin != APPROVED_INTERPRETER_SHA256
+                or observed["schema"] != 1 or observed["status"] != "verified_sampled"
+                or observed.get("failure") or observed["reader_kind"] != "linux_proc"
+                or observed["expected_sha256"] != pin
+                or observed["requested_launch_sha256"] != execution["command_sha256"]
+                or observed["helper_sha256_before"] != helper or observed["helper_sha256_after"] != helper
+                or type(observed["pid"]) is not int or observed["pid"] <= 0
+                or type(observed["pid_start_ticks"]) is not int or observed["pid_start_ticks"] <= 0
+                or observed["all_exec_transitions_observed"] is not False
+                or observed["process_exit_observed"] is not True
+                or observed["helper_completed"] is not True
+                or observed["helper_cleanup_completed"] is not True
+                or type(observed["child_returncode"]) is not int
+                or type(observed["helper_returncode"]) is not int
+                or observed["helper_returncode"] != observed["child_returncode"]
+                or observed["final_pid_state"] != "absent_after_helper_reap"
+                or observed["required_effective_role"] != "private_managed_python"
+                or not isinstance(observed.get("selected_python"), str)
+                or not (observed["selected_python"] == "${SELECTED_PYTHON}" or observed["selected_python"].startswith("/"))
+                or len(observed["selected_python"]) > 1024
+                or type(observed["samples"]) is not int or observed["samples"] < 2):
+            raise ValueError
+        images = observed["images"]
+        effective = observed["effective_observed_image"]
+        if (not isinstance(images, list) or not 1 <= len(images) <= 8
+                or type(effective) is not int or not 0 <= effective < len(images)):
+            raise ValueError
+        safe_images = []
+        for image in images:
+            if (image["path_source"] != "/proc/PID/exe" or image["role"] not in {"selected_python", "private_managed_python"}
+                    or image["sha256_before"] != pin or image["sha256_after"] != pin
+                    or any(type(image[key]) is not int or image[key] <= 0 for key in ("inode", "size", "samples"))
+                    or type(image["device"]) is not int or image["device"] < 0
+                    or any(type(image[key + "_after"]) is not int for key in ("device", "inode", "size"))
+                    or any(image[key] != image[key + "_after"] for key in ("device", "inode", "size"))):
+                raise ValueError
+            normalized = image["normalized_path"]
+            if image["role"] == "private_managed_python":
+                if not isinstance(normalized, str) or not re.fullmatch(
+                        r"\$\{QA_HOME\}/\.hermes/tools/python-\d+\.\d+\.\d+(?:\+[-A-Za-z0-9_.]+)?/bin/python3(?:\.\d+)?", normalized):
+                    raise ValueError
+            elif normalized != observed["selected_python"]:
+                raise ValueError
+            safe_image = {key: image[key] for key in ("normalized_path", "role", "device", "inode", "size",
+                          "path_source", "sha256_before", "sha256_after", "device_after", "inode_after", "size_after", "samples")}
+            if image["role"] == "selected_python": safe_image["normalized_path"] = "${SELECTED_PYTHON}"
+            safe_images.append(safe_image)
+        if (images[effective]["role"] != "private_managed_python" or images[effective]["samples"] < 2
+                or observed["samples"] != sum(image["samples"] for image in images)):
+            raise ValueError
+        transitions = observed["observed_transitions"]
+        if (not isinstance(transitions, list) or not 1 <= len(transitions) <= 32
+                or any(not isinstance(item, dict) or set(item) != {"image", "elapsed_seconds"}
+                       or type(item.get("image")) is not int or not 0 <= item["image"] < len(images)
+                       or type(item.get("elapsed_seconds")) not in (int, float) or not 0 <= item["elapsed_seconds"] <= 600
+                       for item in transitions)
+                or transitions[-1]["image"] != effective):
+            raise ValueError
+        safe_observed = {key: observed[key] for key in ("schema", "status", "pid", "pid_start_ticks", "samples",
+            "reader_kind", "required_effective_role", "expected_sha256", "requested_launch_sha256",
+            "helper_sha256_before", "helper_sha256_after", "effective_observed_image", "all_exec_transitions_observed",
+            "process_exit_observed", "helper_completed", "helper_cleanup_completed", "child_returncode", "helper_returncode", "final_pid_state")}
+        safe_observed["selected_python"] = "${SELECTED_PYTHON}"
+        safe_observed.update(images=safe_images, observed_transitions=[
+            {"image": item["image"], "elapsed_seconds": item["elapsed_seconds"]} for item in transitions])
+        return {"id": case["id"], "base_launch_sha256": execution["base_launch_sha256"],
+                "command_sha256": execution["command_sha256"], "observation": safe_observed}
+    except (KeyError, TypeError, AttributeError, ValueError, IndexError):
+        raise ValueError("Missing or invalid actual case execution identity; rerun with Linux child evidence") from None
+
+
+def _require_execution_rows(rows, ids, bindings, repo: Path = REPO):
+    if (not isinstance(rows, list) or len(rows) != len(ids)
+            or [row.get("id") for row in rows if isinstance(row, dict)] != ids):
+        raise ValueError("Execution evidence must cover every captured case in order")
+    # Consumed rows have already had private paths removed; reuse the same validator.
+    canonical = [_execution_identity({"id": row["id"], "execution": {key: value for key, value in row.items() if key != "id"}}, bindings, repo)
+                 for row in rows]
+    if rows != canonical:
+        raise ValueError("Execution evidence must use canonical shareable identities")
+    return canonical
+
+
 def run_receipt(suite, ids, results, before, after, repo: Path = REPO) -> dict:
+    if (not isinstance(suite, str) or suite not in SUITES or not isinstance(ids, (tuple, list))
+            or any(not isinstance(value, str) or not value for value in ids)
+            or not isinstance(results, list) or any(not isinstance(result, dict)
+                or not isinstance(result.get("id"), str) or not result["id"] for result in results)):
+        raise ValueError("Invalid captured QA cases")
     catalog_sha256, all_ids = catalog(suite, repo)
     captured = [result["id"] for result in results]
     _require_model_runtime(before)
     _require_model_runtime(after)
+    for result in results:
+        if isinstance(result.get('execution'), dict) and result['execution'].get('kind') == 'deterministic_no_reply':
+            _require_no_reply_capture(result, before, repo)
+    execution = [_execution_identity(result, before, repo) for result in results]
+    try:
+        kb_observed = observed_kb(results)
+    except (KeyError, TypeError, AttributeError):
+        raise ValueError("Invalid captured KB evidence") from None
     return {"schema": RECEIPT_SCHEMA, "suite": suite, "catalog_sha256": catalog_sha256, "ids": captured,
             "complete": captured == all_ids and list(ids) == all_ids,
-            "bindings": before, "bindings_after_sha256": digest(after), "kb_observed": observed_kb(results)}
+            "bindings": before, "bindings_after_sha256": digest(after), "kb_observed": kb_observed,
+            "execution": execution}
 
 
-def check_run_integrity(run: dict) -> None:
-    if run.get("schema") != RECEIPT_SCHEMA:
-        raise ValueError("Legacy QA run lacks model/runtime evidence; rerun the suites")
-    _require_model_runtime(run["bindings"])
+def check_run_integrity(run: dict, repo: Path = REPO) -> None:
+    if not isinstance(run, dict) or run.get("schema") != RECEIPT_SCHEMA:
+        raise ValueError("Legacy QA run lacks model/runtime and instruction-parity evidence; rerun the suites")
+    if (not isinstance(run.get("suite"), str) or run["suite"] not in SUITES or not isinstance(run.get("ids"), list)
+            or any(not isinstance(value, str) or not value for value in run["ids"])
+            or len(set(run["ids"])) != len(run["ids"])):
+        raise ValueError("Invalid run catalog evidence")
+    _require_model_runtime(run.get("bindings"))
+    _require_execution_rows(run.get("execution"), run["ids"], run["bindings"], repo)
     if digest(run["bindings"]) != run.get("bindings_after_sha256"):
         raise ValueError(f"{run['suite']}: source, Hermes, model/runtime or approved KB snapshot changed during the run")
-    _single_content(run["kb_observed"], f"{run['suite']}: KB content changed during the run")
+    _single_content(run.get("kb_observed"), f"{run['suite']}: KB content changed during the run")
 
 
-def judgment_template(run_path: Path) -> dict:
+def judgment_template(run_path: Path, repo: Path = REPO) -> dict:
     run = json.loads(run_path.read_bytes())
-    check_run_integrity(run)
+    check_run_integrity(run, repo)
     return {"schema": RECEIPT_SCHEMA, "suite": run["suite"], "run_sha256": sha256_bytes(run_path.read_bytes()),
             "verdicts": {scenario_id: "pending" for scenario_id in run["ids"]}, "blocking_defects": []}
 
@@ -251,14 +816,15 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
     raw = run_path.read_bytes()
     run, judgments = json.loads(raw), json.loads(judgments_path.read_bytes())
     catalog_sha256, all_ids = catalog(suite, repo)
-    if (run.get("schema") != RECEIPT_SCHEMA or judgments.get("schema") != RECEIPT_SCHEMA
+    if (not isinstance(run, dict) or not isinstance(judgments, dict)
+            or run.get("schema") != RECEIPT_SCHEMA or judgments.get("schema") != RECEIPT_SCHEMA
             or run.get("suite") != suite or judgments.get("suite") != suite):
-        raise ValueError(f"{suite}: schema 3 model/runtime evidence required; rerun legacy suites")
+        raise ValueError(f"{suite}: schema 4 model/runtime and instruction-parity evidence required; rerun legacy suites")
     if not run.get("complete") or run.get("ids") != all_ids:
         raise ValueError(f"{suite}: partial run; every catalog ID must be captured")
     if run.get("catalog_sha256") != catalog_sha256:
         raise ValueError(f"{suite}: catalog changed since the run")
-    check_run_integrity(run)
+    check_run_integrity(run, repo)
     if judgments.get("run_sha256") != sha256_bytes(raw):
         raise ValueError(f"{suite}: judgments are for a different run")
     verdicts = judgments.get("verdicts")
@@ -268,6 +834,7 @@ def _suite_review(suite: str, run_path: Path, judgments_path: Path, repo: Path) 
     if not isinstance(defects, list):
         raise ValueError(f"{suite}: blocking_defects must be a list")
     summary = {"catalog_sha256": catalog_sha256, "run_sha256": sha256_bytes(raw),
+               "execution": run["execution"], "execution_sha256": digest(run["execution"]),
                "kb_observed_documents": len(run["kb_observed"]), "kb_observed_sha256": digest(run["kb_observed"]),
                "verdicts": {i: verdicts[i] for i in all_ids},
                "counts": {v: list(verdicts.values()).count(v) for v in VERDICTS}}
@@ -278,7 +845,7 @@ def build_receipt(core_run, core_judgments, reliability_run, reliability_judgmen
     core, core_meta, core_defects = _suite_review("core", core_run, core_judgments, repo)
     reliability, rel_meta, rel_defects = _suite_review("reliability", reliability_run, reliability_judgments, repo)
     bindings = core_meta["bindings"]
-    for name, label in (("source", "source"), ("hermes", "Hermes"), ("model_runtime", "model/runtime"),
+    for name, label in (("source", "source"), ("hermes", "Hermes"), ("model_runtime", "model/runtime"), ("instructions", "Hermes instructions"),
                         ("kb_snapshot", "approved KB snapshot")):
         if digest(bindings[name]) != digest(rel_meta["bindings"][name]):
             raise ValueError(f"Core and reliability runs used a different {label}")
@@ -297,18 +864,25 @@ def review_state(receipt: dict) -> dict:
 
 
 def check_receipt(receipt: dict, repo: Path = REPO, *, release: bool = True) -> dict:
-    if receipt.get("schema") != RECEIPT_SCHEMA or set(receipt.get("suites", {})) != set(SUITES):
-        raise ValueError("Schema 3 receipt must cover both suites with model/runtime evidence; rerun legacy suites")
+    if (not isinstance(receipt, dict) or receipt.get("schema") != RECEIPT_SCHEMA
+            or not isinstance(receipt.get("suites"), dict) or set(receipt["suites"]) != set(SUITES)):
+        raise ValueError("Schema 4 receipt must cover both suites with model/runtime and instruction-parity evidence; rerun legacy suites")
     _require_model_runtime(receipt)
+    if type(receipt.get("blocking_defects")) is not int or receipt["blocking_defects"] < 0:
+        raise ValueError("Invalid blocking defect count")
     current = source_fingerprint(repo)
     if receipt["source"]["sha256"] != current["sha256"]:
         raise ValueError("Stale receipt: source content differs from the reviewed run")
     for suite, summary in receipt["suites"].items():
         catalog_sha256, all_ids = catalog(suite, repo)
-        if summary["catalog_sha256"] != catalog_sha256 or list(summary["verdicts"]) != all_ids:
+        if (not isinstance(summary, dict) or summary.get("catalog_sha256") != catalog_sha256
+                or not isinstance(summary.get("verdicts"), dict) or list(summary["verdicts"]) != all_ids):
             raise ValueError(f"{suite}: receipt does not cover the current full catalog")
         if any(v not in VERDICTS for v in summary["verdicts"].values()):
             raise ValueError(f"{suite}: unknown verdict")
+        _require_execution_rows(summary.get("execution"), all_ids, receipt, repo)
+        if summary.get("execution_sha256") != digest(summary["execution"]):
+            raise ValueError(f"{suite}: execution evidence digest differs")
     state = review_state(receipt)
     if receipt.get("review_complete") != state["review_complete"] or receipt.get("release_passed") != state["release_passed"]:
         raise ValueError("Receipt state does not match its verdicts")

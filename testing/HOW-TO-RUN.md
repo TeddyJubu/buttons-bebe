@@ -37,8 +37,7 @@ Start with one scenario, using a new private output directory outside the repo:
 
 ```sh
 /tmp/buttonsbebe-qa-venv/bin/python testing/run_live_tests.py \
-  --hermes /usr/local/lib/hermes-agent/venv/bin/hermes \
-  --hermes-python /usr/local/lib/hermes-agent/venv/bin/python \
+  --hermes-python /root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3 \
   --hermes-source /usr/local/lib/hermes-agent \
   --model-config /private/operator-provided-model.json \
   --output /private/qa-smoke --limit 1 --kb-mode policies-only
@@ -67,6 +66,10 @@ and admits only confirmed policies, FAQ, intents and products with checked-in
 allowlisted paths. Tickets, learned examples and notices are dropped; unexpected
 categories or paths abort. Only selected policy fields reach the model after
 PII masking. The receipt records the mode and tool audit records filtered counts.
+
+Policy snippets saved in private QA audits use best-effort masking for supported
+email, phone, address, token and URL credential patterns. This does not detect
+every possible credential format; review policy inputs and keep audit files private.
 This is current policy grounding, **not full production retrieval equivalence**;
 regex masking is not proof that arbitrary prose contains no personal information.
 
@@ -81,6 +84,19 @@ Inspect all 48, record explicit per-case judgments and unresolved defects, then
 rerun changed cases and the full gate as warranted. No QA result authorizes Send.
 
 ## Review receipts
+
+The identity reads the actual private profile as safe YAML, including Hermes'
+integer configuration migration version when startup adds it. JSON and YAML with
+the same settings have the same identity; a version or supported setting change
+changes the fingerprint. Unknown fields and unsafe YAML tags remain refused.
+The YAML reader is pinned in the QA-only dependency lock and changes no production environment.
+Startup preflight performs no model request. Its supported configuration-version migration
+is recorded before the first case, after checking the requested model, endpoint and all
+safety settings are unchanged. That version remains bound through the final profile read.
+Both profile reading and receipt consumption require memory and user profiles off, the
+exact native-disabled policy, empty CLI toolsets, and exactly the three untrusted, enabled
+loopback MCP groups with their fixed read-only tool allowlists. Recomputing a digest cannot
+make wider permissions acceptable.
 
 Each run writes `run.json`: suite, catalog hash, captured IDs, whether the run
 was complete, and the bindings it ran against. Bindings are working-tree content
@@ -105,15 +121,87 @@ then replace every `pending` with the reviewer's `PASS`, `NEEDS_WORK` or `FAIL`
 and list blocking defects. Combine full core and reliability runs with
 `qa_receipt.py build`. It rejects partial runs, bindings that changed during a
 run, a section whose content changed within or between the runs, core and
-reliability runs with different source, Hermes, model/runtime or approved KB snapshot, and
+reliability runs with different source, Hermes, model/runtime, Hermes instructions or approved KB snapshot, and
 judgments for a different run. The two suites may observe different sections.
 The combined receipt keeps recorded nonsecret identities, hashes, IDs and verdicts; defect text and model
 output stay private.
+Every case that attempts model execution requires Linux evidence from the actual child launched by the
+unchanged production process helper: PID/start identity, sampled executable path and inode,
+approved binary hashes before and after cleanup, and matching child/helper exit codes with
+the child confirmed reaped. The final sampled image must be the private managed Python,
+not merely the initially selected interpreter. Open executable file descriptors preserve
+the image for the post-cleanup hash after the child disappears. Private HOME paths are
+normalized in shareable receipts. Sampling does not prove every brief execution transition;
+the receipt explicitly records this limit. Injected-reader tests and separate startup
+probes cannot supply release evidence for a paid case. Missing evidence stops receipt
+creation, combination or checking; older schema 4 captures without it must be rerun.
+The sole alternative is a typed `deterministic_no_reply` record for an exact catalog
+input that the source-bound production `should_draft` gate refuses. Producer and
+consumer checks recompute the gate and trusted empty result, verify the catalog and
+gate/runner/template hashes, and require zero invocation attempts, tool calls, output,
+drafts, alerts and provider writes. An actionable request or a model-generated no-reply
+verdict still requires the actual child evidence above. All source, instructions,
+profile and KB bindings remain required for either outcome; this is not a waiver for
+failed or missing execution evidence.
+The checker accepts only explicitly reviewed semantic AST shapes for the gate,
+runner and result template. It evaluates bounded literal dependencies and three
+approved pure gate functions, without executing module imports, decorators or
+top-level statements. Its runner-prefix check binds the gate arguments and the
+early-return branch. A production source-shape change requires an explicit renewal
+and review of these acceptance pins before new receipts can pass.
 
-New runs, judgments and combined receipts use schema 3. Older evidence cannot be
-upgraded by copying a model name into it: schema 2 receipts did not record the actual
-profile before and after a run. Rerun both suites and grade the new captures. The
-template, combine and check commands fail closed on older or missing model identity.
+Hermes runs like the production processor: without `--ignore-rules` and without
+`HERMES_IGNORE_RULES`, so it loads its home instructions. The private QA home gets exactly
+three reviewed regular files copied byte for byte from the repo: `hermes/SOUL.md`,
+`hermes/skills/buttonsbebe/support-agent/SKILL.md` and
+`hermes/skills/buttonsbebe/ticket-processor/SKILL.md`, at the same paths under `.hermes/`.
+Nothing comes from a production home, profile, auth file, MCP config or customer data.
+Before and after every scenario, and in the run bindings, the copied bytes are hashed
+and compared with the repo. A missing, changed or linked file or directory fails the run.
+So does any other skill file or a nonempty `memories/`.
+
+Hermes startup also syncs its bundled skills and always keeps the essential ones (the
+system prompt points at `hermes-agent`). QA uses Hermes' own essential-only opt-out: it
+writes `.hermes/.no-bundled-skills`, then runs the pinned source's `sync_skills` through
+the same launcher before the first model call. That installs only the essential skills,
+their category `DESCRIPTION.md` and `.bundled_manifest`, so the startup sync finds nothing
+new. The instruction identity records the opt-out marker, the essential names and
+locations, and separate hashes of the source bytes and the installed bytes. A missing
+marker, a changed essential or approved file, or any extra file fails the run. This
+proves the essential files only. It does not claim parity with production's full skill
+index. The QA home is also Hermes' working
+directory. Hermes reads project context (`.hermes.md`, `HERMES.md`, `AGENTS.md`,
+`AGENTS.override.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/`) from every directory between
+that working directory and the nearest ancestor containing `.git`, or from the working
+directory alone when no ancestor has one. Any such file in that range fails the run.
+Receipts cross-check these hashes against the source fingerprint.
+
+`--hermes-python` selects the initial interpreter. Hermes bootstrap may restart the same
+child into private managed Python; each case must prove that effective executable separately.
+The harness asks the pinned
+`--hermes-source` for its own production launcher (`hermes_cli._launchers.runtime_command`)
+bound to that interpreter, in its production `home=None` form. The private home comes
+only from `HERMES_HOME` in the environment, so every shard gets the same launch command
+and hash. The launcher runs Python with `-I`, clears
+`PYTHONHOME`, `PYTHONPATH` and `VIRTUAL_ENV`, imports `hermes_bootstrap` and runs the
+`hermes_cli.main` module. A source without that launcher stops the run before any model call.
+The preflight probes (metadata, tool bindings and essential seeding) run through the same
+launcher with `code=`, never through a bare `python -c`. The child environment is a fixed
+allow-list; inheriting `TERMINAL_CWD`, `HERMES_IGNORE_RULES`, `HERMES_BUNDLED_SKILLS`,
+`PYTHONPATH` or any variable outside that list stops the run.
+The launch command's hash is recorded in the Hermes identity. Shell wrappers and console
+scripts are never executed.
+Do not start private QA against writable shared Hermes source. Startup can regenerate
+its source-tree launcher with the private interpreter path, affecting production. A reviewed
+filesystem confinement proof must precede startup or model requests; private HOME alone
+does not isolate these source-tree writes. Preserve every interpreter subtree referenced by
+a live launcher until a separately coordinated repair and verification are complete.
+
+New runs, judgments and combined receipts use schema 4. Older evidence cannot be
+upgraded: schema 3 runs used `--ignore-rules` and never gave the model the reviewed
+SOUL or skills, and schema 2 runs did not record the actual profile. Rerun both suites
+and grade the new captures. The template, combine and check commands fail closed on
+older evidence or missing model or instruction identity.
 
 `qa_receipt.py check <receipt>` recomputes the state against the current
 checkout. It rejects stale sources, pending verdicts, `NEEDS_WORK`, `FAIL` and
@@ -130,7 +218,13 @@ verdict.
 
 Output directories contain a private model credential copy; never attach, commit,
 or publish the directory wholesale. Share only reviewed results/receipts after
-secret and PII checks. Remove the private HOME once evidence review is complete.
+secret and PII checks. Before removing a private HOME, inspect the production
+Hermes launcher and interpreter paths. A production interpreter can reside in
+a QA tools directory even when the launcher uses the production Hermes profile.
+Preserve any such interpreter subtree until a separate, verified move to a
+durable runtime is complete. Remove only QA-owned credential and evidence files
+whose paths are not production runtime dependencies; never delete the whole
+HOME based on its directory name.
 Historical `results-live.json`, `results-sim.json`, and LIVE-RUN-JUDGMENT.md are
 archived evidence from earlier behavior, not proof of the current release.
 

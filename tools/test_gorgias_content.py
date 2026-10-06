@@ -2,6 +2,38 @@ import unittest
 from tools.gorgias_content import curate_message,curate_messages,curate_ticket
 
 class GorgiasContentTests(unittest.TestCase):
+    def test_customer_ask_and_original_survive_canonical_cleanup(self):
+        for field, source, expected in (
+            ('body_text', 'Sent from my warehouse on Monday; why is the order still missing?',
+             'Sent from my warehouse on Monday; why is the order still missing?'),
+            ('body_html', '<blockquote>Old reply</blockquote>My package is missing.',
+             'My package is missing.'),
+        ):
+            with self.subTest(field=field):
+                raw = {'id': 123, field: source}
+                result = curate_messages({'data': [raw]})['data'][0]
+                self.assertEqual(result['current_text'], expected)
+                self.assertEqual(result['original_content'], source)
+                self.assertEqual(result['preferred_content'], source)
+                self.assertEqual(result[field], source)
+                self.assertFalse(result['content_unavailable'])
+                self.assertNotIn('current_text', raw)
+
+    def test_ticket_excerpt_is_cleaned_even_without_embedded_messages(self):
+        excerpt='<p>New activity অর্ডার #10330001 🙏</p><div style="display:none">HIDDEN-NEW</div>'
+        for extra in ({},{'messages':[{'id':8,'body_text':'Customer message'}]}):
+            with self.subTest(extra=bool(extra)):
+                source={'id':7,'excerpt':excerpt,**extra}
+                result=curate_ticket(source)
+                self.assertEqual(result['excerpt'],'New activity অর্ডার #10330001 🙏')
+                self.assertEqual(result['display_text'],result['excerpt'])
+                self.assertEqual(result['original_content'],excerpt)
+                self.assertEqual(result['original_field'],'excerpt')
+                self.assertTrue(result['source_truncated'])
+                self.assertEqual(result['cleanup_version'],'intake-1')
+                self.assertEqual(source['excerpt'],excerpt)
+                if extra:self.assertEqual(result['messages'][0]['display_text'],'Customer message')
+
     def test_retained_content_selected_and_original_metadata_preserved(self):
         message={'id':123,'body_text':None,'body_html':None,'stripped_text':'Retained reply','headers':None,'body_url':'https://archive.example/private'}
         result=curate_messages({'data':[message]})['data'][0]
@@ -14,3 +46,37 @@ class GorgiasContentTests(unittest.TestCase):
         result=curate_ticket({'messages':[{'stripped_html':'<p>Retained</p>','body_text':'Old thread'}]})
         self.assertEqual(result['messages'][0]['preferred_content_field'],'stripped_html')
         self.assertTrue(curate_message({'body_text':None,'headers':None,'body_url':'http://127.0.0.1/private'})['content_unavailable'])
+
+    def test_preferred_hint_stays_raw_while_derived_fields_are_clean(self):
+        from tools.gorgias_content import curate_summaries
+        raw_html = '<p>Retained</p><div style="display:none">secret</div>'
+        message = {'id': 99, 'stripped_html': raw_html, 'body_text': 'Old thread', 'body_url': 'http://127.0.0.1/private'}
+        result = curate_message(message)
+        self.assertEqual(result['id'], 99)
+        self.assertEqual(result['preferred_content'], raw_html)
+        self.assertEqual(result['preferred_content_field'], 'stripped_html')
+        self.assertEqual(result['body_url'], 'http://127.0.0.1/private')
+        self.assertEqual(result['current_text'], 'Retained')
+        self.assertEqual(result['current_source'], 'stripped_html')
+        self.assertEqual(result['display_text'], 'Old thread')
+        self.assertEqual(result['display_source'], 'body_text')
+        self.assertEqual(result['original_content'], 'Old thread')
+        self.assertEqual(result['original_field'], 'body_text')
+        self.assertTrue(result['history_available'])
+        self.assertFalse(result['source_truncated'])
+        self.assertEqual(result['cleanup_version'], 'intake-1')
+        self.assertNotIn('secret', result['current_text'])
+        self.assertNotIn('preferred_content', message)
+        page = curate_summaries({'data': [{
+            'id': 7,
+            'excerpt': '<p>Hello</p> https://fonts.gstatic.com/s/a.woff2',
+        }]})
+        row = page['data'][0]
+        self.assertEqual(row['id'], 7)
+        self.assertEqual(row['excerpt'], 'Hello')
+        self.assertNotIn('woff', row['excerpt'])
+        self.assertEqual(row['original_content'], '<p>Hello</p> https://fonts.gstatic.com/s/a.woff2')
+        self.assertEqual(row['original_field'], 'excerpt')
+        self.assertTrue(row['source_truncated'])
+        self.assertFalse(row['history_available'])
+        self.assertEqual(row['cleanup_version'], 'intake-1')

@@ -77,16 +77,26 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    Authentication, invalid output and safety rejection require staff review.
    See docs/AI-REPLY-RELIABILITY.md for migrations and release checks.
 5. Jobs, results, alerts, and learning actions are all logged.
-6. The active Inbox displays observed status, priority and assignee without
-   edit controls. Rename is unavailable. Opening a ticket saves a browser-only
-   read marker under `bb-inbox-read-v1`; it never marks the ticket read in Gorgias.
-   Any future first-party overrides remain local. A provider-side status,
-   priority, assignment, rename or read-state write requires the owner's explicit
-   authorization and an audit trail.
-7. Ticket creation is unavailable in the active Inbox. The older local-ticket
-   prototype is historical. A future local-only ticket must remain browser-local
-   and notify nobody. Real Gorgias creation requires authorization for that exact
-   write. A customer reply still requires human review and confirmation under (3).
+6. The active Inbox displays observed Gorgias status, priority and assignee separately
+   from owner-approved browser-only title, status, priority, assignment, snooze and
+   read/unread controls (approved 2026-10-05). Rename and bulk organization save
+   only local browser records; Reset removes those overrides. Opening a ticket
+   saves a browser read marker under `bb-inbox-read-v1`; it never marks the ticket
+   read in Gorgias. Edited provider tickets keep bounded, allowlisted last-observed
+   summaries for browser view membership. These saved observations are labelled,
+   preserve provider totals separately, and never authorize a draft or send.
+   Opening a provider ticket calls the provider-facing read API rather than
+   trusting a browser observation. The API can use its 15-second detail cache;
+   a newer synced summary, a cache miss or expiry requires a provider refresh.
+   Mixed older/unknown and newer observation clocks retain the previous browser
+   summary until a fully nonregressing observation arrives. A
+   provider-side status, priority, assignment, rename or read-state write still
+   requires the owner's explicit authorization and an audit trail.
+7. Owner-approved New ticket creates a private browser-only `local:<UUID>` ticket
+   (approved 2026-10-05). It notifies nobody, never creates a Gorgias ticket, never
+   looks up provider customer data, and cannot send a customer reply. Real Gorgias
+   creation requires authorization for that exact write. Replies on real provider
+   tickets still require human review and confirmation under (3).
 
 ## 3. Where it runs
 
@@ -369,5 +379,10 @@ as current work.
 - Surge CLI is installed globally on this VPS (`surge` on PATH); publish a folder that contains `index.html`.
 - The historical Inbox1 projection captured allowlisted ticket state from webhook
   `raw_payload`; its Assigned to me operator setting is retired. The active Inbox
-  reads observed state through the read-only Gorgias MCP and offers All, Open and
-  Closed views. Never invent ticket state or an assignee.
+  reads observed state through the read-only Gorgias MCP and offers All, Open,
+  Closed, Assigned to me, Unassigned, Snoozed, Trash and Spam views. Missing source
+  fields remain unavailable. Assigned to me is intentionally unavailable until the
+  owner chooses an operator email; do not configure one without that instruction.
+  Browser organization is separately labelled and uses saved observations plus
+  local overrides; provider totals remain observed totals. Never invent provider
+  ticket state or an assignee.

@@ -14,7 +14,7 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(10000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 let mode='loading',reads=0;
-const base={id:'gorgias:123',subject:'Order 10312345',customerName:'Example Customer',fromEmail:'person@example.com',status:'open',messages:[{id:'m',body:'Please check my order.',at:new Date().toISOString()}]};
+const base={id:'gorgias:123',subject:'Order 10312345',customerName:'Example Customer',fromEmail:'person@example.com',status:'open',messages:[{id:'m',display_text:'Please check my order.',current_text:'Please check my order.',original_content:'Please check my order.',original_field:'body_text',history_available:true,body:'Please check my order.',at:new Date().toISOString()}]};
 const found={payloadVersion:2,status:'found',
  customer:{displayName:'Example Customer',numberOfOrders:null,amountSpent:null},
  order:{id:'o',name:'#10312345',currentTotalPriceSet:{shopMoney:{amount:'0.00',currencyCode:'CAD'}},

@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from .message_content import message_text as retained_message_text
+from .message_content import normalize_message
 from .config import get_settings
 from .logging_utils import get_logger, log_event
 from .message_times import normalize_timestamp as _normalize_timestamp
@@ -418,9 +418,12 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         # the older ticket time would leave a previous draft eligible to send.
 
     # ── Message text ───────────────────────────────────────
+    # message_text stays the current AI input. intake carries display history.
     message_text = None
+    intake = None
     if message:
-        message_text = retained_message_text(message)
+        intake = normalize_message(message)
+        message_text = intake["current_text"]
 
     ticket_subject = ticket.get("subject") if ticket else None
 
@@ -482,6 +485,7 @@ def parse_event(raw_body: bytes) -> dict[str, Any] | None:
         "customer_email": customer_email,
         "intents": intents,
         "is_customer_message": is_customer_message,
+        "intake": intake,
         "raw": payload,
     }
 
