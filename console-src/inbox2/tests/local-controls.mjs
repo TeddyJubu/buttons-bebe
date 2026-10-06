@@ -97,7 +97,7 @@ await page.route('**/inbox/api/helpdesk',async route=>{
   }
   const matches=!(payload.arguments.view==='closed'&&t.status!=='closed'||payload.arguments.view==='open'&&t.status!=='open');
   const tickets=matches?(payload.arguments.offset?[{...t,id:'gorgias:124'}]:[t]):[];
-  const result=listEnvelope({tickets,total:matches?(listPages?2:1):0,nextOffset:matches&&listPages&&!payload.arguments.offset?9:null,operatorEmail:'support@example.invalid',categoryAvailability:{assigned:true,snoozed:true,spam:true,trash:true}});
+  const result=listEnvelope({tickets,total:matches?(listPages?2:1):0,nextOffset:matches&&listPages&&!payload.arguments.offset?25:null,operatorEmail:'support@example.invalid',categoryAvailability:{assigned:true,snoozed:true,spam:true,trash:true}});
   await route.fulfill({json:result});
 });
 async function checkLocalSnoozedAccess(){
@@ -172,14 +172,14 @@ async function checkLocalSnoozedAccess(){
       assert.equal(await snoozed.isDisabled(),true,`${name}: resetting the last local override removes local Snoozed access`);
     }else if(filtersAndPages){
       const ids=()=>p.locator('.ticket-row').evaluateAll(nodes=>nodes.map(node=>node.dataset.ticket));
-      await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:510');
-      assert.deepEqual(await ids(),['gorgias:510','gorgias:511','gorgias:512']);
-      await p.locator('[data-select-ticket="gorgias:510"]').check();await p.locator('.view-menu>summary').click();await snoozed.click();
+      await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:526');
+      assert.deepEqual(await ids(),['gorgias:526','gorgias:527','gorgias:528']);
+      await p.locator('[data-select-ticket="gorgias:526"]').check();await p.locator('.view-menu>summary').click();await snoozed.click();
       await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed'&&document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:501');
-      assert.deepEqual(await ids(),['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509'],'view click resets page to the first local page');
+      assert.deepEqual(await ids(),['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509','gorgias:510','gorgias:511','gorgias:512','gorgias:513','gorgias:514','gorgias:515','gorgias:516','gorgias:517','gorgias:518','gorgias:519','gorgias:520','gorgias:521','gorgias:522','gorgias:523','gorgias:524','gorgias:525'],'view click resets page to the first local page');
       assert.equal(await p.locator('#selection-count').textContent(),'0 selected on this page','view click clears selection');
-      assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 9 browser rows shown of 12 matching'));
-      await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:510');assert.deepEqual(await ids(),['gorgias:510','gorgias:511','gorgias:512']);
+      assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 25 browser rows shown of 28 matching'));
+      await p.locator('[data-action="page-next"]').click();await p.waitForFunction(()=>document.querySelector('.ticket-row')?.dataset.ticket==='gorgias:526');assert.deepEqual(await ids(),['gorgias:526','gorgias:527','gorgias:528']);
       await p.locator('#search').fill('no saved snoozed item matches this');await p.waitForFunction(()=>new URLSearchParams(location.search).get('q')==='no saved snoozed item matches this'&&!document.querySelector('.ticket-row'));
       assert.equal(await snoozed.isDisabled(),false,`${name}: query and current page do not control Snoozed availability`);
       await p.locator('.list-filters summary').click();await p.locator('[data-filter="priority"]').selectOption('low');await p.waitForFunction(()=>!document.querySelector('.ticket-row'));
@@ -188,8 +188,8 @@ async function checkLocalSnoozedAccess(){
       await p.waitForFunction(()=>!new URLSearchParams(location.search).get('q'));
       failSnoozed=failRefresh;await p.locator('[data-action="refresh"]').click();
       if(failRefresh){await p.waitForFunction(()=>document.querySelector('#refresh span')?.textContent.includes('Sync delayed · Retry'));
-        assert.equal(await snoozed.isDisabled(),false);assert.deepEqual((await ids()).length?await ids():[],['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509']);
-        assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 9 browser rows shown of 12 matching'));
+        assert.equal(await snoozed.isDisabled(),false);assert.deepEqual((await ids()).length?await ids():[],['gorgias:501','gorgias:502','gorgias:503','gorgias:504','gorgias:505','gorgias:506','gorgias:507','gorgias:508','gorgias:509','gorgias:510','gorgias:511','gorgias:512','gorgias:513','gorgias:514','gorgias:515','gorgias:516','gorgias:517','gorgias:518','gorgias:519','gorgias:520','gorgias:521','gorgias:522','gorgias:523','gorgias:524','gorgias:525']);
+        assert((await p.locator('#count').textContent()).includes('0 of 0 loaded Gorgias shown · 0 total · 25 browser rows shown of 28 matching'));
         assert(await p.locator('#sync-status').evaluate(el=>el.classList.contains('sync-delayed')),'provider failure must retain delayed-refresh status');}
     }else if(hasLocalSnooze&&!providerAvailable){
       await p.locator('.view-menu>summary').click();await snoozed.click();await p.waitForFunction(()=>new URLSearchParams(location.search).get('view')==='snoozed');
@@ -214,7 +214,7 @@ async function checkLocalSnoozedAccess(){
   await run({name:'absent observed snooze record',includeSnooze:false});
   await run({name:'orphan snooze without observed summary',orphan:true});
   await run({name:'reset last observed snooze',reset:true});
-  await run({name:'provider view counts, pagination, filters and failed refresh',count:12,availability:{available:false,reason:'Gorgias omitted snooze_datetime'},filtersAndPages:true,failRefresh:true});
+  await run({name:'provider view counts, pagination, filters and failed refresh',count:28,availability:{available:false,reason:'Gorgias omitted snooze_datetime'},filtersAndPages:true,failRefresh:true});
   await run({name:'provider-available Snoozed',kind:'none',value:'',providerAvailable:true});
   await probe.close();
 }

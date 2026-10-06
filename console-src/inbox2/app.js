@@ -63,7 +63,7 @@ function arrayStore(key) {const v=stored(key,[]);return Array.isArray(v)?v:[];}
 let toastTimer;
 function toast(message) {$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6000);}
 let params = new URLSearchParams(location.search);
-const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['assigned','unassigned','all','open','snoozed','closed','trash','spam'].includes(params.get('view'))?params.get('view'):'all',page:0,size:9,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',operator:'',filters:{priority:'',assignee:'',tag:'',channel:''},selected:new Set(),categoryAvailability:{},ticketRequest:0,listRequest:0,olderRequest:0};
+const state = {rows:[],ticket:null,id:params.get('ticket')||'',query:params.get('q')||'',view:['assigned','unassigned','all','open','snoozed','closed','trash','spam'].includes(params.get('view'))?params.get('view'):'all',page:0,size:25,total:0,hasNext:false,oldest:false,loading:true,error:'',projection:null,tab:'conversation',operator:'',filters:{priority:'',assignee:'',tag:'',channel:''},selected:new Set(),categoryAvailability:{},ticketRequest:0,listRequest:0,olderRequest:0};
 $('#search').value=state.query;
 // Manual send authority lives only in this page's memory. Never persist a grant.
 const sendAccess={token:'',expiresAt:0,busy:false,timer:null};
