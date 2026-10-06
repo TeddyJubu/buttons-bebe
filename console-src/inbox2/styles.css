@@ -2208,3 +2208,15 @@ dialog textarea {
 .ticket-row.is-read .row-name { font-weight:500; }
 .ticket-row.is-read:not([aria-current]) .row-name,.ticket-row.is-read:not([aria-current]) .row-subject { color:var(--ink2); }
 .ticket-row.is-unread .row-subject { font-weight:600; }
+
+/* List footer: one row — refresh, range, pagination. Full sync/count text stays for screen readers and the refresh tooltip. */
+.list-footer { padding:6px 12px; }
+.list-footer>div { display:flex; align-items:center; gap:8px; margin:0; }
+.list-footer #refresh { display:flex; align-items:center; color:var(--muted); border:1px solid var(--line); background:var(--surface); flex:0 0 auto; width:32px; height:32px; padding:0; margin:0; justify-content:center; border-radius:6px; }
+.list-footer #refresh span:not([data-icon]) { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+.list-footer #refresh.sync-delayed { color:var(--amber); }
+#count-short { flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; color:var(--ink2); }
+.list-footer .pagination { flex:0 0 auto; }
+.list-footer .pagination .icon-button { width:32px; height:32px; }
+.list-footer .sync-status:not(.sync-delayed) { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+.list-footer .sync-status.sync-delayed { margin:4px 0 0; font-size:11px; }

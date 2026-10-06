@@ -231,12 +231,14 @@ function listRender() {
   const providerShown=rows.filter(t=>!t.localOnly&&!t.browserOverride).length,localShown=rows.filter(t=>t.localOnly||t.browserOverride).length;
   const count=state.loading&&!rows.length?'Loading tickets…':`Page ${state.page+1} · ${providerShown} of ${state.rows.length} loaded Gorgias shown · ${state.total.toLocaleString()} total`;
   $('#count').textContent=`${count}${organizationRows().length?' · '+localShown+' browser rows shown of '+matchingLocalRows().length+' matching':''}`;
+  const first=state.page*state.size;$('#count-short').textContent=state.loading&&!rows.length?'Loading…':rows.length?`${(first+1).toLocaleString()}–${(first+rows.length).toLocaleString()} of ${Math.max(state.total,first+rows.length).toLocaleString()}`:'No tickets';
   $('[data-action="page-prev"]').disabled=state.page===0;
   $('[data-action="page-next"]').disabled=!state.hasNext;
   for(const button of document.querySelectorAll('[data-view]'))button.setAttribute('aria-pressed',String(button.dataset.view===state.view));
   $('#sort-button').innerHTML=`${state.oldest?'Oldest':'Newest'} first ${icon('sort')}`;
   $('#window-label').textContent=`Gorgias · ${canSend()?'Read & write':'Read only'}`;
   $('#refresh span').textContent=state.error||state.projection?.stale?'Sync delayed · Retry':state.projection&&!state.projection.complete?'Syncing ticket history…':state.projection?.generatedAt?`Synced ${date(state.projection.generatedAt)}`:'Connecting to Gorgias…';
+  $('#refresh').title=$('#refresh').ariaLabel=$('#refresh span').textContent;$('#refresh').classList.toggle('sync-delayed', Boolean(state.error || state.projection?.stale));
   $('#sync-status').classList.toggle('sync-delayed', Boolean(state.error || state.projection?.stale));
   $('#sync-status').textContent=state.projection?.stale?'Gorgias refresh is delayed. Showing the last successful sync.':state.projection&&!state.projection.complete?'Importing ticket history. Search and counts will expand as tickets arrive.':'Refreshes automatically every 30 seconds.';
   if(state.ticket) updateTicketNavigation();
