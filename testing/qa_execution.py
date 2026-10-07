@@ -260,51 +260,51 @@ class _Observer:
             while not self.stop_event.is_set():
                 try:
                     image = self.reader.open_image(self.pid)
+                    owned = True
+                    try:
+                        if image.process_start != self.start_time:
+                            raise _Failure("pid_identity_changed")
+                        role, normalized = _path_role(image.path, self.selected, self.home)
+                        inode = (image.device, image.inode)
+                        old_inode = self.path_inodes.get(image.path)
+                        if old_inode is not None and inode != old_inode:
+                            raise _Failure("image_inode_changed")
+                        self.path_inodes[image.path] = inode
+                        index = next((i for i, (saved, _) in enumerate(self.images)
+                                      if saved.path == image.path and (saved.device, saved.inode) == inode), None)
+                        if index is None:
+                            if len(self.images) >= self.max_images:
+                                raise _Failure("image_history_limit")
+                            before = _hash_fd(image.fd, self.max_bytes, self.stop_event)
+                            if before != self.evidence["expected_sha256"]:
+                                raise _Failure("unapproved_binary_hash")
+                            if not self.reader.confirm_image(self.pid, image):
+                                raise _Failure("image_capture_race")
+                            index = len(self.images)
+                            row = {"path": image.path, "normalized_path": normalized, "role": role,
+                                   "device": image.device, "inode": image.inode, "size": image.size,
+                                   "path_source": "/proc/PID/exe" if self.evidence["reader_kind"] == "linux_proc" else "injected",
+                                   "sha256_before": before, "sha256_after": None, "samples": 0}
+                            self.images.append((image, row))
+                            self.evidence["images"].append(row)
+                            owned = False
+                        if index != self.last_index:
+                            if len(self.evidence["observed_transitions"]) >= 32:
+                                raise _Failure("transition_history_limit")
+                            self.evidence["observed_transitions"].append(
+                                {"image": index, "elapsed_seconds": round(time.monotonic() - began, 6)})
+                            self.last_consecutive = 0
+                        self.last_index = index
+                        self.last_consecutive += 1
+                        self.images[index][1]["samples"] += 1
+                        self.evidence["samples"] += 1
+                    finally:
+                        if owned:
+                            image.close()
                 except ThreadGroupAlive:
-                    # The exited leader exposes no image, but a sibling may still exec.
-                    self.stop_event.wait(self.interval)
-                    continue
-                owned = True
-                try:
-                    if image.process_start != self.start_time:
-                        raise _Failure("pid_identity_changed")
-                    role, normalized = _path_role(image.path, self.selected, self.home)
-                    inode = (image.device, image.inode)
-                    old_inode = self.path_inodes.get(image.path)
-                    if old_inode is not None and inode != old_inode:
-                        raise _Failure("image_inode_changed")
-                    self.path_inodes[image.path] = inode
-                    index = next((i for i, (saved, _) in enumerate(self.images)
-                                  if saved.path == image.path and (saved.device, saved.inode) == inode), None)
-                    if index is None:
-                        if len(self.images) >= self.max_images:
-                            raise _Failure("image_history_limit")
-                        before = _hash_fd(image.fd, self.max_bytes, self.stop_event)
-                        if before != self.evidence["expected_sha256"]:
-                            raise _Failure("unapproved_binary_hash")
-                        if not self.reader.confirm_image(self.pid, image):
-                            raise _Failure("image_capture_race")
-                        index = len(self.images)
-                        row = {"path": image.path, "normalized_path": normalized, "role": role,
-                               "device": image.device, "inode": image.inode, "size": image.size,
-                               "path_source": "/proc/PID/exe" if self.evidence["reader_kind"] == "linux_proc" else "injected",
-                               "sha256_before": before, "sha256_after": None, "samples": 0}
-                        self.images.append((image, row))
-                        self.evidence["images"].append(row)
-                        owned = False
-                    if index != self.last_index:
-                        if len(self.evidence["observed_transitions"]) >= 32:
-                            raise _Failure("transition_history_limit")
-                        self.evidence["observed_transitions"].append(
-                            {"image": index, "elapsed_seconds": round(time.monotonic() - began, 6)})
-                        self.last_consecutive = 0
-                    self.last_index = index
-                    self.last_consecutive += 1
-                    self.images[index][1]["samples"] += 1
-                    self.evidence["samples"] += 1
-                finally:
-                    if owned:
-                        image.close()
+                    # From open_image or the post-hash confirm: the exited leader exposes
+                    # no image, but a sibling may still exec. The finally closed any image.
+                    pass
                 self.stop_event.wait(self.interval)
         except ProcessExited:
             self.evidence["process_exit_observed"] = True

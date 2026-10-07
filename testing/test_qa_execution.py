@@ -416,18 +416,29 @@ class ExecutionTests(unittest.TestCase):
 
     def test_leader_only_exit_keeps_observing_sibling_exec(self):
         # A surviving sibling may exec after the leader exits; sampling must continue to see it.
-        for later, failure in ((str(self.binary), None), ("/usr/bin/sleep", "unapproved_image_path")):
-            with self.subTest(later=later):
-                reader = Reader([(self.binary, str(self.binary)), (self.binary, str(self.binary)),
-                                 execution.ThreadGroupAlive(), (self.binary, later)])
-                if failure is None:
-                    _, evidence = self.run_case(reader)
-                    self.assertEqual(evidence["status"], "verified_sampled")
-                else:
-                    with self.assertRaises(execution.ExecutionObservationError) as raised:
-                        self.run_case(reader)
-                    self.assertEqual(raised.exception.execution_evidence["failure"], failure)
-                self.assert_closed(reader)
+        class ConfirmSeesLeaderExitOnce(Reader):
+            def confirm_image(self, pid, image):
+                if not getattr(self, "raised", False):
+                    self.raised = True
+                    raise execution.ThreadGroupAlive()
+                return self.alive
+        def from_open(later):
+            return Reader([(self.binary, str(self.binary)), (self.binary, str(self.binary)),
+                           execution.ThreadGroupAlive(), (self.binary, later)])
+        def from_post_hash_confirm(later):
+            return ConfirmSeesLeaderExitOnce([(self.binary, str(self.binary)), (self.binary, later)])
+        for site in (from_open, from_post_hash_confirm):
+            for later, failure in ((str(self.binary), None), ("/usr/bin/sleep", "unapproved_image_path")):
+                with self.subTest(site=site.__name__, later=later):
+                    reader = site(later)
+                    if failure is None:
+                        _, evidence = self.run_case(reader)
+                        self.assertEqual(evidence["status"], "verified_sampled")
+                    else:
+                        with self.assertRaises(execution.ExecutionObservationError) as raised:
+                            self.run_case(reader)
+                        self.assertEqual(raised.exception.execution_evidence["failure"], failure)
+                    self.assert_closed(reader)
 
     def test_approved_production_hash_is_accepted_as_an_explicit_pin(self):
         approved = "8dfa9757a52b9c3edf1dedaaa2a7a8c40ea4beb058f20e90bdd47b48f3b1b176"
