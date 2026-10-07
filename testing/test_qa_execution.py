@@ -36,8 +36,8 @@ class Reader:
         self.fds = []
         self.final = final
         # Like /proc/PID/exe, an image stays readable after its path is unlinked.
-        self.pins = {row[0]: os.open(row[0], os.O_RDONLY) for row in rows
-                     if not isinstance(row, BaseException)}
+        backings = {row[0] for row in rows if not isinstance(row, BaseException)}
+        self.pins = {backing: os.open(backing, os.O_RDONLY) for backing in backings}
         # Reads after which the last row has been fully sampled twice in a row.
         self.wanted = len(rows) + 2
         self.reads = 0
