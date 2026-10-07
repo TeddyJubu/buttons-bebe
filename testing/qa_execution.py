@@ -30,6 +30,10 @@ class ProcessExited(Exception):
     """The observed PID has exited; not an unreadable live executable."""
 
 
+class ThreadGroupAlive(Exception):
+    """Only the thread-group leader exited; a sibling still runs (and may exec) under this PID."""
+
+
 class _Failure(Exception):
     pass
 
@@ -89,10 +93,30 @@ class ProcReader:
         # After /proc/PID/exe vanished for the process started at image_missing_start:
         # do_exit() sets PF_EXITING before exit_mm() drops the link, and stat reports
         # Z only after exit_notify(); a new start means it was reaped and the PID reused.
-        if state in (b"Z", b"X") or (image_missing_start is not None
-                and (start != image_missing_start or flags & _PF_EXITING)):
+        if image_missing_start is not None and start != image_missing_start:
             raise ProcessExited()
+        def exiting(state, flags):
+            return state in (b"Z", b"X") or (image_missing_start is not None and flags & _PF_EXITING)
+        if exiting(state, flags):
+            # Z/PF_EXITING describe the leader thread only: after a leader-only exit a
+            # sibling keeps this PID alive and may exec. That exec swaps a live leader
+            # (same start) in between our reads, so re-read after listing threads.
+            if not cls._siblings_remain(pid):
+                try:
+                    state, again, flags = cls._facts(pid)
+                except (FileNotFoundError, ProcessLookupError):
+                    raise ProcessExited() from None
+                if again != start or exiting(state, flags):
+                    raise ProcessExited()
+            raise ThreadGroupAlive()
         return start
+
+    @staticmethod
+    def _siblings_remain(pid):
+        try:
+            return any(tid != str(pid) for tid in os.listdir(f"/proc/{pid}/task"))
+        except (FileNotFoundError, ProcessLookupError):
+            return False
 
     def open_image(self, pid):
         start = self._state(pid)
@@ -234,7 +258,12 @@ class _Observer:
         began = time.monotonic()
         try:
             while not self.stop_event.is_set():
-                image = self.reader.open_image(self.pid)
+                try:
+                    image = self.reader.open_image(self.pid)
+                except ThreadGroupAlive:
+                    # The exited leader exposes no image, but a sibling may still exec.
+                    self.stop_event.wait(self.interval)
+                    continue
                 owned = True
                 try:
                     if image.process_start != self.start_time:
