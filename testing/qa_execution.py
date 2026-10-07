@@ -81,14 +81,16 @@ class ProcReader:
             raise _Failure("pid_state_invalid") from None
 
     @classmethod
-    def _state(cls, pid, *, image_missing=False):
+    def _state(cls, pid, *, image_missing_start=None):
         try:
             state, start, flags = cls._facts(pid)
         except (FileNotFoundError, ProcessLookupError):  # ESRCH: reaped between open/read
             raise ProcessExited() from None
-        # do_exit() sets PF_EXITING before exit_mm() drops /proc/PID/exe, and
-        # stat reports Z only after exit_notify(): exe gone in that gap is an exit.
-        if state in (b"Z", b"X") or (image_missing and flags & _PF_EXITING):
+        # After /proc/PID/exe vanished for the process started at image_missing_start:
+        # do_exit() sets PF_EXITING before exit_mm() drops the link, and stat reports
+        # Z only after exit_notify(); a new start means it was reaped and the PID reused.
+        if state in (b"Z", b"X") or (image_missing_start is not None
+                and (start != image_missing_start or flags & _PF_EXITING)):
             raise ProcessExited()
         return start
 
@@ -106,7 +108,7 @@ class ProcReader:
         except FileNotFoundError:
             if fd >= 0:
                 os.close(fd)
-            self._state(pid, image_missing=True)
+            self._state(pid, image_missing_start=start)
             raise _Failure("live_image_missing") from None
         except BaseException:
             if fd >= 0:
@@ -134,7 +136,7 @@ class ProcReader:
                     and (current.st_dev, current.st_ino) == (image.device, image.inode))
         except FileNotFoundError:
             # Distinguish normal process exit from an unreadable live image.
-            self._state(pid, image_missing=True)
+            self._state(pid, image_missing_start=start)
             raise _Failure("live_image_missing") from None
 
 

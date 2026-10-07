@@ -381,6 +381,11 @@ class ExecutionTests(unittest.TestCase):
                     reader.open_image(4321)
             with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, flags)):
                 self.assertEqual(reader.start_identity(4321), 123)
+        # Reaped and reused before the re-read: the new occupant must not be classified.
+        with patch.object(execution.ProcReader, "_facts", side_effect=[(b"R", 123, 0), (b"R", 999, 0)]), \
+                patch.object(execution.os, "readlink", side_effect=FileNotFoundError):
+            with self.assertRaises(execution.ProcessExited):
+                reader.open_image(4321)
         # A reap between opening and reading /proc/PID/stat yields ESRCH, not ENOENT.
         with patch.object(execution.ProcReader, "_facts", side_effect=ProcessLookupError):
             with self.assertRaises(execution.ProcessExited):
