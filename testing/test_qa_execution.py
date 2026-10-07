@@ -293,8 +293,9 @@ class ExecutionTests(unittest.TestCase):
     def test_final_kernel_pid_state_is_absent_live_unreaped_or_reused(self):
         reader = object.__new__(execution.ProcReader)
         for value, expected in ((FileNotFoundError(), "absent_after_helper_reap"),
-                                ((b"R", 123), "live"), ((b"Z", 123), "unreaped"),
-                                ((b"S", 999), "reused")):
+                                (ProcessLookupError(), "absent_after_helper_reap"),
+                                ((b"R", 123, 0), "live"), ((b"Z", 123, 0), "unreaped"),
+                                ((b"S", 999, 0), "reused")):
             with self.subTest(expected=expected):
                 options = {"side_effect": value} if isinstance(value, Exception) else {"return_value": value}
                 with patch.object(reader, "_facts", **options):
@@ -368,6 +369,22 @@ class ExecutionTests(unittest.TestCase):
                     patch.object(execution.os, "readlink", side_effect=FileNotFoundError):
                 with self.assertRaises(error):
                     reader.open_image(4321)
+
+    def test_proc_reader_exit_windows_are_exit_not_missing_image(self):
+        # Linux drops /proc/PID/exe (exit_mm) before stat shows Z (exit_notify);
+        # only PF_EXITING (0x4) marks that gap. Without it the image stays "missing".
+        reader = object.__new__(execution.ProcReader)
+        for flags, error in ((0x4, execution.ProcessExited), (0x0, execution._Failure)):
+            with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, flags)), \
+                    patch.object(execution.os, "readlink", side_effect=FileNotFoundError):
+                with self.assertRaises(error):
+                    reader.open_image(4321)
+            with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, flags)):
+                self.assertEqual(reader.start_identity(4321), 123)
+        # A reap between opening and reading /proc/PID/stat yields ESRCH, not ENOENT.
+        with patch.object(execution.ProcReader, "_facts", side_effect=ProcessLookupError):
+            with self.assertRaises(execution.ProcessExited):
+                reader.start_identity(4321)
 
     def test_approved_production_hash_is_accepted_as_an_explicit_pin(self):
         approved = "8dfa9757a52b9c3edf1dedaaa2a7a8c40ea4beb058f20e90bdd47b48f3b1b176"

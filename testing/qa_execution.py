@@ -54,6 +54,9 @@ class ImageSnapshot:
             os.close(fd)
 
 
+_PF_EXITING = 0x4  # include/linux/sched.h
+
+
 class ProcReader:
     """Only /proc/PID/exe and nonsecret PID state/start-time fields are read.
 
@@ -73,17 +76,19 @@ class ProcReader:
         try:
             # The comm field may contain spaces/parentheses; it is not cmdline.
             fields = raw.rsplit(b") ", 1)[1].split()
-            return fields[0], int(fields[19])  # field 22: starttime
+            return fields[0], int(fields[19]), int(fields[6])  # 22: starttime, 9: flags
         except (IndexError, ValueError):
             raise _Failure("pid_state_invalid") from None
 
     @classmethod
-    def _state(cls, pid):
+    def _state(cls, pid, *, image_missing=False):
         try:
-            state, start = cls._facts(pid)
-        except FileNotFoundError:
+            state, start, flags = cls._facts(pid)
+        except (FileNotFoundError, ProcessLookupError):  # ESRCH: reaped between open/read
             raise ProcessExited() from None
-        if state in (b"Z", b"X"):
+        # do_exit() sets PF_EXITING before exit_mm() drops /proc/PID/exe, and
+        # stat reports Z only after exit_notify(): exe gone in that gap is an exit.
+        if state in (b"Z", b"X") or (image_missing and flags & _PF_EXITING):
             raise ProcessExited()
         return start
 
@@ -101,7 +106,7 @@ class ProcReader:
         except FileNotFoundError:
             if fd >= 0:
                 os.close(fd)
-            self._state(pid)
+            self._state(pid, image_missing=True)
             raise _Failure("live_image_missing") from None
         except BaseException:
             if fd >= 0:
@@ -113,8 +118,8 @@ class ProcReader:
 
     def final_state(self, pid, process_start):
         try:
-            state, start = self._facts(pid)
-        except FileNotFoundError:
+            state, start, _ = self._facts(pid)
+        except (FileNotFoundError, ProcessLookupError):
             return "absent_after_helper_reap"
         if start != process_start:
             return "reused"
@@ -129,7 +134,7 @@ class ProcReader:
                     and (current.st_dev, current.st_ino) == (image.device, image.inode))
         except FileNotFoundError:
             # Distinguish normal process exit from an unreadable live image.
-            self._state(pid)
+            self._state(pid, image_missing=True)
             raise _Failure("live_image_missing") from None
 
 
