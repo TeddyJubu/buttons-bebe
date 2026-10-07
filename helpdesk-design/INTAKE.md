@@ -1,3 +1,7 @@
+> **Historical design snapshot:** This file describes the earlier helpdesk demo
+> intake and Inbox 1. Its paths and tools may be retired; use `AGENTS.md` and
+> current source files before relying on any setup detail.
+
 # Intake lock
 
 Mailbox is AgentMail `helpdesk-support@agentmail.to` (display Demo Shop Support).

@@ -2,11 +2,12 @@
 import unittest
 from unittest.mock import patch
 from bb_webhook.routers import console as console_router
-from webhook.action_test_support import setup_action_case
+from webhook.action_test_support import enable_action_send_access, setup_action_case
 
 class ConsoleActionsRequireTextTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await setup_action_case(self)
+        await enable_action_send_access(self)
 
     async def test_send_and_note_reject_empty_text_with_400(self):
         with patch.object(console_router, '_GClient') as transport:

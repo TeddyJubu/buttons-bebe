@@ -54,6 +54,23 @@ _SUPPORT_STORE_NAME = " ".join(
 )[:80] or "Buttons Bebe"
 
 
+async def _send_access_refusal(request: Request, body: dict) -> JSONResponse | None:
+    """Require the page-scoped Inbox grant before any Gorgias write."""
+    from ..inbox_send_access import InboxSendAccess
+
+    try:
+        allowed = await InboxSendAccess(deps.get_db()).allowed(
+            request.headers.get('X-Inbox-Send-Access'), actor(request),
+            getattr(request.state, 'session_id', None))
+    except Exception as exc:
+        log_event(logger, "ERROR", "Inbox send access check unavailable",
+                  error_type=type(exc).__name__)
+        return await preflight_refusal(503, "send_access_unavailable", body)
+    if not allowed:
+        return await preflight_refusal(403, "inbox_read_only", body)
+    return None
+
+
 @router.get("/inbox/review-context/{inbox_ticket_id}")
 async def inbox_review_context(inbox_ticket_id: str, request: Request,
                                source_message_id: str = Query(min_length=1,max_length=200),
@@ -111,7 +128,6 @@ async def inbox_send_access(request: Request) -> JSONResponse:
 @router.post("/inbox/ticket/{ticket_id}/send")
 async def inbox_send(ticket_id: int, request: Request) -> JSONResponse:
     """Human-confirmed Inbox reply through the existing durable console sender."""
-    from ..inbox_send_access import InboxSendAccess
     from ..send_intents import IntentStore, ActionConflict
     body = None
     try:
@@ -121,10 +137,9 @@ async def inbox_send(ticket_id: int, request: Request) -> JSONResponse:
     if not isinstance(body, dict):
         return await preflight_refusal(400, "invalid_json_object", body)
     try:
-        allowed = await InboxSendAccess(deps.get_db()).allowed(
-            request.headers.get('X-Inbox-Send-Access'), actor(request), getattr(request.state, 'session_id', None))
-        if not allowed:
-            return await preflight_refusal(403, "inbox_read_only", body)
+        refusal = await _send_access_refusal(request, body)
+        if refusal is not None:
+            return refusal
         if body.get('confirmed') is not True:
             return await preflight_refusal(409, "confirmation_required", body)
         if not isinstance(body.get('source_message_id'), str) or not isinstance(body.get('expected_recipient'), str):
@@ -141,12 +156,12 @@ async def inbox_send(ticket_id: int, request: Request) -> JSONResponse:
     except Exception as exc:
         log_event(logger, "ERROR", "Inbox send preflight unavailable", error_type=type(exc).__name__)
         return await preflight_refusal(503, "review_context_unavailable", body)
-    return await action_send(ticket_id, request)
+    return await _execute_send(ticket_id, request, body)
 
 
 @router.post("/ticket/{ticket_id}/send")
 async def action_send(ticket_id: int, request: Request) -> JSONResponse:
-    """Send a customer-facing reply after an explicit human confirmation."""
+    """Send a customer reply only with an explicit Inbox send grant."""
     body = None
     try:
         body = await request.json()
@@ -154,6 +169,14 @@ async def action_send(ticket_id: int, request: Request) -> JSONResponse:
         return await preflight_refusal(400, "invalid_json", body)
     if not isinstance(body, dict):
         return await preflight_refusal(400, "invalid_json_object", body)
+    refusal = await _send_access_refusal(request, body)
+    if refusal is not None:
+        return refusal
+    return await _execute_send(ticket_id, request, body)
+
+
+async def _execute_send(ticket_id: int, request: Request, body: dict) -> JSONResponse:
+    """Shared durable send path for the grant-checked public and Inbox routes."""
     if not await database.dashboard_ticket_exists(ticket_id):
         return await preflight_refusal(404, "ticket_not_in_console", body)
     raw_text = body.get("text", "")
@@ -170,7 +193,7 @@ async def action_send(ticket_id: int, request: Request) -> JSONResponse:
 
 @router.post("/ticket/{ticket_id}/note")
 async def action_note(ticket_id: int, request: Request) -> JSONResponse:
-    """Post a draft as a staff-only Gorgias internal note."""
+    """Post a staff-only note only with an explicit Inbox send grant."""
     body = None
     try:
         body = await request.json()
@@ -178,6 +201,9 @@ async def action_note(ticket_id: int, request: Request) -> JSONResponse:
         return await preflight_refusal(400, "invalid_json", body)
     if not isinstance(body, dict):
         return await preflight_refusal(400, "invalid_json_object", body)
+    refusal = await _send_access_refusal(request, body)
+    if refusal is not None:
+        return refusal
     if not await database.dashboard_ticket_exists(ticket_id):
         return await preflight_refusal(404, "ticket_not_in_console", body)
     raw_text = body.get("text", "")

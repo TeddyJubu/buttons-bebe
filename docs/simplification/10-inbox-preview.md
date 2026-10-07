@@ -1,3 +1,7 @@
+> **Historical analysis:** This file describes the earlier Inbox preview and
+> demo implementation. It is retained for context, not as current architecture
+> or implementation guidance; check `AGENTS.md` and active source files.
+
 # 10 — Inbox preview (`console-src/inbox/`)
 
 Module analyst: inbox-preview. Read-only analysis; no code modified. All claims cite `file:line` relative to repo root. Hunches are labeled.

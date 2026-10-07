@@ -238,6 +238,11 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
             return await client.post(path, content=content, headers={"content-type": "application/json"})
         return await client.post(path, json=payload)
 
+    async def _enable_send_access(self) -> None:
+        response = await self._post("/dashboard/api/inbox/send-access", {"enabled": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.client.headers["X-Inbox-Send-Access"] = response.json()["token"]
+
     def _action(self, message_id: str, text: str, **extra: Any) -> dict[str, Any]:
         revision = hashlib.sha256(self.drafts[message_id].encode()).hexdigest()
         return {"operation_id": str(uuid.uuid4()), "source_message_id": message_id, "text": text,
@@ -419,6 +424,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone((await self._ticket_row(1007))["generation_state"])
 
     async def test_send_and_note_require_server_confirmation_and_note_remains_internal(self) -> None:
+        await self._enable_send_access()
         with patch.object(console_router, "_GClient", RecordingGorgias):
             unconfirmed_send = await self._post(
                 "/dashboard/api/ticket/1001/send",
@@ -454,6 +460,7 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(empty_note.status_code, 400)
 
     async def test_send_and_note_transport_failures_are_not_reported_as_success(self) -> None:
+        await self._enable_send_access()
         RecordingGorgias.result = {"ok": False, "delivery_status": "not_attempted", "error": "ticket not found"}
         with patch.object(console_router, "_GClient", RecordingGorgias):
             send = await self._post("/dashboard/api/ticket/1001/send", self._action("m-high", "hello"))
@@ -529,12 +536,28 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("<script>", response.headers.get("content-type", ""))
 
         RecordingGorgias.calls = []
+        await self._enable_send_access()
         with patch.object(console_router, "_GClient", RecordingGorgias):
             sent = await self._post(
                 "/dashboard/api/ticket/1004/send", self._action("m-xss", '<script>alert("send")</script>')
             )
         self.assertEqual(sent.status_code, 200)
         self.assertEqual(RecordingGorgias.calls[0][2], '<script>alert("send")</script>')
+
+    async def test_bare_send_and_note_routes_reject_missing_or_invalid_grants(self) -> None:
+        RecordingGorgias.calls = []
+        with patch.object(console_router, "_GClient", RecordingGorgias):
+            missing_send = await self._post("/dashboard/api/ticket/1001/send", self._action("m-high", "hello"))
+            missing_note = await self._post("/dashboard/api/ticket/1002/note", self._action("m-failed", "hello"))
+            invalid_send = await self.client.post("/dashboard/api/ticket/1001/send", json=self._action("m-high", "hello"),
+                                                  headers={"X-Inbox-Send-Access": "forged"})
+            invalid_note = await self.client.post("/dashboard/api/ticket/1002/note", json=self._action("m-failed", "hello"),
+                                                  headers={"X-Inbox-Send-Access": "forged"})
+        for response in (missing_send, missing_note, invalid_send, invalid_note):
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["error"], "inbox_read_only")
+            self.assertEqual(response.json()["delivery_status"], "not_attempted")
+        self.assertEqual(RecordingGorgias.calls, [])
 
     async def test_oversized_limits_are_capped_and_negative_limits_are_clamped(self) -> None:
         # Add 505 parsed rows in one transaction so the endpoint's 500-row cap

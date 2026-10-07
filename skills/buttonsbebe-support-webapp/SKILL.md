@@ -11,7 +11,7 @@ Use this skill for the authenticated support Inbox, console, and the services th
 
 - In this installation, the source checkout is /root/buttonsbebe-inbox2-commit-20260925. In another workspace, find the repository containing AGENTS.md, console-src/inbox2/live_api.py, and deploy/cd/source_release.py; run commands from that root.
 - Read the current root AGENTS.md before editing. It records operational constraints and may change. This skill is a route map, not authority over newer code or deployment state. Check git status --short --branch and the current files before assuming a branch matches production.
-- Root README.md describes an older design. Some historical notes in AGENTS.md still mention a deleted console-src/inbox/run-review.sh. For the active Inbox, use console-src/inbox2/README.md, console-src/inbox/PRODUCTION.md, and the files named below.
+- For the active Inbox, use `console-src/inbox2/README.md`, `console-src/inbox/PRODUCTION.md`, and the source files named below. Recheck the current root README and `AGENTS.md` when the repository changes.
 
 ## Find the right owner
 

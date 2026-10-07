@@ -4,11 +4,12 @@ import uuid
 import hashlib
 from unittest.mock import Mock, patch
 from bb_webhook.routers import console as console_router
-from webhook.action_test_support import setup_action_case
+from webhook.action_test_support import enable_action_send_access, setup_action_case
 
 class ConsoleSendStatusTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await setup_action_case(self)
+        await enable_action_send_access(self)
 
     async def _post(self, result):
         fake=Mock()

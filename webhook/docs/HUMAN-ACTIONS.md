@@ -1,13 +1,16 @@
 # Durable human actions and knowledge approval
 
-These changes govern the **existing** support console. The isolated inbox Send
-remains hardcoded off. No customer send is performed during verification or
-migration; the action table is an additive schema in the existing webhook DB.
+These changes govern the existing support console and the owner-approved Inbox
+reply flow. No customer send is performed during verification or migration; the
+action table is an additive schema in the existing webhook DB.
 
-The console must deploy with this API version: send and note now require a
-canonical UUID `operation_id`, `source_message_id`, exact `draft_revision` SHA256, nonempty text, an authenticated
-owner session, trusted Origin, and `confirmed: true`. Internal notes also require
-a confirmation dialog. Browser operation IDs survive reloads; localStorage holds
+The console API must deploy with this version: send and note require a valid
+Inbox send grant bound to the authenticated owner and session, a canonical UUID
+`operation_id`, `source_message_id`, exact `draft_revision` SHA256, nonempty
+text, trusted Origin, and `confirmed: true`. The grant is created by the
+Inbox's explicit Read & write switch, expires after 30 minutes, and is checked
+server-side by both Gorgias write routes. Note requests also require
+`confirmed: true`; the active Inbox has no note UI. Browser operation IDs survive reloads; localStorage holds
 only identifiers, content hashes and outcome state, not reply text.
 
 Before any remote POST, one SQLite transaction captures the source message,

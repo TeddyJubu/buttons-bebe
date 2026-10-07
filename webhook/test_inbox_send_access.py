@@ -46,6 +46,51 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.json()['operation_id'],self.payload['operation_id'])
         self.factory.assert_not_called()
 
+    async def test_bare_send_and_note_routes_require_a_valid_grant(self):
+        for label, headers in (
+            ('missing', {}),
+            ('invalid', {'X-Inbox-Send-Access': 'forged'}),
+            ('malformed', {'X-Inbox-Send-Access': 'x' * 43}),
+        ):
+            for path, operation_id in (
+                ('/dashboard/api/ticket/1/send', str(uuid.uuid4())),
+                ('/dashboard/api/ticket/1/note', str(uuid.uuid4())),
+            ):
+                response = await self.client.post(path, json={**self.payload, 'operation_id': operation_id,
+                    'text': 'Reviewed action'}, headers=headers)
+                self.assertEqual(response.status_code, 403, f'{label} {path}: {response.text}')
+                self.assertEqual(response.json()['error'], 'inbox_read_only')
+                self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+        self.factory.assert_not_called()
+
+    async def test_bare_send_and_note_reject_revoked_expired_and_wrong_session_grants(self):
+        async def assert_both_routes_refuse(headers, label):
+            for path in ('/dashboard/api/ticket/1/send', '/dashboard/api/ticket/1/note'):
+                response = await self.client.post(path, json={**self.payload, 'operation_id': str(uuid.uuid4()),
+                    'text': 'Reviewed action'}, headers=headers)
+                self.assertEqual(response.status_code, 403, f'{label} {path}: {response.text}')
+                self.assertEqual(response.json()['error'], 'inbox_read_only')
+                self.assertEqual(response.json()['delivery_status'], 'not_attempted')
+
+        headers = await self.enable()
+        self.assertEqual((await self.client.post(self.access_url, json={'enabled': False}, headers=headers)).status_code, 200)
+        await assert_both_routes_refuse(headers, 'revoked grant')
+
+        headers = await self.enable()
+        await Database(self.path).execute('UPDATE inbox_send_grants SET expires_at=0')
+        await assert_both_routes_refuse(headers, 'expired grant')
+
+        headers = await self.enable()
+        original = dict(self.client.cookies)
+        token = build_session_token('owner', 'test-action-secret')
+        await session_store.register(session_claims(token, 'test-action-secret'), self.path)
+        self.client.cookies.clear()
+        self.client.cookies.set('bb_console_session', token)
+        await assert_both_routes_refuse(headers, 'wrong session')
+        self.client.cookies.clear()
+        self.client.cookies.update(original)
+        self.factory.assert_not_called()
+
     async def test_toggle_never_calls_provider_and_off_revokes(self):
         headers=await self.enable()
         with patch('bb_webhook.routers.console.log_event') as log:
@@ -139,13 +184,17 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status.json()['delivery_status'],'unknown')
         self.provider.send_public_reply.assert_awaited_once()
 
-    async def test_access_storage_failure_denies_delivery(self):
+    async def test_access_storage_failure_denies_all_gorgias_writes(self):
         headers=await self.enable()
         with patch.object(InboxSendAccess, 'allowed', AsyncMock(side_effect=RuntimeError('synthetic DB failure'))):
-            response=await self.client.post(self.send_url,json=self.payload,headers=headers)
-        self.assertEqual(response.status_code,503)
-        self.assertEqual(response.json()['delivery_status'],'not_attempted')
-        self.assertEqual(response.json()['operation_id'],self.payload['operation_id'])
+            inbox=await self.client.post(self.send_url,json=self.payload,headers=headers)
+            send=await self.client.post('/dashboard/api/ticket/1/send',json=self.payload,headers=headers)
+            note=await self.client.post('/dashboard/api/ticket/1/note',
+                json={**self.payload,'operation_id':str(uuid.uuid4()),'text':'Internal note'},headers=headers)
+        for response in (inbox,send,note):
+            self.assertEqual(response.status_code,503)
+            self.assertEqual(response.json()['error'],'send_access_unavailable')
+            self.assertEqual(response.json()['delivery_status'],'not_attempted')
         self.factory.assert_not_called()
 
     async def test_recipient_or_source_change_during_reservation_is_rejected(self):

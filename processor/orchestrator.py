@@ -24,11 +24,13 @@ Risk mitigations:
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Future, ThreadPoolExecutor
 import fcntl
 import json
 import os
 import signal
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -72,6 +74,93 @@ logger = get_logger(__name__)
 _PRIORITY_WINDOW_LIMIT = 25
 _CLASSIFICATION_CACHE_LIMIT = 512
 _classification_cache: dict[str, dict[str, Any]] = {}
+
+# A timed-out asyncio waiter cannot stop a Python thread. Keep Hermes on its
+# own single-worker executor and retain the submitted future, so a follow-up
+# job waits for the prior invocation to finish instead of starting a second
+# Hermes process beside it. This executor is deliberately separate from the
+# default pool used for short health probes and other background work.
+_hermes_executor = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="buttonsbebe-hermes",
+)
+_hermes_future_guard = threading.Lock()
+_hermes_future: Future[dict[str, Any]] | None = None
+
+
+def _consume_asyncio_future_exception(future: asyncio.Future[Any]) -> None:
+    """Retrieve exceptions from wrappers abandoned by a timed-out waiter."""
+    if future.cancelled():
+        return
+    try:
+        future.exception()
+    except BaseException:
+        pass
+
+
+def _wrap_hermes_future(future: Future[dict[str, Any]]) -> asyncio.Future[dict[str, Any]]:
+    wrapped = asyncio.wrap_future(future)
+    wrapped.add_done_callback(_consume_asyncio_future_exception)
+    return wrapped
+
+
+async def _run_hermes_serially(**kwargs: Any) -> dict[str, Any]:
+    """Run Hermes off-loop, waiting out any invocation left by a timeout.
+
+    Cancellation while waiting for an older invocation creates no new work.
+    Cancellation after submission only stops this job from waiting: the
+    retained concurrent future remains active and blocks later submissions.
+    """
+    global _hermes_future
+
+    while True:
+        with _hermes_future_guard:
+            previous = _hermes_future
+            if previous is None or previous.done():
+                future = _hermes_executor.submit(process_ticket_with_hermes, **kwargs)
+                _hermes_future = future
+                break
+
+        # Shield prevents cancellation of the asyncio wrapper from cancelling
+        # the concurrent future. Once it finishes, loop back and submit this
+        # job; if this job's timeout fired first, cancellation exits here and
+        # no delayed Hermes run is left queued behind the previous one.
+        try:
+            await asyncio.shield(_wrap_hermes_future(previous))
+        except Exception:
+            # A previous job's result is abandoned. Its failure does not stop
+            # the next queued job from making its own invocation.
+            pass
+
+    return await asyncio.shield(_wrap_hermes_future(future))
+
+
+async def _wait_for_hermes_worker() -> None:
+    """Keep the process singleton lock until any timed-out worker has ended."""
+    while True:
+        with _hermes_future_guard:
+            future = _hermes_future
+        if future is None or future.done():
+            return
+        try:
+            await asyncio.shield(_wrap_hermes_future(future))
+        except Exception:
+            # Shutdown still waits for the thread to finish even if its result
+            # was an exception; there is no result to publish at this point.
+            pass
+
+
+async def _cleanup_processor(reconcile_task: asyncio.Task[Any] | None) -> None:
+    """Stop background work and retain the flock until Hermes has drained."""
+    if reconcile_task is not None:
+        reconcile_task.cancel()
+        try:
+            await reconcile_task
+        except asyncio.CancelledError:
+            pass
+    await _wait_for_hermes_worker()
+    log_event(logger, "INFO", "Job processor shutting down")
+    _release_lock()
 
 
 # ── Priority-aware selection ────────────────────────────────
@@ -214,14 +303,24 @@ def _save_result_to_webhook(
         def redirect_request(self, *args, **kwargs):
             return None
 
-    with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(req, timeout=10) as resp:
-        if not 200 <= resp.status < 300:
-            raise RuntimeError(f"Result persistence HTTP status {resp.status}")
-        acknowledgement = json.loads(resp.read(4097))
-        if (not isinstance(acknowledgement, dict) or acknowledgement.get("status") != "ok"
-                or acknowledgement.get("generation_state") not in {
-                    'ready', 'needs_review', 'no_reply', 'failed', 'retry_wait', 'superseded'}):
-            raise RuntimeError("Result persistence acknowledgement missing")
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(req, timeout=10) as resp:
+            if not 200 <= resp.status < 300:
+                raise RuntimeError(f"Result persistence HTTP status {resp.status}")
+            acknowledgement = json.loads(resp.read(4097))
+    except TimeoutError as exc:
+        # urllib's socket timeout is also Python's TimeoutError, which aliases
+        # asyncio.TimeoutError. Mark it as a persistence failure so the job
+        # handler does not falsely claim that the full job budget elapsed.
+        raise RuntimeError("Result API POST timed out") from exc
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise RuntimeError("Result API POST timed out") from exc
+        raise
+    if (not isinstance(acknowledgement, dict) or acknowledgement.get("status") != "ok"
+            or acknowledgement.get("generation_state") not in {
+                'ready', 'needs_review', 'no_reply', 'failed', 'retry_wait', 'superseded'}):
+        raise RuntimeError("Result persistence acknowledgement missing")
     log_event(logger, "DEBUG", "Result acknowledged by dashboard API", ticket_id=ticket_id)
 
 
@@ -322,7 +421,7 @@ async def process_customer_message(job: dict[str, Any]) -> dict[str, Any]:
               det_reason=det_result["reason"])
 
     # Invoke Hermes headlessly
-    hermes_result = process_ticket_with_hermes(
+    hermes_result = await _run_hermes_serially(
         ticket_id=ticket_id,
         message_text=message_text,
         ticket_subject=ticket_subject,
@@ -587,15 +686,9 @@ async def run_processor() -> int:
             backoff = min(2 ** consecutive_errors, 60)
             await asyncio.sleep(backoff)
 
-    # 6. Cleanup
-    if reconcile_task is not None:
-        reconcile_task.cancel()
-        try:
-            await reconcile_task
-        except asyncio.CancelledError:
-            pass
-    log_event(logger, "INFO", "Job processor shutting down")
-    _release_lock()
+    # 6. Cleanup. The process-wide flock stays held until any timed-out worker
+    # and its bounded Hermes child have really ended.
+    await _cleanup_processor(reconcile_task)
     return 0
 
 
@@ -637,6 +730,12 @@ async def _process_one_job(
     from bb_webhook.db import Database
     job_id = job["id"]
     retry_count = job.get("retry_count", 0)
+
+    # A previous job may have timed out while its worker thread was still
+    # waiting for Hermes' own subprocess deadline. Do not claim a new customer
+    # job or spend its retry budget until that worker has really stopped.
+    if is_customer:
+        await _wait_for_hermes_worker()
 
     # Claim the job atomically
     claimed = await claim_job(job_id, settings.db_path_absolute)

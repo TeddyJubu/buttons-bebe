@@ -41,3 +41,12 @@ async def setup_action_case(case):
         base_url='https://support.buttonsbebe.com', headers={'Origin': 'https://support.buttonsbebe.com'},
         cookies={'bb_console_session': token})
     case.addAsyncCleanup(case.client.aclose)
+
+
+async def enable_action_send_access(case):
+    """Install a real synthetic Inbox grant for tests of Gorgias write routes."""
+    response = await case.client.post('/dashboard/api/inbox/send-access', json={'enabled': True})
+    if response.status_code != 200:
+        raise AssertionError(f'could not enable synthetic Inbox send access: {response.text}')
+    case.client.headers['X-Inbox-Send-Access'] = response.json()['token']
+    return response.json()['token']

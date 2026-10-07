@@ -1,4 +1,8 @@
- # Ticket feed vs Inbox parity map
+> **Historical audit snapshot (2026-09-23):** This comparison describes the
+> retired Ticket feed and Inbox 1 preview. It is not a current system map; use
+> `AGENTS.md` and the active `/inbox/` sources for present behavior.
+
+# Ticket feed vs Inbox parity map
 
  Date: 2026-09-23. Prod checked via ssh chaim: webhook :8000 ready, inbox :8766 ready, projection timer active.
 
