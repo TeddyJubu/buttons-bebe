@@ -374,18 +374,26 @@ class ExecutionTests(unittest.TestCase):
         # Linux drops /proc/PID/exe (exit_mm) before stat shows Z (exit_notify);
         # only PF_EXITING (0x4) marks that gap. Without it the image stays "missing".
         reader = object.__new__(execution.ProcReader)
-        for flags, error in ((0x4, execution.ProcessExited), (0x0, execution._Failure)):
-            with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, flags)), \
-                    patch.object(execution.os, "readlink", side_effect=FileNotFoundError):
-                with self.assertRaises(error):
-                    reader.open_image(4321)
-            with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, flags)):
-                self.assertEqual(reader.start_identity(4321), 123)
-        # Reaped and reused before the re-read: the new occupant must not be classified.
-        with patch.object(execution.ProcReader, "_facts", side_effect=[(b"R", 123, 0), (b"R", 999, 0)]), \
-                patch.object(execution.os, "readlink", side_effect=FileNotFoundError):
-            with self.assertRaises(execution.ProcessExited):
-                reader.open_image(4321)
+        image = execution.ImageSnapshot(-1, "/usr/bin/python3", 1, 2, 3, 123)
+        # Both ENOENT call sites: the first sample's exe read and the post-hash confirm.
+        sites = (("open_image", "readlink", lambda: reader.open_image(4321)),
+                 ("confirm_image", "stat", lambda: reader.confirm_image(4321, image)))
+        # (start, flags) on the stat re-read after exe vanished; reused start = reaped.
+        cases = (((123, 0x4), execution.ProcessExited), ((999, 0x0), execution.ProcessExited),
+                 ((123, 0x0), execution._Failure))
+        for site, missing, call in sites:
+            for (start, flags), error in cases:
+                with self.subTest(site=site, start=start, flags=flags), \
+                        patch.object(execution.ProcReader, "_facts",
+                                     side_effect=[(b"R", 123, 0), (b"R", start, flags)]), \
+                        patch.object(execution.os, missing, side_effect=FileNotFoundError):
+                    with self.assertRaises(error) as raised:
+                        call()
+                    if error is execution._Failure:
+                        self.assertEqual(str(raised.exception), "live_image_missing")
+        # The exiting flag only matters once the image is missing.
+        with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, 0x4)):
+            self.assertEqual(reader.start_identity(4321), 123)
         # A reap between opening and reading /proc/PID/stat yields ESRCH, not ENOENT.
         with patch.object(execution.ProcReader, "_facts", side_effect=ProcessLookupError):
             with self.assertRaises(execution.ProcessExited):
