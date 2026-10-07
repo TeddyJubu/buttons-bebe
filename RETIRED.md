@@ -11,11 +11,13 @@ model.
 
 | Path | Status |
 |---|---|
-| `gorgias-webhook/` (~1.4 MB) | Retired pre-rebuild system (Supermemory/ChromaDB, own classifier/draft engine). Superseded by `processor/` + `webhook/`. |
-| `teddy/` | Retired prototype tree. Background only. |
+| `gorgias-webhook/` (~1.4 MB) | Retired pre-rebuild system (Supermemory/ChromaDB, own classifier/draft engine). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `teddy/` | Retired prototype tree. **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
 | `fable/` (+ branch `Fable_buttonsbebe`) | Track B standalone prototype, quarantined. Not planned work. |
-| `kb-editor/` (incl. `vendor/`) | Retired editor; live KB editing is `kb-admin/` (:8087). |
-| `qa_v3/` | Retired QA fixtures/harness. Live gate is `testing/` (48 scenarios). |
+| `kb-editor/` (incl. `vendor/`) | Retired editor; live KB editing is `kb-admin/` (:8087). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `qa_v3/`, `qa-run/` | Retired QA fixtures/harness and results. Live gate is `testing/` (48 scenarios). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `shopify/` | Standalone Shopify module with no production importer (the Inbox rail uses `console-src/inbox/export_shop_rail.py`). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `processor/hermes_runner.py`, `cursor.md` | Shim shadowed by the `processor/hermes_runner/` package; review notes on retired code. **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. `cursor.md` contained a webhook token that stays in git history until it is rotated. |
 | `dashboard/` | Older console snapshot without Notice Board. **Deleted 2026-09-17** (Wave 2); history in git. Live console source is `console-src/index.html`; isolated preview is `console-src/inbox/`. |
 | `webhook/src/bb_webhook/review_console.html` + `dashboard.html` | In-package console snapshots served by nothing; shipped in the wheel. **Deleted 2026-09-17** (Wave 2); history in git. |
 | `deploy/review_console.html` | Runbook-history copy of a file nothing served. **Deleted 2026-09-17** (Wave 2); history in git. |

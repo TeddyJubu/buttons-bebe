@@ -102,8 +102,9 @@ length check, and an input still over its bound always drafts. Truncating a long
 acknowledgement could otherwise hide a complaint or question at the tail and
 silence the ticket.
 
-The flat processor/hermes_runner.py shim continues to export
+The flat processor/hermes_runner.py shim continued to export
 build_hermes_command, draft_for_console, and process_ticket_with_hermes.
+(Update 2026-10-07: the package always shadowed the shim, so it was removed.)
 
 ## 3. Invariants and threat model
 

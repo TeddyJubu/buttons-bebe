@@ -129,7 +129,7 @@ Gorgias webhook
   (`processor/gorgias_writer.py`, the dormant write-back stub, was deleted
   2026-09-17, Wave 4 — history in git. Do not rebuild it without revisiting
   the safety model.)
-- Prompt-injection hardening lives in `hermes_runner.py`: run-token
+- Prompt-injection hardening lives in `processor/hermes_runner/` (`prompt.py`, `extract.py`): run-token
   `<DRAFT:token>` tags prove the draft is Hermes'; customer-supplied
   `<DRAFT>` blocks are neutralised and fail closed. Don't loosen casually.
 - Toolsets are an explicit allow-list (`HERMES_TOOLSETS` in
@@ -145,7 +145,7 @@ Gorgias webhook
 | Dir | What |
 |---|---|
 | `webhook/` | FastAPI receiver + queue DB + console API (`src/bb_webhook/app.py`). uv package. |
-| `processor/` | Orchestrator loop; `hermes_runner.py` (prompt, command build, draft extraction); `draft_cleaner.py`; `whatsapp_notifier.py`; `heartbeat.sh`. uv package. |
+| `processor/` | Orchestrator loop; `hermes_runner/` package (prompt, command build, draft extraction); `draft_cleaner.py`; `whatsapp_notifier.py`; `heartbeat.sh`. uv package. |
 | `kb/` | KB markdown (`intents/ faq/ policies/ tickets/ products/ shopify/` — `shopify/` is shopify.dev platform background), LanceDB index/sync scripts, MCP server, systemd units/timers, `search.sh`. |
 | `tools/` | Read-only Redo + Gorgias MCP modules, `run-gorgias.sh` / `run-redo.sh`, `verify_release.sh`, `verify_hermes_toolset.sh`. |
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
@@ -298,8 +298,9 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. Older
-`gorgias-webhook/` and `teddy/` layouts are historical.
+`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. The retired
+`gorgias-webhook/`, `teddy/`, `qa_v3/`, `qa-run/`, `kb-editor/` and `shopify/` trees were
+removed on 2026-10-07; recover them from tag `archive/retired-code-2026-10-07`.
 
 ## 11. Knowledge base & learning loop (deep details)
 

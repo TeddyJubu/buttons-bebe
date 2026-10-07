@@ -101,7 +101,7 @@ from pathlib import Path
 import ast
 import json
 
-roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("intake"), Path("console-src/inbox"), Path("console-src/inbox2"), Path("console-src/helpdesk-agent"), Path("shopify")]
+roots = [Path("feedback"), Path("kb"), Path("processor"), Path("testing"), Path("tools"), Path("webhook"), Path("deploy"), Path("intake"), Path("console-src/inbox"), Path("console-src/inbox2"), Path("console-src/helpdesk-agent")]
 
 # Installed dependencies are not ours to syntax-check, and checking them made
 # the gate's verdict depend on which interpreter happened to run it: a local
@@ -209,10 +209,6 @@ esac
 "$PYTHON" -m unittest discover -s kb/tests -v
 "$PYTHON" -m unittest discover -s deploy/tests -v
 "$PYTHON" -m unittest discover -s tools -p 'test_*.py' -v
-for _test in shopify/test_*.py; do
-  [[ -f "$_test" ]] || fail "no Shopify tests discovered"
-  "$PYTHON" -m unittest "shopify.$(basename "$_test" .py)" -v
-done
 # Fresh process per module prevents one suite's fake optional modules leaking
 # into another suite. Live diagnostics require an explicit opt-out marker.
 webhook_count=0
