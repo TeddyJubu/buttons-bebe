@@ -48,5 +48,3 @@ Shop reads use env (`SHOPIFY_SHOP`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`
 Live mint is pinned to `yznyc1-ez.myshopify.com` from `SHOPIFY_SHOP` only and
 does not follow token-URL redirects. If minting fails, handlers fall back to
 sample fixtures. `SHOPIFY_MUTATIONS_ENABLED` stays `0`.
-
-Tissue contracts: [`docs/tissues/helpdesk.md`](../../docs/tissues/helpdesk.md).

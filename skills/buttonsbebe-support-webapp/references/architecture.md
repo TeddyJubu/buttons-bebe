@@ -61,7 +61,7 @@ The KB source lives in kb/; kb/scripts/ builds and queries its LanceDB index. kb
 | feedback/ | PII masking and legacy feedback compatibility around the learning path. |
 | testing/ | Scenario fixtures, live-model rubric, and test harnesses for draft behavior. |
 | deploy/ and .github/workflows/ | Caddy/systemd contracts, sealed CD receiver, release checks, and auto-deploy trigger. |
-| console-src/helpdesk-agent/, gorgias-webhook/, teddy/ | Historical or demo code; inspect AGENTS.md and deployment inventory before treating any of it as live. |
+| console-src/helpdesk-agent/ | Historical or demo code (gorgias-webhook/ and teddy/ were removed 2026-10-07); inspect AGENTS.md and deployment inventory before treating any of it as live. |
 
 ## Common routing mistakes
 

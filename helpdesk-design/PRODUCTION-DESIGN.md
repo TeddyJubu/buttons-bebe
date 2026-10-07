@@ -1,3 +1,7 @@
+> **Historical design snapshot:** This file describes the earlier Inbox 1
+> interface and review server. It is not the active Inbox specification; use
+> `AGENTS.md` and the current `console-src/inbox2/` sources for present behavior.
+
 # Buttons Bebe support interface
 
 The inbox, support console (including its KB, notification and settings views),

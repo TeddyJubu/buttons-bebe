@@ -1,9 +1,7 @@
 """graphql_guard.py -- shared GraphQL lexer for read-only safety gates.
 
-Two live callers import this module so the read-only Shopify invariant has one
-lexer instead of two drifting copies (report 06, action 6):
+Live caller (the retired shopify/ module was removed 2026-10-07):
 
-  - shopify/shopify.py          policy: query operations only
   - kb/scripts/sync_products.py policy: queries + the one bulk read mutation
 
 Stdlib-only, no imports, so it is loadable from any of the repo's venvs.

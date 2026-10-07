@@ -1,194 +1,239 @@
-"""A stuck synchronous job blocks the loop. This file records why.
+"""The job deadline works while Hermes runs in its retained worker thread.
 
-The Hermes subprocess now uses hermes_runner.process.run_bounded: its own
-monotonic deadline, output caps, and process-group termination preserve the
-fallback even though the outer asyncio deadline is not preemptive. No worker
-thread was introduced. The historical subprocess.run examples below explain
-why simply moving this work into asyncio.to_thread is unsafe. SIGTERM service
-recovery additionally relies on systemd KillMode=control-group; these tests do
-not certify the live unit. A future async conversion must preserve the fallback
-and one-job invariant, with cleanup completed before claiming another job.
-
-THE PROBLEM, WHICH IS REAL
-
-`deterministic_classify` and `process_ticket_with_hermes` are synchronous and
-CPU-bound, and they are called directly inside the job coroutine.
-`asyncio.wait_for` cannot interrupt a blocked synchronous call. So while a
-pathological regex spins:
-
-  * the event loop is frozen,
-  * `settings.job_timeout` never fires,
-  * the idle heartbeat line at the bottom of `run_processor()` is never
-    emitted - and `heartbeat.sh` reads exactly that line to decide the loop is
-    wedged, so the watchdog stays quiet too,
-  * the exclusive flock stays held.
-
-That is why six catastrophic-backtracking bugs were BLOCKERS rather than slow
-tickets: one email stopped the shop, with every alerting path disabled by the
-same stall that caused the problem.
-
-WHY IT IS NOT FIXED WITH asyncio.to_thread
-
-It was, for one round, and the fix was WORSE than the problem. Review measured
-two consequences, both on real code with only `subprocess.run` faked:
-
-  1. `hermes_runner` passes `settings.job_timeout` to `subprocess.run`, and
-     the orchestrator passes the SAME value to `asyncio.wait_for`. The outer
-     deadline starts earlier - before classify, should_draft, marker
-     neutralisation and prompt building - by 6ms on a small ticket and 603ms
-     on a 2MB thread. Moving the work to a thread made the outer timeout
-     actually fire, which made the inner `except subprocess.TimeoutExpired ->
-     _FALLBACK_RESULT` branch UNREACHABLE. A chargeback ticket then went:
-
-         with to_thread : 4 Hermes invocations, 0 dashboard rows, 0 owner
-                          alerts, job failed after 3 retries
-         without        : 1 invocation, 1 dashboard row, 1 owner alert, done
-
-  2. `wait_for` cancellation does not stop the worker thread, so the loop
-     claimed the next job immediately. Measured 5 concurrent
-     `process_ticket_with_hermes` calls, 4 of them for the SAME ticket; two
-     poisoned emails exhausted the default executor and drove 5 innocent
-     tickets to `status=failed` without them ever reaching the classifier.
-     SIGTERM also began blocking until orphaned threads drained (63s).
-
-Trading a hypothetical freeze for measured, silent loss of owner alerts on
-chargeback tickets is a bad trade, so it was reverted.
-
-WHAT COVERS THE RISK INSTEAD
-
-`ReDoSTests` in test_classifier_rules.py measures every pattern for
-superlinear growth, and a structure-aware fuzz of all 179 patterns across
-the classifier package, draft_cleaner.py and every hermes_runner.* module found zero remaining
-instances while still catching all six historical ones. The class is closed by
-making the patterns linear, not by trying to survive a non-linear one.
-
-DOING IT PROPERLY, IF IT IS EVER NEEDED
-
-Not a one-line change. It needs, at minimum:
-  * a dedicated ThreadPoolExecutor(max_workers=1), not the default pool;
-  * a refusal to claim a new job while a previous worker future is pending -
-    log CRITICAL and alert rather than starting another;
-  * an inner Hermes timeout strictly smaller than the outer one, so the
-    designed fallback still fires;
-  * `except asyncio.TimeoutError` persisting _FALLBACK_RESULT and notifying
-    the owner instead of silently requeuing;
-  * not counting a timeout whose work never started against `retry_count`.
-
-The tests below pin the CURRENT behaviour so nobody re-derives this from
-scratch, and so the day someone does the work above, they turn red and have
-to be replaced deliberately.
+The Hermes subprocess has its own shorter, bounded deadline (240 seconds by
+default). The orchestrator gives the whole job 270 seconds and runs synchronous
+Hermes work on a dedicated one-worker executor. If the outer job expires, it
+stops waiting and never publishes that abandoned result; the retained future
+prevents a second Hermes invocation until the first thread and child process
+have ended.
 """
 
 from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import sys
+import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 PROCESSOR_DIR = Path(__file__).resolve().parent
-WEBHOOK_SRC = PROCESSOR_DIR.parent / "webhook" / "src"
-sys.path[:0] = [str(PROCESSOR_DIR), str(WEBHOOK_SRC)]
+REPO_ROOT = PROCESSOR_DIR.parent
+WEBHOOK_SRC = REPO_ROOT / "webhook" / "src"
+sys.path[:0] = [str(REPO_ROOT), str(PROCESSOR_DIR), str(WEBHOOK_SRC)]
+
+# Processor config normally reads the root .env at import. Tests must not read
+# that file, so import through the repository's offline guard and leave the
+# settings model with env_file=None afterward.
+from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
+
+with without_root_dotenv():
+    import orchestrator  # noqa: E402
+    from config import ProcessorSettings  # noqa: E402
+    from hermes_runner import runner as hermes_runner_runner  # noqa: E402
 
 
-class BlockingIsAKnownLimitationTests(unittest.TestCase):
-    """Pin the shape of the problem, so the reasoning above stays checkable."""
+class JobTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    async def _wait_for_thread_event(self, event: threading.Event, timeout: float = 1.0) -> None:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while not event.is_set():
+            if asyncio.get_running_loop().time() >= deadline:
+                self.fail("fake Hermes runner did not reach the expected point")
+            await asyncio.sleep(0.005)
 
-    SPIN = 2.0
-    TIMEOUT = 0.3
+    async def test_timeout_is_prompt_responsive_and_does_not_overlap_followup(self):
+        settings = SimpleNamespace(job_timeout=0.08)
+        budget = settings.job_timeout
+        first_started = threading.Event()
+        finish_first = threading.Event()
+        second_started = threading.Event()
+        call_lock = threading.Lock()
+        calls = 0
 
-    @staticmethod
-    def _spin(seconds: float) -> str:
-        started = time.perf_counter()
-        while time.perf_counter() - started < seconds:
-            pass
-        return "finished"
+        def slow_runner(**_kwargs):
+            nonlocal calls
+            with call_lock:
+                calls += 1
+                call_number = calls
+            if call_number == 1:
+                first_started.set()
+                finish_first.wait(timeout=3)
+            else:
+                second_started.set()
+            return {
+                "action": "drafted",
+                "priority": "normal",
+                "notify_owner": False,
+                "draft_text": "A synthetic reply.",
+            }
 
-    def test_a_direct_synchronous_call_defeats_the_timeout(self):
-        """The mechanism, demonstrated rather than asserted about."""
-        async def job():
-            return self._spin(self.SPIN)
+        async def tick_the_loop():
+            await asyncio.sleep(0.01)
+            return "loop remained responsive"
 
-        async def main():
-            return await asyncio.wait_for(job(), timeout=self.TIMEOUT)
+        def job(job_id: int, ticket_id: int) -> dict:
+            return {
+                "id": job_id,
+                "message_id": f"synthetic-{job_id}",
+                "payload": json.dumps({
+                    "ticket_id": ticket_id,
+                    "message_id": f"synthetic-{job_id}",
+                    "message_text": "A synthetic product question.",
+                }),
+            }
 
-        started = time.perf_counter()
-        self.assertEqual(asyncio.run(main()), "finished",
-                         "wait_for cannot interrupt blocked sync code")
-        self.assertGreater(time.perf_counter() - started, self.SPIN * 0.8)
+        classifier_result = {
+            "priority": "NORMAL",
+            "sensitive": False,
+            "reason": "synthetic test",
+            "should_notify_owner": False,
+        }
+        first: asyncio.Task | None = None
+        waiting_job: asyncio.Task | None = None
+        shutdown: asyncio.Task | None = None
+        claim_check: asyncio.Task | None = None
+        followup: asyncio.Task | None = None
+        try:
+            with (
+                patch.object(orchestrator, "deterministic_classify", return_value=classifier_result),
+                patch.object(orchestrator, "process_ticket_with_hermes", side_effect=slow_runner),
+                patch.object(orchestrator, "_save_result_to_webhook") as save,
+            ):
+                timeout_started = time.perf_counter()
+                first = asyncio.create_task(orchestrator._run_with_timeout(
+                    orchestrator.process_customer_message(job(1, 101)),
+                    timeout=settings.job_timeout,
+                    job_id=1,
+                ))
+                await self._wait_for_thread_event(first_started)
 
-    def test_to_thread_would_let_it_fire(self):
-        """...and the fix that is NOT applied, so the trade-off is legible."""
-        async def main():
-            started = time.perf_counter()
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(self._spin, self.SPIN),
-                    timeout=self.TIMEOUT)
-            except asyncio.TimeoutError:
-                return time.perf_counter() - started
-            return None
+                self.assertEqual(
+                    await asyncio.wait_for(tick_the_loop(), timeout=0.2),
+                    "loop remained responsive",
+                )
+                with self.assertRaises(asyncio.TimeoutError):
+                    await first
+                elapsed = time.perf_counter() - timeout_started
+                self.assertGreaterEqual(elapsed, budget * 0.7)
+                self.assertLess(elapsed, 0.5)
 
-        elapsed = asyncio.run(main())
-        self.assertIsNotNone(elapsed)
-        self.assertLess(elapsed, self.SPIN * 0.8)
+                # A second job can time out while waiting for the first worker.
+                # It must then disappear without starting later in the background.
+                waiting_job = asyncio.create_task(orchestrator._run_with_timeout(
+                    orchestrator.process_customer_message(job(2, 202)),
+                    timeout=0.04,
+                    job_id=2,
+                ))
+                with self.assertRaises(asyncio.TimeoutError):
+                    await waiting_job
 
+                # Shutdown must drain the retained worker, and the next
+                # customer job must wait before it is even claimed.
+                settings_for_claim = SimpleNamespace(db_path_absolute=Path("unused-test-db"))
+                with (
+                    patch.object(
+                        orchestrator, "claim_job", new_callable=AsyncMock,
+                        return_value=False,
+                    ) as claim,
+                    patch.object(orchestrator, "_release_lock") as release_lock,
+                ):
+                    shutdown = asyncio.create_task(orchestrator._cleanup_processor(None))
+                    claim_check = asyncio.create_task(orchestrator._process_one_job(
+                        job(3, 303), is_customer=True, settings=settings_for_claim,
+                    ))
+                    try:
+                        await asyncio.sleep(0.03)
+                        self.assertFalse(shutdown.done())
+                        release_lock.assert_not_called()
+                        claim.assert_not_awaited()
+                        with call_lock:
+                            self.assertEqual(calls, 1)
+                        self.assertFalse(second_started.is_set())
+                        save.assert_not_called()
 
-class TheTimersMustNotBeReorderedTests(unittest.TestCase):
-    """The specific trap that made to_thread a regression.
+                        finish_first.set()
+                        await asyncio.wait_for(shutdown, timeout=1.0)
+                        await asyncio.wait_for(claim_check, timeout=1.0)
+                        release_lock.assert_called_once()
+                        claim.assert_awaited_once()
+                    finally:
+                        finish_first.set()
+                        for task in (shutdown, claim_check):
+                            if not task.done():
+                                try:
+                                    await asyncio.wait_for(task, timeout=1.0)
+                                except Exception:
+                                    pass
 
-    Both timeouts are `settings.job_timeout`, and the outer one starts first.
-    That is harmless only while the outer timer cannot fire before the inner
-    one - i.e. only while the work blocks the loop. Anything that makes the
-    outer timeout effective MUST also give the inner one a smaller budget,
-    or the Hermes-timeout fallback becomes dead code.
-    """
+                # Once the old worker has ended, a fresh call can run and
+                # publish normally. The timed-out waiting job never runs later.
+                followup = asyncio.create_task(
+                    orchestrator.process_customer_message(job(4, 404))
+                )
+                result = await asyncio.wait_for(followup, timeout=1.0)
+                self.assertEqual(result["ticket_id"], 404)
+                self.assertTrue(second_started.is_set())
+                with call_lock:
+                    self.assertEqual(calls, 2)
+                save.assert_called_once()
+                self.assertEqual(save.call_args.kwargs["ticket_id"], 404)
+        finally:
+            # Do not leave the dedicated worker waiting if an assertion fails.
+            for task in (first, waiting_job):
+                if task is not None and not task.done():
+                    task.cancel()
+            finish_first.set()
+            for task in (first, waiting_job):
+                if task is not None and not task.done():
+                    try:
+                        await asyncio.wait_for(task, timeout=1.0)
+                    except Exception:
+                        pass
+            if shutdown is not None and not shutdown.done():
+                try:
+                    await asyncio.wait_for(shutdown, timeout=1.0)
+                except Exception:
+                    pass
+            else:
+                try:
+                    await asyncio.wait_for(orchestrator._wait_for_hermes_worker(), timeout=1.0)
+                except Exception:
+                    pass
+            if followup is not None and not followup.done():
+                try:
+                    await asyncio.wait_for(followup, timeout=1.0)
+                except Exception:
+                    pass
 
-    def test_generation_has_a_separate_smaller_budget(self):
-        from hermes_runner import runner as hermes_runner_runner
-        import orchestrator
-
+    def test_generation_and_job_budgets_remain_ordered(self):
         source = inspect.getsource(hermes_runner_runner.process_ticket_with_hermes)
-        from config import ProcessorSettings
-        self.assertEqual(ProcessorSettings.model_fields['hermes_timeout'].default,240)
-        self.assertEqual(ProcessorSettings.model_fields['job_timeout'].default,270)
-        configured_timeout = "'hermes_timeout'" in source
-        subprocess_timeout = (
-            "timeout=settings.job_timeout" in source or "timeout=timeout" in source
-        )
-        self.assertTrue(configured_timeout and subprocess_timeout,
-                        "the Hermes subprocess must use the configured timeout")
-        loop = inspect.getsource(orchestrator._run_with_timeout)
-        self.assertIn("asyncio.wait_for", loop)
+        self.assertEqual(ProcessorSettings.model_fields["hermes_timeout"].default, 240)
+        self.assertEqual(ProcessorSettings.model_fields["job_timeout"].default, 270)
+        self.assertIn("'hermes_timeout'", source)
+        self.assertIn("timeout=timeout", source)
+        self.assertEqual(orchestrator._hermes_executor._max_workers, 1)
 
-    def test_the_hermes_timeout_fallback_is_still_reachable(self):
-        """It is only reachable because the outer timer cannot pre-empt it."""
-        import orchestrator
-
-        source = inspect.getsource(orchestrator.process_customer_message)
-        self.assertNotIn("to_thread", source,
-                         "moving these calls off the loop makes the outer "
-                         "timeout fire first and turns hermes_runner's "
-                         "subprocess.TimeoutExpired branch into dead code - "
-                         "measured: 0 dashboard rows and 0 owner alerts on a "
-                         "chargeback ticket. See this module's docstring.")
-
-    def test_only_one_job_can_be_in_flight(self):
-        """Cancelling a wait_for does not stop a worker thread.
-
-        With the calls inline, a cancelled job cannot leave work running, so
-        the loop's one-job-at-a-time contract holds. Restoring to_thread
-        without a bounded single-worker executor broke it: 5 concurrent runs,
-        4 for the same ticket.
-        """
-        import orchestrator
-
-        source = inspect.getsource(orchestrator.process_customer_message)
-        for blocking in ("deterministic_classify(", "process_ticket_with_hermes("):
-            with self.subTest(call=blocking):
-                self.assertIn(blocking, source)
+    def test_result_post_socket_timeout_is_not_a_job_deadline(self):
+        result_secret = "synthetic_result_secret_0123456789abcdefgh"
+        with (
+            patch.object(
+                orchestrator,
+                "get_settings",
+                return_value=SimpleNamespace(processor_result_secret=result_secret),
+            ),
+            patch("urllib.request.OpenerDirector.open", side_effect=TimeoutError("socket timeout")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Result API POST timed out"):
+                orchestrator._save_result_to_webhook(
+                    123,
+                    "synthetic-message",
+                    1,
+                    {"generation_attempt_id": 1, "generation_state": "ready"},
+                )
 
 
 if __name__ == "__main__":

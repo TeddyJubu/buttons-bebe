@@ -27,7 +27,7 @@ different service's virtual environment.
 Reads `REDO_API_KEY` + `REDO_STORE_ID` from the agent `.env`.
 
 ## Gorgias (live) — tools
-- `list_recent_tickets`, `get_ticket`, `get_ticket_messages`, `get_customer`, `search_customer`
+- `list_recent_tickets`, `get_ticket`, `get_ticket_messages`, `get_customer`, `search_customer`, `list_inbox_tickets`
 
 Basic Auth: `GORGIAS_API_EMAIL` (the Username from the Gorgias REST API page) +
 `GORGIAS_API_KEY`, subdomain `GORGIAS_SUBDOMAIN` (bare, e.g. `buttonsbebe`).

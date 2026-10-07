@@ -10,12 +10,13 @@ from bb_webhook import database
 from bb_webhook.routers import console as console_router
 from bb_webhook.db import Database
 from bb_webhook.send_intents import IntentStore, ActionConflict
-from webhook.action_test_support import setup_action_case
+from webhook.action_test_support import enable_action_send_access, setup_action_case
 
 
 class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await setup_action_case(self)
+        await enable_action_send_access(self)
         self.store = IntentStore(self.path)
         self.operation = str(uuid.uuid4())
         self.payload = {'operation_id': self.operation, 'source_message_id': 'source-1',

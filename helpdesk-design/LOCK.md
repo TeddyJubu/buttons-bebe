@@ -1,3 +1,7 @@
+> **Historical design snapshot:** This file describes the earlier Inbox 1
+> interface. It is not the active Inbox specification; use `AGENTS.md` and the
+> current `console-src/inbox2/` sources for present behavior.
+
 # Inbox lock
 
 Chrome is list / thread / rail (views live in the list toolbar). Column

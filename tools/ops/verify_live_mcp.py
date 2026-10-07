@@ -19,7 +19,7 @@ PROCESS_HELPER_SHA = 'bde46293ba6f887d66411aa638de7544a8375f8999218832f101baba4a
 GROUPS = {
     'buttonsbebe_kb': (8077, {'search_kb'}),
     'buttonsbebe_redo': (8078, {'list_recent_returns','get_returns_for_order','get_return','get_order'}),
-    'buttonsbebe_gorgias': (8079, {'list_recent_tickets','get_ticket','get_ticket_messages','get_customer','search_customer'}),
+    'buttonsbebe_gorgias': (8079, {'list_recent_tickets','get_ticket','get_ticket_messages','get_customer','search_customer','list_inbox_tickets'}),
 }
 PREFIX = 'MCP_PROOF='
 
@@ -87,7 +87,7 @@ def registry_metadata(raw, hints, utility_schemas):
                           for n in ('list_resources','read_resource','list_prompts','get_prompt')}
     functions = [row['function'] for row in raw]
     names = [row['name'] for row in functions]
-    if len(names) != 22 or len(set(names)) != 22 or set(names) != business | expected_utilities:
+    if len(names) != 23 or len(set(names)) != 23 or set(names) != business | expected_utilities:
         raise ValueError('Unexpected business or utility definitions')
     if set(utility_schemas) != expected_utilities:
         raise ValueError('Unexpected generated utility schemas')

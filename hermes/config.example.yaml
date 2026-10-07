@@ -1,3 +1,5 @@
+# Example Hermes configuration only. These model/provider values do not
+# describe production; see AGENTS.md §3 for the recorded production setting.
 model:
   default: accounts/fireworks/models/glm-5p2
   provider: custom

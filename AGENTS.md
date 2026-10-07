@@ -9,12 +9,13 @@
 > `_VPS-FULL-BACKUP-20260706/` holds plaintext secrets — gitignored, never
 > commit or restore from it.
 
-This checkout also includes local, unreleased changes from 4 October 2026.
-They have not been pushed or deployed. The code contracts below describe this
-checkout; verify the installed version before treating them as VPS behavior.
+`main` is the release branch: a push to `main` that passes CI auto-deploys it
+(see §8). The "unreleased 4 October changes" note that stood here was stale —
+those commits are on `origin/main`. Git refs do not prove what the VPS runs;
+check the installed release before treating these contracts as VPS behavior.
 
-Local source improvements made after that live-system date have not been deployed.
-Repository tests do not verify installed production code or configuration.
+Edits in this checkout remain local until released. Source documents and
+repository tests do not verify the code or configuration installed in production.
 
 For support webapp run/edit tasks, use the project skill at
 skills/buttonsbebe-support-webapp/SKILL.md for the current file map and
@@ -30,15 +31,15 @@ parameters; retired API/assets return 410. Do not restore the embedded inbox or
 its message bridge. Shared projection/Shopify Python modules and dependency
 locks in `console-src/inbox/` remain required by Inbox. The backend retains its
 internal `inbox2` service and data paths: use `helpdesk-inbox2` (:8767) and
-`buttonsbebe-inbox2-shop`; the existing projection timer remains active. Earlier
-Inbox 1 browser-control, preview and WebMCP notes below are historical.
+`buttonsbebe-inbox2-shop`; the existing projection timer remains active. Older
+Inbox 1 browser-control and preview notes are historical.
 
 ## 1. What & why
 
 AI support agent for **Buttons Bebe** (Shopify store, ~2k tickets/month in
 **Gorgias**). Per incoming ticket: read message → pull order/return/product
-context → search KB → draft a reply **into the review console** (not into
-Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
+context → search KB → draft a reply for a human to review in the active Inbox.
+The human decides whether to send it. Client: **Chaim**.
 
 ## 2. Safety model (never violate)
 
@@ -48,21 +49,25 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    read, KB search). No credential loading, no direct API/curl fallbacks.
    Shopify, Redo, and normal Gorgias access are read-only everywhere; the only
    external writes are the human-initiated Gorgias send/note actions in (3).
-3. The only external writes are human-triggered console actions:
-   `POST /dashboard/api/ticket/{id}/send|note|rewrite` on the webhook app
-   (:8000). Publicly reached through the standalone `/console/login` page and
-   an HttpOnly signed session cookie; Caddy `forward_auth` gates `/console/api/*`
-   and the console's WhatsApp/KB-admin routes. Direct public `/dashboard*`
-   access is denied. Send requires a confirm click; rewrite returns text to the
-   console and never sends it. Inbox replies use the same human action service via
+3. The only external writes are human-triggered Gorgias reply and note actions
+   on the webhook app (:8000). The signed session cookie and Caddy
+   `forward_auth` protect the console routes; direct public `/dashboard*` access
+   is denied. Both the legacy `/dashboard/api/ticket/{id}/send` route and the
+   legacy `/dashboard/api/ticket/{id}/note` route also require the valid,
+   session-bound Inbox send grant, checked by the server using the
+   `X-Inbox-Send-Access` header, actor, and session ID. The note route has no UI.
+   `POST /dashboard/api/ticket/{id}/rewrite` only returns draft text and does
+   not write to Gorgias.
+   The Inbox reply path is
    `POST /dashboard/api/inbox/ticket/{id}/send`, explicitly authorized by the
    owner on 2026-09-25. The Inbox starts read-only; its Read & write switch
    obtains a page-memory-only, session-bound grant from
    `POST /dashboard/api/inbox/send-access`. Grants expire after 30 minutes;
    switching off revokes the grant, and reload starts read-only. Every reply
    requires review and a final confirm click, current recipient/source checks,
-   a durable operation ID, and an audit record. This grants no writes to Hermes,
-   the Inbox read API, MCP tools, or Shopify. No automatic send or resend.
+   a durable operation ID, and an audit record. The grant adds no write ability
+   to Hermes, the Inbox read API, MCP tools, or Shopify. No automatic send or
+   resend.
 4. Actionable requests get a grounded answer, necessary clarification, or
    verified customer action. Pure thanks get no new draft/alert and do not
    resolve the underlying case. Missing facts alone are normal staff review,
@@ -91,7 +96,10 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
    Mixed older/unknown and newer observation clocks retain the previous browser
    summary until a fully nonregressing observation arrives. A
    provider-side status, priority, assignment, rename or read-state write still
-   requires the owner's explicit authorization and an audit trail.
+   requires the owner's explicit authorization and an audit trail. The active
+   views are All, Open, Closed, Assigned to me, Unassigned, Snoozed, Trash, and
+   Spam. Assigned to me stays unavailable until the owner chooses an operator
+   email; never invent provider state or an assignee.
 7. Owner-approved New ticket creates a private browser-only `local:<UUID>` ticket
    (approved 2026-10-05). It notifies nobody, never creates a Gorgias ticket, never
    looks up provider customer data, and cannot send a customer reply. Real Gorgias
@@ -102,15 +110,16 @@ Gorgias) where a human sends / notes / edits / discards. Client: **Chaim**.
 
 - Production: VPS **`srv1766050`** (2.25.137.77), Ubuntu, everything under
   `/root/Buttonsbebe Agent/`. This repo mirrors that tree.
-- Brain: **Hermes Agent** CLI (Nous Research), currently **`gpt-6-luna`** via
-  the OpenAI Codex provider (`~/.hermes/config.yaml`; verified 2026-09-26).
+- Brain: **Hermes Agent** CLI (Nous Research). Production's model and provider
+  are configured in `~/.hermes/config.yaml` (the runtime source of truth):
+  **`gpt-6-luna`** via the OpenAI Codex provider, verified 2026-09-26.
 - **A push to `main` that passes CI auto-deploys to production** — see §8.
 
 ## 4. End-to-end flow
 
 ```text
 Gorgias webhook
-  → bb_webhook FastAPI :8000        HMAC verify (WEBHOOK_SECRET), dedupe
+  → bb_webhook FastAPI :8000        provider `?secret=` checked against WEBHOOK_SECRET; dedupe; HMAC verifier is exercised in tests
   → SQLite job_queue                webhook/data/webhook.db (WAL)
   → buttonsbebe-processor           polls ~every 2s, one Hermes run per job
   → hermes -t buttonsbebe_kb,buttonsbebe_redo,buttonsbebe_gorgias -z "…"
@@ -119,9 +128,11 @@ Gorgias webhook
        └─ buttonsbebe_kb      :8077   LanceDB hybrid search: policies · faq ·
                                       intents · products · tickets
   → <DRAFT:{token}>…</DRAFT> extracted, cleaned (draft_cleaner.py), stored in
-    ticket_results, shown in the console Ticket feed
-  → HUMAN clicks Send reply / Draft as internal note / Request edit (or ignores)
+    ticket_results, and presented for human review in the active `/inbox/`
+  → HUMAN reviews and confirms a reply in the Inbox (or leaves it unsent)
 ```
+
+The legacy `POST /dashboard/api/ticket/{id}/note` route has no UI.
 
 - Hermes returns the draft plus a `JSON_RESULT` and always reports
   `gorgias_priority_set=false`, `note_posted=false`. The processor may
@@ -129,7 +140,7 @@ Gorgias webhook
   (`processor/gorgias_writer.py`, the dormant write-back stub, was deleted
   2026-09-17, Wave 4 — history in git. Do not rebuild it without revisiting
   the safety model.)
-- Prompt-injection hardening lives in `hermes_runner.py`: run-token
+- Prompt-injection hardening lives in `processor/hermes_runner/` (`prompt.py`, `extract.py`): run-token
   `<DRAFT:token>` tags prove the draft is Hermes'; customer-supplied
   `<DRAFT>` blocks are neutralised and fail closed. Don't loosen casually.
 - Toolsets are an explicit allow-list (`HERMES_TOOLSETS` in
@@ -145,7 +156,7 @@ Gorgias webhook
 | Dir | What |
 |---|---|
 | `webhook/` | FastAPI receiver + queue DB + console API (`src/bb_webhook/app.py`). uv package. |
-| `processor/` | Orchestrator loop; `hermes_runner.py` (prompt, command build, draft extraction); `draft_cleaner.py`; `whatsapp_notifier.py`; `heartbeat.sh`. uv package. |
+| `processor/` | Orchestrator loop; `hermes_runner/` package (prompt, command build, draft extraction); `draft_cleaner.py`; `whatsapp_notifier.py`; `heartbeat.sh`. uv package. |
 | `kb/` | KB markdown (`intents/ faq/ policies/ tickets/ products/ shopify/` — `shopify/` is shopify.dev platform background), LanceDB index/sync scripts, MCP server, systemd units/timers, `search.sh`. |
 | `tools/` | Read-only Redo + Gorgias MCP modules, `run-gorgias.sh` / `run-redo.sh`, `verify_release.sh`, `verify_hermes_toolset.sh`. |
 | `kb-admin/` | KB editor API (Node, :8087) with auth-safety tests. |
@@ -153,6 +164,7 @@ Gorgias webhook
 | `console-src/index.html` | **THE** console SPA source (includes Notice Board tab); deployed to the web root by CD. |
 | `console-src/inbox2/` | Active `/inbox/` UI, credential-free read API and separate Shopify worker. |
 | `console-src/inbox/` | Required shared projection/Shopify modules and locked dependencies. No retired Inbox UI. |
+| `intake/` | Shared inbound message-content parsing helper and its tests. |
 | ~~`dashboard/index.html`~~ | Deleted 2026-09-17 (Wave 2) — there is exactly one console surface now. |
 | `deploy/` | Only supported Caddy config (`caddy/Caddyfile.redacted`), CD receive script (`cd/`), systemd units, ENV-consolidation + heartbeat runbooks, tests. |
 | `testing/` | 48-scenario suite (`scenarios.json`), TEST-PLAN, judging rubric, HOW-TO-RUN. |
@@ -160,30 +172,66 @@ Gorgias webhook
 | `fable/` + branch `Fable_buttonsbebe` | Track B standalone prototype — quarantined background, **not** planned work. |
 | `hermes/` | In-repo copies of `SOUL.md` + `skills/buttonsbebe`; `config.example.yaml` is a template (real `config.yaml` is gitignored). |
 
-## 6. Services & ports (all bind localhost)
+## 6. Services, timers, ports, and public hosts
 
-| Port | Service | systemd unit |
+The checked-in `deploy/systemd/` inventory contains 19 service units and 9
+timer units. Network listeners bind to localhost; one-shot jobs and workers do
+not expose a listener.
+
+| Port | Role | systemd service |
 |---|---|---|
-| 8000 | Webhook receiver + console API (uvicorn) | `buttonsbebe-webhook` |
-| 8767 | Active Inbox local read API | `helpdesk-inbox2` |
-| — | Separate Inbox customer enrichment worker | `buttonsbebe-inbox2-shop` |
-| — | AI snapshot export timer | `buttonsbebe-inbox-projection.timer` |
-| 8077 | KB MCP — `search_kb` | `buttonsbebe-kb-mcp` |
-| 8078 | Redo MCP | `buttonsbebe-redo-mcp` |
-| 8079 | Gorgias MCP | `buttonsbebe-gorgias-mcp` |
-| 8085 | WhatsApp connect (QR + alerts + bridge) | `buttonsbebe-whatsapp-connect` |
-| 8087 | KB admin API | `buttonsbebe-kb-admin` |
-| — | Job processor | `buttonsbebe-processor` |
-| — | Timers: product sync (1d) / notices GC / nightly learn (03:30) | `buttonsbebe-kb-sync` / `-notices-gc` / `-kb-learn` |
+| 8000 | Gorgias webhook receiver and console API | `buttonsbebe-webhook` |
+| 8767 | Active Inbox read API | `helpdesk-inbox2` |
+| 8077 | KB MCP search tool | `buttonsbebe-kb-mcp` |
+| 8078 | Redo MCP read tools | `buttonsbebe-redo-mcp` |
+| 8079 | Gorgias MCP read tools | `buttonsbebe-gorgias-mcp` |
+| 8085 | WhatsApp pairing, owner alerts, and Hermes bridge | `buttonsbebe-whatsapp-connect` |
+| 8087 | KB administration API | `buttonsbebe-kb-admin` |
+| — | Queue processor; runs Hermes jobs | `buttonsbebe-processor` |
+| — | Read-only Shopify details worker for opened Inbox tickets | `buttonsbebe-inbox2-shop` |
+| — | Read-only Redo details worker for opened Inbox tickets | `buttonsbebe-inbox2-redo` |
+| — | Export observed Inbox history snapshot | `buttonsbebe-inbox-projection` |
+| — | Export read-only Shopify customer/order rail snapshot | `buttonsbebe-inbox-shop-rail` |
+| — | Nightly learning promotion and index rebuild | `buttonsbebe-kb-learn` |
+| — | Remove expired Notice Board entries | `buttonsbebe-kb-notices-gc` |
+| — | Sync Shopify products into the KB and rebuild its index | `buttonsbebe-kb-sync` |
+| — | Read-only local operational health checks | `buttonsbebe-monitor` |
+| — | Read-only Shopify content-write safety checks | `buttonsbebe-shopify-safety` |
+| — | Send processor heartbeat and alert on a stale worker | `buttonsbebe-heartbeat` |
+| — | Encrypted SQLite backup job | `buttonsbebe-backup` |
 
-Caddy (`deploy/caddy/Caddyfile.redacted` is the only supported source;
-`webhook/Caddyfile` is marked RETIRED): session-protected console at
-`https://support.buttonsbebe.com/console/` (`/console/*`, rewritten internally
-to `/dashboard/api/*`; `/console/kbapi` → :8087, `/console/waapi` → :8085).
-`/console/login` and `/console/api/auth/*` are the only public console
-bootstrap paths; all console data and mutation routes require the signed
-session cookie. The other public allowlist is `/webhook/gorgias/*`,
-`/health`, `/ready`, and `/connect-whatsapp/*`; everything else 404s.
+| Timer | Schedule from the checked-in unit |
+|---|---|
+| `buttonsbebe-backup.timer` | Every six hours at :15 UTC |
+| `buttonsbebe-heartbeat.timer` | First check after 3 minutes, then every 5 minutes |
+| `buttonsbebe-inbox-projection.timer` | First check after 30 seconds, then every 60 seconds |
+| `buttonsbebe-inbox-shop-rail.timer` | First run after 2 minutes, then every 5 minutes |
+| `buttonsbebe-kb-learn.timer` | Daily at 03:30 UTC |
+| `buttonsbebe-kb-notices-gc.timer` | First run after 5 minutes, then every 15 minutes |
+| `buttonsbebe-kb-sync.timer` | Every day |
+| `buttonsbebe-monitor.timer` | First check after 45 seconds, then every 60 seconds |
+| `buttonsbebe-shopify-safety.timer` | First check after 5 minutes, then every 15 minutes |
+
+The supported Caddy sources are `deploy/caddy/Caddyfile.redacted` and the
+read-only site fragments in `deploy/caddy/sites/`. They define these public
+hosts and upstreams:
+
+| Public host | Upstream and access boundary |
+|---|---|
+| `support.buttonsbebe.com` and `srv1766050.hstgr.cloud` | Main support site: authenticated `/console/`, `/inbox/`, console APIs, webhook ingress, and the WhatsApp connection route. |
+| `hermes.buttonsbebe.com` | Hermes dashboard at `127.0.0.1:9119`. The Caddy fragment has no session check; public authentication is not verified here. S-02 tracks the required Caddy decision. |
+| `wh.buttonsbebe.com` | Warehouse app at `127.0.0.1:4000`; Basic Auth protects the site except the Shopify webhook path, which the app verifies. |
+| `exchange.buttonsbebe.com` | Exchange service at `127.0.0.1:4100`. |
+| `https://support.buttonsbebe.com:8443` | Receiving workspace at `127.0.0.1:3210`; the proxy checks session and request origin. |
+
+On the main support host, `/console/login` and `/console/api/auth/*` are the
+console bootstrap paths. Caddy session checks gate console data routes;
+`/console/kbapi` maps to :8087 and `/console/waapi` maps to :8085. Direct
+public `/dashboard*` paths return 404. The other public paths are
+`/webhook/gorgias/*`, `/health`, `/ready`, and `/connect-whatsapp/*`; other
+paths return 404. The Inbox's opened-ticket Shopify and Redo details are
+provided by separate local workers, `buttonsbebe-inbox2-shop` and
+`buttonsbebe-inbox2-redo`.
 
 ## 7. Credentials
 
@@ -197,10 +245,11 @@ token); Gorgias = Basic (email + API key); Redo = Bearer. The console uses
 `CONSOLE_PASSWORD_HASH` (PBKDF2) and `CONSOLE_SESSION_SECRET` from the root
 `.env`; never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes
 skills never read env files — the authenticated MCP services are their only
-runtime data path. No secret has ever been committed to git (full-history
-token-prefix scan, 2026-07-29); what remains is VPS-side: merging the
-leftover `webhook/.env` and rotating the credentials sitting in plaintext in
-`_VPS-FULL-BACKUP-20260706/` — see `deploy/ENV-CONSOLIDATION-RUNBOOK.md`.
+runtime data path. A webhook token was committed in the now-removed `cursor.md`
+and remains in Git history. Rotation is pending under
+[S-01 in the recheck task list](docs/RECHECK-TASKLIST.md); do not reproduce or reuse the token. Keep the
+remaining environment consolidation and rotation work in
+`deploy/ENV-CONSOLIDATION-RUNBOOK.md`.
 
 ## 8. Verify before pushing — CI auto-deploys `main`
 
@@ -272,10 +321,11 @@ rebuild); Notice Board override layer (immediate effect, no reindex; GC timer
 purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 `deploy/HEARTBEAT-INSTALL.md`); KB admin (:8087).
 
+- `processor/classifier.py` is a live, escalate-only safety net. Hermes also
+  classifies; deterministic rules can raise priority but never lower it.
+
 **Retired but present — fail-closed; don't "fix" them back to life:**
 
-- `processor/classifier.py` — advisory deterministic rules only; Hermes also
-  classifies; the processor can raise priority but never lower it.
 - `feedback/collector.py` — retained legacy collector; writes `ticket-*.md`
   packets only under `FEEDBACK_LEGACY_OPT_IN=1` (bounded rollback test).
 
@@ -298,8 +348,9 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. Older
-`gorgias-webhook/` and `teddy/` layouts are historical.
+`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. The retired
+`gorgias-webhook/`, `teddy/`, `qa_v3/`, `qa-run/`, `kb-editor/` and `shopify/` trees were
+removed on 2026-10-07; recover them from tag `archive/retired-code-2026-10-07`.
 
 ## 11. Knowledge base & learning loop (deep details)
 
@@ -363,7 +414,11 @@ as current work.
 - Omit credentials and demo data; keep Shopify read-only. Inbox defaults to read-only; the owner explicitly authorized a page-scoped Read & write toggle and individually confirmed Gorgias customer replies on 2026-09-25.
 - Cite production as `support.buttonsbebe.com` (`/console/`, `/inbox/`); never present `helpdesk.teddyonfriday.com` as the deploy or production host.
 
-## Learned Workspace Facts
+## Historical demo and workspace notes
+
+These notes describe an earlier synthetic helpdesk demo and older workspace
+snapshots. They are not current production contracts. For current behavior,
+use §§2–6 and check the named source files before relying on a detail.
 
 - Inbox preview: run the synthetic, loopback-only helper in skills/buttonsbebe-support-webapp/scripts/serve_inbox_preview.py and open http://127.0.0.1:8878/inbox/. Production is https://support.buttonsbebe.com/inbox/.
 - Final client host is a Hostinger VPS; treat cutover as fresh install + DNS/proxy + webhook URL change, not a lift-and-shift of this box.
@@ -372,17 +427,6 @@ as current work.
 - Demo ticket messages may include image attachments; the thread shows small expandable thumbs and keeps the composer bottom-anchored (PR 37 / `helpdesk-design/LOCK.md`). Order rail line items show 48×48 product thumbnails from Shopify `lineItems.image.url` (PR 13).
 - Demo inbox baseline is 38 seed tickets (8 hand rows in `helpdesk/tickets.py` + 30 in `fixtures_demo_tickets.py`); normal boot does not auto-pull mail — use `?pull=1` (optional `force=1` for fixtures).
 - Cross-boot AgentMail dedupe persists seen message ids inside the inbox store: SQLite single-snapshot (`HELPDESK_DB_FILE`, the `seen` key written by `state_store.write` in each transaction) in production, or legacy JSON `HELPDESK_SEEN_FILE` when that fallback is set.
-- Inbox WebMCP (`console-src/inbox/js/webmcp.js`): registers `document.modelContext` UI verbs (`select_view`, `select_ticket`, `use_draft`, `regenerate_draft`, `dismiss_draft`, plus summarize/macros); omits Send; isolated preview Send is fail-closed (`SEND_ACCESS_ENABLED=false` in `helpdesk/send_access.py`, click shows “Activate the send access.”); server `helpdesk.*` MCP/CLI stays for data/AI.
 - `helpdesk/composer.py` `fixture_draft()` supplies Caduceus scenario language for demo ticket ids; draft-by-type covers privacy/unsubscribe asks; still no refund/cancel/send promises.
-- Organ/tissue architecture: Excalidraw at `docs/tissues/organ-tissue.excalidraw`; click-to-enter 3D sim at `docs/tissues/architecture-3d-sim.html` (world in `architecture-world.js`): LEGO-house organs, inside-Inbox list/thread/rail wireframe, info card off by default; mail → helpdesk intake, Shopify look-only; Send is human-only and fail-closed on the isolated preview until send access is activated.
 - This demo’s look-up path is Shopify Admin GraphQL only (`get_customer` / `get_order` / `get_returns` / `list_past_orders`); Redo and KB belong to production Hermes. Gorgias is an optional detachable bridge sidecar (`console-src/helpdesk-agent/bridge/`, `deploy/GORGIAS-BRIDGE-SETUP.md`), not a peer organ; defaults `GORGIAS_BRIDGE_ENABLED=0` / `HELPDESK_OUTBOUND_ENABLED=0`; intake tickets persist in the SQLite single-snapshot store (`HELPDESK_DB_FILE`, production default `/var/lib/buttonsbebe-inbox/inbox.sqlite3`), with legacy `HELPDESK_STORE_FILE` JSON as an explicit fallback.
 - Surge CLI is installed globally on this VPS (`surge` on PATH); publish a folder that contains `index.html`.
-- The historical Inbox1 projection captured allowlisted ticket state from webhook
-  `raw_payload`; its Assigned to me operator setting is retired. The active Inbox
-  reads observed state through the read-only Gorgias MCP and offers All, Open,
-  Closed, Assigned to me, Unassigned, Snoozed, Trash and Spam views. Missing source
-  fields remain unavailable. Assigned to me is intentionally unavailable until the
-  owner chooses an operator email; do not configure one without that instruction.
-  Browser organization is separately labelled and uses saved observations plus
-  local overrides; provider totals remain observed totals. Never invent provider
-  ticket state or an assignee.

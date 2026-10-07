@@ -11,10 +11,14 @@ PROCESSOR_DIR = Path(__file__).resolve().parent
 
 class LegacyFeedbackRetirementTests(unittest.TestCase):
     def test_retired_hermes_feedback_helper_is_absent(self) -> None:
-        source = (PROCESSOR_DIR / "hermes_runner.py").read_text(encoding="utf-8")
-        self.assertNotIn("process_agent_reply_with_hermes", source)
-        self.assertNotIn("FEEDBACK_LEGACY_OPT_IN", source)
-        self.assertNotIn("Load credentials", source)
+        # The flat hermes_runner.py shim was shadowed by the package and removed;
+        # guard the code that actually runs.
+        self.assertFalse((PROCESSOR_DIR / "hermes_runner.py").exists())
+        for path in (PROCESSOR_DIR / "hermes_runner").glob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("process_agent_reply_with_hermes", source, path.name)
+            self.assertNotIn("FEEDBACK_LEGACY_OPT_IN", source, path.name)
+            self.assertNotIn("Load credentials", source, path.name)
 
     def test_orchestrator_does_not_import_legacy_helper(self) -> None:
         source = (PROCESSOR_DIR / "orchestrator.py").read_text(encoding="utf-8")

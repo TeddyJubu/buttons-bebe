@@ -1,3 +1,7 @@
+> **Historical setup note:** This document describes the earlier demo helpdesk
+> bridge and Inbox 1 paths. Its activation steps may reference removed services;
+> check current code and `AGENTS.md` before any operations work.
+
 # Gorgias bridge activation — `console-src/helpdesk-agent/bridge/`
 
 The bridge is a **dormant, optional sidecar** connecting the demo helpdesk to

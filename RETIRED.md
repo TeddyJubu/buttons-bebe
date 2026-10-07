@@ -11,15 +11,17 @@ model.
 
 | Path | Status |
 |---|---|
-| `gorgias-webhook/` (~1.4 MB) | Retired pre-rebuild system (Supermemory/ChromaDB, own classifier/draft engine). Superseded by `processor/` + `webhook/`. |
-| `teddy/` | Retired prototype tree. Background only. |
+| `gorgias-webhook/` (~1.4 MB) | Retired pre-rebuild system (Supermemory/ChromaDB, own classifier/draft engine). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `teddy/` | Retired prototype tree. **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
 | `fable/` (+ branch `Fable_buttonsbebe`) | Track B standalone prototype, quarantined. Not planned work. |
-| `kb-editor/` (incl. `vendor/`) | Retired editor; live KB editing is `kb-admin/` (:8087). |
-| `qa_v3/` | Retired QA fixtures/harness. Live gate is `testing/` (48 scenarios). |
+| `kb-editor/` (incl. `vendor/`) | Retired editor; live KB editing is `kb-admin/` (:8087). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `qa_v3/`, `qa-run/` | Retired QA fixtures/harness and results. Live gate is `testing/` (48 scenarios). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `shopify/` | Standalone Shopify module with no production importer (the Inbox rail uses `console-src/inbox/export_shop_rail.py`). **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. |
+| `processor/hermes_runner.py`, `cursor.md` | Shim shadowed by the `processor/hermes_runner/` package; review notes on retired code. **Deleted 2026-10-07**; tag `archive/retired-code-2026-10-07`. `cursor.md` contained a webhook token that stays in git history until it is rotated. |
 | `dashboard/` | Older console snapshot without Notice Board. **Deleted 2026-09-17** (Wave 2); history in git. Live console source is `console-src/index.html`; isolated preview is `console-src/inbox/`. |
 | `webhook/src/bb_webhook/review_console.html` + `dashboard.html` | In-package console snapshots served by nothing; shipped in the wheel. **Deleted 2026-09-17** (Wave 2); history in git. |
 | `deploy/review_console.html` | Runbook-history copy of a file nothing served. **Deleted 2026-09-17** (Wave 2); history in git. |
-| `HANDOVER/` | Onboarding docs dated 2026-07-13, before the Fable port. Claims like "webhook/processor source is not in the repo" are outdated. Trust order: `AGENTS.md` → `HANDOVER/` → dated plans. Superseded: `INCONSISTENCIES.md`, `DEV-ISSUES.md`. Stale layout: root `README.md`. |
+| `HANDOVER/` | Onboarding docs dated 2026-07-13, before the Fable port. Claims like "webhook/processor source is not in the repo" are outdated. Trust order: `AGENTS.md` → `HANDOVER/` → dated plans. Superseded: `INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use the root `README.md` for current repository onboarding. |
 | `processor/gorgias_writer.py` | Retired write-back stub (import raised unless `BUTTONSBEBE_ALLOW_GORGIAS_WRITER=1`). **Deleted 2026-09-17** (Wave 4, owner decision); history in git. Live Gorgias writes are human-gated via `webhook/src/bb_webhook/gorgias_client.py`. |
 | `processor/feedback_collector.py` | Superseded poller stub (fail-closed unless `FEEDBACK_LEGACY_OPT_IN=1`). **Deleted 2026-09-17** (Wave 4, owner decision); history in git. Live learning path is `webhook/.../learning.py`; the retained `feedback/collector.py` remains for bounded rollback tests. |
 | `processor/classifier_shim.py` + `tools/compare_classifier.py` | T-FIX-3 parity apparatus: 13-line re-export shim + 10,000-sample one-time-proof harness. **Deleted 2026-09-17** (Wave 4, owner decision, report 04-5) after 231 green deploys; history in git (pre-split classifier at parent of `ba138d5`). Canonical classifier is `processor/classifier/`. |

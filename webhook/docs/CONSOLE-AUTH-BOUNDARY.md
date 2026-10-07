@@ -12,7 +12,8 @@ inside FastAPI as well as at Caddy.
 | `POST /dashboard/api/notifications/read` | Owner session and trusted Origin |
 | `POST /dashboard/api/inbox/send-access` | Owner session and trusted Origin; explicit boolean creates/revokes a page-scoped grant; no provider call |
 | `POST /dashboard/api/inbox/ticket/{ticket_id}/send` | Owner session, trusted Origin and valid grant for this session; exact review and confirmation before the existing durable console sender |
-| `POST /dashboard/api/ticket/{ticket_id}/send`, `/note`, `/rewrite` | Owner session and trusted Origin; action handler still owns confirmation, idempotency, ticket and content validation |
+| `POST /dashboard/api/ticket/{ticket_id}/send`, `/note` | Owner session, trusted Origin and a valid Inbox send grant bound to that owner and session; action handler still owns confirmation, idempotency, ticket and content validation |
+| `POST /dashboard/api/ticket/{ticket_id}/rewrite` | Owner session and trusted Origin; rewrite returns text and never writes to Gorgias |
 | `POST /dashboard/api/results` | Processor only: direct loopback, no Origin or Forwarded/X-Forwarded headers; never exposed as a browser action |
 | `POST /auth/login`, `/auth/logout` | Trusted Origin; login verifies existing owner credentials, logout durably revokes the presented session |
 | `GET /auth/session`, `/auth/check`, `/auth/page-check` | Registry-backed session validation; proxy checks also validate Origin for original unsafe methods |
@@ -85,7 +86,7 @@ external provider. Queue-age diagnostics support monitoring, but do not by
 themselves certify end-to-end draft quality or operator notification delivery.
 
 Same-origin inbox/console browser authority remains a limitation. Server-side
-sessions, Origin checks, the inbox capability allowlist and CSP reduce risk;
+sessions, Origin checks, the short-lived Inbox grant and CSP reduce risk;
 they do not make two paths into separate origins or eliminate same-origin XSS.
 The owner-authorized Inbox reply flow additionally requires an explicit switch,
 a short-lived session-bound grant, and per-reply confirmation. The Inbox service
