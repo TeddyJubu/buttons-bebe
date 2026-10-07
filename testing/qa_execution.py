@@ -30,6 +30,10 @@ class ProcessExited(Exception):
     """The observed PID has exited; not an unreadable live executable."""
 
 
+class ThreadGroupAlive(Exception):
+    """Only the thread-group leader exited; a sibling still runs (and may exec) under this PID."""
+
+
 class _Failure(Exception):
     pass
 
@@ -54,6 +58,9 @@ class ImageSnapshot:
             os.close(fd)
 
 
+_PF_EXITING = 0x4  # include/linux/sched.h
+
+
 class ProcReader:
     """Only /proc/PID/exe and nonsecret PID state/start-time fields are read.
 
@@ -73,19 +80,43 @@ class ProcReader:
         try:
             # The comm field may contain spaces/parentheses; it is not cmdline.
             fields = raw.rsplit(b") ", 1)[1].split()
-            return fields[0], int(fields[19])  # field 22: starttime
+            return fields[0], int(fields[19]), int(fields[6])  # 22: starttime, 9: flags
         except (IndexError, ValueError):
             raise _Failure("pid_state_invalid") from None
 
     @classmethod
-    def _state(cls, pid):
+    def _state(cls, pid, *, image_missing_start=None):
         try:
-            state, start = cls._facts(pid)
-        except FileNotFoundError:
+            state, start, flags = cls._facts(pid)
+        except (FileNotFoundError, ProcessLookupError):  # ESRCH: reaped between open/read
             raise ProcessExited() from None
-        if state in (b"Z", b"X"):
+        # After /proc/PID/exe vanished for the process started at image_missing_start:
+        # do_exit() sets PF_EXITING before exit_mm() drops the link, and stat reports
+        # Z only after exit_notify(); a new start means it was reaped and the PID reused.
+        if image_missing_start is not None and start != image_missing_start:
             raise ProcessExited()
+        def exiting(state, flags):
+            return state in (b"Z", b"X") or (image_missing_start is not None and flags & _PF_EXITING)
+        if exiting(state, flags):
+            # Z/PF_EXITING describe the leader thread only: after a leader-only exit a
+            # sibling keeps this PID alive and may exec. That exec swaps a live leader
+            # (same start) in between our reads, so re-read after listing threads.
+            if not cls._siblings_remain(pid):
+                try:
+                    state, again, flags = cls._facts(pid)
+                except (FileNotFoundError, ProcessLookupError):
+                    raise ProcessExited() from None
+                if again != start or exiting(state, flags):
+                    raise ProcessExited()
+            raise ThreadGroupAlive()
         return start
+
+    @staticmethod
+    def _siblings_remain(pid):
+        try:
+            return any(tid != str(pid) for tid in os.listdir(f"/proc/{pid}/task"))
+        except (FileNotFoundError, ProcessLookupError):
+            return False
 
     def open_image(self, pid):
         start = self._state(pid)
@@ -101,7 +132,7 @@ class ProcReader:
         except FileNotFoundError:
             if fd >= 0:
                 os.close(fd)
-            self._state(pid)
+            self._state(pid, image_missing_start=start)
             raise _Failure("live_image_missing") from None
         except BaseException:
             if fd >= 0:
@@ -113,8 +144,8 @@ class ProcReader:
 
     def final_state(self, pid, process_start):
         try:
-            state, start = self._facts(pid)
-        except FileNotFoundError:
+            state, start, _ = self._facts(pid)
+        except (FileNotFoundError, ProcessLookupError):
             return "absent_after_helper_reap"
         if start != process_start:
             return "reused"
@@ -129,7 +160,7 @@ class ProcReader:
                     and (current.st_dev, current.st_ino) == (image.device, image.inode))
         except FileNotFoundError:
             # Distinguish normal process exit from an unreadable live image.
-            self._state(pid)
+            self._state(pid, image_missing_start=start)
             raise _Failure("live_image_missing") from None
 
 
@@ -227,48 +258,53 @@ class _Observer:
         began = time.monotonic()
         try:
             while not self.stop_event.is_set():
-                image = self.reader.open_image(self.pid)
-                owned = True
                 try:
-                    if image.process_start != self.start_time:
-                        raise _Failure("pid_identity_changed")
-                    role, normalized = _path_role(image.path, self.selected, self.home)
-                    inode = (image.device, image.inode)
-                    old_inode = self.path_inodes.get(image.path)
-                    if old_inode is not None and inode != old_inode:
-                        raise _Failure("image_inode_changed")
-                    self.path_inodes[image.path] = inode
-                    index = next((i for i, (saved, _) in enumerate(self.images)
-                                  if saved.path == image.path and (saved.device, saved.inode) == inode), None)
-                    if index is None:
-                        if len(self.images) >= self.max_images:
-                            raise _Failure("image_history_limit")
-                        before = _hash_fd(image.fd, self.max_bytes, self.stop_event)
-                        if before != self.evidence["expected_sha256"]:
-                            raise _Failure("unapproved_binary_hash")
-                        if not self.reader.confirm_image(self.pid, image):
-                            raise _Failure("image_capture_race")
-                        index = len(self.images)
-                        row = {"path": image.path, "normalized_path": normalized, "role": role,
-                               "device": image.device, "inode": image.inode, "size": image.size,
-                               "path_source": "/proc/PID/exe" if self.evidence["reader_kind"] == "linux_proc" else "injected",
-                               "sha256_before": before, "sha256_after": None, "samples": 0}
-                        self.images.append((image, row))
-                        self.evidence["images"].append(row)
-                        owned = False
-                    if index != self.last_index:
-                        if len(self.evidence["observed_transitions"]) >= 32:
-                            raise _Failure("transition_history_limit")
-                        self.evidence["observed_transitions"].append(
-                            {"image": index, "elapsed_seconds": round(time.monotonic() - began, 6)})
-                        self.last_consecutive = 0
-                    self.last_index = index
-                    self.last_consecutive += 1
-                    self.images[index][1]["samples"] += 1
-                    self.evidence["samples"] += 1
-                finally:
-                    if owned:
-                        image.close()
+                    image = self.reader.open_image(self.pid)
+                    owned = True
+                    try:
+                        if image.process_start != self.start_time:
+                            raise _Failure("pid_identity_changed")
+                        role, normalized = _path_role(image.path, self.selected, self.home)
+                        inode = (image.device, image.inode)
+                        old_inode = self.path_inodes.get(image.path)
+                        if old_inode is not None and inode != old_inode:
+                            raise _Failure("image_inode_changed")
+                        self.path_inodes[image.path] = inode
+                        index = next((i for i, (saved, _) in enumerate(self.images)
+                                      if saved.path == image.path and (saved.device, saved.inode) == inode), None)
+                        if index is None:
+                            if len(self.images) >= self.max_images:
+                                raise _Failure("image_history_limit")
+                            before = _hash_fd(image.fd, self.max_bytes, self.stop_event)
+                            if before != self.evidence["expected_sha256"]:
+                                raise _Failure("unapproved_binary_hash")
+                            if not self.reader.confirm_image(self.pid, image):
+                                raise _Failure("image_capture_race")
+                            index = len(self.images)
+                            row = {"path": image.path, "normalized_path": normalized, "role": role,
+                                   "device": image.device, "inode": image.inode, "size": image.size,
+                                   "path_source": "/proc/PID/exe" if self.evidence["reader_kind"] == "linux_proc" else "injected",
+                                   "sha256_before": before, "sha256_after": None, "samples": 0}
+                            self.images.append((image, row))
+                            self.evidence["images"].append(row)
+                            owned = False
+                        if index != self.last_index:
+                            if len(self.evidence["observed_transitions"]) >= 32:
+                                raise _Failure("transition_history_limit")
+                            self.evidence["observed_transitions"].append(
+                                {"image": index, "elapsed_seconds": round(time.monotonic() - began, 6)})
+                            self.last_consecutive = 0
+                        self.last_index = index
+                        self.last_consecutive += 1
+                        self.images[index][1]["samples"] += 1
+                        self.evidence["samples"] += 1
+                    finally:
+                        if owned:
+                            image.close()
+                except ThreadGroupAlive:
+                    # From open_image or the post-hash confirm: the exited leader exposes
+                    # no image, but a sibling may still exec. The finally closed any image.
+                    pass
                 self.stop_event.wait(self.interval)
         except ProcessExited:
             self.evidence["process_exit_observed"] = True
