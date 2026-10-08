@@ -107,5 +107,17 @@ class TicketViewTests(unittest.TestCase):
             self.assertEqual(saved['snippet'],'New message')
             self.assertNotIn('previewMessageId',saved)
 
+    def test_trash_prune_uses_index_not_full_scan(self):
+        # Regression 2026-10-08: a full-scan prune per summary held the write lock for minutes, so ticket opens hit "database is locked".
+        statements=[]
+        with closing(api.database()) as db,db:
+            db.execute("CREATE INDEX ticket_category_updated ON tickets(coalesce(json_extract(payload,'$.trashed'),0),coalesce(json_extract(payload,'$.spam'),0),updated DESC,id)")
+            db.set_trace_callback(statements.append)
+            api.cache_summary(db,api.summary({'id':1}),'g')
+            db.set_trace_callback(None)
+            prune=next(s for s in statements if s.startswith('DELETE'))
+            plan=' '.join(r[3] for r in db.execute('EXPLAIN QUERY PLAN '+prune))
+        self.assertNotIn('SCAN tickets',plan)
+
     def test_unknown_operations_stay_refused(self):
         self.assertEqual(set(api.SCHEMAS),{'helpdesk.list_tickets','helpdesk.get_ticket','helpdesk.get_messages','helpdesk.capabilities'})
