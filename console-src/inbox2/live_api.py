@@ -234,7 +234,8 @@ def cache_summary(db,ticket,generation,preserve_preview=True):
     db.execute('INSERT INTO tickets VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,payload=excluded.payload,generation=excluded.generation',
                (ticket['id'],epoch(ticket['updatedAt']),json.dumps(ticket),generation))
     # Keep only bounded trash summaries. Never mutate provider records.
-    db.execute("DELETE FROM tickets WHERE id IN (SELECT id FROM tickets WHERE json_extract(payload,'$.trashed')=1 ORDER BY updated DESC,id LIMIT -1 OFFSET 1000)")
+    # The coalesce form matches the ticket_category_* indexes; the bare json_extract form full-scans every row per call.
+    db.execute("DELETE FROM tickets WHERE id IN (SELECT id FROM tickets WHERE coalesce(json_extract(payload,'$.trashed'),0)=1 ORDER BY updated DESC,id LIMIT -1 OFFSET 1000)")
 
 def sync_once(worker):
     worker.update('scanning')
