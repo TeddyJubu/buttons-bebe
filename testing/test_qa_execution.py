@@ -293,8 +293,9 @@ class ExecutionTests(unittest.TestCase):
     def test_final_kernel_pid_state_is_absent_live_unreaped_or_reused(self):
         reader = object.__new__(execution.ProcReader)
         for value, expected in ((FileNotFoundError(), "absent_after_helper_reap"),
-                                ((b"R", 123), "live"), ((b"Z", 123), "unreaped"),
-                                ((b"S", 999), "reused")):
+                                (ProcessLookupError(), "absent_after_helper_reap"),
+                                ((b"R", 123, 0), "live"), ((b"Z", 123, 0), "unreaped"),
+                                ((b"S", 999, 0), "reused")):
             with self.subTest(expected=expected):
                 options = {"side_effect": value} if isinstance(value, Exception) else {"return_value": value}
                 with patch.object(reader, "_facts", **options):
@@ -369,6 +370,76 @@ class ExecutionTests(unittest.TestCase):
                 with self.assertRaises(error):
                     reader.open_image(4321)
 
+    def test_proc_reader_exit_windows_are_exit_not_missing_image(self):
+        # Linux drops /proc/PID/exe (exit_mm) before stat shows Z (exit_notify);
+        # only PF_EXITING (0x4) marks that gap. Without it the image stays "missing".
+        reader = object.__new__(execution.ProcReader)
+        image = execution.ImageSnapshot(-1, "/usr/bin/python3", 1, 2, 3, 123)
+        # Both ENOENT call sites: the first sample's exe read and the post-hash confirm.
+        sites = (("open_image", "readlink", lambda: reader.open_image(4321)),
+                 ("confirm_image", "stat", lambda: reader.confirm_image(4321, image)))
+        # (start, flags, sibling threads) on the stat re-read after exe vanished: a reused
+        # start means reaped; an exiting leader with live siblings is not a process exit.
+        cases = (((123, 0x4, False), execution.ProcessExited), ((999, 0x0, False), execution.ProcessExited),
+                 ((123, 0x0, False), execution._Failure), ((123, 0x4, True), execution.ThreadGroupAlive),
+                 ((999, 0x0, True), execution.ProcessExited), ((123, 0x0, True), execution._Failure))
+        for site, missing, call in sites:
+            for (start, flags, siblings), error in cases:
+                with self.subTest(site=site, start=start, flags=flags, siblings=siblings), \
+                        patch.object(execution.ProcReader, "_facts",
+                                     side_effect=[(b"R", 123, 0)] + [(b"R", start, flags)] * 2), \
+                        patch.object(execution.ProcReader, "_siblings_remain", return_value=siblings), \
+                        patch.object(execution.os, missing, side_effect=FileNotFoundError):
+                    with self.assertRaises(error) as raised:
+                        call()
+                    if error is execution._Failure:
+                        self.assertEqual(str(raised.exception), "live_image_missing")
+        # The exiting flag only matters once the image is missing.
+        with patch.object(execution.ProcReader, "_facts", return_value=(b"R", 123, 0x4)):
+            self.assertEqual(reader.start_identity(4321), 123)
+        # A reap between opening and reading /proc/PID/stat yields ESRCH, not ENOENT.
+        with patch.object(execution.ProcReader, "_facts", side_effect=ProcessLookupError):
+            with self.assertRaises(execution.ProcessExited):
+                reader.start_identity(4321)
+        # A zombie leader is only a process exit once no sibling thread remains, and the
+        # re-read still shows it: a sibling exec swaps in a live leader with the same start.
+        for facts, siblings, error in (([(b"Z", 123, 0x4)] * 2, True, execution.ThreadGroupAlive),
+                                       ([(b"Z", 123, 0x4)] * 2, False, execution.ProcessExited),
+                                       ([(b"Z", 123, 0x4), (b"R", 123, 0)], False, execution.ThreadGroupAlive),
+                                       ([(b"Z", 123, 0x4), (b"R", 999, 0)], False, execution.ProcessExited),
+                                       ([(b"Z", 123, 0x4), ProcessLookupError()], False, execution.ProcessExited)):
+            with self.subTest(facts=facts, siblings=siblings), \
+                    patch.object(execution.ProcReader, "_facts", side_effect=facts), \
+                    patch.object(execution.ProcReader, "_siblings_remain", return_value=siblings):
+                with self.assertRaises(error):
+                    reader.start_identity(4321)
+
+    def test_leader_only_exit_keeps_observing_sibling_exec(self):
+        # A surviving sibling may exec after the leader exits; sampling must continue to see it.
+        class ConfirmSeesLeaderExitOnce(Reader):
+            def confirm_image(self, pid, image):
+                if not getattr(self, "raised", False):
+                    self.raised = True
+                    raise execution.ThreadGroupAlive()
+                return self.alive
+        def from_open(later):
+            return Reader([(self.binary, str(self.binary)), (self.binary, str(self.binary)),
+                           execution.ThreadGroupAlive(), (self.binary, later)])
+        def from_post_hash_confirm(later):
+            return ConfirmSeesLeaderExitOnce([(self.binary, str(self.binary)), (self.binary, later)])
+        for site in (from_open, from_post_hash_confirm):
+            for later, failure in ((str(self.binary), None), ("/usr/bin/sleep", "unapproved_image_path")):
+                with self.subTest(site=site.__name__, later=later):
+                    reader = site(later)
+                    if failure is None:
+                        _, evidence = self.run_case(reader)
+                        self.assertEqual(evidence["status"], "verified_sampled")
+                    else:
+                        with self.assertRaises(execution.ExecutionObservationError) as raised:
+                            self.run_case(reader)
+                        self.assertEqual(raised.exception.execution_evidence["failure"], failure)
+                    self.assert_closed(reader)
+
     def test_approved_production_hash_is_accepted_as_an_explicit_pin(self):
         approved = "8dfa9757a52b9c3edf1dedaaa2a7a8c40ea4beb058f20e90bdd47b48f3b1b176"
         reader = Reader([(self.binary, str(self.binary))])
@@ -394,6 +465,20 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(evidence["images"][0]["sha256_after"], sha)
         if reader:
             self.assert_closed(reader)
+
+    @unittest.skipUnless(sys.platform == "linux", "real /proc thread-group behaviour")
+    def test_real_linux_leader_only_exit_then_sibling_exec_is_observed(self):
+        selected = Path(sys.executable).resolve()
+        child = ("import ctypes, os, threading, time\n"
+                 "def sibling():\n    time.sleep(0.3)\n    os.execv('/bin/sleep', ['sleep', '0.3'])\n"
+                 "threading.Thread(target=sibling).start()\n"
+                 "ctypes.CDLL(None).pthread_exit(None)\n")
+        with self.assertRaises(execution.ExecutionObservationError) as raised:
+            execution.run_observed(execution.load_helper(HELPER), [str(selected), "-I", "-c", child],
+                timeout=5, env={"PATH": "/usr/bin:/bin"}, cwd=self.home,
+                expected_sha256=hashlib.sha256(selected.read_bytes()).hexdigest(),
+                private_home=self.home, poll_interval=0.005, required_effective_role="selected_python")
+        self.assertEqual(raised.exception.execution_evidence["failure"], "unapproved_image_path")
 
 
 if __name__ == "__main__":
