@@ -27,12 +27,27 @@ class LocalSubprocess:
 
 
 class Reader:
+    created = []
+
     def __init__(self, rows, *, alive=True, final="absent_after_helper_reap"):
         self.rows = iter(rows)
         self.last = None
         self.alive = alive
         self.fds = []
         self.final = final
+        # Like /proc/PID/exe, an image stays readable after its path is unlinked.
+        backings = {row[0] for row in rows if not isinstance(row, BaseException)}
+        self.pins = {backing: os.open(backing, os.O_RDONLY) for backing in backings}
+        # Reads after which the last row has been fully sampled twice in a row.
+        self.wanted = len(rows) + 2
+        self.reads = 0
+        Reader.created.append(self)
+
+    @classmethod
+    def close_all(cls):
+        while cls.created:
+            for fd in cls.created.pop().pins.values():
+                os.close(fd)
 
     def start_identity(self, pid):
         return 123
@@ -41,12 +56,13 @@ class Reader:
         return self.final
 
     def open_image(self, pid):
+        self.reads += 1
         row = next(self.rows, self.last)
         self.last = row
         if isinstance(row, BaseException):
             raise row
         backing, semantic = row
-        fd = os.open(backing, os.O_RDONLY)
+        fd = os.dup(self.pins[backing])
         self.fds.append(fd)
         return execution.ImageSnapshot.from_fd(fd, semantic, process_start=123)
 
@@ -66,13 +82,24 @@ class ExecutionTests(unittest.TestCase):
         self.sha = hashlib.sha256(self.binary.read_bytes()).hexdigest()
         self.helper = execution.load_helper(HELPER)
         self.original = self.helper.subprocess
+        self.addCleanup(Reader.close_all)
 
-    def run_case(self, reader, *, duration=0.04, after=None, error=None, command=None,
+    def wait_for_observer(self, reader, timeout=10):
+        """Wait for the sampler's progress, not a fixed sleep a starved thread can miss."""
+        observer = next((thread for thread in threading.enumerate()
+                         if thread.name == "qa-child-image-observer-4321"), None)
+        deadline = time.monotonic() + timeout
+        while observer is not None and observer.is_alive() and reader.reads < reader.wanted:
+            if time.monotonic() >= deadline:
+                self.fail("synthetic observer made no progress")
+            observer.join(0.001)
+
+    def run_case(self, reader, *, after=None, error=None, command=None,
                  child_returncode=0, helper_returncode=0, **options):
         options.setdefault("required_effective_role", "selected_python")
         def synthetic(command, **kwargs):
             child = self.helper.subprocess.Popen(command, env=kwargs["env"], cwd=kwargs["cwd"])
-            time.sleep(duration)
+            self.wait_for_observer(reader)
             if after:
                 after()
             if error:
