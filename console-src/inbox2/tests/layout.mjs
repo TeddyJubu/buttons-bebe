@@ -47,6 +47,9 @@ assert((await page.locator('#reply').inputValue()).startsWith('Hello,'));
 await page.locator('#reply').fill('A local draft');
 await page.locator('#details-tab').click();
 assert.equal(await page.locator('#details-tab').getAttribute('aria-selected'),'true');
+// Ticket details opens at the top and still carries the draft status.
+assert.deepEqual(await page.evaluate(()=>[document.querySelector('#ticket-content').scrollTop,document.querySelector('#conversation').scrollTop]),[0,0]);
+assert(await page.locator('#ticket-content .reply-context [data-action="use-draft"]').count());
 await page.keyboard.press('ArrowLeft');
 assert.equal(await page.locator('#reply').inputValue(),'A local draft');
 await page.locator('.view-menu>summary').click();await page.locator('[data-view="open"]').click();
