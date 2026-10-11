@@ -405,21 +405,33 @@ function control(t,field,values,iconName,prefix='') {
   const value=effective(t,field);
   return `<label class="control ${field==='status'?'status-control '+statusTone(value):field==='priority'?statusTone(value):''}">${icon(iconName)}<span class="sr-only">${esc(prefix)} in this browser</span><select data-field="${field}" aria-label="${esc(prefix)} in this browser">${options([['','Observed · '+(observed(t,field)||'not set')],...values],localValue(t,field))}</select></label>`;
 }
+// The reading position sticks to the newest message and suggested reply until the reader scrolls up.
+let pinnedToBottom=true;
+const threadScrollers=()=>[$('#ticket-content'),$('#conversation')].filter(Boolean);
+function pinToBottom() {if(pinnedToBottom&&state.tab==='conversation')for(const el of threadScrollers())el.scrollTop=el.scrollHeight;}
+// Only a reader's own scrolling unpins; the browser also clamps scroll positions while layout changes.
+let readerScrollAt=0;
+for(const type of ['wheel','touchmove'])addEventListener(type,()=>{readerScrollAt=Date.now();},{capture:true,passive:true});
+addEventListener('pointerdown',event=>{if(event.target.id==='ticket-content'||event.target.id==='conversation')readerScrollAt=Date.now();},true);
+addEventListener('keydown',event=>{if(!event.target.closest?.('input,textarea,select,[contenteditable="true"]'))readerScrollAt=Date.now();},true);
+document.addEventListener('scroll',event=>{const el=event.target;if(Date.now()-readerScrollAt<1000&&(el.id==='ticket-content'||el.id==='conversation')&&el.scrollHeight>el.clientHeight+1)pinnedToBottom=el.scrollHeight-el.scrollTop-el.clientHeight<8;},true);
+// Fires after layout whenever the pane, thread, or composer changes size (viewport, breakpoint, a growing reply).
+const pinObserver=typeof ResizeObserver==='function'?new ResizeObserver(pinToBottom):null;
+function observePin() {if(!pinObserver)return;pinObserver.disconnect();for(const el of [$('#conversation'),$('#ticket-content'),$('.reply-area')])if(el)pinObserver.observe(el);}
 function htmlElement(markup) {return document.createRange().createContextualFragment(markup).firstElementChild;}
 function renderTicket() {
   const t=state.ticket;if(!t)return;
-  const contentScroll=$('#ticket-content')?.scrollTop||0;
+  const previousTab=$('#ticket-content')?.dataset.panel,contentScroll=$('#ticket-content')?.scrollTop||0,paneScroll=$('#conversation')?.scrollTop||0;
   const expandedDraft=$('.draft-card')?.classList.contains('draft-expanded');const actionsOpen=$('.ticket-actions-menu')?.open;
   const expandedQuotes=new Set([...document.querySelectorAll('.quoted-email[open]')].map(el=>el.dataset.messageId));
   const people=[...new Set([state.operator,...allRows().map(x=>observed(x,'assignee')),localValue(t,'assignee')].filter(Boolean))];
   const overrides=['title','status','priority','assignee','snooze'].filter(f=>localValue(t,f)).map(f=>`${label(f)}: ${localValue(t,f)} (observed: ${observed(t,f)||'unknown'})`);
   const header=`<header class="ticket-header"><button class="mobile-back" data-action="back">${icon('left')} All tickets</button><div class="title-row"><div><h2 class="ticket-title">${esc(ticketTitle(t))}</h2><button class="title-edit" data-action="rename" aria-label="Rename ticket in this browser">Rename locally</button><p class="ticket-subtitle">${esc(t.customerName||'Unknown sender')} · ${esc(t.localOnly?'Local ticket':'#'+t.id.replace(/^gorgias:/,''))} · ${esc(label(t.channel)||'Channel unknown')}</p></div><details class="ticket-actions-menu"><summary aria-label="Ticket actions, local to this browser" title="Ticket actions saved only in this browser">${icon('more')} Ticket actions</summary><p class="small muted">These changes stay in this browser. Gorgias is unchanged.</p><div class="ticket-actions">${control(t,'status',[['open','Open · local'],['closed','Closed · local']],'','Status')}${control(t,'priority',[['low','Low · local'],['normal','Normal · local'],['high','High · local'],['critical','Critical · local']],'flag','Priority')}${control(t,'assignee',[['unassigned','Unassigned · local'],...people.filter(x=>x!=='unassigned').map(x=>[x,x+' · local'])],'user','Assignee')}<button class="button" data-action="toggle-read">${readState(t,readRecords(stored(keys.read,{})))?'Mark unread':'Mark read'}</button><label class="snooze-control">Snooze locally<input type="datetime-local" data-field="snooze" value="${esc(toLocalDateTimeInput(localValue(t,'snooze')))}"></label><button class="button" data-action="reset-local">Reset local changes</button><button class="button copy-link" data-action="copy">${icon('link')} Copy link</button></div></details><div class="ticket-navigation"><button class="icon-button" data-action="ticket-prev" aria-label="Previous ticket">${icon('left')}</button><button class="icon-button" data-action="ticket-next" aria-label="Next ticket">${icon('right')}</button><button class="icon-button show-customer" data-action="rail" aria-label="Show customer details" aria-controls="customer-rail" aria-expanded="false">${icon('user')}</button></div></div>${overrides.length?`<div class="local-observed">Browser changes · ${esc(overrides.join(' · '))}</div>`:''}<p class="live-ticket-sync" id="live-ticket-sync">${t.localOnly?(storageAvailable?'Local ticket · Saved only in this browser':'Local ticket · Kept for this session only'):t.syncStale?'Refresh delayed · Showing the last successful read':'Read from Gorgias · '+esc(date(t.syncedAt))}</p><div class="ticket-tabs" role="tablist" aria-label="Ticket content"><button role="tab" id="conversation-tab" data-tab="conversation" aria-selected="${state.tab==='conversation'}" aria-controls="ticket-content">Conversation</button><button role="tab" id="details-tab" data-tab="details" aria-selected="${state.tab==='details'}" aria-controls="ticket-content">Ticket details</button></div></header>`;
-  const content=`<section id="ticket-content" role="tabpanel" aria-labelledby="${state.tab==='conversation'?'conversation-tab':'details-tab'}">${state.tab==='conversation'?conversationHtml(t):detailsHtml(t)}</section>`;
+  const content=`<section id="ticket-content" role="tabpanel" data-panel="${state.tab}" aria-labelledby="${state.tab==='conversation'?'conversation-tab':'details-tab'}">${state.tab==='conversation'?conversationHtml(t):detailsHtml(t)}<div class="reply-context">${replyContextHtml(t)}</div></section>`;
   const conversation=$('#conversation'),sameTicket=conversation.dataset.ticketId===t.id&&Boolean($('.reply-area',conversation)?.isConnected);
   if(sameTicket){
     $('.ticket-header',conversation).replaceWith(htmlElement(header));
     $('#ticket-content',conversation).replaceWith(htmlElement(content));
-    $('.reply-context',conversation).innerHTML=replyContextHtml(t);
     $('.composer .recipient',conversation).innerHTML=t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed';
   }else{
     conversation.innerHTML=header+content+replyHtml(t);
@@ -429,7 +441,14 @@ function renderTicket() {
   for(const detail of document.querySelectorAll('.quoted-email'))if(expandedQuotes.has(detail.dataset.messageId))detail.open=true;
   updateTicketNavigation();
   syncRailAccessibility();
-  if($('#ticket-content'))$('#ticket-content').scrollTop=contentScroll;
+  // Same ticket and tab keep the reader's place; a newly opened ticket or Conversation tab lands on the newest message
+  // and its suggested reply, and Ticket details opens at the top. Small screens scroll the whole pane, so position both.
+  const tabChanged=sameTicket&&previousTab!==state.tab;
+  if(!sameTicket||tabChanged)pinnedToBottom=true;
+  observePin();
+  const thread=$('#ticket-content');
+  if(thread&&state.tab!=='conversation'){const keep=sameTicket&&!tabChanged;thread.scrollTop=keep?contentScroll:0;conversation.scrollTop=keep?paneScroll:0;}
+  else if(thread){thread.scrollTop=sameTicket&&!pinnedToBottom?contentScroll:thread.scrollHeight;conversation.scrollTop=sameTicket&&!pinnedToBottom?paneScroll:conversation.scrollHeight;}
   if(expandedDraft){$('.draft-card')?.classList.add('draft-expanded');const expand=$('[data-action="expand-draft"]');if(expand){expand.textContent='Show less';expand.setAttribute('aria-expanded','true');}}if(actionsOpen)$('.ticket-actions-menu').open=true;
   document.title=`${ticketTitle(t)} · Buttons Bebe Support`;
   installTooltips();renderSendAccess();
@@ -471,7 +490,7 @@ function replyContextHtml(t) {
   return `${draftStatusHtml(t)}${draft}`;
 }
 function replyHtml(t) {
-  return `<section class="reply-area"><div class="reply-context">${replyContextHtml(t)}</div><div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
+  return `<section class="reply-area"><div class="composer"><div class="composer-heading">${icon('reply')}<strong>Reply</strong><span class="recipient">${t.fromEmail?`to ${esc(t.fromEmail)}`:'Recipient not observed'}</span></div><textarea id="reply" rows="3" maxlength="30000" placeholder="Write your reply…" aria-label="Reply message"></textarea><div class="composer-toolbar"><span class="saved-note" id="saved-note">Draft stays in this browser</span><button class="button primary" data-action="copy-reply" title="Copy your reply">${icon('copy')} Copy reply</button><button class="button primary" data-action="review-send" hidden>Send reply</button></div><div id="reply-delivery" class="reply-delivery" role="status" hidden></div></div><p class="composer-note">${icon('shield')} <span id="send-mode-note">Read only · Switch on Gorgias replies above to send from here.</span></p></section>`;
 }
 function railCompletenessHtml(rail) {
   const partial=rail.partial,notices=[];
@@ -702,7 +721,7 @@ document.addEventListener('click',async event=>{
   if(action==='toggle-read'){markRead(state.ticket,!readState(state.ticket,readRecords(stored(keys.read,{}))));renderTicket();listRender();return;}
   if(action==='reset-local'){const records=stateRecords(stored(keys.state,{}));delete records[state.id];persist(keys.state,{version:1,records});const reads=readRecords(stored(keys.read,{}));delete reads[state.id];persist(keys.read,{version:1,records:reads});renderTicket();listRender();return;}
   if(action==='rename'){const title=prompt('Ticket title in this browser',ticketTitle(state.ticket));if(title!==null)setField('title',title.trim().slice(0,200));return;}
-  if(action==='expand-draft'){$('.draft-card')?.classList.toggle('draft-expanded');const expanded=$('.draft-card')?.classList.contains('draft-expanded');event.target.closest('button').textContent=expanded?'Show less':'Expand suggestion';event.target.closest('button').setAttribute('aria-expanded',String(expanded));return;}
+  if(action==='expand-draft'){$('.draft-card')?.classList.toggle('draft-expanded');const expanded=$('.draft-card')?.classList.contains('draft-expanded');event.target.closest('button').textContent=expanded?'Show less':'Expand suggestion';event.target.closest('button').setAttribute('aria-expanded',String(expanded));pinToBottom();return;}
   if(action==='bulk-apply'){applyBulk();return;}
     if(action==='sign-out'){resetSendAccess();try {const response=await fetch('/console/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/console/login?next=%2Finbox%2F');}catch {toast('Sign out failed. Please try again.');}}
 });
