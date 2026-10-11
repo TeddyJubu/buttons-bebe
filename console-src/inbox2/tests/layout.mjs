@@ -92,8 +92,10 @@ t.messages.push(...Array.from({length:25},(_,i)=>({...t.messages[0],id:`long-${i
 await page.reload();
 await page.locator('.ticket-title').waitFor();
 await page.waitForFunction(()=>document.querySelectorAll('.message').length===26);
-assert(await page.locator('#ticket-content').evaluate(el=>el.scrollHeight>el.clientHeight));
-assert(await page.locator('#ticket-content').evaluate(el=>{el.scrollTop=0;el.scrollTop=150;return el.scrollTop>0;}));
+// Long history scrolls in exactly one place: the thread, or the whole pane on short screens.
+const scroller=await page.evaluate(()=>{const found=['#ticket-content','#conversation'].filter(s=>{const el=document.querySelector(s);return /(auto|scroll)/.test(getComputedStyle(el).overflowY)&&el.scrollHeight>el.clientHeight;});return found.length===1?found[0]:null;});
+assert(scroller,'long history must scroll in exactly one container');
+assert(await page.locator(scroller).evaluate(el=>{el.scrollTop=0;el.scrollTop=150;return el.scrollTop>0;}));
 for(const control of ['#reply','[data-action="copy-reply"]'])assert(await page.locator(control).evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;}));
 mode='error';await page.reload();await page.locator('.is-error').waitFor();
 assert(await page.locator('[data-action="retry-ticket"]').isVisible());
