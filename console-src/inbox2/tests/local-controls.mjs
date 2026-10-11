@@ -514,7 +514,7 @@ assert.equal(await page.locator('.message[data-message-id="m1"] > .message-note'
 assert.equal(await page.locator('.message[data-message-id="m1"] .quoted-email .message-body').textContent(),'Historical quoted request only');
 assert.equal(await page.locator('.message[data-message-id="m1"] .quoted-email').evaluate(el=>el.open),false);
 assert.equal(await page.locator('.message[data-message-id="m2"] > .message-body').textContent(),'Legacy message without current-text field','undefined current_text still uses available display text');
-for(const [width,height] of [[1280,800],[390,844],[640,450]]){await page.setViewportSize({width,height});await visibleComposer();assert(await page.locator('[data-action="use-draft"]').evaluate(el=>el.getBoundingClientRect().bottom<=innerHeight));await page.locator('[data-action="expand-draft"]').click();await visibleComposer();await page.locator('[data-action="expand-draft"]').click();await page.screenshot({path:path.join(dir,`anchored-${width}.png`)});}
+for(const [width,height] of [[1280,800],[390,844],[640,450]]){await page.setViewportSize({width,height});await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await visibleComposer();assert(await page.locator('[data-action="use-draft"]').evaluate(el=>el.getBoundingClientRect().bottom<=innerHeight));await page.locator('[data-action="expand-draft"]').click();await visibleComposer();await page.locator('[data-action="expand-draft"]').click();await page.screenshot({path:path.join(dir,`anchored-${width}.png`)});}
 await page.setViewportSize({width:1280,height:800});
 await page.locator('#reply').fill('My private reply');
 await page.locator('#reply').evaluate(el=>{el.focus();el.setSelectionRange(3,8);});
