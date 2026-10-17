@@ -83,6 +83,20 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(context['unresolvedActions'][0]['ownedByCurrentActor'])
         self.assertNotIn('operationId',context['unresolvedActions'][0])
 
+    async def test_legacy_owner_actor_id_is_owned_by_admin_session(self):
+        """action_status matches by username so pre-multi-user owner: intents stay readable."""
+        store=IntentStore(self.path);operation=str(uuid.uuid4())
+        await store.reserve(operation_id=operation,actor_id='owner:owner',kind='send',ticket_id=1,
+                            source_message_id='source-1',text='Reviewed text',
+                            draft_revision=hashlib.sha256(b'I can help check that.').hexdigest())
+        context=(await self.get()).json()['context']
+        self.assertTrue(context['unresolvedActions'][0]['ownedByCurrentActor'])
+        self.assertEqual(context['unresolvedActions'][0]['operationId'],operation)
+        status=await self.client.get(f'/dashboard/api/ticket/1/actions/{operation}')
+        self.assertIn(status.status_code,(200,202))
+        self.assertEqual(status.json()['operation_id'],operation)
+        self.assertNotEqual(status.status_code,404)
+
     async def test_session_required(self):
         self.client.cookies.clear()
         self.assertEqual((await self.get()).status_code,401)

@@ -15,7 +15,6 @@ from ..middleware.console_session import resolve_identity, trusted_origin, UNSAF
 from ..staff_access import staff_may_use_forwarded_path
 from ..console_auth import (
     build_session_token,
-    hash_password,
     safe_next_path,
     session_claims,
 )
@@ -25,15 +24,12 @@ router = APIRouter()
 _COOKIE_NAME = "bb_console_session"
 _LOGIN_MAX_REQUESTS_PER_MINUTE = 12
 _LOGIN_COOKIE_TTL_SECONDS = 12 * 60 * 60
-_DUMMY_PASSWORD_HASH: str | None = None
-
-
-def _timing_dummy_hash() -> str:
-    """Fixed PBKDF2 target so unknown usernames pay the same verify cost."""
-    global _DUMMY_PASSWORD_HASH
-    if _DUMMY_PASSWORD_HASH is None:
-        _DUMMY_PASSWORD_HASH = hash_password("console-login-timing-dummy")
-    return _DUMMY_PASSWORD_HASH
+# Precomputed hash_password("console-login-timing-dummy", salt=bytes(16)).
+# Keeps unknown-user verifies on the password executor without event-loop PBKDF2.
+_TIMING_DUMMY_HASH = (
+    "pbkdf2_sha256$600000$AAAAAAAAAAAAAAAAAAAAAA$"
+    "Gmr0-F08YV_1PHAIOckatuzX28kx_9CiwqgQRYA8nrI"
+)
 
 
 def _client_ip(request: Request) -> str:
@@ -157,7 +153,7 @@ async def auth_login(request: Request) -> JSONResponse:
         if not existing and not settings.console_password_hash:
             return _auth_unconfigured()
         try:
-            await verify_bounded(password, _timing_dummy_hash())
+            await verify_bounded(password, _TIMING_DUMMY_HASH)
         except PasswordVerifierBusy:
             return JSONResponse(status_code=429, content={"error": "login_busy"}, headers={"Retry-After": "1"})
         except Exception:
