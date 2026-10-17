@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import httpx
 from fastapi import Request
-from bb_webhook import app as app_module, database, session_store, password_executor
+from bb_webhook import app as app_module, database, session_store, user_store, password_executor
 from bb_webhook.routers import webhook as webhook_router
 from bb_webhook.console_auth import build_session_token, hash_password, safe_next_path
 from bb_webhook.routers import auth, health
@@ -36,6 +36,7 @@ class SessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         await database.init_db(self.path)
         await session_store.initialize(self.path)
         self.settings = SimpleNamespace(console_username="chaim", console_password_hash=hash_password("local-test-password"), console_session_secret="local-test-secret", demo_mode=False, db_path_absolute=self.path, gorgias_auth="local-placeholder", processor_result_secret="synthetic-result-secret-0123456789")
+        await user_store.bootstrap_from_settings(self.settings, self.path)
         for consumer in (auth, health, console_session):
             settings_patch = patch.object(consumer, "get_settings", return_value=self.settings)
             settings_patch.start()
@@ -44,7 +45,7 @@ class SessionSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.login_patch.start()
         self.app = app_module.create_app()
 
-        @self.app.post("/dashboard/api/test-action")
+        @self.app.post("/dashboard/api/inbox/test-action")
         async def action(request: Request):
             return {"actor_id":request.state.actor_id, "actor_role":request.state.actor_role}
 
@@ -88,13 +89,13 @@ class SessionSecurityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(replay.status_code,401)
 
     async def test_dashboard_mutations_require_session_and_trusted_origin(self):
-        path = "/dashboard/api/test-action"
+        path = "/dashboard/api/inbox/test-action"
         self.assertEqual((await self.client.post(path,headers={"origin":ORIGIN})).status_code,401)
         await self.login()
         for headers in ({}, {"origin":"https://evil.invalid"}, {"origin":ORIGIN,"sec-fetch-site":"cross-site"}, {"origin":"null"}):
             self.assertEqual((await self.client.post(path,headers=headers)).status_code,403)
         valid = await self.client.post(path,headers={"origin":ORIGIN})
-        self.assertEqual(valid.json(),{"actor_id":"owner:chaim","actor_role":"owner"})
+        self.assertEqual(valid.json(),{"actor_id":"admin:chaim","actor_role":"admin"})
 
     async def test_login_and_logout_reject_cross_site_requests(self):
         for path in ("/auth/login","/auth/logout"):

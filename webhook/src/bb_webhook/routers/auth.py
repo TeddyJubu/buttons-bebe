@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import hmac
 import asyncio
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from .. import session_store
+from .. import session_store, user_store
 from ..config import get_settings
 from ..password_executor import verify_bounded, PasswordVerifierBusy
 from ..middleware.console_session import resolve_identity, trusted_origin, UNSAFE_METHODS
+from ..staff_access import staff_may_use_forwarded_path
 from ..console_auth import (
     build_session_token,
     safe_next_path,
@@ -24,6 +24,12 @@ router = APIRouter()
 _COOKIE_NAME = "bb_console_session"
 _LOGIN_MAX_REQUESTS_PER_MINUTE = 12
 _LOGIN_COOKIE_TTL_SECONDS = 12 * 60 * 60
+# Precomputed hash_password("console-login-timing-dummy", salt=bytes(16)).
+# Keeps unknown-user verifies on the password executor without event-loop PBKDF2.
+_TIMING_DUMMY_HASH = (
+    "pbkdf2_sha256$600000$AAAAAAAAAAAAAAAAAAAAAA$"
+    "Gmr0-F08YV_1PHAIOckatuzX28kx_9CiwqgQRYA8nrI"
+)
 
 
 def _client_ip(request: Request) -> str:
@@ -42,9 +48,11 @@ def _login_allowed(request: Request) -> bool:
     return _check_rate_limit(_client_ip(request), _LOGIN_MAX_REQUESTS_PER_MINUTE)
 
 
-async def _session_username(request: Request) -> str | None:
-    identity = await resolve_identity(request)
-    return identity["username"] if identity else None
+async def _session_identity(request: Request) -> dict | None | Response:
+    try:
+        return await resolve_identity(request)
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
 
 
 def _invalid_origin() -> JSONResponse:
@@ -55,15 +63,50 @@ def _forwarded_mutation(request: Request) -> bool:
     return request.headers.get("x-forwarded-method", request.method).upper() in UNSAFE_METHODS
 
 
-async def _checked_username(request: Request):
-    try:
-        return await _session_username(request)
-    except Exception:
-        return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
-
-
 def _auth_unconfigured() -> JSONResponse:
     return JSONResponse(status_code=503, content={"error": "console_auth_unconfigured"})
+
+
+def _identity_headers(identity: dict) -> dict[str, str]:
+    # Use a non-empty placeholder when Gorgias email is unset so Caddy
+    # copy_headers always forwards the field; Inbox treats "-" as empty.
+    email = (identity.get("gorgias_email") or "").strip()
+    return {
+        "X-Authenticated-Actor": identity["actor_id"],
+        "X-Operator-Email": email or "-",
+        "X-Actor-Role": identity["actor_role"],
+    }
+
+
+def _path_only(path: str) -> str:
+    try:
+        return urlsplit(path).path or "/"
+    except ValueError:
+        return "/"
+
+
+def _staff_console_page(path: str) -> bool:
+    """True when a staff browser hit should leave the admin console HTML."""
+    target = _path_only(path)
+    if staff_may_use_forwarded_path(target):
+        return False
+    return target == "/console" or target.startswith("/console/")
+
+
+def _staff_browser_landing(path: str) -> bool:
+    """True when `next` is a staff-safe browser page (not a POST-only API)."""
+    target = _path_only(path)
+    if target == "/inbox":
+        return True
+    return target.startswith("/inbox/") and "/api/" not in target
+
+
+def _staff_redirect(identity: dict, destination: str) -> str | None:
+    if identity.get("actor_role") != "staff":
+        return None
+    if _staff_console_page(destination):
+        return "/inbox/"
+    return None
 
 
 @router.post("/auth/login")
@@ -74,8 +117,12 @@ async def auth_login(request: Request) -> JSONResponse:
     if not _login_allowed(request):
         return JSONResponse(status_code=429, content={"error": "too_many_attempts"})
     settings = get_settings()
-    if not settings.console_password_hash or not settings.console_session_secret:
+    if not settings.console_session_secret:
         return _auth_unconfigured()
+    try:
+        await user_store.bootstrap_from_settings(settings, settings.db_path_absolute)
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
     try:
         raw = bytearray()
         async with asyncio.timeout(5):
@@ -94,10 +141,26 @@ async def auth_login(request: Request) -> JSONResponse:
     password = body.get("password", "")
     if not isinstance(username, str) or not isinstance(password, str) or len(username) > 128 or len(password) > 1024:
         return JSONResponse(status_code=400, content={"error": "invalid_credentials"})
-    if not hmac.compare_digest(username.strip().encode(), settings.console_username.encode()):
+    try:
+        user = await user_store.get_active(username, settings.db_path_absolute)
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
+    if not user:
+        try:
+            existing = await user_store.list_users(settings.db_path_absolute)
+        except Exception:
+            return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
+        if not existing and not settings.console_password_hash:
+            return _auth_unconfigured()
+        try:
+            await verify_bounded(password, _TIMING_DUMMY_HASH)
+        except PasswordVerifierBusy:
+            return JSONResponse(status_code=429, content={"error": "login_busy"}, headers={"Retry-After": "1"})
+        except Exception:
+            return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
         return JSONResponse(status_code=401, content={"error": "invalid_credentials"})
     try:
-        verified = await verify_bounded(password, settings.console_password_hash)
+        verified = await verify_bounded(password, user["password_hash"])
     except PasswordVerifierBusy:
         return JSONResponse(status_code=429, content={"error": "login_busy"}, headers={"Retry-After": "1"})
     except Exception:
@@ -106,13 +169,19 @@ async def auth_login(request: Request) -> JSONResponse:
         return JSONResponse(status_code=401, content={"error": "invalid_credentials"})
 
     redirect = safe_next_path(body.get("next"))
-    token = build_session_token(username.strip(), settings.console_session_secret)
+    if user["role"] == "staff" and not _staff_browser_landing(redirect):
+        redirect = "/inbox/"
+    token = build_session_token(user["username"], settings.console_session_secret)
     claims = session_claims(token, settings.console_session_secret)
     try:
-        await session_store.register(claims, settings.db_path_absolute)
+        await session_store.register(
+            claims,
+            settings.db_path_absolute,
+            actor_id=user_store.actor_id_for(user["role"], user["username"]),
+        )
     except Exception:
         return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
-    response = JSONResponse(content={"ok": True, "redirect": redirect})
+    response = JSONResponse(content={"ok": True, "redirect": redirect, "role": user["role"]})
     response.set_cookie(
         _COOKIE_NAME,
         token,
@@ -127,35 +196,47 @@ async def auth_login(request: Request) -> JSONResponse:
 
 @router.get("/auth/session")
 async def auth_session(request: Request) -> JSONResponse:
-    username = await _checked_username(request)
-    if isinstance(username, Response):
-        return username
-    if username is None:
+    identity = await _session_identity(request)
+    if isinstance(identity, Response):
+        return identity
+    if identity is None:
         return JSONResponse(status_code=401, content={"error": "not_authenticated"})
-    return JSONResponse(content={"authenticated": True, "username": username})
+    return JSONResponse(content={
+        "authenticated": True,
+        "username": identity["username"],
+        "role": identity["actor_role"],
+        "gorgiasEmail": identity.get("gorgias_email") or "",
+    })
 
 
 @router.get("/auth/check")
 async def auth_check(request: Request) -> Response:
     """Small forward-auth target used by Caddy for API and admin routes."""
-    username = await _checked_username(request)
-    if isinstance(username, Response):
-        return username
-    if username is None:
+    identity = await _session_identity(request)
+    if isinstance(identity, Response):
+        return identity
+    if identity is None:
         return JSONResponse(status_code=401, content={"error": "not_authenticated"})
     if _forwarded_mutation(request) and not trusted_origin(request):
         return _invalid_origin()
-    return Response(status_code=204, headers={"X-Authenticated-Actor": "owner:" + username})
+    original = request.headers.get("x-forwarded-uri", "")
+    if identity["actor_role"] == "staff" and original:
+        # Direct /auth/check without a forwarded URI stays allowed; Caddy always
+        # supplies the original path for console and inbox reverse proxies.
+        target = _path_only(original)
+        if target.startswith("/console") and not staff_may_use_forwarded_path(target):
+            return JSONResponse(status_code=403, content={"error": "console_admin_required"})
+    return Response(status_code=204, headers=_identity_headers(identity))
 
 
 @router.get("/auth/page-check")
 async def auth_page_check(request: Request) -> Response:
     """Redirect unauthenticated browser navigation to the standalone login."""
-    username = await _checked_username(request)
-    if isinstance(username, Response):
-        return username
+    identity = await _session_identity(request)
+    if isinstance(identity, Response):
+        return identity
     original = request.headers.get("x-forwarded-uri", "/console/")
-    if username is None:
+    if identity is None:
         if "/api/" in original.split("?", 1)[0] or _forwarded_mutation(request):
             return JSONResponse(status_code=401, content={"error": "not_authenticated"})
         destination = safe_next_path(original)
@@ -163,7 +244,12 @@ async def auth_page_check(request: Request) -> Response:
         return RedirectResponse(url=location, status_code=302)
     if _forwarded_mutation(request) and not trusted_origin(request):
         return _invalid_origin()
-    return Response(status_code=204, headers={"X-Authenticated-Actor": "owner:" + username})
+    staff_home = _staff_redirect(identity, original)
+    if staff_home is not None:
+        if "/api/" in original.split("?", 1)[0]:
+            return JSONResponse(status_code=403, content={"error": "console_admin_required"})
+        return RedirectResponse(url=staff_home, status_code=302)
+    return Response(status_code=204, headers=_identity_headers(identity))
 
 
 @router.post("/auth/logout")
@@ -172,7 +258,7 @@ async def auth_logout(request: Request) -> Response:
         return _invalid_origin()
     settings = get_settings()
     claims = session_claims(request.cookies.get(_COOKIE_NAME), settings.console_session_secret)
-    if claims and claims.username == settings.console_username:
+    if claims:
         try:
             await session_store.revoke(claims, settings.db_path_absolute)
         except Exception:

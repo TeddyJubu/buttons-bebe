@@ -98,8 +98,9 @@ The human decides whether to send it. Client: **Chaim**.
    provider-side status, priority, assignment, rename or read-state write still
    requires the owner's explicit authorization and an audit trail. The active
    views are All, Open, Closed, Assigned to me, Unassigned, Snoozed, Trash, and
-   Spam. Assigned to me stays unavailable until the owner chooses an operator
-   email; never invent provider state or an assignee.
+   Spam. Assigned to me uses the signed-in user's Gorgias email from
+   `console_users` (forward-auth `X-Operator-Email`); it stays unavailable when
+   that field is empty. Never invent provider state or an assignee.
 7. Owner-approved New ticket creates a private browser-only `local:<UUID>` ticket
    (approved 2026-10-05). It notifies nobody, never creates a Gorgias ticket, never
    looks up provider customer data, and cannot send a customer reply. Real Gorgias
@@ -241,12 +242,19 @@ removal on the VPS — do not add values there; see
 `deploy/ENV-CONSOLIDATION-RUNBOOK.md`.
 
 Shopify = client-credentials grant (`SHOPIFY_CLIENT_ID/SECRET`, mint 24h Admin
-token); Gorgias = Basic (email + API key); Redo = Bearer. The console uses
-`CONSOLE_PASSWORD_HASH` (PBKDF2) and `CONSOLE_SESSION_SECRET` from the root
-`.env`; never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes
-skills never read env files — the authenticated MCP services are their only
-runtime data path. A webhook token was committed in the now-removed `cursor.md`
-and remains in Git history. Rotation is pending under
+token); Gorgias = Basic (email + API key); Redo = Bearer. Console accounts live
+in the webhook SQLite `console_users` table (roles `admin` / `staff`).
+`CONSOLE_USERNAME` + `CONSOLE_PASSWORD_HASH` (PBKDF2) from the root `.env`
+bootstrap the first admin when the table is empty (Gorgias email from
+`INBOX_OPERATOR_GORGIAS_EMAIL` when set), then become seed-only; later
+password/role/email changes go through Settings → Console users.
+`CONSOLE_SESSION_SECRET` remains the live cookie-signing key; rotating it
+invalidates all sessions. Per-user Assigned to me needs the installed
+Caddy `copy_headers` for `X-Operator-Email` (see `deploy/caddy/sites/support.caddy`).
+Never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes skills never
+read env files — the authenticated MCP services are their only runtime data
+path. A webhook token was committed in the now-removed `cursor.md` and remains
+in Git history. Rotation is pending under
 [S-01 in the recheck task list](docs/RECHECK-TASKLIST.md); do not reproduce or reuse the token. Keep the
 remaining environment consolidation and rotation work in
 `deploy/ENV-CONSOLIDATION-RUNBOOK.md`.

@@ -154,7 +154,7 @@ class ActionIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recorder.call_count, 1)
         self.assertEqual(recorder.call_args.args[2], 'Where is my parcel?')
         self.assertEqual(recorder.call_args.args[3], 'I can help check that.')
-        self.assertEqual(recorder.call_args.kwargs['review_actor'], 'owner:owner')
+        self.assertEqual(recorder.call_args.kwargs['review_actor'], 'admin:owner')
         self.assertEqual((await self.store.get(self.operation))['learning_recorded'], 1)
 
     async def test_internal_note_requires_confirmation_and_never_promotes(self):

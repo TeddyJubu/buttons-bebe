@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+from bb_webhook import console_auth
 from bb_webhook.console_auth import (
     build_session_token,
     hash_password,
@@ -13,6 +14,7 @@ from bb_webhook.console_auth import (
     verify_password,
     verify_session_token,
 )
+from bb_webhook.routers.auth import _TIMING_DUMMY_HASH
 
 
 class ConsolePasswordTests(unittest.TestCase):
@@ -27,6 +29,17 @@ class ConsolePasswordTests(unittest.TestCase):
                 "correct horse battery staple",
                 "pbkdf2_sha256$600000$AA$" + "AA" * 43,
             )
+        )
+
+    def test_login_timing_dummy_hash_tracks_password_scheme(self) -> None:
+        """Hardcoded unknown-user hash must stay aligned with hash_password."""
+        self.assertTrue(verify_password("console-login-timing-dummy", _TIMING_DUMMY_HASH))
+        scheme, iterations, _salt, _digest = _TIMING_DUMMY_HASH.split("$")
+        self.assertEqual(scheme, "pbkdf2_sha256")
+        self.assertEqual(int(iterations), console_auth._PASSWORD_ITERATIONS)
+        self.assertEqual(
+            _TIMING_DUMMY_HASH,
+            hash_password("console-login-timing-dummy", salt=bytes(16)),
         )
 
     def test_legacy_bcrypt_hash_can_be_verified_during_proxy_migration(self) -> None:

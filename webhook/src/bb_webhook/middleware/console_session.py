@@ -8,6 +8,7 @@ from .. import session_store
 from ..config import get_settings
 from ..console_auth import session_claims
 from ..result_auth import configured_secret, authorized
+from ..staff_access import staff_may_use_dashboard_path
 
 COOKIE_NAME = "bb_console_session"
 TRUSTED_ORIGINS = frozenset({"https://support.buttonsbebe.com", "https://srv1766050.hstgr.cloud"})
@@ -31,7 +32,7 @@ def direct_loopback(request) -> bool:
 async def resolve_identity(request) -> dict | None:
     settings = get_settings()
     claims = session_claims(request.cookies.get(COOKIE_NAME), settings.console_session_secret)
-    if claims is None or claims.username != settings.console_username:
+    if claims is None:
         return None
     return await session_store.authenticate(claims, settings.db_path_absolute)
 
@@ -60,6 +61,9 @@ class ConsoleSessionMiddleware(BaseHTTPMiddleware):
                 return JSONResponse({"error": "not_authenticated"}, status_code=401)
             if request.method in UNSAFE_METHODS and not trusted_origin(request):
                 return JSONResponse({"error": "invalid_origin"}, status_code=403)
+            # Staff may use Inbox send/review routes only; admin console APIs stay admin-only.
+            if identity.get("actor_role") == "staff" and not staff_may_use_dashboard_path(path):
+                return JSONResponse({"error": "console_admin_required"}, status_code=403)
             for key, value in identity.items():
                 setattr(request.state, key, value)
         response = await call_next(request)

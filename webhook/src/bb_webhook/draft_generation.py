@@ -351,8 +351,10 @@ async def retry_draft(ticket_id, body, actor_id, db_path=None):
     async def transaction(conn):
         previous = await one(conn, "SELECT * FROM draft_retry_requests WHERE operation_id=?", (operation_id,))
         if previous:
-            if any(previous[k] != v for k, v in {"actor_id": actor_id, "ticket_id": ticket_id,
-                    "message_id": source, "expected_revision": expected}.items()):
+            from .user_store import same_console_actor
+            if previous["ticket_id"] != ticket_id or previous["message_id"] != source \
+                    or previous["expected_revision"] != expected \
+                    or not same_console_actor(previous["actor_id"], actor_id):
                 raise ActionConflict("operation_id_conflict")
             return {"ok": True, "operation_id": operation_id, "job_id": previous["job_id"], "queued": True}
         problem = await conflict(conn, ticket_id, source)

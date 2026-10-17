@@ -38,6 +38,29 @@ import customer_details
 import redo_details
 
 OPERATOR_EMAIL = os.environ.get('INBOX_OPERATOR_GORGIAS_EMAIL', '').strip().casefold()
+_OPERATOR_HEADER = 'x-operator-email'
+_OPERATOR_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def operator_email_for(request: Request | None = None) -> str:
+    """Prefer the forward-auth operator header; env is no-request preview only.
+
+    HTTP requests must carry Caddy-copied identity headers. Missing headers
+    return empty so Assigned to me stays unavailable (including before the
+    updated support.caddy is installed). Direct callers that pass no Request
+    still use INBOX_OPERATOR_GORGIAS_EMAIL for local preview helpers.
+    """
+    if request is None:
+        return OPERATOR_EMAIL
+    headers = request.headers
+    if 'x-authenticated-actor' not in headers and _OPERATOR_HEADER not in headers:
+        return ''
+    header = (headers.get(_OPERATOR_HEADER) or '').strip().casefold()
+    if header in {'', '-', 'unset', 'none'}:
+        return ''
+    if header and len(header) <= 254 and _OPERATOR_RE.fullmatch(header):
+        return header
+    return ''
 DB = Path('/var/lib/buttonsbebe-inbox2/live.sqlite3')
 MCP_URL = 'http://127.0.0.1:8079/mcp'
 WORKER_LOCK = threading.Lock()
@@ -450,9 +473,10 @@ def get_ticket(number):
         if cached: return attach_customer_details(mark_stale(cached[1]))
         raise Unavailable()
 
-def list_tickets(args):
+def list_tickets(args, operator_email=None):
     clause=[];params=[]
     view=args['view']
+    me=(operator_email if operator_email is not None else OPERATOR_EMAIL) or ''
     trash="coalesce(json_extract(payload,'$.trashed'),0)"
     spam="coalesce(json_extract(payload,'$.spam'),0)"
     snooze="coalesce(json_extract(payload,'$.snoozedUntil'),'')"
@@ -465,7 +489,7 @@ def list_tickets(args):
         clause.append("json_extract(payload,'$.status')=?");params.append(view)
     elif view=='assigned':
         clause.append("fold(coalesce(json_extract(payload,'$.assigneeEmail'),''))=? AND ?<>''")
-        params.extend([OPERATOR_EMAIL,OPERATOR_EMAIL])
+        params.extend([me,me])
     elif view=='unassigned':
         clause.append("coalesce(json_extract(payload,'$.assigneeEmail'),'')='' AND coalesce(json_extract(payload,'$.assigneeTeam'),'')='' AND coalesce(json_extract(payload,'$.assignee'),'unassigned') IN ('','unassigned')")
     elif view=='snoozed':
@@ -493,7 +517,7 @@ def list_tickets(args):
         availability={key:bool(db.execute("SELECT EXISTS(SELECT 1 FROM tickets WHERE json_extract(payload,'$.categoryAvailability."+key+"')=1)").fetchone()[0]) for key in ('spam','trash','snoozed')}
     stamp=meta.get('generatedAt') or meta.get('lastPageAt')
     return {'ok':True,'source':'gorgias_api','tickets':[json.loads(row[0]) for row in rows],'total':total,
-            'operatorEmail':OPERATOR_EMAIL,'categoryAvailability':{**availability,'assigned':bool(OPERATOR_EMAIL)},
+            'operatorEmail':me,'categoryAvailability':{**availability,'assigned':bool(me)},
             'nextOffset':args['offset']+args['limit'] if args['offset']+args['limit']<total else None,
             'projection':{'generatedAt':stamp,'stale':bool(meta.get('error')) or (bool(stamp) and time.time()-epoch(stamp)>120),
                           'syncing':bool(meta.get('syncing')),'complete':bool(meta.get('complete')),'ticketCount':total}}
@@ -667,8 +691,12 @@ async def invoke(request:Request):
         invocation=Invocation.model_validate_json(bytes(raw));schema=SCHEMAS.get(invocation.tool)
         if not schema: return JSONResponse({'ok':False,'message':'This inbox only supports reading Gorgias data.'},status_code=403)
         args=schema.model_validate(invocation.arguments).model_dump()
-        if invocation.tool=='helpdesk.capabilities': return {'ok':True,'source':'gorgias_api','readOnly':True,'capabilities':{'listTickets':True,'getTicket':True,'sendReply':False,'createTicket':False}}
-        if invocation.tool=='helpdesk.list_tickets': return await run_in_threadpool(list_tickets,args)
+        operator=operator_email_for(request)
+        if invocation.tool=='helpdesk.capabilities':
+            return {'ok':True,'source':'gorgias_api','readOnly':True,'operatorEmail':operator,
+                    'capabilities':{'listTickets':True,'getTicket':True,'sendReply':False,'createTicket':False}}
+        if invocation.tool=='helpdesk.list_tickets':
+            return await run_in_threadpool(list_tickets,args,operator)
         number=int(args['ticketId'].split(':')[1])
         if invocation.tool=='helpdesk.get_ticket': return {'ok':True,'source':'gorgias_api','ticket':await run_in_threadpool(get_ticket,number)}
         def older():
