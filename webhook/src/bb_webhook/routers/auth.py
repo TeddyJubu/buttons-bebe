@@ -62,9 +62,12 @@ def _auth_unconfigured() -> JSONResponse:
 
 
 def _identity_headers(identity: dict) -> dict[str, str]:
+    # Use a non-empty placeholder when Gorgias email is unset so Caddy
+    # copy_headers always forwards the field; Inbox treats "-" as empty.
+    email = (identity.get("gorgias_email") or "").strip()
     return {
         "X-Authenticated-Actor": identity["actor_id"],
-        "X-Operator-Email": identity.get("gorgias_email") or "",
+        "X-Operator-Email": email or "-",
         "X-Actor-Role": identity["actor_role"],
     }
 

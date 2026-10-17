@@ -101,6 +101,15 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
             headers={"x-forwarded-uri": "/console/api/ticket/12/retry-draft", "origin": ORIGIN},
         )
         self.assertEqual(ticket.status_code, 204)
+        await self.client.post("/auth/logout", headers={"origin": ORIGIN})
+        await self.login()  # bootstrap admin has empty Gorgias email
+        cleared = await self.client.get(
+            "/auth/check",
+            headers={"x-forwarded-uri": "/inbox/api/helpdesk", "origin": ORIGIN},
+        )
+        self.assertEqual(cleared.status_code, 204)
+        self.assertEqual(cleared.headers["x-operator-email"], "-")
+        await self.login("agent", "staff-password-ok")
         await user_store.update_user(self.path, "agent", disabled=True)
         self.assertEqual((await self.client.get("/auth/session")).status_code, 401)
 

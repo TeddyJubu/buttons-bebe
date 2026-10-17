@@ -45,15 +45,23 @@ _OPERATOR_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 def operator_email_for(request: Request | None = None) -> str:
     """Prefer the forward-auth operator header; env is preview/fallback only.
 
-    When the header is present (including empty), do not fall back to the env
-    operator — an empty per-user identity must keep Assigned to me unavailable.
+    Authenticated Inbox requests always carry X-Authenticated-Actor from Caddy.
+    When that actor header is present, or X-Operator-Email is present (including
+    empty / placeholder), never fall back to the env operator — an empty
+    per-user identity must keep Assigned to me unavailable.
     """
-    if request is not None and _OPERATOR_HEADER in request.headers:
-        header = (request.headers.get(_OPERATOR_HEADER) or '').strip().casefold()
-        if header and len(header) <= 254 and _OPERATOR_RE.fullmatch(header):
-            return header
+    if request is None:
+        return OPERATOR_EMAIL
+    headers = request.headers
+    authenticated = 'x-authenticated-actor' in headers
+    if not authenticated and _OPERATOR_HEADER not in headers:
+        return OPERATOR_EMAIL
+    header = (headers.get(_OPERATOR_HEADER) or '').strip().casefold()
+    if header in {'', '-', 'unset', 'none'}:
         return ''
-    return OPERATOR_EMAIL
+    if header and len(header) <= 254 and _OPERATOR_RE.fullmatch(header):
+        return header
+    return ''
 DB = Path('/var/lib/buttonsbebe-inbox2/live.sqlite3')
 MCP_URL = 'http://127.0.0.1:8079/mcp'
 WORKER_LOCK = threading.Lock()

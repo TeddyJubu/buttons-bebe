@@ -45,10 +45,11 @@ header. The actual dashboard middleware always checks its own method.
 
 For `/inbox/api/*`, Caddy deletes browser-supplied `X-Operator-Email`,
 `X-Authenticated-Actor`, and `X-Actor-Role`, then `copy_headers` those names from
-the `/auth/page-check` response. The Inbox read API must treat those headers as
-authoritative only when present after that proxy step: an empty
-`X-Operator-Email` keeps Assigned to me unavailable and must not fall back to
-`INBOX_OPERATOR_GORGIAS_EMAIL`.
+the `/auth/page-check` response. Auth emits `-` when the signed-in user has no
+Gorgias email so `copy_headers` always has a non-empty value to forward. The
+Inbox read API treats that placeholder (and any request that already carries
+`X-Authenticated-Actor`) as an explicit empty identity: Assigned to me stays
+unavailable and must not fall back to `INBOX_OPERATOR_GORGIAS_EMAIL`.
 
 Only the exact HTTPS origins `support.buttonsbebe.com` and
 `srv1766050.hstgr.cloud` are accepted for owner mutations. Host and arbitrary
