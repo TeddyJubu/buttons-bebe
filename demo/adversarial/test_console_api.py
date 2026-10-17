@@ -50,9 +50,13 @@ sys.path.append(str(ROOT))
 from demo.adversarial.offline_imports import without_root_dotenv  # noqa: E402
 
 with without_root_dotenv():
-    from bb_webhook import app as app_module, rewrite_runner, session_store  # noqa: E402
+    from bb_webhook import app as app_module, rewrite_runner, session_store, user_store  # noqa: E402
     from bb_webhook.config import get_settings  # noqa: E402
-    from bb_webhook.console_auth import build_session_token, session_claims  # noqa: E402
+    from bb_webhook.console_auth import (  # noqa: E402
+        build_session_token,
+        hash_password,
+        session_claims,
+    )
     from bb_webhook.database import (  # noqa: E402
         claim_job,
         complete_job,
@@ -61,6 +65,11 @@ with without_root_dotenv():
     )
     from bb_webhook.draft_generation import begin_attempt, finish_attempt  # noqa: E402
     from bb_webhook.routers import console as console_router  # noqa: E402
+
+# Seed-only env hash for console_users bootstrap; computed once for this suite.
+_DEMO_PASSWORD_HASH = hash_password("demo-adversarial-password")
+os.environ["CONSOLE_PASSWORD_HASH"] = _DEMO_PASSWORD_HASH
+_DEMO_ACTOR = "admin:" + os.environ["CONSOLE_USERNAME"]
 
 
 class RecordingGorgias:
@@ -107,12 +116,16 @@ class ConsoleApiAdversarialTests(unittest.IsolatedAsyncioTestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="cute-things-console-")
         self.db_path = Path(self._tmp.name) / "demo-console.db"
         os.environ["WEBHOOK_DB_PATH"] = str(self.db_path)
+        os.environ["CONSOLE_PASSWORD_HASH"] = _DEMO_PASSWORD_HASH
         get_settings.cache_clear()
         await init_db(self.db_path)
         await session_store.initialize(self.db_path)
+        await user_store.bootstrap_from_settings(get_settings(), self.db_path)
         secret = os.environ["CONSOLE_SESSION_SECRET"]
         token = build_session_token(os.environ["CONSOLE_USERNAME"], secret)
-        await session_store.register(session_claims(token, secret), self.db_path)
+        await session_store.register(
+            session_claims(token, secret), self.db_path, actor_id=_DEMO_ACTOR
+        )
 
         transport = httpx.ASGITransport(app=app_module.app, raise_app_exceptions=False)
         self.client = httpx.AsyncClient(
