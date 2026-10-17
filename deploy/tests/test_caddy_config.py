@@ -91,6 +91,24 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertIn("@directdashboard path /dashboard /dashboard/*", text)
         self.assertIn("@health path /health /ready", text)
 
+    def test_forward_auth_sees_the_original_path_before_any_rewrite(self) -> None:
+        # Caddy orders `uri` and handle_path's strip before forward_auth unless
+        # a route pins the order. The auth check then never sees /console/...
+        # and lets staff into admin-only console, KB and WhatsApp APIs.
+        text = self.fragments["support"]
+        blocks = re.findall(r"^\t(handle(?:_path)? [^\n]*\{\n.*?^\t\}$)", text, re.MULTILINE | re.DOTALL)
+        guarded = [b for b in blocks if "forward_auth" in b]
+        self.assertGreaterEqual(len(guarded), 6)
+        for block in guarded:
+            header = block.splitlines()[0]
+            with self.subTest(block=header):
+                self.assertFalse(header.startswith("handle_path"), "handle_path strips before auth")
+                self.assertIn("route {", block)
+                auth = block.index("forward_auth")
+                self.assertLess(block.index("route {"), auth)
+                for rewrite in re.finditer(r"^\s*(uri (?:strip_prefix|replace)|rewrite) ", block, re.MULTILINE):
+                    self.assertLess(auth, rewrite.start(), f"{rewrite.group(1)} runs before auth")
+
     def test_support_preserves_hermes_dashboard_route(self) -> None:
         text = self.fragments["support"]
         self.assertIn("hermes.buttonsbebe.com {", text)
