@@ -31,7 +31,7 @@ def direct_loopback(request) -> bool:
 async def resolve_identity(request) -> dict | None:
     settings = get_settings()
     claims = session_claims(request.cookies.get(COOKIE_NAME), settings.console_session_secret)
-    if claims is None or claims.username != settings.console_username:
+    if claims is None:
         return None
     return await session_store.authenticate(claims, settings.db_path_absolute)
 
@@ -60,6 +60,11 @@ class ConsoleSessionMiddleware(BaseHTTPMiddleware):
                 return JSONResponse({"error": "not_authenticated"}, status_code=401)
             if request.method in UNSAFE_METHODS and not trusted_origin(request):
                 return JSONResponse({"error": "invalid_origin"}, status_code=403)
+            # Staff may use Inbox send/review routes only; admin console APIs stay admin-only.
+            if identity.get("actor_role") == "staff" and not (
+                path.startswith("/dashboard/api/inbox/") or path == "/dashboard/api/inbox"
+            ):
+                return JSONResponse({"error": "console_admin_required"}, status_code=403)
             for key, value in identity.items():
                 setattr(request.state, key, value)
         response = await call_next(request)

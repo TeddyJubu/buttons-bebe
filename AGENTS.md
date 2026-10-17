@@ -98,8 +98,9 @@ The human decides whether to send it. Client: **Chaim**.
    provider-side status, priority, assignment, rename or read-state write still
    requires the owner's explicit authorization and an audit trail. The active
    views are All, Open, Closed, Assigned to me, Unassigned, Snoozed, Trash, and
-   Spam. Assigned to me stays unavailable until the owner chooses an operator
-   email; never invent provider state or an assignee.
+   Spam. Assigned to me uses the signed-in user's Gorgias email from
+   `console_users` (forward-auth `X-Operator-Email`); it stays unavailable when
+   that field is empty. Never invent provider state or an assignee.
 7. Owner-approved New ticket creates a private browser-only `local:<UUID>` ticket
    (approved 2026-10-05). It notifies nobody, never creates a Gorgias ticket, never
    looks up provider customer data, and cannot send a customer reply. Real Gorgias

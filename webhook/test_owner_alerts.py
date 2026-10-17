@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 import httpx
 
-from bb_webhook import app as app_module, database, db as db_module, session_store
+from bb_webhook import app as app_module, database, db as db_module, session_store, user_store
+from bb_webhook.console_auth import build_session_token, hash_password, session_claims
 from bb_webhook.middleware import console_session
-from bb_webhook.console_auth import build_session_token, session_claims
 from bb_webhook.db import Database
 from bb_webhook.draft_generation import begin_attempt, finish_attempt
 
@@ -186,8 +186,10 @@ class OwnerAlertApiTests(OwnerAlertFixture, unittest.IsolatedAsyncioTestCase):
         await session_store.initialize(self.path)
         self.settings = SimpleNamespace(
             console_username="test-owner", console_session_secret="synthetic-session-secret",
+            console_password_hash=hash_password("synthetic-owner-password"),
             db_path_absolute=self.path,
         )
+        await user_store.bootstrap_from_settings(self.settings, self.path)
         for target in (console_session, db_module):
             patched = patch.object(target, "get_settings", return_value=self.settings)
             patched.start()
@@ -198,7 +200,7 @@ class OwnerAlertApiTests(OwnerAlertFixture, unittest.IsolatedAsyncioTestCase):
         self.token = build_session_token(self.settings.console_username,
                                          self.settings.console_session_secret)
         self.claims = session_claims(self.token, self.settings.console_session_secret)
-        await session_store.register(self.claims, self.path)
+        await session_store.register(self.claims, self.path, actor_id="admin:test-owner")
         self.client.cookies.set("bb_console_session", self.token)
 
     async def test_authenticated_get_returns_minimal_contract_without_mutation(self):

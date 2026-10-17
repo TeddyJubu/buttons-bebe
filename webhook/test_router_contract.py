@@ -39,6 +39,9 @@ class RouterContractTests(unittest.TestCase):
             ("GET", "/dashboard/api/inbox/review-context/{inbox_ticket_id}"),
             ("POST", "/dashboard/api/inbox/send-access"),
             ("POST", "/dashboard/api/inbox/ticket/{ticket_id}/send"),
+            ("GET", "/dashboard/api/users"),
+            ("POST", "/dashboard/api/users"),
+            ("PATCH", "/dashboard/api/users/{username}"),
         }
         actual = {
             (method, path)
@@ -70,12 +73,13 @@ class RouterContractTests(unittest.TestCase):
             patch.object(app_module, "log_event", Mock(side_effect=lambda *args, **kwargs: events.append("log"))),
             patch.object(database, "init_db", AsyncMock(side_effect=init_db)),
             patch.object(app_module.session_store, "initialize", AsyncMock(side_effect=lambda *args: events.append("sessions"))),
+            patch.object(app_module.user_store, "bootstrap_from_settings", AsyncMock(side_effect=lambda *args: events.append("users"))),
         ):
             import asyncio
 
             asyncio.run(exercise())
 
-        self.assertEqual(events, ["logging", "settings", "log", "db", "sessions", "yield", "log"])
+        self.assertEqual(events, ["logging", "settings", "log", "db", "sessions", "users", "yield", "log"])
 
 
 if __name__ == "__main__":

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
-from bb_webhook import app as app_module, database, session_store
-from bb_webhook.console_auth import build_session_token, session_claims
+from bb_webhook import app as app_module, database, session_store, user_store
+from bb_webhook.console_auth import build_session_token, hash_password, session_claims
 from bb_webhook.db import Database
 from bb_webhook.draft_generation import begin_attempt, finish_attempt
 
@@ -18,7 +18,9 @@ async def setup_action_case(case):
     await database.init_db(case.path)
     await session_store.initialize(case.path)
     case.settings = SimpleNamespace(db_path_absolute=case.path, console_session_secret='test-action-secret',
-                                    console_username='owner', demo_mode=False)
+                                    console_username='owner', console_password_hash=hash_password('action-test-password'),
+                                    demo_mode=False)
+    await user_store.bootstrap_from_settings(case.settings, case.path)
     for target in ('bb_webhook.deps.get_settings', 'bb_webhook.db.get_settings',
                    'bb_webhook.middleware.console_session.get_settings'):
         patched = patch(target, return_value=case.settings)
@@ -36,7 +38,8 @@ async def setup_action_case(case):
         action='drafted', draft_text='I can help check that.'), case.path)
     await database.complete_job(case.job_id, db_path=case.path, require_result=True)
     token = build_session_token('owner', 'test-action-secret')
-    await session_store.register(session_claims(token, 'test-action-secret'), case.path)
+    await session_store.register(session_claims(token, 'test-action-secret'), case.path,
+                                 actor_id='admin:owner')
     case.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app_module.app),
         base_url='https://support.buttonsbebe.com', headers={'Origin': 'https://support.buttonsbebe.com'},
         cookies={'bb_console_session': token})

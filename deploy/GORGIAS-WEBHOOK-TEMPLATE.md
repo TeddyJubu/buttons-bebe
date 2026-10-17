@@ -104,11 +104,13 @@ an honest unknown.
 
 ## 3. Operator identity for "Assigned to me"
 
-The exporter never decides who "me" is. The inbox service does, from
-`INBOX_OPERATOR_GORGIAS_EMAIL` in
-[`deploy/systemd/helpdesk-inbox.service`](systemd/helpdesk-inbox.service). It is
-compared case-insensitively against the observed `assignee_user.email`, and an
-empty or malformed value leaves Assigned to me permanently empty.
+The exporter never decides who "me" is. Live Inbox reads prefer the
+`X-Operator-Email` header copied from console forward-auth (each
+`console_users.gorgias_email`). `INBOX_OPERATOR_GORGIAS_EMAIL` on
+[`deploy/systemd/helpdesk-inbox2.service`](systemd/helpdesk-inbox2.service)
+remains a preview/fallback only. Comparison is case-insensitive against the
+observed `assignee_user.email`; an empty or malformed value leaves Assigned to
+me unavailable for that session.
 
 The committed unit carries `<REDACTED>`, matching the sibling drop-ins that hold
 WhatsApp values: an operator address is host-local and is not kept in a public

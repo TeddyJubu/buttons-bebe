@@ -1,8 +1,9 @@
 # Console authentication boundary
 
-The configured owner account and password verifier are unchanged. There is no
-new customer login or invented staff account. This change makes owner sessions revocable and enforces console access
-inside FastAPI as well as at Caddy.
+Console accounts live in `console_users` (roles `admin` and `staff`). Env
+`CONSOLE_USERNAME` / `CONSOLE_PASSWORD_HASH` bootstrap the first admin when the
+table is empty, then become seed-only. Sessions remain revocable; access is
+enforced inside FastAPI as well as at Caddy. See ADR-016.
 
 ## Route inventory
 
@@ -24,10 +25,12 @@ The only repository consumer of the internal results endpoint is the processor's
 loopback HTTP post. All other dashboard endpoints are owner-facing. The
 middleware does not trust an `X-Authenticated-Actor` request header. It sets
 `request.state.actor_id`, `actor_role`, and `session_id` from server-validated
-claims and registry metadata. Owner actor IDs are `owner:<configured username>`;
-the session ID is a SHA256 digest, not the bearer cookie. The producer identity
+claims and registry metadata. Human actor IDs are `{role}:{username}`
+(`admin:…` or `staff:…`); role is re-read from `console_users` on every request.
+The session ID is a SHA256 digest, not the bearer cookie. The producer identity
 is `processor`, not a human. Action handlers must never accept a browser-supplied
-actor as authority.
+actor as authority. Staff may use Inbox send routes only; admin console APIs,
+KB, Notice Board and WhatsApp remain admin-only.
 
 ## Proxy and CSRF contract
 
@@ -69,12 +72,11 @@ cookie. Expired tokens fail cryptographic validation before registration. Keep
 revocation rows at least until their expiration; ordinary code rollback must
 not roll back this table or session state.
 
-`console_sessions` is an additive table in the existing SQLite database, created
-at application startup through the Database helper. No existing table or owner
-credential is replaced. Registry lookup failure denies access with 503. This
-still represents one configured owner account: it does not identify which
-person used shared credentials. Per-staff accounts and least-privilege roles
-remain separate work requiring actual owner account definitions.
+`console_sessions` and `console_users` are additive tables in the existing
+SQLite database, created at application startup. Registry lookup failure denies
+access with 503. Forward-auth responses include `X-Authenticated-Actor` and
+`X-Operator-Email` so Caddy can copy per-staff Gorgias identity to the Inbox
+read API for Assigned to me.
 
 ## Readiness and limits
 

@@ -39,6 +39,12 @@ class TicketViewTests(unittest.TestCase):
         with patch.object(api,'OPERATOR_EMAIL','owner@example.test'):
             self.assertEqual(self.ids(view='assigned'),['gorgias:5'])
         self.assertEqual(self.ids(view='unassigned'),['gorgias:6','gorgias:4','gorgias:1'])
+    def test_assigned_view_uses_per_request_operator_email(self):
+        with patch.object(api,'OPERATOR_EMAIL',''):
+            result=api.list_tickets(api.ListArguments(view='assigned').model_dump(),'owner@example.test')
+            self.assertEqual([row['id'] for row in result['tickets']],['gorgias:5'])
+            self.assertEqual(result['operatorEmail'],'owner@example.test')
+            self.assertTrue(result['categoryAvailability']['assigned'])
     def test_observed_snooze_expires_without_changing_the_provider_record(self):
         deadline=api.epoch('2099-01-01T00:00:00Z')
         with closing(api.database()) as db:

@@ -160,7 +160,7 @@ class InboxSendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs['expected_recipient'],'customer@example.com')
         self.assertEqual(kwargs['expected_source_message_id'],'source-1')
         rows=await Database(self.path).fetch('SELECT * FROM console_action_intents')
-        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['actor_id'],'owner:owner')
+        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['actor_id'],'admin:owner')
         self.assertEqual(rows[0]['approve_learning'],0)
         grants=await Database(self.path).fetch('SELECT * FROM inbox_send_grants')
         self.assertEqual(grants[0]['token_hash'],hashlib.sha256(self.token.encode()).hexdigest())

@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 
 def actor(request):
-    if getattr(request.state, 'actor_role', None) != 'owner':
+    if getattr(request.state, 'actor_role', None) not in {'admin', 'staff'}:
         return None
     return getattr(request.state, 'actor_id', None)
 
