@@ -43,19 +43,18 @@ _OPERATOR_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
 def operator_email_for(request: Request | None = None) -> str:
-    """Prefer the forward-auth operator header; env is preview/fallback only.
+    """Prefer the forward-auth operator header; env is no-request preview only.
 
-    Authenticated Inbox requests always carry X-Authenticated-Actor from Caddy.
-    When that actor header is present, or X-Operator-Email is present (including
-    empty / placeholder), never fall back to the env operator — an empty
-    per-user identity must keep Assigned to me unavailable.
+    HTTP requests must carry Caddy-copied identity headers. Missing headers
+    return empty so Assigned to me stays unavailable (including before the
+    updated support.caddy is installed). Direct callers that pass no Request
+    still use INBOX_OPERATOR_GORGIAS_EMAIL for local preview helpers.
     """
     if request is None:
         return OPERATOR_EMAIL
     headers = request.headers
-    authenticated = 'x-authenticated-actor' in headers
-    if not authenticated and _OPERATOR_HEADER not in headers:
-        return OPERATOR_EMAIL
+    if 'x-authenticated-actor' not in headers and _OPERATOR_HEADER not in headers:
+        return ''
     header = (headers.get(_OPERATOR_HEADER) or '').strip().casefold()
     if header in {'', '-', 'unset', 'none'}:
         return ''

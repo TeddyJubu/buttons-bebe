@@ -113,9 +113,15 @@ class IntentStore:
                 "SELECT operation_id,actor_id,kind,state,source_message_id,draft_hash "
                 "FROM console_action_intents WHERE ticket_id=? AND state IN ('pending','uncertain') "
                 "ORDER BY created_at,operation_id LIMIT 100", (ticket_id,), operation="review_context")]
-        unresolved = [{'kind': row['kind'], 'state': row['state'], 'ownedByCurrentActor': row['actor_id'] == actor_id,
-                       **({'operationId': row['operation_id'], 'sourceMessageId': row['source_message_id'],
-                           'draftRevision': row['draft_hash']} if row['actor_id'] == actor_id else {})} for row in pending]
+        from .user_store import same_console_actor
+        unresolved = []
+        for row in pending:
+            owned = same_console_actor(row['actor_id'], actor_id)
+            entry = {'kind': row['kind'], 'state': row['state'], 'ownedByCurrentActor': owned}
+            if owned:
+                entry.update({'operationId': row['operation_id'], 'sourceMessageId': row['source_message_id'],
+                              'draftRevision': row['draft_hash']})
+            unresolved.append(entry)
         source_text = source["message_text"] or ""
         source_revision = _hash(source_text)
         return {'inboxTicketId': f'gorgias:{ticket_id}', 'ticketId': str(ticket_id), 'sourceMessageId': source_message_id,
@@ -148,11 +154,15 @@ class IntentStore:
             existing = await cursor.fetchone()
             await cursor.close()
             if existing:
+                from .user_store import same_console_actor
                 row = dict(existing)
                 for name, value in {'actor_id': actor_id, 'kind': kind, 'ticket_id': ticket_id,
                                     'source_message_id': source_message_id, 'text_hash': text_hash, 'draft_hash': draft_revision,
                                     'approve_learning': int(approve_learning)}.items():
-                    if row[name] != value:
+                    if name == 'actor_id':
+                        if not same_console_actor(row[name], value):
+                            raise ActionConflict('operation_id_conflict')
+                    elif row[name] != value:
                         raise ActionConflict('operation_id_conflict')
                 return row, False
             cursor = await conn.execute(_SOURCE_CONTEXT_SQL,(ticket_id, source_message_id))
@@ -171,7 +181,8 @@ class IntentStore:
             previous = await cursor.fetchone()
             await cursor.close()
             if previous:
-                if previous['actor_id'] != actor_id:
+                from .user_store import same_console_actor
+                if not same_console_actor(previous['actor_id'], actor_id):
                     raise ActionConflict('action_owned_by_another_actor', 403)
                 if previous['approve_learning'] != int(approve_learning):
                     raise ActionConflict('learning_approval_is_fixed_for_existing_action', operation_id=previous['operation_id'])

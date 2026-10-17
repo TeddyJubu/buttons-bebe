@@ -111,8 +111,11 @@ Console users panel (staff accounts require it). An empty header keeps
 Assigned to me unavailable for that session; comparison against observed
 `assignee_user.email` is case-insensitive.
 
-`INBOX_OPERATOR_GORGIAS_EMAIL` is an optional preview/fallback for local Inbox
-previews only. It is not part of the committed
+`INBOX_OPERATOR_GORGIAS_EMAIL` has two narrow roles: (1) when `console_users` is
+still empty it seeds the first admin's Gorgias email on bootstrap, and (2) local
+Inbox preview helpers that call the API with no Request may use it as Assigned
+to me. Authenticated browser traffic must not rely on it — Caddy forwards
+per-user `X-Operator-Email` instead. It is not part of the committed
 [`helpdesk-inbox2.service`](systemd/helpdesk-inbox2.service) unit. If you set it
 on a host, put it in a host-local drop-in — not in the public repository — and
 restart `helpdesk-inbox2`:

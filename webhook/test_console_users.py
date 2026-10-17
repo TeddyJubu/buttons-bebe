@@ -102,7 +102,9 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ticket.status_code, 204)
         await self.client.post("/auth/logout", headers={"origin": ORIGIN})
-        await self.login()  # bootstrap admin has empty Gorgias email
+        # Force empty email so env-set INBOX_OPERATOR_GORGIAS_EMAIL cannot leak.
+        await user_store.update_user(self.path, "chaim", gorgias_email="")
+        await self.login()
         cleared = await self.client.get(
             "/auth/check",
             headers={"x-forwarded-uri": "/inbox/api/helpdesk", "origin": ORIGIN},

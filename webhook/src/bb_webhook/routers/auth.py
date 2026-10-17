@@ -15,6 +15,7 @@ from ..middleware.console_session import resolve_identity, trusted_origin, UNSAF
 from ..staff_access import staff_may_use_forwarded_path
 from ..console_auth import (
     build_session_token,
+    hash_password,
     safe_next_path,
     session_claims,
 )
@@ -24,6 +25,15 @@ router = APIRouter()
 _COOKIE_NAME = "bb_console_session"
 _LOGIN_MAX_REQUESTS_PER_MINUTE = 12
 _LOGIN_COOKIE_TTL_SECONDS = 12 * 60 * 60
+_DUMMY_PASSWORD_HASH: str | None = None
+
+
+def _timing_dummy_hash() -> str:
+    """Fixed PBKDF2 target so unknown usernames pay the same verify cost."""
+    global _DUMMY_PASSWORD_HASH
+    if _DUMMY_PASSWORD_HASH is None:
+        _DUMMY_PASSWORD_HASH = hash_password("console-login-timing-dummy")
+    return _DUMMY_PASSWORD_HASH
 
 
 def _client_ip(request: Request) -> str:
@@ -87,6 +97,14 @@ def _staff_console_page(path: str) -> bool:
     return target == "/console" or target.startswith("/console/")
 
 
+def _staff_browser_landing(path: str) -> bool:
+    """True when `next` is a staff-safe browser page (not a POST-only API)."""
+    target = _path_only(path)
+    if target == "/inbox":
+        return True
+    return target.startswith("/inbox/") and "/api/" not in target
+
+
 def _staff_redirect(identity: dict, destination: str) -> str | None:
     if identity.get("actor_role") != "staff":
         return None
@@ -138,6 +156,12 @@ async def auth_login(request: Request) -> JSONResponse:
             return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
         if not existing and not settings.console_password_hash:
             return _auth_unconfigured()
+        try:
+            await verify_bounded(password, _timing_dummy_hash())
+        except PasswordVerifierBusy:
+            return JSONResponse(status_code=429, content={"error": "login_busy"}, headers={"Retry-After": "1"})
+        except Exception:
+            return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
         return JSONResponse(status_code=401, content={"error": "invalid_credentials"})
     try:
         verified = await verify_bounded(password, user["password_hash"])
@@ -149,7 +173,7 @@ async def auth_login(request: Request) -> JSONResponse:
         return JSONResponse(status_code=401, content={"error": "invalid_credentials"})
 
     redirect = safe_next_path(body.get("next"))
-    if user["role"] == "staff" and _staff_console_page(redirect):
+    if user["role"] == "staff" and not _staff_browser_landing(redirect):
         redirect = "/inbox/"
     token = build_session_token(user["username"], settings.console_session_secret)
     claims = session_claims(token, settings.console_session_secret)

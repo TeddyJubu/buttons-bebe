@@ -59,6 +59,7 @@ class TicketViewTests(unittest.TestCase):
                     {'content-type':'application/json','x-operator-email':''},
                     {'content-type':'application/json','x-operator-email':'-'},
                     {'content-type':'application/json','x-authenticated-actor':'staff:agent'},
+                    {'content-type':'application/json'},  # no identity headers → empty, not env
                 ):
                     empty=client.post('/inbox/api/helpdesk',json={'tool':'helpdesk.list_tickets','arguments':{'view':'assigned'}},
                                       headers=headers)

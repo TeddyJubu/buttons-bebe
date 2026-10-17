@@ -54,6 +54,23 @@ def actor_id_for(role: str, username: str) -> str:
     return f"{role}:{username}"
 
 
+def actor_username(actor_id: str | None) -> str:
+    """Username half of `{role}:{username}` (legacy `owner:` included)."""
+    text = (actor_id or "").strip()
+    if not text:
+        return ""
+    if ":" in text:
+        return text.split(":", 1)[1].casefold()
+    return text.casefold()
+
+
+def same_console_actor(left: str | None, right: str | None) -> bool:
+    """True when both IDs name the same user, ignoring role / legacy owner prefix."""
+    a = actor_username(left)
+    b = actor_username(right)
+    return bool(a) and a == b
+
+
 async def initialize(path: Path | str):
     await Database(path).execute(_SCHEMA, operation="user_schema")
 
@@ -68,7 +85,13 @@ async def bootstrap_from_settings(settings, path: Path | str) -> None:
         return
     username = normalize_username(getattr(settings, "console_username", None))
     password_hash = getattr(settings, "console_password_hash", "") or ""
-    if not username or not password_hash:
+    if not password_hash:
+        return
+    if not username:
+        logger.warning(
+            "Bootstrap skipped: CONSOLE_USERNAME missing or invalid while "
+            "CONSOLE_PASSWORD_HASH is set; console_users stays empty."
+        )
         return
     raw_email = os.environ.get("INBOX_OPERATOR_GORGIAS_EMAIL", "")
     email = normalize_gorgias_email(raw_email)
@@ -247,10 +270,8 @@ async def update_user(
         password_changed = password_hash is not None and password_hash != current["password_hash"]
         newly_disabled = disabled_at is not None and current["disabled_at"] is None
         if password_changed or newly_disabled:
-            await conn.execute(
-                "UPDATE console_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE username=? AND revoked_at IS NULL",
-                (now, key),
-            )
+            from . import session_store
+            await session_store.revoke_username_on(conn, key, now=now)
         return {
             "username": key,
             "role": new_role,

@@ -244,10 +244,12 @@ removal on the VPS — do not add values there; see
 Shopify = client-credentials grant (`SHOPIFY_CLIENT_ID/SECRET`, mint 24h Admin
 token); Gorgias = Basic (email + API key); Redo = Bearer. Console accounts live
 in the webhook SQLite `console_users` table (roles `admin` / `staff`).
-`CONSOLE_USERNAME` + `CONSOLE_PASSWORD_HASH` (PBKDF2) and
-`CONSOLE_SESSION_SECRET` from the root `.env` bootstrap the first admin when
-the table is empty, then become seed-only; later password/role/email changes go
-through Settings → Console users. Per-staff Assigned to me needs the installed
+`CONSOLE_USERNAME` + `CONSOLE_PASSWORD_HASH` (PBKDF2) from the root `.env`
+bootstrap the first admin when the table is empty (Gorgias email from
+`INBOX_OPERATOR_GORGIAS_EMAIL` when set), then become seed-only; later
+password/role/email changes go through Settings → Console users.
+`CONSOLE_SESSION_SECRET` remains the live cookie-signing key; rotating it
+invalidates all sessions. Per-user Assigned to me needs the installed
 Caddy `copy_headers` for `X-Operator-Email` (see `deploy/caddy/sites/support.caddy`).
 Never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes skills never
 read env files — the authenticated MCP services are their only runtime data

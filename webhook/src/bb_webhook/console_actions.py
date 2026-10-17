@@ -144,7 +144,8 @@ async def action_status(ticket_id, operation_id, request, client_factory, record
         return JSONResponse(status_code=400, content={'error': 'invalid_operation_id'})
     store = IntentStore(deps.get_db())
     row = await store.get(operation_id)
-    if row is None or row['ticket_id'] != ticket_id or row['actor_id'] != actor(request):
+    from .user_store import same_console_actor
+    if row is None or row['ticket_id'] != ticket_id or not same_console_actor(row['actor_id'], actor(request)):
         return JSONResponse(status_code=404, content={'error': 'action_not_found'})
     if row['remote_message_id'] and row['state'] in {'pending', 'uncertain'}:
         # This method issues GET requests only. Never infer non-delivery from

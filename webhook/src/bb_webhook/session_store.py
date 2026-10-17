@@ -65,14 +65,21 @@ async def revoke(claims: SessionClaims, path: Path | str):
                                  (int(time.time()), claims.token_id), operation="session_revoke")
 
 
-async def revoke_username(username: str, path: Path | str) -> int:
-    """Revoke every non-revoked session for a username (password reset / disable)."""
+async def revoke_username_on(conn, username: str, *, now: int | None = None) -> int:
+    """Revoke every non-revoked session for a username on an open connection."""
     key = (username or "").strip().casefold()
     if not key:
         return 0
-    return int(await Database(path).execute(
+    cursor = await conn.execute(
         "UPDATE console_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE username=? AND revoked_at IS NULL",
-        (int(time.time()), key),
-        operation="session_revoke_user",
-        return_rowcount=True,
-    ) or 0)
+        (int(time.time() if now is None else now), key),
+    )
+    return int(cursor.rowcount or 0)
+
+
+async def revoke_username(username: str, path: Path | str) -> int:
+    """Revoke every non-revoked session for a username (password reset / disable)."""
+    async def txn(conn):
+        return await revoke_username_on(conn, username)
+
+    return int(await Database(path).transaction(txn, operation="session_revoke_user") or 0)
