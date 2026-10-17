@@ -52,10 +52,16 @@ srv1766050.hstgr.cloud, support.buttonsbebe.com {
 	}
 
 	# Inbox read-only API: require a console session before forwarding.
+	# Drop browser-supplied identity headers, then copy_headers from auth so
+	# Assigned to me uses only the signed-in console_users.gorgias_email.
 	handle /inbox/api/* {
 		route {
+			request_header -X-Operator-Email
+			request_header -X-Authenticated-Actor
+			request_header -X-Actor-Role
 			forward_auth 127.0.0.1:8000 {
 				uri /auth/page-check
+				copy_headers X-Authenticated-Actor X-Operator-Email X-Actor-Role
 			}
 			reverse_proxy 127.0.0.1:8767 {
 				header_up -Cookie

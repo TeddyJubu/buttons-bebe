@@ -104,29 +104,35 @@ an honest unknown.
 
 ## 3. Operator identity for "Assigned to me"
 
-The exporter never decides who "me" is. The inbox service does, from
-`INBOX_OPERATOR_GORGIAS_EMAIL` in
-[`deploy/systemd/helpdesk-inbox.service`](systemd/helpdesk-inbox.service). It is
-compared case-insensitively against the observed `assignee_user.email`, and an
-empty or malformed value leaves Assigned to me permanently empty.
+The exporter never decides who "me" is. Live Inbox reads take
+`X-Operator-Email` from console forward-auth (each signed-in
+`console_users.gorgias_email`). Set that email in the console Settings →
+Console users panel (staff accounts require it). An empty header keeps
+Assigned to me unavailable for that session; comparison against observed
+`assignee_user.email` is case-insensitive.
 
-The committed unit carries `<REDACTED>`, matching the sibling drop-ins that hold
-WhatsApp values: an operator address is host-local and is not kept in a public
-repository. Put the real address in the applied unit on the host only.
+`INBOX_OPERATOR_GORGIAS_EMAIL` has two narrow roles: (1) when `console_users` is
+still empty it seeds the first admin's Gorgias email on bootstrap, and (2) local
+Inbox preview helpers that call the API with no Request may use it as Assigned
+to me. Authenticated browser traffic must not rely on it — Caddy forwards
+per-user `X-Operator-Email` instead. It is not part of the committed
+[`helpdesk-inbox2.service`](systemd/helpdesk-inbox2.service) unit. If you set it
+on a host, put it in a host-local drop-in — not in the public repository — and
+restart `helpdesk-inbox2`:
 
 ```sh
-systemctl show helpdesk-inbox --property=Environment | tr ' ' '\n' | grep INBOX_OPERATOR
-systemctl daemon-reload && systemctl restart helpdesk-inbox
+systemctl show helpdesk-inbox2 --property=Environment | tr ' ' '\n' | grep INBOX_OPERATOR || true
+systemctl daemon-reload && systemctl restart helpdesk-inbox2
 systemctl start buttonsbebe-inbox-projection.service   # refresh the snapshot
-curl -fsS http://127.0.0.1:8766/ready
+curl -fsS http://127.0.0.1:8767/ready
 ```
 
-Editing the unit changes both fingerprints CD verifies, so re-record them in
+Editing an applied unit changes fingerprints CD verifies, so re-record them in
 `/etc/buttonsbebe-deploy-approved-config.sha256` or the next deploy stops at
 `assert_config_approved` — see [the receiver contract](cd/README.md):
 
 ```sh
-sha256sum /etc/systemd/system/helpdesk-inbox.service      # applied-file entry, path first
+sha256sum /etc/systemd/system/helpdesk-inbox2.service    # applied-file entry, path first
 cd "$RELEASE/deploy/systemd" && find . -type f -print0 | LC_ALL=C sort -z \
   | xargs -0 sha256sum | sha256sum                        # `deploy/systemd` source entry
 ```

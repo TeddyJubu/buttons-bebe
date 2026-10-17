@@ -6,7 +6,7 @@ import json
 import unittest
 import tempfile
 from pathlib import Path
-from bb_webhook import session_store
+from bb_webhook import session_store, user_store
 from http.cookies import SimpleCookie
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -62,6 +62,7 @@ class ConsoleAuthEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
 
         await session_store.initialize(self.settings.db_path_absolute)
+        await user_store.bootstrap_from_settings(self.settings, self.settings.db_path_absolute)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -101,8 +102,11 @@ class ConsoleAuthEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 401)
         self.assertNotIn("correct", response.body.decode())
 
+        empty = Path(self.temp.name) / "empty.sqlite3"
+        await session_store.initialize(empty)
         unconfigured = SimpleNamespace(
-            console_username="chaim", console_password_hash="", console_session_secret="", demo_mode=False
+            console_username="chaim", console_password_hash="", console_session_secret="",
+            demo_mode=False, db_path_absolute=empty,
         )
         with patch.object(auth, "get_settings", return_value=unconfigured), \
              patch.object(console_session, "get_settings", return_value=unconfigured), \

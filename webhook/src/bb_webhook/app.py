@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from . import database, session_store
+from . import database, session_store, user_store
 from .middleware.console_session import ConsoleSessionMiddleware
 from .config import get_settings
 from .logging_utils import get_logger, log_event, setup_logging
@@ -16,6 +16,7 @@ from .routers import (
     dashboard as _dashboard,
     health as _health,
     notifications as _notifications,
+    users as _users,
     webhook as _webhook,
 )
 
@@ -30,6 +31,7 @@ async def lifespan(_app: FastAPI):
               port=settings.webhook_port, tenant=settings.gorgias_subdomain)
     await database.init_db()
     await session_store.initialize(settings.db_path_absolute)
+    await user_store.bootstrap_from_settings(settings, settings.db_path_absolute)
     yield
     log_event(logger, "INFO", "Shutting down webhook receiver")
 
@@ -45,7 +47,7 @@ def create_app() -> FastAPI:
     application.add_middleware(ConsoleSessionMiddleware)
     for route_router in (
         _health.router, _webhook.router, _auth.router, _dashboard.router,
-        _notifications.router, _console.router,
+        _notifications.router, _console.router, _users.router,
     ):
         application.include_router(route_router)
     return application

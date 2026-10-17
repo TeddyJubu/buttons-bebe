@@ -10,7 +10,7 @@ from ..db import Database
 from ..result_auth import configured_secret
 
 router = APIRouter()
-_REQUIRED_TABLES = {"webhook_events", "parsed_messages", "job_queue", "ticket_results", "app_settings", "console_sessions"}
+_REQUIRED_TABLES = {"webhook_events", "parsed_messages", "job_queue", "ticket_results", "app_settings", "console_sessions", "console_users"}
 
 
 @router.get("/health")
@@ -51,6 +51,7 @@ async def ready() -> JSONResponse:
                     await db.fetch("SELECT message_id,ticket_id FROM parsed_messages LIMIT 0", operation="readiness_messages")
                     await db.fetch("SELECT message_id,ticket_id,draft_text FROM ticket_results LIMIT 0", operation="readiness_results")
                     await db.fetch("SELECT token_id,revoked_at,expires_at FROM console_sessions LIMIT 0", operation="readiness_sessions")
+                    await db.fetch("SELECT username,role,disabled_at FROM console_users LIMIT 0", operation="readiness_users")
                     checks["schema"] = "ok"
                     by_status = {row["status"]: row for row in rows}
                     diagnostics = {

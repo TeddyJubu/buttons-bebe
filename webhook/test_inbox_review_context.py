@@ -56,7 +56,7 @@ class ReviewContextTests(unittest.IsolatedAsyncioTestCase):
         transport.assert_not_called()
     async def test_existing_console_operation_can_be_resumed_without_new_intent(self):
         store=IntentStore(self.path);operation=str(uuid.uuid4())
-        await store.reserve(operation_id=operation,actor_id='owner:owner',kind='send',ticket_id=1,
+        await store.reserve(operation_id=operation,actor_id='admin:owner',kind='send',ticket_id=1,
                             source_message_id='source-1',text='Reviewed text',draft_revision=hashlib.sha256(b'I can help check that.').hexdigest())
         first=(await self.get()).json()['context'];second=(await self.get()).json()['context']
         self.assertEqual(first,second)
