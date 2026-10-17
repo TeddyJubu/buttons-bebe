@@ -1,15 +1,19 @@
 """Admin-only console user management."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from .. import deps, user_store
 from ..console_auth import hash_password
 from ..console_actions import actor
+from ..logging_utils import get_logger, log_event
 from ..middleware.console_session import trusted_origin
 
 router = APIRouter(prefix="/dashboard/api/users")
+logger = get_logger(__name__)
 
 
 def _require_admin(request: Request) -> str | JSONResponse:
@@ -32,7 +36,8 @@ async def list_console_users(request: Request) -> JSONResponse:
         return gate
     try:
         users = await user_store.list_users(deps.get_settings().db_path_absolute)
-    except Exception:
+    except Exception as exc:
+        log_event(logger, "ERROR", "Console user list unavailable", error_type=type(exc).__name__)
         return _error(503, "users_unavailable")
     return JSONResponse(content={"ok": True, "users": users})
 
@@ -61,7 +66,7 @@ async def create_console_user(request: Request) -> JSONResponse:
     if len(password) < 10 or len(password) > 1024:
         return _error(400, "invalid_password")
     try:
-        hashed = hash_password(password)
+        hashed = await asyncio.to_thread(hash_password, password)
         created = await user_store.create_user(
             deps.get_settings().db_path_absolute,
             username=username,
@@ -73,8 +78,12 @@ async def create_console_user(request: Request) -> JSONResponse:
         code = str(exc) or "invalid_user"
         status = 409 if code == "username_taken" else 400
         return _error(status, code)
-    except Exception:
+    except Exception as exc:
+        log_event(logger, "ERROR", "Console user create unavailable",
+                  actor_id=gate, error_type=type(exc).__name__)
         return _error(503, "users_unavailable")
+    log_event(logger, "INFO", "Console user created", actor_id=gate,
+              username=created["username"], role=created["role"])
     return JSONResponse(status_code=201, content={"ok": True, "user": created})
 
 
@@ -91,6 +100,14 @@ async def update_console_user(username: str, request: Request) -> JSONResponse:
         return _error(400, "invalid_json")
     if not isinstance(body, dict) or not body:
         return _error(400, "invalid_json_object")
+    for field, code in (
+        ("role", "invalid_role"),
+        ("gorgiasEmail", "invalid_email"),
+        ("disabled", "invalid_disabled"),
+        ("password", "invalid_password"),
+    ):
+        if field in body and body[field] is None:
+            return _error(400, code)
     role = body.get("role") if "role" in body else None
     email = body.get("gorgiasEmail") if "gorgiasEmail" in body else None
     disabled = body.get("disabled") if "disabled" in body else None
@@ -104,8 +121,8 @@ async def update_console_user(username: str, request: Request) -> JSONResponse:
     if password is not None:
         if not isinstance(password, str) or len(password) < 10 or len(password) > 1024:
             return _error(400, "invalid_password")
-    hashed = hash_password(password) if isinstance(password, str) else None
     try:
+        hashed = await asyncio.to_thread(hash_password, password) if isinstance(password, str) else None
         updated = await user_store.update_user(
             deps.get_settings().db_path_absolute,
             username,
@@ -118,6 +135,11 @@ async def update_console_user(username: str, request: Request) -> JSONResponse:
         code = str(exc) or "invalid_user"
         status = 404 if code == "not_found" else 409 if code == "last_admin" else 400
         return _error(status, code)
-    except Exception:
+    except Exception as exc:
+        log_event(logger, "ERROR", "Console user update unavailable",
+                  actor_id=gate, username=username, error_type=type(exc).__name__)
         return _error(503, "users_unavailable")
+    log_event(logger, "INFO", "Console user updated", actor_id=gate, username=updated["username"],
+              role=updated["role"], disabled=updated["disabled"],
+              password_reset=password is not None, email_set="gorgiasEmail" in body)
     return JSONResponse(content={"ok": True, "user": updated})

@@ -242,12 +242,17 @@ removal on the VPS — do not add values there; see
 `deploy/ENV-CONSOLIDATION-RUNBOOK.md`.
 
 Shopify = client-credentials grant (`SHOPIFY_CLIENT_ID/SECRET`, mint 24h Admin
-token); Gorgias = Basic (email + API key); Redo = Bearer. The console uses
-`CONSOLE_PASSWORD_HASH` (PBKDF2) and `CONSOLE_SESSION_SECRET` from the root
-`.env`; never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes
-skills never read env files — the authenticated MCP services are their only
-runtime data path. A webhook token was committed in the now-removed `cursor.md`
-and remains in Git history. Rotation is pending under
+token); Gorgias = Basic (email + API key); Redo = Bearer. Console accounts live
+in the webhook SQLite `console_users` table (roles `admin` / `staff`).
+`CONSOLE_USERNAME` + `CONSOLE_PASSWORD_HASH` (PBKDF2) and
+`CONSOLE_SESSION_SECRET` from the root `.env` bootstrap the first admin when
+the table is empty, then become seed-only; later password/role/email changes go
+through Settings → Console users. Per-staff Assigned to me needs the installed
+Caddy `copy_headers` for `X-Operator-Email` (see `deploy/caddy/sites/support.caddy`).
+Never commit `.env*` or anything from `_VPS-FULL-BACKUP-*/`. Hermes skills never
+read env files — the authenticated MCP services are their only runtime data
+path. A webhook token was committed in the now-removed `cursor.md` and remains
+in Git history. Rotation is pending under
 [S-01 in the recheck task list](docs/RECHECK-TASKLIST.md); do not reproduce or reuse the token. Keep the
 remaining environment consolidation and rotation work in
 `deploy/ENV-CONSOLIDATION-RUNBOOK.md`.

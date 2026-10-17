@@ -96,6 +96,13 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(allowed.status_code, 204)
         self.assertEqual(allowed.headers["x-operator-email"], "agent@example.test")
         self.assertEqual(allowed.headers["x-authenticated-actor"], "staff:agent")
+        ticket = await self.client.get(
+            "/auth/check",
+            headers={"x-forwarded-uri": "/console/api/ticket/12/retry-draft", "origin": ORIGIN},
+        )
+        self.assertEqual(ticket.status_code, 204)
+        await user_store.update_user(self.path, "agent", disabled=True)
+        self.assertEqual((await self.client.get("/auth/session")).status_code, 401)
 
     async def test_admin_can_manage_users_and_last_admin_is_protected(self):
         await self.login()

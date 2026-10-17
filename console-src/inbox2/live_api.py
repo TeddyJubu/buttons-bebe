@@ -43,11 +43,16 @@ _OPERATOR_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
 def operator_email_for(request: Request | None = None) -> str:
-    """Prefer the forward-auth operator header; env is preview/fallback only."""
-    if request is not None:
+    """Prefer the forward-auth operator header; env is preview/fallback only.
+
+    When the header is present (including empty), do not fall back to the env
+    operator — an empty per-user identity must keep Assigned to me unavailable.
+    """
+    if request is not None and _OPERATOR_HEADER in request.headers:
         header = (request.headers.get(_OPERATOR_HEADER) or '').strip().casefold()
         if header and len(header) <= 254 and _OPERATOR_RE.fullmatch(header):
             return header
+        return ''
     return OPERATOR_EMAIL
 DB = Path('/var/lib/buttonsbebe-inbox2/live.sqlite3')
 MCP_URL = 'http://127.0.0.1:8079/mcp'

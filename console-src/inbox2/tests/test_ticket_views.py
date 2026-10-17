@@ -45,6 +45,22 @@ class TicketViewTests(unittest.TestCase):
             self.assertEqual([row['id'] for row in result['tickets']],['gorgias:5'])
             self.assertEqual(result['operatorEmail'],'owner@example.test')
             self.assertTrue(result['categoryAvailability']['assigned'])
+    def test_invoke_forwards_operator_header_and_empty_skips_env_fallback(self):
+        from fastapi.testclient import TestClient
+        with patch.object(api,'OPERATOR_EMAIL','fallback@example.test'), \
+             patch.object(api,'start_worker',return_value=api.Worker()), \
+             patch.object(api,'stop_worker'):
+            with TestClient(api.app) as client:
+                listed=client.post('/inbox/api/helpdesk',json={'tool':'helpdesk.list_tickets','arguments':{'view':'assigned'}},
+                                   headers={'content-type':'application/json','x-operator-email':'owner@example.test'})
+                self.assertEqual(listed.status_code,200)
+                self.assertEqual([row['id'] for row in listed.json()['tickets']],['gorgias:5'])
+                empty=client.post('/inbox/api/helpdesk',json={'tool':'helpdesk.list_tickets','arguments':{'view':'assigned'}},
+                                  headers={'content-type':'application/json','x-operator-email':''})
+                self.assertEqual(empty.status_code,200)
+                self.assertEqual(empty.json()['tickets'],[])
+                self.assertEqual(empty.json()['operatorEmail'],'')
+                self.assertFalse(empty.json()['categoryAvailability']['assigned'])
     def test_observed_snooze_expires_without_changing_the_provider_record(self):
         deadline=api.epoch('2099-01-01T00:00:00Z')
         with closing(api.database()) as db:

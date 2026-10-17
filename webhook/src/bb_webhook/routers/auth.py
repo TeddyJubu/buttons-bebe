@@ -12,6 +12,7 @@ from .. import session_store, user_store
 from ..config import get_settings
 from ..password_executor import verify_bounded, PasswordVerifierBusy
 from ..middleware.console_session import resolve_identity, trusted_origin, UNSAFE_METHODS
+from ..staff_access import staff_may_use_forwarded_path
 from ..console_auth import (
     build_session_token,
     safe_next_path,
@@ -75,24 +76,10 @@ def _path_only(path: str) -> str:
         return "/"
 
 
-def _staff_may_use_path(path: str) -> bool:
-    """Staff: Inbox UI/API and Inbox send APIs; not the admin console surface."""
-    target = _path_only(path)
-    if target.startswith("/inbox/") or target in ("/inbox", "/inbox2") or target.startswith("/inbox2/"):
-        return True
-    if target.startswith("/console/api/inbox/") or target == "/console/api/inbox":
-        return True
-    if target.startswith("/console/login"):
-        return True
-    return False
-
-
 def _staff_console_page(path: str) -> bool:
     """True when a staff browser hit should leave the admin console HTML."""
     target = _path_only(path)
-    if target.startswith("/console/login"):
-        return False
-    if target.startswith("/console/api/inbox/") or target == "/console/api/inbox":
+    if staff_may_use_forwarded_path(target):
         return False
     return target == "/console" or target.startswith("/console/")
 
@@ -137,7 +124,10 @@ async def auth_login(request: Request) -> JSONResponse:
     password = body.get("password", "")
     if not isinstance(username, str) or not isinstance(password, str) or len(username) > 128 or len(password) > 1024:
         return JSONResponse(status_code=400, content={"error": "invalid_credentials"})
-    user = await user_store.get_active(username, settings.db_path_absolute)
+    try:
+        user = await user_store.get_active(username, settings.db_path_absolute)
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "authentication_unavailable"})
     if not user:
         try:
             existing = await user_store.list_users(settings.db_path_absolute)
@@ -207,10 +197,11 @@ async def auth_check(request: Request) -> Response:
     if _forwarded_mutation(request) and not trusted_origin(request):
         return _invalid_origin()
     original = request.headers.get("x-forwarded-uri", "")
-    if identity["actor_role"] == "staff" and original and not _staff_may_use_path(original):
+    if identity["actor_role"] == "staff" and original:
         # Direct /auth/check without a forwarded URI stays allowed; Caddy always
         # supplies the original path for console and inbox reverse proxies.
-        if _path_only(original).startswith("/console"):
+        target = _path_only(original)
+        if target.startswith("/console") and not staff_may_use_forwarded_path(target):
             return JSONResponse(status_code=403, content={"error": "console_admin_required"})
     return Response(status_code=204, headers=_identity_headers(identity))
 

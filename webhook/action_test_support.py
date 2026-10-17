@@ -10,6 +10,8 @@ from bb_webhook.console_auth import build_session_token, hash_password, session_
 from bb_webhook.db import Database
 from bb_webhook.draft_generation import begin_attempt, finish_attempt
 
+ACTION_TEST_PASSWORD_HASH = hash_password('action-test-password')
+
 
 async def setup_action_case(case):
     case.tmp = tempfile.TemporaryDirectory()
@@ -18,7 +20,7 @@ async def setup_action_case(case):
     await database.init_db(case.path)
     await session_store.initialize(case.path)
     case.settings = SimpleNamespace(db_path_absolute=case.path, console_session_secret='test-action-secret',
-                                    console_username='owner', console_password_hash=hash_password('action-test-password'),
+                                    console_username='owner', console_password_hash=ACTION_TEST_PASSWORD_HASH,
                                     demo_mode=False)
     await user_store.bootstrap_from_settings(case.settings, case.path)
     for target in ('bb_webhook.deps.get_settings', 'bb_webhook.db.get_settings',

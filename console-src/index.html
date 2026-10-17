@@ -815,14 +815,14 @@ async function createUser(){
  const password=document.getElementById("user-new-pass")?.value||"";
  const role=document.getElementById("user-new-role")?.value||"staff";
  const gorgiasEmail=document.getElementById("user-new-email")?.value||"";
+ if(role==="staff"&&!gorgiasEmail.trim()){usersMsg="Staff accounts need a Gorgias email for Assigned to me.";render();return;}
  usersBusy=true;usersMsg="";render();
  try{
   const r=await fetch(API+"/users",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({username,password,role,gorgiasEmail})});
   const body=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(body.error||"create_failed");
-  usersMsg="User created.";await loadUsers();
- }catch(e){usersMsg="Could not create user ("+(e.message||"error")+").";render();}
- usersBusy=false;
+  usersMsg="User created.";usersBusy=false;await loadUsers();
+ }catch(e){usersMsg="Could not create user ("+(e.message||"error")+").";usersBusy=false;render();}
 }
 async function patchUser(username,patch){
  if(usersBusy)return;
@@ -831,20 +831,19 @@ async function patchUser(username,patch){
   const r=await fetch(API+"/users/"+encodeURIComponent(username),{method:"PATCH",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify(patch)});
   const body=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(body.error||"update_failed");
-  usersMsg="User updated.";await loadUsers();
- }catch(e){usersMsg="Could not update user ("+(e.message||"error")+").";render();}
- usersBusy=false;
+  usersMsg="User updated.";usersBusy=false;await loadUsers();
+ }catch(e){usersMsg="Could not update user ("+(e.message||"error")+").";usersBusy=false;render();}
 }
 function settingsView(){
  const steps=[["Connect Gorgias","Read tickets and accept human-approved replies"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets for review"]];
- const rows=(usersData||[]).map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td>${esc(u.gorgiasEmail||"—")}</td><td>${u.disabled?"disabled":"active"}</td><td class="user-actions"><button class="btn" data-user-disable="${esc(u.username)}" data-disabled="${u.disabled?0:1}" ${usersBusy?"disabled":""}>${u.disabled?"Enable":"Disable"}</button></td></tr>`).join("")||`<tr><td colspan="5">${usersError?esc(usersError):(usersData?"No users yet.":"Loading users…")}</td></tr>`;
+ const rows=(usersData||[]).map(u=>`<tr><td>${esc(u.username)}</td><td><select data-user-role="${esc(u.username)}" ${usersBusy||u.disabled?"disabled":""}><option value="admin" ${u.role==="admin"?"selected":""}>admin</option><option value="staff" ${u.role==="staff"?"selected":""}>staff</option></select></td><td><input data-user-email="${esc(u.username)}" type="email" maxlength="254" value="${esc(u.gorgiasEmail||"")}" ${usersBusy||u.disabled?"disabled":""}></td><td>${u.disabled?"disabled":"active"}</td><td class="user-actions"><button class="btn" data-user-save="${esc(u.username)}" ${usersBusy||u.disabled?"disabled":""}>Save</button><button class="btn" data-user-pass="${esc(u.username)}" ${usersBusy||u.disabled?"disabled":""}>Reset password</button><button class="btn" data-user-disable="${esc(u.username)}" data-disabled="${u.disabled?0:1}" ${usersBusy?"disabled":""}>${u.disabled?"Enable":"Disable"}</button></td></tr>`).join("")||`<tr><td colspan="5">${usersError?esc(usersError):(usersData?"No users yet.":"Loading users…")}</td></tr>`;
  return `${opsPanel()}<div class="sec-title">Support setup</div>
  <div class="panel"><div class="steps">${steps.map((x,index)=>`<div class="step"><div class="ic" aria-hidden="true">${index+1}</div><div><b>${x[0]}</b><small>${x[1]}</small></div></div>`).join("")}</div></div>
  <div class="sec-title">Console users</div>
- <div class="panel"><p class="hint">Admins use this console. Staff sign in to the Inbox only, with their own Gorgias email for Assigned to me.</p>
+ <div class="panel"><p class="hint">Admins use this console. Staff sign in to the Inbox only. Staff need a Gorgias email for Assigned to me.</p>
  ${usersMsg?`<p class="hint" role="status">${esc(usersMsg)}</p>`:""}
  <table class="user-table"><thead><tr><th>Username</th><th>Role</th><th>Gorgias email</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
- <form id="user-create" class="user-create" autocomplete="off"><label>Username<input id="user-new-name" required maxlength="128" ${usersBusy?"disabled":""}></label><label>Password<input id="user-new-pass" type="password" required minlength="10" maxlength="1024" ${usersBusy?"disabled":""}></label><label>Role<select id="user-new-role" ${usersBusy?"disabled":""}><option value="staff">staff</option><option value="admin">admin</option></select></label><label>Gorgias email<input id="user-new-email" type="email" maxlength="254" ${usersBusy?"disabled":""}></label><button class="btn p" type="submit" ${usersBusy?"disabled":""}>Add user</button></form>
+ <form id="user-create" class="user-create" autocomplete="off"><label>Username<input id="user-new-name" required maxlength="128" ${usersBusy?"disabled":""}></label><label>Password<input id="user-new-pass" type="password" required minlength="10" maxlength="1024" ${usersBusy?"disabled":""}></label><label>Role<select id="user-new-role" ${usersBusy?"disabled":""}><option value="staff">staff</option><option value="admin">admin</option></select></label><label>Gorgias email<input id="user-new-email" type="email" maxlength="254" required ${usersBusy?"disabled":""}></label><button class="btn p" type="submit" ${usersBusy?"disabled":""}>Add user</button></form>
  </div>
  <div class="sec-title">Agent settings</div>
  <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div><b>Human review is always required</b><br><small style="color:var(--ink3)">The agent only prepares drafts in this console. A person must confirm every customer reply or internal note.</small></div><div class="tm">locked</div></div></div></div>
@@ -1160,6 +1159,19 @@ function bind(){
  document.querySelectorAll("[data-reuse-notice]").forEach(b=>b.onclick=()=>reuseNotice(b.dataset.reuseNotice));
  const uc=document.getElementById("user-create");if(uc)uc.onsubmit=e=>{e.preventDefault();createUser();};
  document.querySelectorAll("[data-user-disable]").forEach(b=>b.onclick=()=>patchUser(b.dataset.userDisable,{disabled:b.dataset.disabled==="1"}));
+ document.querySelectorAll("[data-user-save]").forEach(b=>b.onclick=()=>{
+  const name=b.dataset.userSave;
+  const role=document.querySelector(`[data-user-role="${CSS.escape(name)}"]`)?.value;
+  const gorgiasEmail=document.querySelector(`[data-user-email="${CSS.escape(name)}"]`)?.value||"";
+  if(role==="staff"&&!gorgiasEmail.trim()){usersMsg="Staff accounts need a Gorgias email for Assigned to me.";render();return;}
+  patchUser(name,{role,gorgiasEmail});
+ });
+ document.querySelectorAll("[data-user-pass]").forEach(b=>b.onclick=()=>{
+  const password=window.prompt("New password (at least 10 characters)");
+  if(password==null)return;
+  if(password.length<10){usersMsg="Password must be at least 10 characters.";render();return;}
+  patchUser(b.dataset.userPass,{password});
+ });
 }
 boot();
 </script>

@@ -63,3 +63,16 @@ async def revoke(claims: SessionClaims, path: Path | str):
     await register(claims, path)
     await Database(path).execute("UPDATE console_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE token_id=?",
                                  (int(time.time()), claims.token_id), operation="session_revoke")
+
+
+async def revoke_username(username: str, path: Path | str) -> int:
+    """Revoke every non-revoked session for a username (password reset / disable)."""
+    key = (username or "").strip().casefold()
+    if not key:
+        return 0
+    return int(await Database(path).execute(
+        "UPDATE console_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE username=? AND revoked_at IS NULL",
+        (int(time.time()), key),
+        operation="session_revoke_user",
+        return_rowcount=True,
+    ) or 0)
