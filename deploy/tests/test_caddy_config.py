@@ -91,6 +91,17 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertIn("@directdashboard path /dashboard /dashboard/*", text)
         self.assertIn("@health path /health /ready", text)
 
+    def test_console_page_auth_sees_the_unstripped_console_path(self) -> None:
+        # Staff are redirected from /console/ only when page-check sees the
+        # /console prefix; handle_path would strip it before forward_auth runs.
+        text = self.fragments["support"]
+        self.assertNotIn("handle_path /console*", text)
+        start = text.index("\thandle /console* {")
+        block = text[start:text.index("\n\t}\n", start)]
+        self.assertIn("route {", block)
+        self.assertLess(block.index("uri /auth/page-check"), block.index("uri strip_prefix /console"))
+        self.assertLess(block.index("uri strip_prefix /console"), block.index("file_server"))
+
     def test_support_preserves_hermes_dashboard_route(self) -> None:
         text = self.fragments["support"]
         self.assertIn("hermes.buttonsbebe.com {", text)
