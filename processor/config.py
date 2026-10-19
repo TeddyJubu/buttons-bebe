@@ -9,7 +9,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -21,8 +21,33 @@ _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 _DEMO_MODE_AT_IMPORT = os.environ.get("DEMO_MODE", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
+# Only these keys are copied from the shared .env into os.environ: the plain
+# os.environ/getenv reads reachable from the processor (demo_safety's
+# DEMO_MODE, WhatsApp notifier, result callback URL, and the Hermes provider
+# keys that child_environment passes on). ProcessorSettings and bb_webhook Settings read env_file
+# themselves, so credentials such as GORGIAS_API_KEY or SHOPIFY_CLIENT_SECRET
+# never enter this process's environment.
+PROCESSOR_ENV_KEYS = frozenset({
+    "DEMO_MODE",
+    "WHATSAPP_SEND_URL",
+    "WA_SEND_SECRET",
+    "WHATSAPP_TICKET_BASE_URL",
+    "SUPPORT_TICKET_BASE_URL",
+    "DASHBOARD_RESULT_URL",
+    "OPENAI_API_KEY",
+    "OLLAMA_API_KEY",
+})
+
+
+def load_processor_env(path: Path, environ=os.environ) -> None:
+    """Copy allowlisted keys from ``path``; existing environment wins."""
+    for key, value in dotenv_values(path).items():
+        if key in PROCESSOR_ENV_KEYS and value is not None:
+            environ.setdefault(key, value)
+
+
 if not _DEMO_MODE_AT_IMPORT:
-    load_dotenv(_ENV_PATH)
+    load_processor_env(_ENV_PATH)
 
 
 class ProcessorSettings(BaseSettings):
