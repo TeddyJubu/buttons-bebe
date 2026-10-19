@@ -60,6 +60,11 @@ CATEGORY_WEIGHT = {
 # downloaded once. No API key, nothing leaves the server.
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 VECTOR_DIM = 384
+# fastembed defaults to 256 texts per ONNX run. On the ~3.5k-chunk corpus that
+# peaked at ~2.4 GB RSS and the kb-sync unit was OOM-killed at its 2G
+# MemoryMax (2026-10-14/15). 32 keeps the peak near the model's own footprint
+# (~1.05 GB measured) at the same throughput, independent of catalog size.
+EMBED_BATCH_SIZE = 32
 _model: TextEmbedding | None = None
 
 
@@ -76,7 +81,7 @@ def _get_model() -> TextEmbedding:
 def embed_passages(texts: list[str]) -> list[list[float]]:
     """Turn stored content into vectors."""
     model = _get_model()
-    return [vec.tolist() for vec in model.embed(list(texts))]
+    return [vec.tolist() for vec in model.embed(list(texts), batch_size=EMBED_BATCH_SIZE)]
 
 
 def embed_query(text: str) -> list[float]:
