@@ -802,11 +802,13 @@ function kbView(){
  return `<div class="kb-workspace"><div class="kb-toolbar"><div><h2>A home for your support knowledge</h2><p>${files.length.toLocaleString()} articles across ${kbData.folders.length} collections. Find, refine, and keep your guidance up to date.</p></div><div class="kb-actions"><button class="btn" id="kb-reindex" ${kbReindexing||kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('refresh')}${kbReindexing?'Re-indexing…':'Re-index to apply'}</button><button class="btn p" data-kb-new ${kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('plus')} New article</button></div></div>${kbMsg||kbNeedsIndex?`<div class="kb-feedback ${kbIndexError?'error':''}" role="${kbIndexError?'alert':'status'}"><span>${esc(kbMsg||(kbNeedsIndex?'Saved changes are waiting. Re-index to update the agent’s search.':''))}</span></div>`:''}<div class="kb-categories" role="group" aria-label="Filter by collection"><button class="kb-category" data-kb-category="all" aria-pressed="${kbCategory==='all'}">All articles <span>${files.length}</span></button>${Object.entries(KB_CATEGORIES).map(([key,c])=>`<button class="kb-category" data-kb-category="${key}" aria-pressed="${kbCategory===key}">${esc(c.label)} <span>${files.filter(f=>f.folder===key).length}</span></button>`).join('')}</div><div class="kb-layout"><aside class="kb-library" aria-label="Article library"><div class="kb-search-wrap"><label class="kb-search" for="kb-search">${kbIcon('search')}<input id="kb-search" type="search" aria-label="Search article titles and file names" placeholder="Search articles…" value="${esc(kbQuery)}" autocomplete="off"></label></div><div id="kb-list-results">${kbListView()}</div><div class="kb-library-note">${kbIcon('book')}<span>Clear, specific guidance makes better answers.</span></div></aside>${kbArticle()}</div></div>`;
 }
 
-let usersData=null,usersError="",usersBusy=false,usersMsg="";
+let usersData=null,usersError="",usersBusy=false,usersMsg="",usersAudit=null;
 async function loadUsers(){
  usersError="";const data=await jget(API+"/users");
  if(!data||!Array.isArray(data.users)){usersData=null;usersError="Could not load console users.";}
  else{usersData=data.users;usersError="";}
+ const audit=await jget(API+"/users/audit");
+ usersAudit=audit&&Array.isArray(audit.entries)?audit.entries:null;
  render();
 }
 async function createUser(){
@@ -834,6 +836,21 @@ async function patchUser(username,patch){
   usersMsg="User updated.";usersBusy=false;await loadUsers();
  }catch(e){usersMsg="Could not update user ("+(e.message||"error")+").";usersBusy=false;render();}
 }
+function auditChangeText(e){
+ const c=e.changes||{};
+ if(e.action!=="update")return (e.action==="bootstrap"?"First admin seeded":"Created")+" as "+(c.role||"?")+(c.gorgiasEmail?" · "+c.gorgiasEmail:"");
+ const parts=[];
+ if(c.role)parts.push("role "+c.role[0]+" → "+c.role[1]);
+ if(c.gorgiasEmail)parts.push("email "+(c.gorgiasEmail[0]||"(none)")+" → "+(c.gorgiasEmail[1]||"(none)"));
+ if(c.disabled)parts.push(c.disabled[1]?"disabled":"re-enabled");
+ if(c.passwordReset)parts.push("password reset");
+ return parts.join(" · ");
+}
+function auditView(){
+ if(!usersAudit)return `<p class="hint">Change history unavailable.</p>`;
+ const rows=usersAudit.map(e=>`<tr><td>${esc(new Date(e.at*1000).toLocaleString())}</td><td>${esc(e.actor)}</td><td>${esc(e.target)}</td><td>${esc(auditChangeText(e))}</td></tr>`).join("")||`<tr><td colspan="4">No changes recorded yet.</td></tr>`;
+ return `<table class="user-table"><thead><tr><th>When</th><th>Who</th><th>User</th><th>What changed</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 function settingsView(){
  const steps=[["Connect Gorgias","Read tickets and accept human-approved replies"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets for review"]];
  const rows=(usersData||[]).map(u=>`<tr><td>${esc(u.username)}</td><td><select data-user-role="${esc(u.username)}" ${usersBusy||u.disabled?"disabled":""}><option value="admin" ${u.role==="admin"?"selected":""}>admin</option><option value="staff" ${u.role==="staff"?"selected":""}>staff</option></select></td><td><input data-user-email="${esc(u.username)}" type="email" maxlength="254" value="${esc(u.gorgiasEmail||"")}" ${usersBusy||u.disabled?"disabled":""}></td><td>${u.disabled?"disabled":"active"}</td><td class="user-actions"><button class="btn" data-user-save="${esc(u.username)}" ${usersBusy||u.disabled?"disabled":""}>Save</button><label class="user-pass">New<input data-user-pass-new="${esc(u.username)}" type="password" minlength="10" maxlength="1024" autocomplete="new-password" ${usersBusy||u.disabled?"disabled":""}></label><label class="user-pass">Confirm<input data-user-pass-confirm="${esc(u.username)}" type="password" minlength="10" maxlength="1024" autocomplete="new-password" ${usersBusy||u.disabled?"disabled":""}></label><button class="btn" data-user-pass="${esc(u.username)}" ${usersBusy||u.disabled?"disabled":""}>Reset password</button><button class="btn" data-user-disable="${esc(u.username)}" data-disabled="${u.disabled?0:1}" ${usersBusy?"disabled":""}>${u.disabled?"Enable":"Disable"}</button></td></tr>`).join("")||`<tr><td colspan="5">${usersError?esc(usersError):(usersData?"No users yet.":"Loading users…")}</td></tr>`;
@@ -845,6 +862,8 @@ function settingsView(){
  <table class="user-table"><thead><tr><th>Username</th><th>Role</th><th>Gorgias email</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
  <form id="user-create" class="user-create" autocomplete="off"><label>Username<input id="user-new-name" required maxlength="128" ${usersBusy?"disabled":""}></label><label>Password<input id="user-new-pass" type="password" required minlength="10" maxlength="1024" ${usersBusy?"disabled":""}></label><label>Role<select id="user-new-role" ${usersBusy?"disabled":""}><option value="staff">staff</option><option value="admin">admin</option></select></label><label>Gorgias email<input id="user-new-email" type="email" maxlength="254" ${usersBusy?"disabled":""}></label><button class="btn p" type="submit" ${usersBusy?"disabled":""}>Add user</button></form>
  </div>
+ <div class="sec-title">User change history</div>
+ <div class="panel"><p class="hint">Every account change, newest first. Passwords are never shown, only that a reset happened.</p>${auditView()}</div>
  <div class="sec-title">Agent settings</div>
  <div class="panel"><div class="act"><div class="r"><div class="ic g">${IC.check}</div><div><b>Human review is always required</b><br><small style="color:var(--ink3)">The agent only prepares drafts in this console. A person must confirm every customer reply or internal note.</small></div><div class="tm">locked</div></div></div></div>
  <div class="sec-title">Always escalate (never auto-reply)</div>

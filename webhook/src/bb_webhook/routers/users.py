@@ -42,6 +42,19 @@ async def list_console_users(request: Request) -> JSONResponse:
     return JSONResponse(content={"ok": True, "users": users})
 
 
+@router.get("/audit")
+async def list_console_user_audit(request: Request) -> JSONResponse:
+    gate = _require_admin(request)
+    if isinstance(gate, JSONResponse):
+        return gate
+    try:
+        entries = await user_store.list_audit(deps.get_settings().db_path_absolute)
+    except Exception as exc:
+        log_event(logger, "ERROR", "Console user audit unavailable", error_type=type(exc).__name__)
+        return _error(503, "users_unavailable")
+    return JSONResponse(content={"ok": True, "entries": entries})
+
+
 @router.post("")
 async def create_console_user(request: Request) -> JSONResponse:
     gate = _require_admin(request)
@@ -73,6 +86,7 @@ async def create_console_user(request: Request) -> JSONResponse:
             password_hash=hashed,
             role=role,
             gorgias_email=email,
+            actor=gate,
         )
     except ValueError as exc:
         code = str(exc) or "invalid_user"
@@ -130,6 +144,7 @@ async def update_console_user(username: str, request: Request) -> JSONResponse:
             gorgias_email=email,
             password_hash=hashed,
             disabled=disabled,
+            actor=gate,
         )
     except ValueError as exc:
         code = str(exc) or "invalid_user"

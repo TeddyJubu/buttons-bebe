@@ -140,6 +140,41 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(blocked.status_code, 409)
         self.assertEqual(blocked.json()["error"], "last_admin")
 
+    async def test_user_changes_are_audited_with_actor_and_no_secrets(self):
+        await self.login()
+        headers = {"origin": ORIGIN}
+        await self.client.post("/dashboard/api/users", headers=headers, json={
+            "username": "helper", "password": "helper-password",
+            "role": "staff", "gorgiasEmail": "helper@example.test",
+        })
+        await self.client.patch("/dashboard/api/users/helper", headers=headers,
+                                json={"role": "admin", "password": "another-password"})
+        await self.client.patch("/dashboard/api/users/helper", headers=headers,
+                                json={"role": "admin"})  # no-op: not recorded
+        # Refused change leaves no trace.
+        await self.client.patch("/dashboard/api/users/chaim", headers=headers,
+                                json={"gorgiasEmail": "bad"})
+        response = await self.client.get("/dashboard/api/users/audit")
+        self.assertEqual(response.status_code, 200, response.text)
+        entries = response.json()["entries"]
+        self.assertEqual([e["action"] for e in entries], ["update", "create", "bootstrap"])
+        update, create, boot = entries
+        self.assertEqual(update["actor"], "admin:chaim")
+        self.assertEqual(update["target"], "helper")
+        self.assertEqual(update["changes"], {"role": ["staff", "admin"], "passwordReset": True})
+        self.assertEqual(create["changes"], {"role": "staff", "gorgiasEmail": "helper@example.test"})
+        self.assertEqual(boot["actor"], "system:bootstrap")
+        self.assertNotIn("pbkdf2", response.text)
+        self.assertNotIn("password", response.text.replace("passwordReset", ""))
+
+        await self.client.post("/auth/logout", headers=headers)
+        await user_store.create_user(self.path, username="viewer", password_hash=hash_password("viewer-password"),
+                                     role="staff", gorgias_email="viewer@example.test")
+        await self.client.post("/auth/logout", headers=headers)
+        await self.login("viewer", "viewer-password")
+        denied = await self.client.get("/dashboard/api/users/audit")
+        self.assertEqual(denied.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

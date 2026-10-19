@@ -1,6 +1,7 @@
 """Durable console accounts; env credentials bootstrap the first admin only."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -25,6 +26,18 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS console_users (
     disabled_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+)"""
+
+# Who changed what. Written in the same transaction as the change it describes,
+# so a row exists exactly when the change committed. Never stores password hashes.
+# ponytail: unbounded table; rows are tiny and user changes are rare. Prune if it ever matters.
+_AUDIT_SCHEMA = """CREATE TABLE IF NOT EXISTS console_user_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    actor_id TEXT NOT NULL,
+    target TEXT NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('bootstrap','create','update')),
+    changes TEXT NOT NULL
 )"""
 
 
@@ -73,6 +86,33 @@ def same_console_actor(left: str | None, right: str | None) -> bool:
 
 async def initialize(path: Path | str):
     await Database(path).execute(_SCHEMA, operation="user_schema")
+    await Database(path).execute(_AUDIT_SCHEMA, operation="user_audit_schema")
+
+
+async def _audit(conn, *, actor: str, target: str, action: str, changes: dict, now: int) -> None:
+    await conn.execute(
+        "INSERT INTO console_user_audit(at,actor_id,target,action,changes) VALUES(?,?,?,?,?)",
+        (now, actor or "system", target, action, json.dumps(changes, sort_keys=True)),
+    )
+
+
+async def list_audit(path: Path | str, *, limit: int = 100) -> list[dict]:
+    rows = await Database(path).fetch(
+        "SELECT id,at,actor_id,target,action,changes FROM console_user_audit ORDER BY id DESC LIMIT ?",
+        (max(1, min(int(limit), 500)),),
+        operation="user_audit_list",
+    )
+    return [
+        {
+            "id": row["id"],
+            "at": row["at"],
+            "actor": row["actor_id"],
+            "target": row["target"],
+            "action": row["action"],
+            "changes": json.loads(row["changes"]),
+        }
+        for row in rows
+    ]
 
 
 async def bootstrap_from_settings(settings, path: Path | str) -> None:
@@ -109,12 +149,17 @@ async def bootstrap_from_settings(settings, path: Path | str) -> None:
             username,
         )
     now = int(time.time())
-    await Database(path).execute(
-        "INSERT INTO console_users(username,password_hash,role,gorgias_email,disabled_at,created_at,updated_at) "
-        "VALUES(?,?,?,?,NULL,?,?)",
-        (username, password_hash, "admin", email, now, now),
-        operation="user_bootstrap",
-    )
+
+    async def txn(conn):
+        await conn.execute(
+            "INSERT INTO console_users(username,password_hash,role,gorgias_email,disabled_at,created_at,updated_at) "
+            "VALUES(?,?,?,?,NULL,?,?)",
+            (username, password_hash, "admin", email, now, now),
+        )
+        await _audit(conn, actor="system:bootstrap", target=username, action="bootstrap",
+                     changes={"role": "admin", "gorgiasEmail": email}, now=now)
+
+    await Database(path).transaction(txn, operation="user_bootstrap")
 
 
 async def get_active(username: str | None, path: Path | str) -> dict | None:
@@ -181,6 +226,7 @@ async def create_user(
     password_hash: str,
     role: str,
     gorgias_email: str = "",
+    actor: str = "system",
 ) -> dict:
     key = normalize_username(username)
     email = normalize_gorgias_email(gorgias_email)
@@ -189,13 +235,18 @@ async def create_user(
     if role == "staff" and not email:
         raise ValueError("staff_email_required")
     now = int(time.time())
-    try:
-        await Database(path).execute(
+
+    async def txn(conn):
+        await conn.execute(
             "INSERT INTO console_users(username,password_hash,role,gorgias_email,disabled_at,created_at,updated_at) "
             "VALUES(?,?,?,?,NULL,?,?)",
             (key, password_hash, role, email, now, now),
-            operation="user_create",
         )
+        await _audit(conn, actor=actor, target=key, action="create",
+                     changes={"role": role, "gorgiasEmail": email}, now=now)
+
+    try:
+        await Database(path).transaction(txn, operation="user_create")
     except aiosqlite.IntegrityError as exc:
         raise ValueError("username_taken") from exc
     return {"username": key, "role": role, "gorgiasEmail": email, "disabled": False}
@@ -209,6 +260,7 @@ async def update_user(
     gorgias_email: str | None = None,
     password_hash: str | None = None,
     disabled: bool | None = None,
+    actor: str = "system",
 ) -> dict:
     key = normalize_username(username)
     if not key:
@@ -269,6 +321,17 @@ async def update_user(
         )
         password_changed = password_hash is not None and password_hash != current["password_hash"]
         newly_disabled = disabled_at is not None and current["disabled_at"] is None
+        changes = {}
+        if new_role != current["role"]:
+            changes["role"] = [current["role"], new_role]
+        if new_email != (current["gorgias_email"] or ""):
+            changes["gorgiasEmail"] = [current["gorgias_email"] or "", new_email]
+        if (disabled_at is not None) != currently_disabled:
+            changes["disabled"] = [currently_disabled, disabled_at is not None]
+        if password_changed:
+            changes["passwordReset"] = True
+        if changes:
+            await _audit(conn, actor=actor, target=key, action="update", changes=changes, now=now)
         if password_changed or newly_disabled:
             from . import session_store
             await session_store.revoke_username_on(conn, key, now=now)
