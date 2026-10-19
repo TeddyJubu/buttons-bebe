@@ -22,12 +22,13 @@ _DEMO_MODE_AT_IMPORT = os.environ.get("DEMO_MODE", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
 # Only these keys are copied from the shared .env into os.environ: the plain
-# os.environ/getenv reads reachable from the processor (WhatsApp notifier,
-# result callback URL, and the Hermes provider keys that child_environment
-# passes on). ProcessorSettings and bb_webhook Settings read env_file
+# os.environ/getenv reads reachable from the processor (demo_safety's
+# DEMO_MODE, WhatsApp notifier, result callback URL, and the Hermes provider
+# keys that child_environment passes on). ProcessorSettings and bb_webhook Settings read env_file
 # themselves, so credentials such as GORGIAS_API_KEY or SHOPIFY_CLIENT_SECRET
 # never enter this process's environment.
 PROCESSOR_ENV_KEYS = frozenset({
+    "DEMO_MODE",
     "WHATSAPP_SEND_URL",
     "WA_SEND_SECRET",
     "WHATSAPP_TICKET_BASE_URL",
