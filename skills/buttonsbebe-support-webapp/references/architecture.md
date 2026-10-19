@@ -68,4 +68,4 @@ The KB source lives in kb/; kb/scripts/ builds and queries its LanceDB index. kb
 - console-src/inbox/ contains shared projection and Shopify helpers; its old page/server were retired. Do not revive them to fix /inbox/.
 - console-src/inbox2/ is the current UI and API source despite the public URL's lack of 2.
 - console-src/index.html is the console, not Inbox. Its ticket feed and the Inbox show related data through different read paths.
-- Root README.md, INCONSISTENCIES.md, and DEV-ISSUES.md are older background. For present behavior, prefer root AGENTS.md, current code, console-src/inbox2/README.md, and deploy/cd/README.md.
+- docs/archive/INCONSISTENCIES.md and docs/archive/DEV-ISSUES.md are older background. For present behavior, prefer root AGENTS.md, current code, console-src/inbox2/README.md, and deploy/cd/README.md.

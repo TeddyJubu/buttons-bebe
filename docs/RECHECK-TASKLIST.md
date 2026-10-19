@@ -61,7 +61,7 @@ Result: 248 files, 37,817 lines removed; 8 files edited.
 | **D-10 — DONE** | Add missing environment-variable names. | `.env.example` | Adds blank placeholders for the five console, processor-result and WhatsApp variables without runtime values. |
 | **D-11 — DONE** | Correct the six-tool Gorgias contract. | `tools/README.md`, `tools/ops/verify_live_mcp.py` | README and verifier include `list_inbox_tickets` and expect six tools; offline contract tests verify the source contract. |
 | **D-12 — DONE** | Remove stale onboarding notes. | Project `SKILL.md`, `RETIRED.md` | Removes the outdated README warning and deleted review-launcher references. |
-| D-13 | Move historical root docs to `docs/archive/`: `INCONSISTENCIES.md`, `DEV-ISSUES.md`, `SPRINT-*.md`, `UX-IMPROVEMENTS-TASKLIST.md`, `INBOX-REPLACE-TASKLIST.md`, `DESIGN-CRITIQUE.md`; also `HANDOVER/` and `docs/simplification/`. Business files (proposal, `.pptx`, competitive brief): **owner decision**. | repo root | The root holds only live docs |
+| **D-13 — DONE (partial)** | Moved `INCONSISTENCIES.md`, `DEV-ISSUES.md`, `SPRINT-*.md`, `GORGIAS-FLAGS-TASKLIST.md`, `UX-IMPROVEMENTS-TASKLIST.md`, `INBOX-REPLACE-TASKLIST.md` to `docs/archive/`. `DESIGN-CRITIQUE.md` stays (AGENTS.md §12 lists it); `HANDOVER/`, `docs/simplification/` and business files (proposal, `.pptx`, competitive brief) remain an **owner decision**. | repo root | The root holds only live docs |
 | D-14 | Prune local git clutter: 200 `refs/t3`, 25 `refs/cline`, merged branches. Local only. | `.git` | `git for-each-ref refs/t3 refs/cline` is empty |
 
 ## P1 — Small code fixes (repository; reach production on merge)

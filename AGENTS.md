@@ -356,7 +356,7 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. The retired
+`docs/archive/INCONSISTENCIES.md`, `docs/archive/DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. The retired
 `gorgias-webhook/`, `teddy/`, `qa_v3/`, `qa-run/`, `kb-editor/` and `shopify/` trees were
 removed on 2026-10-07; recover them from tag `archive/retired-code-2026-10-07`.
 

@@ -21,7 +21,8 @@ change is installed today.
 
 `HANDOVER/`, `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, dated audit reports,
 and `docs/simplification/` record earlier decisions. Read them with the current
-root guide. `INCONSISTENCIES.md` and `DEV-ISSUES.md` are superseded.
+root guide. Finished sprint notes, task lists and the superseded
+`INCONSISTENCIES.md` and `DEV-ISSUES.md` live in [archive/](archive/).
 
 [Inbox network isolation](../deploy/INBOX-NETWORK-ISOLATION.md) records the retired
 Inbox1 installation. Its old service, port and installer are not the active
