@@ -143,17 +143,23 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
     async def test_user_changes_are_audited_with_actor_and_no_secrets(self):
         await self.login()
         headers = {"origin": ORIGIN}
-        await self.client.post("/dashboard/api/users", headers=headers, json={
+        created = await self.client.post("/dashboard/api/users", headers=headers, json={
             "username": "helper", "password": "helper-password",
             "role": "staff", "gorgiasEmail": "helper@example.test",
         })
-        await self.client.patch("/dashboard/api/users/helper", headers=headers,
-                                json={"role": "admin", "password": "another-password"})
-        await self.client.patch("/dashboard/api/users/helper", headers=headers,
-                                json={"role": "admin"})  # no-op: not recorded
-        # Refused change leaves no trace.
-        await self.client.patch("/dashboard/api/users/chaim", headers=headers,
-                                json={"gorgiasEmail": "bad"})
+        self.assertEqual(created.status_code, 201, created.text)
+        changed = await self.client.patch("/dashboard/api/users/helper", headers=headers,
+                                          json={"role": "admin", "password": "another-password"})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        noop = await self.client.patch("/dashboard/api/users/helper", headers=headers,
+                                       json={"role": "admin"})  # no-op: not recorded
+        self.assertEqual(noop.status_code, 200, noop.text)
+        # Refused change leaves no trace and no change.
+        before = await user_store.get_active("chaim", self.path)
+        refused = await self.client.patch("/dashboard/api/users/chaim", headers=headers,
+                                          json={"gorgiasEmail": "bad"})
+        self.assertEqual(refused.status_code, 400, refused.text)
+        self.assertEqual(await user_store.get_active("chaim", self.path), before)
         response = await self.client.get("/dashboard/api/users/audit")
         self.assertEqual(response.status_code, 200, response.text)
         entries = response.json()["entries"]
