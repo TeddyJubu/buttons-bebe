@@ -34,9 +34,9 @@ exemplar.
 
 ## Retired rollback path
 
-The old poll-based `feedback.collector`, pairing logic, and
-`processor/feedback_collector.py` are retained only for rollback investigation.
-They are disabled by default and are not used by the processor. Do not enable
+The old poll-based `feedback.collector` and its pairing logic are retained only
+for rollback investigation (the `processor/feedback_collector.py` stub was
+deleted on 2026-09-17; see `RETIRED.md`). They are disabled by default and are not used by the processor. Do not enable
 them as a second production learning path; doing so can duplicate or mis-pair
 lessons.
 

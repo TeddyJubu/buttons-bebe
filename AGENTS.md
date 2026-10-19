@@ -329,7 +329,7 @@ rebuild); Notice Board override layer (immediate effect, no reindex; GC timer
 purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 `deploy/HEARTBEAT-INSTALL.md`); KB admin (:8087).
 
-- `processor/classifier.py` is a live, escalate-only safety net. Hermes also
+- `processor/classifier/` (package) is a live, escalate-only safety net. Hermes also
   classifies; deterministic rules can raise priority but never lower it.
 
 **Retired but present — fail-closed; don't "fix" them back to life:**
