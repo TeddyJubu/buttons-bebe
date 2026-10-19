@@ -75,7 +75,7 @@ Result: 248 files, 37,817 lines removed; 8 files edited.
 | F-05 | Declare `pyyaml` in the webhook package (today it arrives only through `uvicorn[standard]`). Replace the import-order-dependent `processor.*` import in `rewrite_runner.py`. | `webhook/pyproject.toml`, `learning.py:140`, `rewrite_runner.py:10-17` | no | `uv pip install` into a clean venv, then the learning tests pass |
 | F-06 | Delete dead code: `enqueue_job` and `get_next_pending_job` (`database.py:245-315`), the unused `projection.query` branches (`console-src/inbox/projection.py:33-57`), the unused `operatorEmail` read (`app.js:756`), and `support-theme.css` selectors that target the retired Inbox. | as listed | no | Gate exit 0 |
 | F-07 | Drop provider credentials the processor loads but never uses (Gorgias API key, Shopify secret). | `processor/config.py:40-55,142-162` | no | Processor tests pass; `grep` shows no use |
-| F-08 | List `buttonsbebe-inbox2-redo` in the console health groups. | `console-src/index.html` (`opsHealthSummary`) | no | Ops test covers all monitored units |
+| **F-08 — DONE** | List `buttonsbebe-inbox2-redo` in the console health groups. | `console-src/index.html` (`opsHealthSummary`) | no | Ops test covers all monitored units |
 | F-09 | Hash only `*.caddy` and `*.service` in the receiver fingerprint, so a README edit no longer freezes deploys. | `deploy/cd/buttonsbebe-deploy-receive.sh:106` | **yes** (receiver install) | A docs-only change under `deploy/caddy` deploys |
 
 ## P2 — Consolidation (medium; this is the foundation for the SaaS core)

@@ -527,7 +527,7 @@ function opsHealthSummary(data,state,now=Date.now()){
  const checks=data.checks&&typeof data.checks==="object"&&!Array.isArray(data.checks)?data.checks:{};
  const groups=[
   ["Ticket processing",["buttonsbebe-webhook","buttonsbebe-processor","processor_progress","webhook_readiness","buttonsbebe-heartbeat_timer","buttonsbebe-heartbeat_result"]],
-  ["Inbox history",["helpdesk-inbox2","buttonsbebe-inbox2-shop","buttonsbebe-inbox-projection_timer","buttonsbebe-inbox-projection_result","inbox_readiness"]],
+  ["Inbox history",["helpdesk-inbox2","buttonsbebe-inbox2-shop","buttonsbebe-inbox2-redo","buttonsbebe-inbox-projection_timer","buttonsbebe-inbox-projection_result","inbox_readiness"]],
   ["Backup checks",["buttonsbebe-backup_timer","buttonsbebe-backup_result","backup_freshness"]],
   ["Support connections",["buttonsbebe-kb-mcp","buttonsbebe-redo-mcp","buttonsbebe-gorgias-mcp","buttonsbebe-whatsapp-connect","buttonsbebe-kb-admin","kb_socket","redo_socket","gorgias_socket","whatsapp_socket","kb_admin_socket"]],
   ["Server storage",["disk_space"]]
