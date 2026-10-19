@@ -254,6 +254,24 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
             await client.call('send_reply', {'ticket_id':2})
         self.assertEqual(client.rpc.await_count, 1)
 
+    async def test_sse_text_with_unicode_line_separators_is_not_split(self):
+        # A ticket body with U+2028 stalled every sweep on 2026-10-18: aiter_lines()
+        # splits on it, cutting the JSON. SSE lines end only at CR, LF or CRLF.
+        page = {'data': [ticket(9) | {'subject': 'Madrid Expo\x0cHall '}]}
+        result = {'content': [{'type': 'text', 'text': json.dumps(page, ensure_ascii=False)}]}
+        body = 'event: message\r\ndata: ' + json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': result},
+                                                      ensure_ascii=False) + '\r\n\r\n'
+        transport = gorgias_reconcile.httpx.MockTransport(lambda _: gorgias_reconcile.httpx.Response(
+            200, headers={'Content-Type': 'text/event-stream'}, content=body.encode()))
+        client = gorgias_reconcile.ReadOnlyMCP.__new__(gorgias_reconcile.ReadOnlyMCP)
+        client.client = gorgias_reconcile.httpx.AsyncClient(transport=transport)
+        client.session, client.sequence = 'session', 0
+        try:
+            data = await client.call('list_inbox_tickets', {'limit': 100})
+        finally:
+            await client.client.aclose()
+        self.assertEqual(data['data'][0]['subject'], 'Madrid Expo\x0cHall ')
+
     async def test_changing_page_does_not_expand_or_replace_captured_batch(self):
         client=FakeMCP([ticket(n) for n in range(1, 103)], {})
         self.assertEqual(await self.scan(client, max_details=1000), (None, 0))
