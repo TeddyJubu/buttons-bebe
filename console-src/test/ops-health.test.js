@@ -14,7 +14,7 @@ function harness(fetch){
  vm.runInContext('const API="/console/api";let opsData=null,opsState="loading",opsPoll=null,opsBusy=false;\n'+html.slice(start,end),context);
  return {context,card,set(data,state='loaded'){vm.runInContext(`opsData=${JSON.stringify(data)};opsState=${JSON.stringify(state)};paintOps();`,context);},timeout:()=>timeout()};
 }
-const checkNames=['buttonsbebe-webhook','buttonsbebe-processor','processor_progress','webhook_readiness','buttonsbebe-heartbeat_timer','buttonsbebe-heartbeat_result','helpdesk-inbox2','buttonsbebe-inbox2-shop','buttonsbebe-inbox-projection_timer','buttonsbebe-inbox-projection_result','inbox_readiness','buttonsbebe-backup_timer','buttonsbebe-backup_result','backup_freshness','buttonsbebe-kb-mcp','buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect','buttonsbebe-kb-admin','kb_socket','redo_socket','gorgias_socket','whatsapp_socket','kb_admin_socket','disk_space'];
+const checkNames=['buttonsbebe-webhook','buttonsbebe-processor','processor_progress','webhook_readiness','buttonsbebe-heartbeat_timer','buttonsbebe-heartbeat_result','helpdesk-inbox2','buttonsbebe-inbox2-shop','buttonsbebe-inbox2-redo','buttonsbebe-inbox-projection_timer','buttonsbebe-inbox-projection_result','inbox_readiness','buttonsbebe-backup_timer','buttonsbebe-backup_result','backup_freshness','buttonsbebe-kb-mcp','buttonsbebe-redo-mcp','buttonsbebe-gorgias-mcp','buttonsbebe-whatsapp-connect','buttonsbebe-kb-admin','kb_socket','redo_socket','gorgias_socket','whatsapp_socket','kb_admin_socket','disk_space'];
 const fresh=()=>({status:'ok',checked_at:new Date().toISOString(),checks:Object.fromEntries(checkNames.map(key=>[key,'ok']))});
 
 test('rendered card distinguishes healthy, missing, stale and failed checks',()=>{
@@ -68,4 +68,15 @@ test('partial reports and unverified setup steps cannot imply healthy connection
  assert.doesNotMatch(h.card.innerHTML,/Local checks are passing/);
  const settings=html.slice(html.indexOf('function settingsView(){'),html.indexOf('async function loadKb'));
  assert.match(settings,/index\+1/);assert.doesNotMatch(settings,/class="ck"/);
+});
+
+test('every service the local monitor reports can turn the card red',()=>{
+ const monitor=fs.readFileSync(new URL('../../tools/ops/monitor.py',`file://${__filename}`),'utf8');
+ const services=[...monitor.match(/^SERVICES=\(([\s\S]*?)\)/m)[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);
+ assert.ok(services.includes('buttonsbebe-inbox2-redo'));
+ const h=harness();
+ for(const name of services){
+  const report={...fresh(),status:'attention',checks:{...fresh().checks,[name]:'unavailable'}};
+  assert.equal(h.context.opsHealthSummary(report,'loaded').issues.length,1,name);
+ }
 });

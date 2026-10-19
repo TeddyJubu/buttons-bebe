@@ -96,7 +96,7 @@ class AtomicIntakeTests(unittest.IsolatedAsyncioTestCase):
     async def test_agent_intake_retains_feedback_payload(self):
         self.event.update(author_type="agent", is_customer_message=False)
         await database.ingest_event(self.event, "{}", self.path)
-        job = await database.get_next_pending_job(self.path)
+        job = (await database.get_pending_job_window(1, self.path) or [None])[0]
         self.assertEqual(job["is_customer_message"], 0)
         self.assertEqual(job["author_type"], "agent")
 

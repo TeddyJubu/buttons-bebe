@@ -329,7 +329,7 @@ rebuild); Notice Board override layer (immediate effect, no reindex; GC timer
 purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 `deploy/HEARTBEAT-INSTALL.md`); KB admin (:8087).
 
-- `processor/classifier.py` is a live, escalate-only safety net. Hermes also
+- `processor/classifier/` (package) is a live, escalate-only safety net. Hermes also
   classifies; deterministic rules can raise priority but never lower it.
 
 **Retired but present — fail-closed; don't "fix" them back to life:**
@@ -356,7 +356,7 @@ purges expired notices); heartbeat dead-man's switch (`processor/heartbeat.sh`,
 "webhook/processor source is not in the repo" claims are outdated) →
 `PORTFROMFABLETASKLIST.md`, `IMPROVEMENT-PLAN.md`, `TESTING-READINESS.md`
 (context; see §12). **Superseded — do not implement from:**
-`INCONSISTENCIES.md`, `DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. The retired
+`docs/archive/INCONSISTENCIES.md`, `docs/archive/DEV-ISSUES.md`. Use root `README.md` and `docs/README.md` for current onboarding. The retired
 `gorgias-webhook/`, `teddy/`, `qa_v3/`, `qa-run/`, `kb-editor/` and `shopify/` trees were
 removed on 2026-10-07; recover them from tag `archive/retired-code-2026-10-07`.
 

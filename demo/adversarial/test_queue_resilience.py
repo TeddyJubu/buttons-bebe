@@ -184,7 +184,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(orchestrator, "process_customer_message", new=always_fails):
             for index in range(3):
-                job = await database.get_next_pending_job(self.db_path)
+                job = (await database.get_pending_job_window(1, self.db_path) or [None])[0]
                 self.assertIsNotNone(job)
                 await orchestrator._process_one_job(job, True, settings)
                 saved = await database.get_job_result(job_id, self.db_path)
@@ -196,7 +196,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
                     delay = (datetime.fromisoformat(saved["next_retry_at"]) -
                              datetime.fromisoformat(saved["processed_at"])).total_seconds()
                     self.assertEqual(delay, (30, 120)[index])
-                    self.assertIsNone(await database.get_next_pending_job(self.db_path))
+                    self.assertIsNone((await database.get_pending_job_window(1, self.db_path) or [None])[0])
                     with sqlite3.connect(self.db_path) as conn:
                         conn.execute("UPDATE job_queue SET next_attempt_at=? WHERE id=?",
                                      ("2000-01-01T00:00:00+00:00", job_id))
@@ -211,7 +211,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(row["status"], "done")
         self.assertEqual(row["retry_count"], 0)
-        self.assertIsNone(await database.get_next_pending_job(self.db_path))
+        self.assertIsNone((await database.get_pending_job_window(1, self.db_path) or [None])[0])
         self.assertEqual(await _count_rows(self.db_path, "draft_generation_attempts"), 3)
 
     async def test_db_lock_contention_eventually_commits_without_loss(self) -> None:
@@ -240,7 +240,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
             job_timeout=1,
             max_retries=0,
         )
-        job = await database.get_next_pending_job(self.db_path)
+        job = (await database.get_pending_job_window(1, self.db_path) or [None])[0]
         await orchestrator._process_one_job(job, True, settings)
 
         row = await _row(
@@ -254,7 +254,7 @@ class QueueResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["generation_state"], "retry_wait")
         self.assertEqual(saved["draft_text"], "")
         self.assertTrue(saved["review_required"])
-        self.assertIsNone(await database.get_next_pending_job(self.db_path))
+        self.assertIsNone((await database.get_pending_job_window(1, self.db_path) or [None])[0])
 
     async def test_sensitive_generation_failures_keep_priority_and_alert_after_publication(self) -> None:
         requests = (

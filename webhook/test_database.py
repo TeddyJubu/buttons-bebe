@@ -60,7 +60,7 @@ class DatabaseQueueTests(unittest.IsolatedAsyncioTestCase):
             operation="test_age_customer_job",
         )
 
-        job = await database.get_next_pending_job(self.db_path)
+        job = (await database.get_pending_job_window(1, self.db_path) or [None])[0]
 
         self.assertIsNotNone(job)
         self.assertEqual(job["message_id"], "customer-second")
