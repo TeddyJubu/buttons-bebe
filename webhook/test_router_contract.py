@@ -40,6 +40,7 @@ class RouterContractTests(unittest.TestCase):
             ("POST", "/dashboard/api/inbox/send-access"),
             ("POST", "/dashboard/api/inbox/ticket/{ticket_id}/send"),
             ("GET", "/dashboard/api/users"),
+            ("GET", "/dashboard/api/users/audit"),
             ("POST", "/dashboard/api/users"),
             ("PATCH", "/dashboard/api/users/{username}"),
         }

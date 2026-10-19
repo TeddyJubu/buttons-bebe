@@ -140,6 +140,59 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(blocked.status_code, 409)
         self.assertEqual(blocked.json()["error"], "last_admin")
 
+    async def test_user_changes_are_audited_with_actor_and_no_secrets(self):
+        await self.login()
+        headers = {"origin": ORIGIN}
+        created = await self.client.post("/dashboard/api/users", headers=headers, json={
+            "username": "helper", "password": "helper-password",
+            "role": "staff", "gorgiasEmail": "helper@example.test",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        changed = await self.client.patch("/dashboard/api/users/helper", headers=headers,
+                                          json={"role": "admin", "password": "another-password"})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        noop = await self.client.patch("/dashboard/api/users/helper", headers=headers,
+                                       json={"role": "admin"})  # no-op: not recorded
+        self.assertEqual(noop.status_code, 200, noop.text)
+        # Refused change leaves no trace and no change.
+        before = await user_store.get_active("chaim", self.path)
+        refused = await self.client.patch("/dashboard/api/users/chaim", headers=headers,
+                                          json={"gorgiasEmail": "bad"})
+        self.assertEqual(refused.status_code, 400, refused.text)
+        self.assertEqual(await user_store.get_active("chaim", self.path), before)
+        response = await self.client.get("/dashboard/api/users/audit")
+        self.assertEqual(response.status_code, 200, response.text)
+        entries = response.json()["entries"]
+        self.assertEqual([e["action"] for e in entries], ["update", "create", "bootstrap"])
+        update, create, boot = entries
+        self.assertEqual(update["actor"], "admin:chaim")
+        self.assertEqual(update["target"], "helper")
+        self.assertEqual(update["changes"], {"role": ["staff", "admin"], "passwordReset": True})
+        self.assertEqual(create["changes"], {"role": "staff", "gorgiasEmail": "helper@example.test"})
+        self.assertEqual(boot["actor"], "system:bootstrap")
+        self.assertNotIn("pbkdf2", response.text)
+        self.assertNotIn("password", response.text.replace("passwordReset", ""))
+
+        from bb_webhook.routers import users as users_router
+        with patch.object(users_router, "_AUDIT_PAGE", 2):
+            first = (await self.client.get("/dashboard/api/users/audit")).json()
+            self.assertEqual([e["action"] for e in first["entries"]], ["update", "create"])
+            older = (await self.client.get(
+                f"/dashboard/api/users/audit?before={first['nextBefore']}")).json()
+            self.assertEqual([e["action"] for e in older["entries"]], ["bootstrap"])
+            self.assertIsNone(older["nextBefore"])
+        for cursor in ("-1", "\u00b2", "1" * 19):
+            bad = await self.client.get("/dashboard/api/users/audit", params={"before": cursor})
+            self.assertEqual(bad.status_code, 400, cursor)
+
+        await self.client.post("/auth/logout", headers=headers)
+        await user_store.create_user(self.path, username="viewer", password_hash=hash_password("viewer-password"),
+                                     role="staff", gorgias_email="viewer@example.test")
+        await self.client.post("/auth/logout", headers=headers)
+        await self.login("viewer", "viewer-password")
+        denied = await self.client.get("/dashboard/api/users/audit")
+        self.assertEqual(denied.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()
