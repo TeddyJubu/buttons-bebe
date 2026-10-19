@@ -38,9 +38,8 @@ class ProcessorSettings(BaseSettings):
     processor_result_secret: str = Field(default="", alias="PROCESSOR_RESULT_SECRET", repr=False)
 
     # ── Gorgias ───────────────────────────────────────────
+    # ponytail: tenant id + demo guard only; the processor never calls Gorgias.
     gorgias_subdomain: str = Field(default="buttonsbebe", alias="GORGIAS_SUBDOMAIN")
-    gorgias_api_email: str = Field(default="", alias="GORGIAS_API_EMAIL")
-    gorgias_api_key: str = Field(default="", alias="GORGIAS_API_KEY")
 
     # ── Database ──────────────────────────────────────────
     webhook_db_path: str = Field(default="./data/webhook.db", alias="WEBHOOK_DB_PATH")
@@ -48,10 +47,9 @@ class ProcessorSettings(BaseSettings):
     # ── KB MCP ────────────────────────────────────────────
     kb_mcp_url: str = Field(default="http://127.0.0.1:8077/mcp", alias="KB_MCP_URL")
 
-    # ── Shopify (client-credentials grant) ───────────────
+    # ── Shopify ──────────────────────────────────────────
+    # ponytail: demo guard only; the processor holds no Shopify credentials.
     shopify_shop: str = Field(default="buttonsbebe", alias="SHOPIFY_SHOP")
-    shopify_client_id: str = Field(default="", alias="SHOPIFY_CLIENT_ID")
-    shopify_client_secret: str = Field(default="", alias="SHOPIFY_CLIENT_SECRET")
     support_store_name: str = Field(default="Buttons Bebe", alias="SUPPORT_STORE_NAME")
 
     # ── Processor tuning ──────────────────────────────────
@@ -140,26 +138,12 @@ class ProcessorSettings(BaseSettings):
         return self
 
     @property
-    def gorgias_base_url(self) -> str:
-        return f"https://{self.gorgias_subdomain}.gorgias.com"
-
-    @property
-    def gorgias_auth(self) -> tuple[str, str] | None:
-        if self.gorgias_api_email and self.gorgias_api_key:
-            return (self.gorgias_api_email, self.gorgias_api_key)
-        return None
-
-    @property
     def db_path_absolute(self) -> Path:
         p = Path(self.webhook_db_path)
         if not p.is_absolute():
             # Resolve relative to webhook project root
             p = Path(__file__).resolve().parent.parent / "webhook" / p
         return p
-
-    @property
-    def shopify_configured(self) -> bool:
-        return bool(self.shopify_client_id and self.shopify_client_secret)
 
 @lru_cache(maxsize=1)
 def get_settings() -> ProcessorSettings:
