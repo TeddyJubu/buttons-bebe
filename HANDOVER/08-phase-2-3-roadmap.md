@@ -18,10 +18,10 @@ Compact tags point back to the exact source so the new team can verify every cla
 |---|---|
 | `S6`, `S18` … | Slide 6, slide 18 … of the deck (`phase-2-3-plan-fulltext.txt`). |
 | `§8` | Section 8 of `CLAUDE.md`. |
-| `DI#3` | Item 3 in `DEV-ISSUES.md`. |
-| `H2` | Item H2 in `INCONSISTENCIES.md`. |
-| `QA#03` | The QA-run finding referenced by that number inside `DEV-ISSUES.md`. |
-| `SPR-FB` / `SPR-NB` | `SPRINT-feedback-collector.md` / `SPRINT-notice-board-2026-07-12.md`. |
+| `DI#3` | Item 3 in `docs/archive/DEV-ISSUES.md`. |
+| `H2` | Item H2 in `docs/archive/INCONSISTENCIES.md`. |
+| `QA#03` | The QA-run finding referenced by that number inside `docs/archive/DEV-ISSUES.md`. |
+| `SPR-FB` / `SPR-NB` | `docs/archive/SPRINT-feedback-collector.md` / `docs/archive/SPRINT-notice-board-2026-07-12.md`. |
 | ⚠️ **VPS-only** | The named file/dir is **not in this repo** — it lives only on the VPS (`/root/Buttonsbebe Agent/…`). Obtain it during handover. |
 | ✅ **in repo** | Verified present in this repo clone. |
 
