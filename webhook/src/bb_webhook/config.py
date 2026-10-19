@@ -21,16 +21,29 @@ _ENV_PATH = _AGENT_ROOT / ".env"
 _DEMO_MODE_AT_IMPORT = os.environ.get("DEMO_MODE", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
-if not _DEMO_MODE_AT_IMPORT:
-    load_dotenv(_ENV_PATH)
+
+
+def load_root_env() -> None:
+    """Copy the whole root .env into os.environ (webhook app process only).
+
+    The webhook's console routes read HERMES_* and provider keys from
+    os.environ. Importing this module no longer does that, so the processor,
+    which imports bb_webhook modules, keeps its own allowlisted environment.
+    """
+    if not _DEMO_MODE_AT_IMPORT:
+        load_dotenv(_ENV_PATH)
 
 
 class Settings(BaseSettings):
     """Central configuration loaded from environment / .env."""
 
-    # load_dotenv at import already populated os.environ, which Settings()
-    # reads — one .env parse instead of two (report 01-6).
-    model_config = SettingsConfigDict(extra="ignore")
+    # Read the root .env directly so importing this module never copies it
+    # into os.environ (the processor imports bb_webhook modules).
+    model_config = SettingsConfigDict(
+        env_file=None if _DEMO_MODE_AT_IMPORT else str(_ENV_PATH),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     demo_mode: bool = Field(default=False, alias="DEMO_MODE")
     processor_result_secret: str = Field(default="", alias="PROCESSOR_RESULT_SECRET", repr=False)

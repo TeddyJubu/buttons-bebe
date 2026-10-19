@@ -6,7 +6,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from . import database, session_store, user_store
+from .config import load_root_env
+
+# Before the router imports: console.py reads HERMES_* from os.environ at import.
+load_root_env()
+
+from . import database, session_store, user_store  # noqa: E402
 from .middleware.console_session import ConsoleSessionMiddleware
 from .config import get_settings
 from .logging_utils import get_logger, log_event, setup_logging
