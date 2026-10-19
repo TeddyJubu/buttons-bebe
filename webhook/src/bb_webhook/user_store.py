@@ -96,10 +96,12 @@ async def _audit(conn, *, actor: str, target: str, action: str, changes: dict, n
     )
 
 
-async def list_audit(path: Path | str, *, limit: int = 100) -> list[dict]:
+async def list_audit(path: Path | str, *, limit: int = 100, before: int | None = None) -> list[dict]:
+    """Newest first. Pass the last returned `id` as `before` to page further back."""
     rows = await Database(path).fetch(
-        "SELECT id,at,actor_id,target,action,changes FROM console_user_audit ORDER BY id DESC LIMIT ?",
-        (max(1, min(int(limit), 500)),),
+        "SELECT id,at,actor_id,target,action,changes FROM console_user_audit "
+        "WHERE id < ? ORDER BY id DESC LIMIT ?",
+        (before if before is not None else 2**63 - 1, max(1, min(int(limit), 500))),
         operation="user_audit_list",
     )
     return [

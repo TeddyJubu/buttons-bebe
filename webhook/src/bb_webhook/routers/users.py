@@ -13,6 +13,7 @@ from ..logging_utils import get_logger, log_event
 from ..middleware.console_session import trusted_origin
 
 router = APIRouter(prefix="/dashboard/api/users")
+_AUDIT_PAGE = 100
 logger = get_logger(__name__)
 
 
@@ -47,12 +48,27 @@ async def list_console_user_audit(request: Request) -> JSONResponse:
     gate = _require_admin(request)
     if isinstance(gate, JSONResponse):
         return gate
+    raw_before = request.query_params.get("before")
+    before = None
+    if raw_before is not None:
+        if not raw_before.isdigit() or len(raw_before) > 18:
+            return _error(400, "invalid_cursor")
+        before = int(raw_before)
     try:
-        entries = await user_store.list_audit(deps.get_settings().db_path_absolute)
+        entries = await user_store.list_audit(
+            deps.get_settings().db_path_absolute, limit=_AUDIT_PAGE + 1, before=before
+        )
     except Exception as exc:
         log_event(logger, "ERROR", "Console user audit unavailable", error_type=type(exc).__name__)
         return _error(503, "users_unavailable")
-    return JSONResponse(content={"ok": True, "entries": entries})
+    # Fetch one extra row to know whether an older page exists without a COUNT.
+    more = len(entries) > _AUDIT_PAGE
+    entries = entries[:_AUDIT_PAGE]
+    return JSONResponse(content={
+        "ok": True,
+        "entries": entries,
+        "nextBefore": entries[-1]["id"] if more else None,
+    })
 
 
 @router.post("")

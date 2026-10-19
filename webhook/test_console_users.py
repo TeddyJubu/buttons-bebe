@@ -167,6 +167,17 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("pbkdf2", response.text)
         self.assertNotIn("password", response.text.replace("passwordReset", ""))
 
+        from bb_webhook.routers import users as users_router
+        with patch.object(users_router, "_AUDIT_PAGE", 2):
+            first = (await self.client.get("/dashboard/api/users/audit")).json()
+            self.assertEqual([e["action"] for e in first["entries"]], ["update", "create"])
+            older = (await self.client.get(
+                f"/dashboard/api/users/audit?before={first['nextBefore']}")).json()
+            self.assertEqual([e["action"] for e in older["entries"]], ["bootstrap"])
+            self.assertIsNone(older["nextBefore"])
+        bad = await self.client.get("/dashboard/api/users/audit?before=-1")
+        self.assertEqual(bad.status_code, 400)
+
         await self.client.post("/auth/logout", headers=headers)
         await user_store.create_user(self.path, username="viewer", password_hash=hash_password("viewer-password"),
                                      role="staff", gorgias_email="viewer@example.test")
