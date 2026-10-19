@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 import tempfile
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -271,6 +272,18 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.client.aclose()
         self.assertEqual(data['data'][0]['subject'], 'Madrid Expo\x0cHall ')
+
+    async def test_sse_lines_handle_split_crlf_and_scan_large_lines_linearly(self):
+        class Chunks:
+            def __init__(self, parts): self.parts = parts
+            async def aiter_text(self):
+                for part in self.parts: yield part
+        async def lines(parts): return [line async for line in gorgias_reconcile._sse_lines(Chunks(parts))]
+        self.assertEqual(await lines(['a\r', '\nb\rc', '\n\n', 'tail']), ['a', 'b', 'c', '', 'tail'])
+        big = ['x' * 16_384] * 450  # ~7.4 MB in one line, as a near-cap list reply arrives
+        started = time.monotonic()
+        self.assertEqual([len(line) for line in await lines(['data: '] + big + ['\n'])], [6 + 16_384 * 450])
+        self.assertLess(time.monotonic() - started, 1.0)
 
     async def test_changing_page_does_not_expand_or_replace_captured_batch(self):
         client=FakeMCP([ticket(n) for n in range(1, 103)], {})

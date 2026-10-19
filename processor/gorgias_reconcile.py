@@ -60,17 +60,25 @@ async def _sse_lines(response):
     httpx's aiter_lines() also splits at U+2028, form feed and similar characters.
     One ticket body containing U+2028 cut every list reply and stalled recovery.
     """
-    buffer = ""
+    pending: list[str] = []  # pieces of the unfinished line; each chunk is scanned once
+    pending_size = 0
+    after_cr = False
     async for text in response.aiter_text():
-        buffer += text
-        if len(buffer) > 8_000_000:
+        if after_cr and text.startswith("\n"):
+            text = text[1:]  # second half of a CRLF split across chunks
+        after_cr = text.endswith("\r")
+        *complete, rest = _SSE_EOL.split(text)
+        for piece in complete:
+            pending.append(piece)
+            yield "".join(pending)
+            pending.clear()
+            pending_size = 0
+        pending.append(rest)
+        pending_size += len(rest)
+        if pending_size > 8_000_000:
             raise ValueError("MCP response too large")
-        # A trailing CR may be the first half of a CRLF split across chunks.
-        while (match := _SSE_EOL.search(buffer)) and not (match.group() == "\r" and match.end() == len(buffer)):
-            yield buffer[:match.start()]
-            buffer = buffer[match.end():]
-    if buffer:
-        yield buffer.rstrip("\r")
+    if pending_size:
+        yield "".join(pending)
 
 
 class ReadOnlyMCP:
