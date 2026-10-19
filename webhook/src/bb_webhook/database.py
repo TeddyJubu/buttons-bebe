@@ -302,26 +302,13 @@ async def get_intake_integrity_stats(db_path: Path | None = None) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-async def get_next_pending_job(db_path: Path | None = None) -> dict | None:
-    """Fetch one pending job, preferring customer messages over agent work."""
-    db = Database(db_path)
-    rows = await db.fetch(
-        """SELECT * FROM job_queue
-           WHERE status = 'pending' AND (next_attempt_at IS NULL OR julianday(next_attempt_at)<=julianday('now'))
-           ORDER BY is_customer_message DESC, created_at ASC
-           LIMIT 1""",
-        operation="get_next_pending_job",
-    )
-    return dict(rows[0]) if rows else None
-
-
 async def get_pending_job_window(
     limit: int = 25,
     db_path: Path | None = None,
 ) -> list[dict]:
     """Fetch a bounded pending-job window for processor-side priority selection.
 
-    Ordering matches get_next_pending_job: customer messages first, then oldest
+    Ordering: customer messages first, then oldest
     first. The processor uses this window only to pick which already-pending job
     to claim next; claiming is still the atomic claim_job transition, so races
     with another worker remain impossible.

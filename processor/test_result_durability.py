@@ -26,7 +26,7 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
                  author_type="customer", is_customer_message=True,
                  created_at="2026-09-25T00:00:00+00:00",
                  message_text="Synthetic question"), "{}", self.path)
-        self.job = await database.get_next_pending_job(self.path)
+        self.job = (await database.get_pending_job_window(1, self.path) or [None])[0]
         orchestrator._classification_cache.clear()
 
     async def save(self, *, alert=True, draft="First draft", attempt=None):
@@ -54,7 +54,7 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
             saved=await database.get_job_result(self.job_id,self.path)
             self.assertEqual(saved['generation_state'],'retry_wait')
             self.assertEqual(saved['draft_text'],'')
-            self.assertIsNone(await database.get_next_pending_job(self.path))
+            self.assertIsNone((await database.get_pending_job_window(1, self.path) or [None])[0])
             notify.assert_not_called()
 
     async def test_successful_coroutine_without_saved_result_cannot_complete(self):
@@ -256,7 +256,7 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(orchestrator, "process_customer_message", side_effect=response_lost):
             await orchestrator._process_one_job(self.job, True, self.settings)
         self.assertEqual((await self.status())["status"], "pending")
-        retry = await database.get_next_pending_job(self.path)
+        retry = (await database.get_pending_job_window(1, self.path) or [None])[0]
         with (
             patch.object(orchestrator, "process_customer_message", new_callable=AsyncMock) as process,
             patch.object(orchestrator, "send_whatsapp", return_value=True) as notify,
@@ -267,7 +267,7 @@ class ResultDurabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(notify.call_args.kwargs["max_retries"], 0)
             # Simulate a crash after notification but before queue completion.
             await Database(self.path).execute("UPDATE job_queue SET status='pending' WHERE id=?", (self.job_id,))
-            await orchestrator._process_one_job(await database.get_next_pending_job(self.path), True, self.settings)
+            await orchestrator._process_one_job((await database.get_pending_job_window(1, self.path) or [None])[0], True, self.settings)
             notify.assert_called_once()
         self.assertEqual((await self.status())["status"], "done")
         tickets = await database.get_dashboard_tickets(db_path=self.path)

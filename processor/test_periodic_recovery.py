@@ -25,11 +25,11 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recent_claim_recovers_on_later_sweep_without_restart(self):
         self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 0)
-        self.assertIsNone(await database.get_next_pending_job(self.path))
+        self.assertIsNone((await database.get_pending_job_window(1, self.path) or [None])[0])
         await Database(self.path).execute("UPDATE job_queue SET started_at = ?", (
             (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat(),))
         self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 1)
-        job = await database.get_next_pending_job(self.path)
+        job = (await database.get_pending_job_window(1, self.path) or [None])[0]
         self.assertEqual(job["id"], self.job_id)
         self.assertEqual(job["retry_count"], 1)
         self.assertEqual(len(await database.requeue_stale_jobs(10, self.path)), 0)

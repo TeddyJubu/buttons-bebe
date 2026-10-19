@@ -20,7 +20,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
         self.path = Path(self.temp.name)/'test.db'
         await db.init_db(self.path)
         await self.ingest('m1', '2026-09-26T01:00:00+00:00')
-        self.job = await db.get_next_pending_job(self.path)
+        self.job = (await db.get_pending_job_window(1, self.path) or [None])[0]
 
     async def ingest(self, mid, at):
         return await db.ingest_event(dict(tenant_id='test',ticket_id=123,message_id=mid,
@@ -70,7 +70,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(state,'retry_wait')
                 difference=(datetime.fromisoformat(saved['next_retry_at'])-datetime.fromisoformat(saved['processed_at'])).total_seconds()
                 self.assertEqual(difference,delay)
-                self.assertIsNone(await db.get_next_pending_job(self.path))
+                self.assertIsNone((await db.get_pending_job_window(1, self.path) or [None])[0])
                 self.assertFalse(await db.claim_job(self.job['id'],self.path))
                 await db.init_db(self.path)  # Restart does not reset the schedule.
                 self.assertEqual((await self.job_row())['next_attempt_at'],row['next_attempt_at'])
@@ -163,7 +163,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]['draft_text'],'')
         self.assertEqual(rows[0]['generation_state'],'failed')
         self.assertEqual(rows[0]['draft_revision'],generation.revision('Old fallback'))
-        self.assertIsNone(await db.get_next_pending_job(self.path))
+        self.assertIsNone((await db.get_pending_job_window(1, self.path) or [None])[0])
         self.assertEqual(generation.result_state({'draft_text':'Old fallback','reason':'Verified answer','action':'drafted'}),'ready')
 
     async def test_other_ticket_is_eligible_while_retry_waits(self):
@@ -171,7 +171,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
         await generation.finish_attempt(self.result(attempt),self.path)
         second=await db.ingest_event(dict(tenant_id='test',ticket_id=456,message_id='other',event_type='message',
             author_type='customer',is_customer_message=True,message_text='Another request'), '{}',self.path)
-        self.assertEqual((await db.get_next_pending_job(self.path))['id'],second)
+        self.assertEqual(((await db.get_pending_job_window(1, self.path) or [None])[0])['id'],second)
 
     async def test_restart_recovery_counts_interrupted_attempts_and_stops_at_three(self):
         for number in range(1,4):
@@ -186,7 +186,7 @@ class DraftGenerationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(saved['generation_error'],'process_exit')
             if number<3:
                 self.assertEqual(saved['generation_state'],'retry_wait')
-                self.assertIsNone(await db.get_next_pending_job(self.path))
+                self.assertIsNone((await db.get_pending_job_window(1, self.path) or [None])[0])
                 await self.make_due()
             else:
                 self.assertEqual(saved['generation_state'],'failed')
