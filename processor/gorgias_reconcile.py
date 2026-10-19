@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import time
 
 import httpx
@@ -48,6 +49,36 @@ _BOUND_FIELDS = (
     "current_text", "display_text", "original_content", "preferred_content",
     "body_text", "body_html", "stripped_text", "stripped_html", "text", "excerpt",
 )
+
+
+_SSE_EOL = re.compile(r"\r\n|\r|\n")
+
+
+async def _sse_lines(response):
+    """Split an event stream only at CR, LF or CRLF, as SSE requires.
+
+    httpx's aiter_lines() also splits at U+2028, form feed and similar characters.
+    One ticket body containing U+2028 cut every list reply and stalled recovery.
+    """
+    pending: list[str] = []  # pieces of the unfinished line; each chunk is scanned once
+    pending_size = 0
+    after_cr = False
+    async for text in response.aiter_text():
+        if after_cr and text.startswith("\n"):
+            text = text[1:]  # second half of a CRLF split across chunks
+        after_cr = text.endswith("\r")
+        *complete, rest = _SSE_EOL.split(text)
+        for piece in complete:
+            pending.append(piece)
+            yield "".join(pending)
+            pending.clear()
+            pending_size = 0
+        pending.append(rest)
+        pending_size += len(rest)
+        if pending_size > 8_000_000:
+            raise ValueError("MCP response too large")
+    if pending_size:
+        yield "".join(pending)
 
 
 class ReadOnlyMCP:
@@ -94,7 +125,7 @@ class ReadOnlyMCP:
                 chunks: list[str] = []
                 size = 0
                 result = None
-                async for line in response.aiter_lines():
+                async for line in _sse_lines(response):
                     size += len(line)
                     if size > 8_000_000:
                         raise ValueError("MCP response too large")

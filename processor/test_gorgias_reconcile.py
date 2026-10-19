@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 import tempfile
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -253,6 +254,36 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, 'Non-read'):
             await client.call('send_reply', {'ticket_id':2})
         self.assertEqual(client.rpc.await_count, 1)
+
+    async def test_sse_text_with_unicode_line_separators_is_not_split(self):
+        # A ticket body with U+2028 stalled every sweep on 2026-10-18: aiter_lines()
+        # splits on it, cutting the JSON. SSE lines end only at CR, LF or CRLF.
+        page = {'data': [ticket(9) | {'subject': 'Madrid Expo\x0cHall '}]}
+        result = {'content': [{'type': 'text', 'text': json.dumps(page, ensure_ascii=False)}]}
+        body = 'event: message\r\ndata: ' + json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': result},
+                                                      ensure_ascii=False) + '\r\n\r\n'
+        transport = gorgias_reconcile.httpx.MockTransport(lambda _: gorgias_reconcile.httpx.Response(
+            200, headers={'Content-Type': 'text/event-stream'}, content=body.encode()))
+        client = gorgias_reconcile.ReadOnlyMCP.__new__(gorgias_reconcile.ReadOnlyMCP)
+        client.client = gorgias_reconcile.httpx.AsyncClient(transport=transport)
+        client.session, client.sequence = 'session', 0
+        try:
+            data = await client.call('list_inbox_tickets', {'limit': 100})
+        finally:
+            await client.client.aclose()
+        self.assertEqual(data['data'][0]['subject'], 'Madrid Expo\x0cHall ')
+
+    async def test_sse_lines_handle_split_crlf_and_scan_large_lines_linearly(self):
+        class Chunks:
+            def __init__(self, parts): self.parts = parts
+            async def aiter_text(self):
+                for part in self.parts: yield part
+        async def lines(parts): return [line async for line in gorgias_reconcile._sse_lines(Chunks(parts))]
+        self.assertEqual(await lines(['a\r', '\nb\rc', '\n\n', 'tail']), ['a', 'b', 'c', '', 'tail'])
+        big = ['x' * 16_384] * 450  # ~7.4 MB in one line, as a near-cap list reply arrives
+        started = time.monotonic()
+        self.assertEqual([len(line) for line in await lines(['data: '] + big + ['\n'])], [6 + 16_384 * 450])
+        self.assertLess(time.monotonic() - started, 1.0)
 
     async def test_changing_page_does_not_expand_or_replace_captured_batch(self):
         client=FakeMCP([ticket(n) for n in range(1, 103)], {})
