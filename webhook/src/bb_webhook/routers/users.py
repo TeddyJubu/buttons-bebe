@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -14,6 +15,7 @@ from ..middleware.console_session import trusted_origin
 
 router = APIRouter(prefix="/dashboard/api/users")
 _AUDIT_PAGE = 100
+_CURSOR_RE = re.compile(r"[0-9]{1,18}")  # ASCII only: str.isdigit() admits "²", which int() rejects
 logger = get_logger(__name__)
 
 
@@ -51,7 +53,7 @@ async def list_console_user_audit(request: Request) -> JSONResponse:
     raw_before = request.query_params.get("before")
     before = None
     if raw_before is not None:
-        if not raw_before.isdigit() or len(raw_before) > 18:
+        if not _CURSOR_RE.fullmatch(raw_before):
             return _error(400, "invalid_cursor")
         before = int(raw_before)
     try:

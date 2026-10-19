@@ -802,7 +802,7 @@ function kbView(){
  return `<div class="kb-workspace"><div class="kb-toolbar"><div><h2>A home for your support knowledge</h2><p>${files.length.toLocaleString()} articles across ${kbData.folders.length} collections. Find, refine, and keep your guidance up to date.</p></div><div class="kb-actions"><button class="btn" id="kb-reindex" ${kbReindexing||kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('refresh')}${kbReindexing?'Re-indexing…':'Re-index to apply'}</button><button class="btn p" data-kb-new ${kbSaving||kbCreatingBusy?'disabled':''}>${kbIcon('plus')} New article</button></div></div>${kbMsg||kbNeedsIndex?`<div class="kb-feedback ${kbIndexError?'error':''}" role="${kbIndexError?'alert':'status'}"><span>${esc(kbMsg||(kbNeedsIndex?'Saved changes are waiting. Re-index to update the agent’s search.':''))}</span></div>`:''}<div class="kb-categories" role="group" aria-label="Filter by collection"><button class="kb-category" data-kb-category="all" aria-pressed="${kbCategory==='all'}">All articles <span>${files.length}</span></button>${Object.entries(KB_CATEGORIES).map(([key,c])=>`<button class="kb-category" data-kb-category="${key}" aria-pressed="${kbCategory===key}">${esc(c.label)} <span>${files.filter(f=>f.folder===key).length}</span></button>`).join('')}</div><div class="kb-layout"><aside class="kb-library" aria-label="Article library"><div class="kb-search-wrap"><label class="kb-search" for="kb-search">${kbIcon('search')}<input id="kb-search" type="search" aria-label="Search article titles and file names" placeholder="Search articles…" value="${esc(kbQuery)}" autocomplete="off"></label></div><div id="kb-list-results">${kbListView()}</div><div class="kb-library-note">${kbIcon('book')}<span>Clear, specific guidance makes better answers.</span></div></aside>${kbArticle()}</div></div>`;
 }
 
-let usersData=null,usersError="",usersBusy=false,usersMsg="",usersAudit=null,usersAuditNext=null;
+let usersData=null,usersError="",usersBusy=false,usersMsg="",usersAudit=null,usersAuditNext=null,usersAuditLoading=false;
 async function loadUsers(){
  usersError="";const data=await jget(API+"/users");
  if(!data||!Array.isArray(data.users)){usersData=null;usersError="Could not load console users.";}
@@ -813,9 +813,12 @@ async function loadUsers(){
  render();
 }
 async function loadOlderAudit(){
- if(usersAuditNext==null||!usersAudit)return;
+ if(usersAuditLoading||usersAuditNext==null||!usersAudit)return;
+ usersAuditLoading=true;render();
  const audit=await jget(API+"/users/audit?before="+encodeURIComponent(usersAuditNext));
+ usersAuditLoading=false;
  if(!audit||!Array.isArray(audit.entries)){usersMsg="Could not load older history.";render();return;}
+ if(usersMsg==="Could not load older history.")usersMsg="";
  usersAudit=usersAudit.concat(audit.entries);usersAuditNext=audit.nextBefore??null;
  render();
 }
@@ -857,7 +860,7 @@ function auditChangeText(e){
 function auditView(){
  if(!usersAudit)return `<p class="hint">Change history unavailable.</p>`;
  const rows=usersAudit.map(e=>`<tr><td>${esc(new Date(e.at*1000).toLocaleString())}</td><td>${esc(e.actor)}</td><td>${esc(e.target)}</td><td>${esc(auditChangeText(e))}</td></tr>`).join("")||`<tr><td colspan="4">No changes recorded yet.</td></tr>`;
- return `<table class="user-table"><thead><tr><th>When</th><th>Who</th><th>User</th><th>What changed</th></tr></thead><tbody>${rows}</tbody></table>${usersAuditNext!=null?`<button class="btn" id="user-audit-older">Show older changes</button>`:""}`;
+ return `<table class="user-table"><thead><tr><th>When</th><th>Who</th><th>User</th><th>What changed</th></tr></thead><tbody>${rows}</tbody></table>${usersAuditNext!=null?`<button class="btn" id="user-audit-older" ${usersAuditLoading?"disabled":""}>${usersAuditLoading?"Loading…":"Show older changes"}</button>`:""}`;
 }
 function settingsView(){
  const steps=[["Connect Gorgias","Read tickets and accept human-approved replies"],["Connect Shopify","Sync orders & products"],["Import knowledge base","Policies, FAQs, products"],["Set escalation channel","Sensitive tickets to WhatsApp"],["Go live","Agent drafts on new tickets for review"]];

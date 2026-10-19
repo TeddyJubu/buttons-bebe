@@ -181,8 +181,9 @@ class ConsoleUsersTests(unittest.IsolatedAsyncioTestCase):
                 f"/dashboard/api/users/audit?before={first['nextBefore']}")).json()
             self.assertEqual([e["action"] for e in older["entries"]], ["bootstrap"])
             self.assertIsNone(older["nextBefore"])
-        bad = await self.client.get("/dashboard/api/users/audit?before=-1")
-        self.assertEqual(bad.status_code, 400)
+        for cursor in ("-1", "\u00b2", "1" * 19):
+            bad = await self.client.get("/dashboard/api/users/audit", params={"before": cursor})
+            self.assertEqual(bad.status_code, 400, cursor)
 
         await self.client.post("/auth/logout", headers=headers)
         await user_store.create_user(self.path, username="viewer", password_hash=hash_password("viewer-password"),
