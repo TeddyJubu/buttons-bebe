@@ -14,6 +14,8 @@ WEBHOOK_SRC = PROCESSOR.parent / "webhook" / "src"
 SYNTHETIC_ENV = (
     "SHOPIFY_CLIENT_SECRET=synthetic-shopify-secret\n"
     "GORGIAS_API_KEY=synthetic-gorgias-key\n"
+    "GORGIAS_API_EMAIL=synthetic@example.test\n"
+    "SHOPIFY_SHOP=synthetic-shop\n"
     "WA_SEND_SECRET=synthetic-wa-secret\n"
 )
 
@@ -43,11 +45,18 @@ class EnvAllowlistTests(unittest.TestCase):
                 root / "webhook" / "src" / "bb_webhook",
                 ignore=shutil.ignore_patterns("__pycache__"),
             )
+            # Refuse the whole-file load outright, then report exactly which keys
+            # the imports added to os.environ. Any new copy path shows up here.
             script = textwrap.dedent(
                 """
                 import os
+                import dotenv
+                def refuse(*args, **kwargs):
+                    raise SystemExit("load_dotenv called at import")
+                dotenv.load_dotenv = refuse
+                baseline = set(os.environ)
                 import config, bb_webhook.config, bb_webhook.db, bb_webhook.logging_utils
-                print(",".join(sorted(k for k in os.environ if k.endswith(("_SECRET", "_KEY")))))
+                print(",".join(sorted(set(os.environ) - baseline)))
                 """
             )
             result = subprocess.run(
